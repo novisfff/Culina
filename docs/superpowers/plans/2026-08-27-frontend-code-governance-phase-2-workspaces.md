@@ -1,186 +1,205 @@
-# Phase 2/3：应用组合层与工作台拆分
+# Phase 2/3：应用组合层与工作台拆分实施计划
 
-状态：执行计划（依赖 Phase 0 的健康门禁；Phase 2 先于 Phase 3，本文同时描述两阶段）。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox ( - [ ] ) syntax for tracking.
 
-关联文档：
+**Goal:** 先把 App 的查询、mutation、导航和跨域 overlay 组合变成 typed port，再按同一边界拆 Ingredient、Food、Eat、Inventory dialog 和 API 类型，降低复杂度而不改变请求、缓存、导航或业务状态语义。
 
-- 体检：[前端代码治理体检](../../plans/2026-08-27-frontend-code-governance-assessment.md)
-- 设计规格：[前端代码治理设计规格](../specs/2026-08-27-frontend-code-governance-design.md)
-- 总计划：[前端代码治理总执行计划](2026-08-27-frontend-code-governance.md)
-- Phase 0：[度量、manifest 与 fail-closed ratchet](2026-08-27-frontend-code-governance-phase-0-gates.md)
-- Phase 1：[CSS、token、cascade 与响应式治理](2026-08-27-frontend-code-governance-phase-1-css.md)
+**Architecture:** app 层保留旧 facade 作为短期兼容适配器，但每个 query/mutation 只有一个域 owner；AppWorkspaceRouter、AppOverlayHost 和 controller 负责组合，不拼 payload。各工作台以 Data、State、Actions、ViewModel、View 分层，桌面与手机共享 model/action、拥有独立 View；迁移先补 contract/behavior 测试，再逐文件替换，最后删除 facade 内部实现。
 
-本文不改变 API、导航联合类型、React Query key、缓存失效、AI contract 或库存 OCC 语义。目标是让依赖边界可读、可测、可回滚，而不是单纯把代码搬到更多文件。
+**Tech Stack:** React 18、TypeScript 5、TanStack React Query 5、Vitest/Testing Library、Playwright、现有 queryKeys/cacheInvalidation、Culina frontend-code-standards。
 
-## 1. 基线、目标和不可破坏边界
+**Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
-### 1.1 需要处理的组合热点
+## Global Constraints
 
-| 文件/模块 | B0 信号 | 目标职责 |
-| --- | ---: | --- |
-| frontend/src/App.tsx | 1,914 行、51 个顶层 import | 认证分支、应用壳、导航、route 选择和 typed port 组装 |
-| app/useAppWorkspaceQueries.ts | 21 个 query | 兼容 facade，内部只委托域 query hook，不再增加字段 |
-| app/useAppMutations.ts | 37 个 mutation | 兼容 facade，内部只委托域 action，不再增加 mutation |
-| components/ingredients/IngredientWorkspace.tsx | 3,639 行 | route 组合，数据/状态/action/View 分层 |
-| components/foods/FoodWorkspace.tsx | 2,493 行 | route 组合，筛选/计划/场景/编辑/记录分层 |
-| features/eat/EatTaskBodies.tsx | 1,957 行 | task kind adapter；每种任务 body 独立 |
-| features/inventory/InventoryReconciliationDialog.tsx | 1,755 行 | 纯 View + reducer/action port，OCC 仍在 state/action 层 |
-| api/types.ts | 2,575 行、219 个生产引用 | 按域 type module，保留 type-only 兼容 barrel |
+- 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
+- frontend/src/api/queryKeys.ts 是唯一 query key 来源；frontend/src/api/cacheInvalidation.ts 是 mutation 成功失效的唯一入口。
+- View 不导入 api/client、useQuery、useMutation、QueryClient，不接受整个 api 对象、Record<string, unknown> 或 any。
+- 所有请求的 family scope 来自当前 membership/context，不从 port 或请求 payload 接受可伪造 family/user id。
+- loading 与后台 refresh 分离；已有数据和草稿在 refresh/error/conflict 时保留，失败不得发布假成功。
+- 不创建跨域大 Context；Context 仅可用于单工作区只读 view model 或 overlay controller，并有 provider 边界测试。
+- 保持 AppNavigationState/Target、task close/focus restore、storage key/version、React Query placeholderData、AI conversation/run/approval、库存 OCC 和 free-text 显式绑定语义。
+- 手机/平板/桌面共享 data/actions/model，不共享大段 JSX；工作台相关任务验收六个固定视口和 reduced-motion。
+- 新增业务文件优先放 frontend/src/features/home、eat、ingredients、foods、inventory、ai 等明确域目录；既有 components 目录只做渐进拆分，不做无收益全仓搬迁。
+- 每个任务先写失败测试并记录失败原因；完成后运行 focused tests、typecheck、quality/build（按风险补 P0）、git diff --check。
 
-阶段目标（不是机械行数 KPI）：
+---
 
-- Phase 2 结束：App 不再直接新增业务 JSX、api 调用或 QueryClient 操作；query/mutation facade 的字段和失效语义有域测试。
-- Phase 3 结束：Eat 的各 task kind、Ingredient 和 Food 的组合不再集中在单文件；关键文件达到设计规格建议的约 900 行（Inventory dialog 约 800 行）或有书面例外。
-- 应用启动、工作区切换和首次激活 route 的请求数量不增加；未激活域不会因顶层组合提前请求。
+## 2.0 预检、依赖图和 port 迁移清单
 
-### 1.2 不可破坏契约
+**Files:**
 
-1. query key 只能来自 frontend/src/api/queryKeys.ts；失效只能通过 frontend/src/api/cacheInvalidation.ts。
-2. 所有家庭读写从当前 membership 的 family scope 得出，不从 port 或请求 payload 接受可伪造 family/user id。
-3. loading 与 refresh 必须区分：已有数据时后台刷新不清空 View；失败时保留旧数据和草稿。
-4. 多表动作维持当前事务边界：购物入库、盘点、撤销、餐食记录、计划完成和 AI approval 失败不得发布假成功。
-5. AppNavigationState、AppNavigationTarget、task close/focus restore、storage version 和 localStorage key 保持兼容。
-6. View 不导入 api/client、useQuery、useMutation 或 QueryClient；这些只在 query/action/controller 层出现。
-7. 不创建囊括所有域的全局 Context。需要 Context 时只限单一工作区的只读 view model 或 overlay controller，并提供 provider 边界测试。
+- Create: frontend/src/app/appWorkspacePorts.ts
+- Create: frontend/src/app/appQueryOwnership.ts
+- Create: frontend/src/app/appMutationOwnership.ts
+- Create: frontend/src/app/appPortContracts.test.ts
+- Modify: frontend/src/app/useAppWorkspaceQueries.test.tsx
+- Modify: frontend/src/app/useAppMutations.test.tsx
 
-## 2. 目标目录与接口
+**Interfaces:**
 
-### 2.1 应用组合层
+- AsyncState<T> = { data: T; isLoading: boolean; isFetching: boolean; error: unknown | null; retry: () => void }
+- WorkspacePort<Data, Actions> = { data: Data; actions: Actions; navigation: AppNavigationService }
+- assertUniqueOwner(names: string[]) => void
+- query/mutation ownership maps are source-of-truth for migration; no new facade field is allowed.
 
-建议新增以下文件；迁移期间旧 facade 保留在原路径，避免一次性改动所有调用方：
+- [ ] **Step 1: 记录 B0 依赖和调用方**
 
-~~~
-frontend/src/app/
-  AppWorkspaceRouter.tsx
-  AppOverlayHost.tsx
-  appWorkspacePorts.ts
-  appRouteEntries.ts
-  useAppShellQueries.ts
-  useHomeQueries.ts
-  useEatQueries.ts
-  useIngredientQueries.ts
-  useFamilyQueries.ts
-  useAiQueries.ts
-  useAppInventoryOperations.ts
-  useAppHomeController.ts
-  useAppNavigationEffects.ts
-  mutations/
-    useIngredientMutations.ts
-    useInventoryMutations.ts
-    useRecipeMutations.ts
-    useFoodMutations.ts
-    useMealMutations.ts
-    useAiConversationMutations.ts
+Run:
+
+~~~bash
+wc -l frontend/src/App.tsx frontend/src/app/useAppWorkspaceQueries.ts frontend/src/app/useAppMutations.ts
+rg -n "useAppWorkspaceQueries|useAppMutations|queryKeys\\.|invalidateAfter" frontend/src --glob '*.ts' --glob '*.tsx'
 ~~~
 
-Workspace port 的最小公共形状：
+Expected: report includes App 1,914 lines, 21 query registrations and 37 mutation registrations; each registration has a consumer path.
 
-~~~
-export type AsyncState<T> = {
-  data: T;
-  isLoading: boolean;
-  isFetching: boolean;
-  error: unknown | null;
-  retry: () => void;
-};
+- [ ] **Step 2: 写 port/ownership 失败测试**
 
-export type WorkspacePort<Data, Actions> = {
-  data: Data;
-  actions: Actions;
-  navigation: AppNavigationService;
-};
+测试名称：
 
-export type IngredientWorkspacePort =
-  WorkspacePort<IngredientWorkspaceData, IngredientWorkspaceActions> & {
-    shell: { showNotice: NoticeApi; notificationCenter: ReactNode };
-  };
+~~~ts
+it("rejects duplicate query owners", () => {});
+it("rejects a view port containing api or query client", () => {});
+it("preserves AsyncState loading versus fetching", () => {});
+it("requires navigation target to use AppNavigationTarget", () => {});
 ~~~
 
-Data 只能是该工作区已准备好的实体、view model 和 AsyncState；Actions 只能是业务动词、busy/error/conflict 和重试动作。禁止 Record<string, unknown>、any、整个 api 对象、整个 QueryClient 或跨域 mutation map。
+Run: npm --prefix frontend run test -- src/app/appPortContracts.test.ts
 
-### 2.2 AppWorkspaceRouter
+Expected: FAIL，因为新类型和 owner maps 尚不存在。
 
-AppWorkspaceRouter 只接收：
+- [ ] **Step 3: 实现最小类型和静态边界检查**
 
-- navigation state/service；
-- shell 已加载的 family、member、notice 和全局通知；
-- 各 route 的 typed port；
-- route lazy entry 和统一 WorkspaceLoadingFallback。
+建立 WorkspaceId 联合类型：home、eat、ingredients、food、ai、family。在测试中读取 View 文件 import 清单，发现 api/client、@tanstack/react-query 或 QueryClient 即失败。
 
-它负责 primary tab、Eat task 和 Family 子页面选择，不负责拼 mutation payload、计算库存分组、读取 localStorage 或决定 query enabled。每个 route 的 Suspense 边界独立，路由切换不遮挡已经显示的 shell。
+- [ ] **Step 4: Commit**
 
-### 2.3 AppOverlayHost
-
-AppOverlayHost 只承载跨 route 的 overlay frame 与 controller 输出：
-
-- GlobalSearchOverlay；
-- HomeDashboardDialogs；
-- InventoryMaintenanceDialogs、操作历史和详情；
-- Home 触发的 IngredientShoppingDialog；
-- AppNotificationCenter 和 notice toast。
-
-工作区内部的 detail/editor overlay 留在对应 workspace。Host 接受 discriminated union 的 overlay state，不接受多个互相矛盾的 boolean：
-
-~~~
-type AppOverlayState =
-  | { kind: 'none' }
-  | { kind: 'global-search' }
-  | { kind: 'home-dialogs'; dialog: HomeDialogState }
-  | { kind: 'inventory-operation-history'; operationId?: string }
-  | { kind: 'ingredient-shopping'; ingredientId: string };
+~~~bash
+git add frontend/src/app/appWorkspacePorts.ts frontend/src/app/appQueryOwnership.ts frontend/src/app/appMutationOwnership.ts frontend/src/app/appPortContracts.test.ts frontend/src/app/useAppWorkspaceQueries.test.tsx frontend/src/app/useAppMutations.test.tsx
+git commit -m "refactor(app): define workspace port ownership"
 ~~~
 
-busy、close、Escape、focus restore 由 overlay controller 提供；Host 不直接调用 API。
+Rollback: 只回滚类型/测试提交；旧 facade 仍可运行。
 
-## 3. Phase 2A：query facade 分组
+## Task 2.1：拆分 21 个 query 并保留兼容 facade
 
-### 3.1 21 个 query 的归属
+**Files:**
 
-| 新 hook | 当前 query | enabled/refresh 责任 |
+- Create: frontend/src/app/useAppShellQueries.ts
+- Create: frontend/src/app/useHomeQueries.ts
+- Create: frontend/src/app/useFoodPlanQueries.ts
+- Create: frontend/src/app/useIngredientQueries.ts
+- Create: frontend/src/app/useEatQueries.ts
+- Create: frontend/src/app/useFamilyQueries.ts
+- Create: frontend/src/app/useAiQueries.ts
+- Modify: frontend/src/app/useAppWorkspaceQueries.ts
+- Create: frontend/src/app/domainQueryContracts.test.tsx
+- Modify: frontend/src/app/useAppWorkspaceQueries.test.tsx
+
+**Interfaces:**
+
+- useAppShellQueries({ isAuthenticated }) owns family, members and activityHighlights.
+- useHomeQueries({ isActive, foodPlan }) owns home-only activeMealRecordOperations projection.
+- useFoodPlanQueries({ isAuthenticated, enabled, weekRange, planDetailId }) owns foodPlan, foodPlanDetail, foodScenes, foodRecommendations and is shared by Home/Eat.
+- useIngredientQueries({ isAuthenticated, enabled, includeOperations }) owns ingredients, inventory, inventoryStates, shoppingList and inventoryOperationList(20).
+- useEatQueries({ isAuthenticated, enabled, baseView, taskKind }) owns recipes, recipeDiscovery, recipeStats, foods, mealLogs, mealInsights and shared activeMealRecordOperations adapter.
+- useFamilyQueries({ isAuthenticated, enabled }) owns activityLogs.
+- useAiQueries({ isAuthenticated, enabled }) owns aiConversations and its 2-second active-route polling.
+- useAppWorkspaceQueries(args) remains a compatibility return shape only; it calls the domain hooks and cannot add a field.
+
+| Hook | Current query owner | enabled rule |
 | --- | --- | --- |
-| useAppShellQueries | family、members、activityHighlights | 认证后加载；通知/壳数据不阻塞局部 task |
-| useHomeQueries | activeMealRecordOperations、必要的 inventory projection | 仅 home 激活时请求；保留后台 refresh；计划/推荐通过共享 food-plan adapter 读取 |
-| useIngredientQueries | ingredients、inventory、inventoryStates、shoppingList、inventoryOperationList(20) | ingredients route 激活时请求；盘点/库存操作按 overlay 需要启用 |
-| useFoodPlanQueries | foodPlan、foodPlanDetail、foodScenes、foodRecommendations | 由 Home/Eat route 以同一 query key 调用；按 active view/task 精确 enabled，保留 placeholderData |
-| useEatQueries | recipes、recipeDiscovery、recipeStats、foods、mealLogs、mealInsights、activeMealRecordOperations | 根据 baseView/task kind 精确 enabled；plan detail 不进入全局 boot blank |
-| useFamilyQueries | activityLogs | Family activity overlay/page 激活时请求，保留旧数据后刷新 |
-| useAiQueries | aiConversations | AI route 激活时 2 秒轮询；离开 route 停止轮询 |
+| useAppShellQueries | family, members, activityHighlights | authenticated; shell data does not block local task |
+| useHomeQueries | activeMealRecordOperations projection | primaryTab home |
+| useIngredientQueries | ingredients, inventory, inventoryStates, shoppingList, inventoryOperationList(20) | ingredients tab; operation list only when overlay needs it |
+| useFoodPlanQueries | foodPlan, foodPlanDetail, foodScenes, foodRecommendations | active Home/Eat view; plan detail task only |
+| useEatQueries | recipes, recipeDiscovery, recipeStats, foods, mealLogs, mealInsights | Eat baseView/task kind |
+| useFamilyQueries | activityLogs | family activity page/overlay |
+| useAiQueries | aiConversations | AI tab; refetchInterval 2000, false after leave |
 
-一个实体可能被两个 route 使用，但 query owner 只有一个；food plan/scenes/recommendations 的 owner 是 useFoodPlanQueries，Home 与 Eat 共享其输出而不各自声明 useQuery。另一个 route 通过已加载的 port data 或共享只读 adapter 读取。Home 的库存 projection 只能使用 ingredient/inventory query 输出，不在 Home 再造 API 请求。
+- [ ] **Step 1: 写失败 domain query tests**
 
-### 3.2 facade 迁移步骤
+覆盖 family/members always-on、未激活域不请求、placeholderData 保留旧 plan、foodPlanDetail 不进入 isBootLoading、AI 离开后停止轮询、后台 refresh 不清空已有 data。
 
-1. 先为每个新 hook 写 query key、enabled、loading、fetching、error 和 refetch 行为测试；fixture 使用现有 api mocks。
-2. 将 useAppWorkspaceQueries 改为组合这些 hook，返回字段名暂时不变，添加 deprecated 注释和禁止新增字段的测试。
-3. App 先替换 shell/home，再替换 ingredient/eat/family/AI；每完成一个域，删除 facade 内对应的 useQuery。
-4. 迁移所有调用方后删除 facade 字段，而不是长期增加第二个 facade。
-5. 对 useAppWorkspaceQueries.test.tsx 保留一个兼容契约测试，验证旧返回形状直到最后消费者消失。
+Run: npm --prefix frontend run test -- src/app/domainQueryContracts.test.tsx
 
-定向测试：
+Expected: FAIL；测试先证明目标行为，再移动现有 query。
 
-~~~
-npm --prefix frontend run test -- src/app/useAppWorkspaceQueries.test.tsx src/api/queryKeys.test.ts src/api/cacheInvalidation.test.ts
+- [ ] **Step 2: 实现 shell 和 shared food-plan hooks**
+
+只复制 query options，不改 queryKeys、queryFn、retry 或 refetchInterval；Home 与 Eat 通过 useFoodPlanQueries 共享同一 query key，禁止各自声明 foodPlan/scenes/foodRecommendations。
+
+- [ ] **Step 3: 实现 ingredients/eat/family/AI hooks**
+
+将 enabled 条件从 deriveAppQueryScope 映射到 hook 参数；保留 isBootLoading 只包含首次必要数据，明确 isFetching、error、retry 字段。
+
+- [ ] **Step 4: 把旧 facade 改成委托**
+
+useAppWorkspaceQueries 仅组装 hooks 并返回旧字段；新增测试枚举 ReturnType 的 key，任何新增字段使测试失败。调用方按 shell → home → ingredients → eat → family → AI 顺序迁移。
+
+- [ ] **Step 5: 验证请求数量和缓存语义**
+
+~~~bash
+npm --prefix frontend run test -- src/app/domainQueryContracts.test.tsx src/app/useAppWorkspaceQueries.test.tsx src/api/queryKeys.test.ts src/api/cacheInvalidation.test.ts
 npm --prefix frontend run typecheck
+npm run frontend:quality
+npm run frontend:build
 ~~~
 
-## 4. Phase 2B：mutation/action 分组
+Expected: 当前启动和首次激活 route 的 query 次数不增加；food plan/scenes/recommendations 没有重复 query owner；manifest initial/routeTotal 不变差。
 
-### 4.1 37 个 mutation 的归属
+- [ ] **Step 6: Commit**
 
-| 新 hook | mutation |
+~~~bash
+git add frontend/src/app/useAppShellQueries.ts frontend/src/app/useHomeQueries.ts frontend/src/app/useFoodPlanQueries.ts frontend/src/app/useIngredientQueries.ts frontend/src/app/useEatQueries.ts frontend/src/app/useFamilyQueries.ts frontend/src/app/useAiQueries.ts frontend/src/app/useAppWorkspaceQueries.ts frontend/src/app/domainQueryContracts.test.tsx frontend/src/app/useAppWorkspaceQueries.test.tsx
+git commit -m "refactor(app): split domain query hooks"
+~~~
+
+Rollback: 恢复 facade 的委托实现；不删除 query key 或缓存数据。
+
+## Task 2.2：拆分 37 个 mutation 和复合 action
+
+**Files:**
+
+- Create: frontend/src/app/mutations/useIngredientMutations.ts
+- Create: frontend/src/app/mutations/useInventoryMutations.ts
+- Create: frontend/src/app/mutations/useShoppingMutations.ts
+- Create: frontend/src/app/mutations/useRecipeMutations.ts
+- Create: frontend/src/app/mutations/useFoodPlanMutations.ts
+- Create: frontend/src/app/mutations/useFoodMutations.ts
+- Create: frontend/src/app/mutations/useMealMutations.ts
+- Create: frontend/src/app/mutations/useAiConversationMutations.ts
+- Create: frontend/src/app/mutations/domainMutationContracts.test.tsx
+- Modify: frontend/src/app/useAppMutations.ts
+- Modify: frontend/src/app/useAppMutations.test.tsx
+
+**Interfaces:**
+
+| Hook | Exact mutation set |
 | --- | --- |
-| useIngredientMutations | createIngredient、updateIngredient、transitionIngredientTrackingMode |
-| useInventoryMutations | createInventory、consumeInventory、disposeExpiredInventory、snoozeInventoryExpiryAlerts、correctInventoryExpiryDate、upsertInventoryState、snoozeStateExpiryAlert、correctStateExpiryDate、setInventoryStateAbsent、submitShoppingIntake、submitInventoryReconciliation、revertInventoryOperation |
-| useRecipeMutations | createRecipe、updateRecipe、deleteRecipe、cookRecipe、previewCookRecipe |
-| useFoodMutations | createFood、updateFood、toggleFavorite |
-| useMealMutations | updateMeal、recordMeal、updateMealComposition、revertMealRecord、completeFoodPlanItem |
-| useFoodPlanMutations（可与 useFoodMutations 同文件，接口仍分组） | createFoodPlanItem、updateFoodPlanItem、deleteFoodPlanItem、createFoodScene、updateFoodScene、deleteFoodScene |
-| useAiConversationMutations | 仅承载会话 visibility/delete 等非 stream mutation；stream 仍由 AI controller 管理 |
-| 兼容 inventory/meal action adapter | 跨域复合动作的编排，不重新定义底层 mutation |
+| useIngredientMutations | createIngredient, updateIngredient, transitionIngredientTrackingMode |
+| useInventoryMutations | createInventory, consumeInventory, disposeExpiredInventory, snoozeInventoryExpiryAlerts, correctInventoryExpiryDate, upsertInventoryState, snoozeStateExpiryAlert, correctStateExpiryDate, setInventoryStateAbsent, submitShoppingIntake, submitInventoryReconciliation, revertInventoryOperation |
+| useShoppingMutations | createShopping, updateShopping, deleteShopping |
+| useRecipeMutations | createRecipe, updateRecipe, deleteRecipe, cookRecipe, previewCookRecipe |
+| useFoodPlanMutations | createFoodPlanItem, updateFoodPlanItem, deleteFoodPlanItem, createFoodScene, updateFoodScene, deleteFoodScene |
+| useFoodMutations | createFood, updateFood, toggleFavorite |
+| useMealMutations | updateMeal, recordMeal, updateMealComposition, revertMealRecord, completeFoodPlanItem |
+| useAiConversationMutations | visibility/delete only; stream stays in AI controller |
 
-每个 mutation hook 内部拿 QueryClient 并调用对应 cacheInvalidation 函数；View 只接收：
+- [ ] **Step 1: 写失败 mutation contract tests**
 
-~~~
+测试每个 action 调用正确 api 函数和 cacheInvalidation；transition tracking mode 不提前 invalidate；recordMeal 按 created_foods 选择失效；revert meal 按 removed_food_ids；库存/购物 intake 失败保留 draft；所有 action 暴露稳定 busy/error，而不是原始 mutation map。
+
+Run: npm --prefix frontend run test -- src/app/mutations/domainMutationContracts.test.tsx
+
+Expected: FAIL，因为 domain hooks 尚不存在。
+
+- [ ] **Step 2: 实现 domain hooks**
+
+每个 hook 内部调用 useQueryClient/useMutation；onSuccess 只能调用现有 cacheInvalidation 函数。定义示例：
+
+~~~ts
 type InventoryActions = {
   create: (payload: CreateInventoryPayload) => Promise<InventoryItem>;
   reconcile: (payload: InventoryReconciliationRequest) => Promise<InventoryOperationResult>;
@@ -190,76 +209,119 @@ type InventoryActions = {
 };
 ~~~
 
-不要把所有 mutation 返回成原始 React Query 对象。需要保留 mutation error/status 时，action adapter 负责把它投影成稳定业务状态。
+- [ ] **Step 3: 更新 facade 并禁止新字段**
 
-### 4.2 复合动作与副作用
+useAppMutations 委托全部 domain hooks，返回原字段名以迁移调用方；测试固定 37 个 mutation key。删除一个字段前先证明无消费者并更新兼容测试。
 
-- useAppInventoryOperations：持有 operation history open/selected/detail/loading/error/conflict/revert，读取 inventoryOperation query，调用 inventory action；成功后更新 banner 和当前 result，失败保留 dialog。
-- useAppHomeController：持有 home plan add/detail、inventory action group completion、meal enrichment 和 shopping shortcut；所有 refresh 通过域 action/query adapter，禁止在 controller 里散落 fetchQuery。
-- useAppNavigationEffects：集中 reset scroll、task close focus、sidebar storage 和 deep-link 周期；不触碰业务 API。
-- useAppHomeHandlers：继续作为纯导航/打开请求 adapter；不能因拆分重新引入全局 state。
+- [ ] **Step 4: 迁移复合动作的边界**
 
-当前 App 中的 refreshInventoryActions、loadOperationDetail、handleRevertInventoryOperation、submitHomeShopping 和 free-text link resolution 必须迁入上述 controller。迁移时保留：
+新增 frontend/src/app/useAppInventoryOperations.ts、useAppHomeController.ts、useAppNavigationEffects.ts。将 refreshInventoryActions、loadOperationDetail、handleRevertInventoryOperation、submitHomeShopping 和 free-text link resolution 移入对应 controller；controller 不直接散落 fetchQuery。
 
-1. 盘点/购物入库成功后等待 canonical inventory/shopping refetch，再计算下一项；
-2. 409/过期撤销时保留历史 dialog、冲突文案和可恢复按钮；
-3. 首页计划完成不发布普通餐食撤销结果；
-4. 失败时不清空用户表单，重复点击由 action busy 锁定。
+成功路径必须先等待 canonical inventory/shopping refetch 再计算下一项；409/stale 保留历史 dialog 和恢复按钮；失败不清空表单；busy 锁定重复点击。
 
-### 4.3 Phase 2 测试与提交边界
+- [ ] **Step 5: 运行定向和全局验证**
 
-每一小步遵循“测试先行—最小迁移—验证—提交”：
-
-1. 新增 port/action contract 测试，先运行并确认失败；
-2. 实现 hook/adapter，不改业务文案和 API payload；
-3. 运行 focused tests、typecheck、quality、build；
-4. 生成 health/manifest diff，确认请求数量和主 chunk 不变差；
-5. 单独提交。
-
-推荐提交：
-
-- refactor(app): add typed workspace ports
-- refactor(app): split shell and home queries
-- refactor(app): split ingredient and inventory actions
-- refactor(app): split eat, food and meal actions
-- refactor(app): extract inventory operation controller
-- refactor(app): extract workspace router and overlay host
-- refactor(app): retire app query and mutation facade fields
-
-Phase 2 必跑：
-
+~~~bash
+npm --prefix frontend run test -- src/app/mutations src/app/useAppMutations.test.tsx src/api/cacheInvalidation.test.ts src/features/inventory src/features/home
+npm --prefix frontend run typecheck
+npm run frontend:quality
+npm run frontend:build
 ~~~
-npm --prefix frontend run test -- src/app src/api/queryKeys.test.ts src/api/cacheInvalidation.test.ts
+
+- [ ] **Step 6: Commit**
+
+~~~bash
+git add frontend/src/app/mutations frontend/src/app/useAppMutations.ts frontend/src/app/useAppMutations.test.tsx frontend/src/app/useAppInventoryOperations.ts frontend/src/app/useAppHomeController.ts frontend/src/app/useAppNavigationEffects.ts
+git commit -m "refactor(app): split domain mutations and controllers"
+~~~
+
+Rollback: 以 facade 为开关恢复旧 action；不改变服务端事务或 cacheInvalidation 实现。
+
+## Task 2.3：提取 Router、OverlayHost 和 App 组合
+
+**Files:**
+
+- Create: frontend/src/app/AppWorkspaceRouter.tsx
+- Create: frontend/src/app/AppOverlayHost.tsx
+- Create: frontend/src/app/appRouteEntries.ts
+- Create: frontend/src/app/appOverlayState.ts
+- Create: frontend/src/app/AppWorkspaceRouter.test.tsx
+- Create: frontend/src/app/AppOverlayHost.test.tsx
+- Modify: frontend/src/App.tsx
+
+**Interfaces:**
+
+~~~ts
+type AppOverlayState =
+  | { kind: "none" }
+  | { kind: "global-search" }
+  | { kind: "home-dialogs"; dialog: HomeDialogState }
+  | { kind: "inventory-operation-history"; operationId?: string }
+  | { kind: "ingredient-shopping"; ingredientId: string };
+~~~
+
+AppWorkspaceRouter consumes navigation state/service, shell data, typed route ports, lazy entries and WorkspaceLoadingFallback；AppOverlayHost consumes AppOverlayState and controller output，不能调用 API。
+
+- [ ] **Step 1: 写失败 router/overlay contract**
+
+断言 primary tab、Eat task、Family 子页面都选择唯一 route；Suspense 只遮挡当前 route；overlay state 不能同时出现互相矛盾的 boolean；busy 时 backdrop/Escape 不关闭；关闭后 focus 回到触发按钮。
+
+Run: npm --prefix frontend run test -- src/app/AppWorkspaceRouter.test.tsx src/app/AppOverlayHost.test.tsx
+
+Expected: FAIL，因为组件尚不存在。
+
+- [ ] **Step 2: 实现 Router 和 route entry map**
+
+route map 使用 source module 与逻辑 id 对应，不把工作区完整 View 静态导入 main；未激活域不得提前执行 query hook。保留当前 navigation union 和 task close semantics。
+
+- [ ] **Step 3: 实现 OverlayHost**
+
+承载 GlobalSearchOverlay、HomeDashboardDialogs、InventoryMaintenanceDialogs、操作历史/详情、Home 触发的 IngredientShoppingDialog、通知 toast；工作区 detail/editor overlay 留在域内。Host 只接收 typed callbacks。
+
+- [ ] **Step 4: 缩减 App.tsx**
+
+按认证 → AppShell → shell queries → navigation → ports → Router → OverlayHost 顺序重排；删除业务 JSX、payload 组装、localStorage 读取和 API 调用。每次删除一组函数后运行 typecheck。
+
+- [ ] **Step 5: 运行应用组合验证**
+
+~~~bash
+npm --prefix frontend run test -- src/app/AppWorkspaceRouter.test.tsx src/app/AppOverlayHost.test.tsx src/app/AppShell.test.tsx src/app/useAppNavigationState.test.tsx
 npm --prefix frontend run typecheck
 npm run frontend:quality
 npm run frontend:build
 npm run frontend:e2e:p0
-git diff --check
 ~~~
 
-## 5. Phase 3A：Ingredient workspace
+Expected: App 不新增业务 JSX/API/QueryClient；启动与工作区切换请求数不增加；App 行数趋势向 850 以下移动。
 
-### 5.1 建议文件与职责
+- [ ] **Step 6: Commit**
 
-现有 IngredientWorkspaceFrame、Panels、Overlays 和 state hooks 尽量复用；新增文件只承载单一边界：
-
-~~~
-frontend/src/components/ingredients/
-  IngredientWorkspaceRoute.tsx       # port 组合和 route boundary
-  IngredientWorkspaceData.ts          # typed data/view model
-  IngredientWorkspaceActions.ts       # domain action port
-  IngredientWorkspaceDesktopView.tsx # 桌面信息架构
-  IngredientWorkspaceMobileView.tsx  # 手机信息架构（复用现有 primitives）
-  IngredientWorkspaceOverlays.tsx    # 只做 overlay view
-  useIngredientWorkspaceViewModel.ts
-  useIngredientWorkspaceActions.ts
-  useIngredientWorkspaceState.ts     # 现有 state，缩小输入输出
-  ingredientWorkspaceModel.ts        # 过滤、分组、默认值、校验
+~~~bash
+git add frontend/src/app/AppWorkspaceRouter.tsx frontend/src/app/AppOverlayHost.tsx frontend/src/app/appRouteEntries.ts frontend/src/app/appOverlayState.ts frontend/src/app/AppWorkspaceRouter.test.tsx frontend/src/app/AppOverlayHost.test.tsx frontend/src/App.tsx
+git commit -m "refactor(app): extract router overlay host and composition"
 ~~~
 
-IngredientWorkspaceRoute 的输入/输出：
+Rollback: 恢复 App.tsx 与 route map 同一提交；保留 domain hooks 以便再次迁移。
 
-~~~
+## Task 3.1：拆 Ingredient workspace 的 Data/State/Actions/View
+
+**Files:**
+
+- Create: frontend/src/components/ingredients/IngredientWorkspaceRoute.tsx
+- Create: frontend/src/components/ingredients/IngredientWorkspaceData.ts
+- Create: frontend/src/components/ingredients/IngredientWorkspaceActions.ts
+- Create: frontend/src/components/ingredients/IngredientWorkspaceDesktopView.tsx
+- Create: frontend/src/components/ingredients/IngredientWorkspaceMobileView.tsx
+- Create: frontend/src/components/ingredients/IngredientWorkspaceOverlaysView.tsx
+- Create: frontend/src/components/ingredients/useIngredientWorkspaceViewModel.ts
+- Modify: frontend/src/components/ingredients/useIngredientWorkspaceState.ts
+- Modify: frontend/src/components/ingredients/IngredientWorkspace.tsx
+- Modify: frontend/src/components/ingredients/IngredientWorkspaceUsage.test.ts
+- Create: frontend/src/components/ingredients/IngredientWorkspaceBehavior.test.tsx
+
+**Interfaces:**
+
+~~~ts
 type IngredientWorkspaceData = {
   ingredients: Ingredient[];
   inventoryItems: InventoryItem[];
@@ -279,89 +341,124 @@ type IngredientWorkspaceActions = {
 };
 ~~~
 
-迁移顺序：
+- [ ] **Step 1: 写 model/view-model 失败测试**
 
-1. 从现有 useIngredientWorkspaceData/useIngredientWorkspaceState 提取纯 filter/group model，补空列表、搜索、过期、tracking mode 测试。
-2. 把 create/update/consume/restock/shopping payload 和 busy/error 放入 action hook；View 不再调用 api。
-3. 将 detail/editor/consume/inventory/shopping overlay 的 open state 变成 discriminated union，接入现有 IngredientWorkspaceOverlays。
-4. 先替换 desktop view，再替换 mobile view；两者共享 data/actions/model，不共享大段 JSX。
-5. 最后把 IngredientWorkspace.tsx 缩为 Route + Frame + View，保留旧 export 的兼容 re-export 一个迁移周期。
+覆盖搜索/空列表/过期排序/tracking mode、quantity 与 presence 单位不互换、inventory state 与 batch 冲突、图片失败占位和 selectedId 不存在。
 
-保留的行为断言：
+Run: npm --prefix frontend run test -- src/components/ingredients/IngredientWorkspaceBehavior.test.tsx src/components/ingredients/workspaceModel.test.ts
 
-- quantity tracking 与 presence tracking 的字段/单位转换不互换；
-- inventory state 与 batch 数据不一致时显示冲突而不是静默覆盖；
-- 图片上传仍经 useImageComposer，资源 URL 仍经 lib/assets；
-- 关闭 overlay 后焦点回到触发按钮，busy 时禁止重复提交和误关闭；
-- 家庭 scope 和 cache invalidation 不变。
+Expected: 新 behavior tests FAIL；现有 model tests 保持 PASS。
 
-## 6. Phase 3B：Food workspace
+- [ ] **Step 2: 提取纯 model 和 view model**
 
-### 6.1 建议文件与职责
+从 useIngredientWorkspaceData、workspaceModel、inventoryOverviewModel 提取过滤/分组/统计；日期和资源 URL 继续使用 lib/date、lib/assets；不在 View new Date 或拼 URL。
 
-~~~
-frontend/src/components/foods/
-  FoodWorkspaceRoute.tsx
-  FoodWorkspaceData.ts
-  FoodWorkspaceActions.ts
-  FoodWorkspaceViewModel.ts
-  FoodWorkspaceDesktopView.tsx
-  FoodWorkspaceMobileView.tsx
-  FoodWorkspaceDialogController.ts
-  FoodWorkspaceDialogs.tsx
-  useFoodWorkspaceQueries.ts
-  useFoodWorkspaceState.ts
-~~~
+- [ ] **Step 3: 提取 actions 和 discriminated overlay state**
 
-现有 FoodWorkspaceHelpers、FoodWorkspaceModel、FoodWorkspaceOptions、FoodPlan/Scene state 和各 dialog 作为底层模块；Route 不重复实现它们。
+create/update/consume/restock/shopping payload、busy/error/conflict 放入 action hook；detail/editor/consume/inventory/shopping 状态使用 kind union，接入现有 IngredientWorkspaceOverlays。
 
-Data 负责 foods、recipes、ingredients、inventory、mealLogs、food plan/scenes/recommendations 的只读投影；Actions 负责：
+- [ ] **Step 4: 接入独立 desktop/mobile View**
 
-- food create/update/favorite；
-- plan create/update/delete/complete；
-- scene create/update/delete；
-- recipe relation/edit；
-- quick meal record 和 shopping/stock shortcut。
+两种 View 只接收 Data/Actions/ViewModel；不导入 api/client 或 React Query，不共享大段 JSX。手机主操作 48px、关闭/返回 hit area 44px，保持 focus restore 和 safe-area。
 
-不得让筛选、计划日期、场景标签、编辑表单、quick record dialog 共用一个可变 state object。建议四个互斥 reducer/状态片段：libraryFilter、plan、scene、dialog。所有日期使用现有 date helper，不在 View 直接 new Date 拼 key。
+- [ ] **Step 5: 迁移 Route 并保留一个周期兼容 export**
 
-### 6.2 TDD 与迁移
+IngredientWorkspace.tsx 只组合 Route + Frame + View；旧 import 通过 re-export 保留两个稳定版本，Usage test 改为行为/契约断言。
 
-1. 为 FoodWorkspaceViewModel 写搜索/筛选/排序/关系和空状态测试；
-2. 为 plan/scene/dialog controller 写打开、切换、取消、保存失败保留草稿和重复提交测试；
-3. 将 desktop/mobile View 接到同一 port，先用旧 Workspace 作为 oracle 做行为对照；
-4. 移除 App 传入的散乱 callback，改为 FoodWorkspacePort；
-5. 删除旧大组件中的 dead branch，保留必要 re-export。
+- [ ] **Step 6: 运行验证和提交**
 
-关键回归：
-
-- selfMade 与 recipe relation 仍要求 exactly-one，0 或多条时走明确错误路径；
-- favorite、plan completion、meal record 的 invalidation 和 row version 语义不变；
-- 复杂 dialog 在 375/390/430 与 768/1024/1440 视口均可操作，不用缩小触控目标。
-
-## 7. Phase 3C：Eat task bodies
-
-### 7.1 按 task kind 拆分
-
-当前 EatTaskBodies.tsx 同时包含 food、plan、recipe、cook、meal、meal-create 和 builder。建议保留兼容入口并拆成：
-
-~~~
-frontend/src/features/eat/
-  taskBodies/
-    EatFoodTaskBody.tsx
-    EatPlanTaskBody.tsx
-    EatRecipeTaskBody.tsx
-    EatCookTaskBody.tsx
-    EatMealTaskBody.tsx
-    EatMealCreateTaskBody.tsx
-    EatTaskRelationError.tsx
-    eatTaskPorts.ts
-  EatTaskBodies.tsx       # 只做 discriminated-union adapter/re-export
+~~~bash
+npm --prefix frontend run test -- src/components/ingredients
+npm --prefix frontend run typecheck
+npm run frontend:quality
+npm run frontend:build
+npm run frontend:e2e:p0
+git diff --check
+git add frontend/src/components/ingredients
+git commit -m "refactor(ingredients): split workspace ports and views"
 ~~~
 
-eatTaskPorts.ts 只定义业务动作和已准备数据：
+Expected: family scope、cache invalidation、tracking mode、overlay focus 和六视口行为不变；主文件趋势 ≤900 行。
 
+Rollback: 恢复旧 Workspace export；不删除新 model/action 测试。
+
+## Task 3.2：拆 Food workspace 的筛选、计划、场景和 dialog
+
+**Files:**
+
+- Create: frontend/src/components/foods/FoodWorkspaceRoute.tsx
+- Create: frontend/src/components/foods/FoodWorkspaceData.ts
+- Create: frontend/src/components/foods/FoodWorkspaceActions.ts
+- Create: frontend/src/components/foods/FoodWorkspaceViewModel.ts
+- Create: frontend/src/components/foods/FoodWorkspaceDesktopView.tsx
+- Create: frontend/src/components/foods/FoodWorkspaceMobileView.tsx
+- Create: frontend/src/components/foods/FoodWorkspaceDialogController.ts
+- Create: frontend/src/components/foods/FoodWorkspaceBehavior.test.tsx
+- Modify: frontend/src/components/foods/FoodWorkspace.tsx
+- Modify: frontend/src/components/foods/FoodWorkspaceUsage.test.ts
+
+**Interfaces:**
+
+- libraryFilter、plan、scene、dialog 是四个互斥 state/reducer 片段；不能共用一个 mutable state object。
+- Data 投影 foods、recipes、ingredients、inventory、mealLogs、food plan/scenes/recommendations。
+- Actions 覆盖 food create/update/favorite、plan CRUD/complete、scene CRUD、recipe relation、quick meal record 和 stock/shopping shortcut。
+
+- [ ] **Step 1: 写失败 ViewModel 和 dialog tests**
+
+覆盖搜索/筛选/排序/空态、selfMade 与 recipe relation exactly-one、plan 日期切换、scene tag、打开/取消/保存失败保留草稿、row version 和重复提交。
+
+Run: npm --prefix frontend run test -- src/components/foods/FoodWorkspaceBehavior.test.tsx src/components/foods/FoodWorkspace.test.ts src/components/foods/FoodPlanSurface.test.tsx src/components/foods/useFoodPlanState.test.tsx
+
+Expected: 新测试 FAIL，现有 FoodWorkspaceHelpers/Model/Options tests PASS。
+
+- [ ] **Step 2: 提取 Data/Actions/ViewModel**
+
+复用 FoodWorkspaceHelpers、FoodWorkspaceModel、FoodWorkspaceOptions、useFoodPlanState、useFoodSceneState；日期统一使用 foodPlanDateOptions 和 lib/date。
+
+- [ ] **Step 3: 接入 desktop/mobile views 和 dialogs**
+
+Route 组装同一 typed port，桌面/手机使用不同信息架构；FoodPlanDetail、FoodScene、RecipeEditor、QuickMeal dialog 的 open/close/busy/error 由 controller 提供。
+
+- [ ] **Step 4: 用旧 Workspace 做行为 oracle**
+
+相同 fixture 渲染旧/新 route，比较标题、主操作、状态文案、关系错误、plan completion 和导航 target；不以 class 字符串作为唯一断言。
+
+- [ ] **Step 5: 验证并提交**
+
+~~~bash
+npm --prefix frontend run test -- src/components/foods
+npm --prefix frontend run typecheck
+npm run frontend:quality
+npm run frontend:build
+npm run frontend:e2e:p0
+git diff --check
+git add frontend/src/components/foods
+git commit -m "refactor(foods): split workspace state and views"
 ~~~
+
+Expected: FoodWorkspace 趋势 ≤900 行；favorite、plan completion、meal record invalidation 和六视口 dialog 行为不变。
+
+Rollback: 只回滚 Food route commit，保留共享 food-plan query/action hooks。
+
+## Task 3.3：按 task kind 拆 EatTaskBodies
+
+**Files:**
+
+- Create: frontend/src/features/eat/taskBodies/EatFoodTaskBody.tsx
+- Create: frontend/src/features/eat/taskBodies/EatPlanTaskBody.tsx
+- Create: frontend/src/features/eat/taskBodies/EatRecipeTaskBody.tsx
+- Create: frontend/src/features/eat/taskBodies/EatCookTaskBody.tsx
+- Create: frontend/src/features/eat/taskBodies/EatMealTaskBody.tsx
+- Create: frontend/src/features/eat/taskBodies/EatMealCreateTaskBody.tsx
+- Create: frontend/src/features/eat/taskBodies/EatTaskRelationError.tsx
+- Create: frontend/src/features/eat/taskBodies/eatTaskPorts.ts
+- Modify: frontend/src/features/eat/EatTaskBodies.tsx
+- Create: frontend/src/features/eat/EatTaskBodiesBehavior.test.tsx
+- Modify: frontend/src/App.tsx
+
+**Interfaces:**
+
+~~~ts
 type EatTaskPort = {
   close: () => void;
   navigate: (target: AppNavigationTarget) => void;
@@ -375,82 +472,136 @@ type EatTaskPort = {
 };
 ~~~
 
-EatRecipeEditTaskBody、EatFreeMealComposerBody、EatPrefixedMealCreateBody 作为对应 task 文件的私有子视图，不再让所有任务共享模块级 mutable helper。
+- [ ] **Step 1: 写每种 kind 的失败 behavior tests**
 
-### 7.2 迁移和测试
+覆盖 food、plan、recipe、cook、meal、meal-create、builder 的 loading/load-error/not-found、missing/ambiguous recipe-food relation、updated_at OCC、cook finish、meal candidate resolution、record failure 保留 draft 和 close/focus。
 
-1. 先把现有测试 imports 改为新文件的兼容 export，保证测试能识别迁移边界；
-2. 为每个 task kind 写最小渲染/状态测试，再逐个移动 JSX；
-3. 用旧 builder 和新 builder 做同一 fixture 的 kind/output 对照；
-4. 迁移 App 的 buildEatTaskBodies 调用到 EatTaskPort；
-5. 删除旧文件中已空的实现，只保留 adapter。
+Run: npm --prefix frontend run test -- src/features/eat/EatTaskBodiesBehavior.test.tsx src/features/eat/EatTaskBodies.test.tsx
 
-保留：
+Expected: 新 behavior tests FAIL；旧 tests PASS。
 
-- loading、load-error、not-found、missing/ambiguous recipe-food relation；
-- plan cook 的 updated_at OCC 前置检查；
-- cook finish、meal candidate resolution、record failure 草稿；
-- task 关闭/返回 view/focus 和 mobile bottom sheet 语义。
+- [ ] **Step 2: 先建立兼容 adapter**
 
-## 8. Phase 3D：InventoryReconciliationDialog 与类型模块
+EatTaskBodies.tsx 继续导出 buildEatTaskBodies，但内部根据 discriminated task.kind 选择新 body；旧 builder 与新 builder 同一 fixture 输出相同可见状态。
 
-### 8.1 盘点 dialog
+- [ ] **Step 3: 移动各 body 和私有 composer**
 
-现有 useInventoryReconciliationState、useInventoryReconciliationActions 和 inventoryReconciliationModel 已提供良好边界；只把 1,755 行 View 再按责任拆开：
+将 EatRecipeEditTaskBody、EatFreeMealComposerBody、EatPrefixedMealCreateBody 放到对应 task 文件；port 只传准备好的 data/actions，禁止 body 直接调 API。
 
-~~~
-frontend/src/features/inventory/
-  InventoryReconciliationDialog.tsx      # shell、step switch、aria
-  InventoryReconciliationScopeStep.tsx
-  InventoryReconciliationReviewStep.tsx
-  InventoryReconciliationSummaryStep.tsx
-  InventoryReconciliationResultStep.tsx
-  inventoryReconciliationDialogModel.ts  # field error/summary projection
-~~~
+- [ ] **Step 4: 迁移 App 调用并删除旧实现**
 
-Dialog props 变为一个只读 ViewModel 和 typed callbacks，步骤 reducer/action 不放进 JSX。必须保留：
+App 只传 EatTaskPort；确认 task close、view return、mobile bottom sheet 和 focus restore 不变后，旧文件只保留 adapter/re-export。
 
-- loading 不锁死 overlay；只有 write busy 阻止关闭；
-- focusFieldKey 自动聚焦非 hidden 字段；
-- field errors 按 targetKey/field 稳定排序；
-- stale version/conflict、retry、revert 和 result detail 不丢；
-- submit summary 只显示 touched intents，未触碰项不写入。
+- [ ] **Step 5: 验证和提交**
 
-先新增每个 step 的行为测试，再移动 JSX；运行现有 InventoryReconciliationDialog.test.tsx、useInventoryReconciliation* 测试和六视口 P0。
-
-### 8.2 api/types.ts 拆分
-
-建议新建 type-only modules：
-
-~~~
-frontend/src/api/types/
-  shell.ts          # User、Member、Family、Auth
-  media.ts
-  inventory.ts      # Ingredient、Inventory、Shopping、Reconciliation、Operation
-  recipe.ts
-  food.ts
-  meal.ts
-  search.ts
-  ai.ts
-  modelUsage.ts
-  index.ts          # 兼容 barrel，仅 export type
-frontend/src/api/types.ts  # 迁移期 re-export type ./types/index
+~~~bash
+npm --prefix frontend run test -- src/features/eat src/app
+npm --prefix frontend run typecheck
+npm run frontend:quality
+npm run frontend:build
+npm run frontend:e2e:p0
+git diff --check
+git add frontend/src/features/eat frontend/src/App.tsx
+git commit -m "refactor(eat): split task bodies by kind"
 ~~~
 
-规则：
+Expected: EatTaskBodies 主文件只做 adapter，趋势 ≤900 行；所有 task 状态和 navigation contract 通过。
 
-1. 先按依赖反向拓扑拆：shell/media → inventory/recipe/food/meal/search → ai/modelUsage；
-2. 只使用 export type/import type，确保不产生 runtime chunk；
-3. 循环类型用 type-only 前向引用或抽到 primitives.ts，禁止互相运行时 import；
-4. 每次移动保留 api/types.ts 的旧路径，更新一小批消费者后再删内部重复定义；
-5. 用 TypeScript 编译和 bundle manifest 验证类型拆分没有改变运行时资源。
+Rollback: 恢复 adapter 指向旧实现；不改 task union。
 
-## 9. 统一测试、指标和回滚
+## Task 3.4：拆 Inventory reconciliation dialog 和 api/types.ts
 
-### 9.1 每个工作包命令
+**Files:**
 
+- Create: frontend/src/features/inventory/InventoryReconciliationScopeStep.tsx
+- Create: frontend/src/features/inventory/InventoryReconciliationReviewStep.tsx
+- Create: frontend/src/features/inventory/InventoryReconciliationSummaryStep.tsx
+- Create: frontend/src/features/inventory/InventoryReconciliationResultStep.tsx
+- Create: frontend/src/features/inventory/inventoryReconciliationDialogModel.ts
+- Create: frontend/src/features/inventory/InventoryReconciliationDialogBehavior.test.tsx
+- Modify: frontend/src/features/inventory/InventoryReconciliationDialog.tsx
+- Create: frontend/src/api/types/primitives.ts
+- Create: frontend/src/api/types/shell.ts
+- Create: frontend/src/api/types/media.ts
+- Create: frontend/src/api/types/inventory.ts
+- Create: frontend/src/api/types/recipe.ts
+- Create: frontend/src/api/types/food.ts
+- Create: frontend/src/api/types/meal.ts
+- Create: frontend/src/api/types/search.ts
+- Create: frontend/src/api/types/ai.ts
+- Create: frontend/src/api/types/modelUsage.ts
+- Create: frontend/src/api/types/index.ts
+- Modify: frontend/src/api/types.ts
+
+**Interfaces:**
+
+- Dialog ViewModel contains step, field errors, touched intents, focusFieldKey, conflict/result and read-only values; reducer/actions stay outside JSX.
+- types/index.ts exports type only; api/types.ts re-exports type only for one migration cycle.
+
+- [ ] **Step 1: 写 reconciliation behavior tests**
+
+覆盖 loading 不锁死 overlay、write busy 禁止关闭、focusFieldKey 聚焦非 hidden、field errors 按 targetKey/field 排序、stale version/conflict/retry/revert/result detail、未触碰项不写入 summary、失败保留草稿。
+
+Run: npm --prefix frontend run test -- src/features/inventory/InventoryReconciliationDialogBehavior.test.tsx src/features/inventory/InventoryReconciliationDialog.test.tsx src/features/inventory/useInventoryReconciliationState.test.tsx src/features/inventory/useInventoryReconciliationActions.test.tsx
+
+Expected: 新 behavior tests FAIL；现有 OCC tests PASS。
+
+- [ ] **Step 2: 拆四个 step View**
+
+InventoryReconciliationDialog.tsx 只保留 dialog aria/header/body/footer、step switch 和 action callbacks；每个 step 不导入 QueryClient/API。
+
+- [ ] **Step 3: 按反向依赖拓扑拆类型**
+
+先 primitives/shell/media，再 inventory/recipe/food/meal/search，最后 ai/modelUsage；循环类型抽到 primitives；所有消费者使用 import type/export type。
+
+- [ ] **Step 4: 验证无 runtime chunk**
+
+~~~bash
+npm --prefix frontend run test -- src/features/inventory src/api
+npm --prefix frontend run typecheck
+npm run frontend:build
+rg -n "from ['\\\"].*/api/types['\\\"]" frontend/src --glob '*.ts' --glob '*.tsx'
 ~~~
-npm --prefix frontend run test -- <focused-tests>
+
+Expected: api/types.ts 只有 type re-export；manifest 中 runtime asset 不因类型拆分增加；dialog 趋势 ≤800 行。
+
+- [ ] **Step 5: Commit**
+
+~~~bash
+git diff --check
+git add frontend/src/features/inventory frontend/src/api/types frontend/src/api/types.ts
+git commit -m "refactor(frontend): split reconciliation dialog and api types"
+~~~
+
+Rollback: 保留 types.ts barrel 和旧 dialog export；类型拆分回滚不触碰 API。
+
+## Task 3.5：Phase 2/3 集成验收
+
+**Files:**
+
+- Modify: frontend/src/app/*.test.ts*
+- Modify: frontend/src/components/ingredients/*test*
+- Modify: frontend/src/components/foods/*test*
+- Modify: frontend/src/features/eat/*test*
+- Modify: frontend/src/features/inventory/*test*
+- Modify: docs/plans/2026-08-27-frontend-code-governance-assessment.md
+- Modify: docs/superpowers/plans/2026-08-27-frontend-code-governance.md
+
+**Interfaces:**
+
+- Produces: query/mutation ownership report, port dependency report, request-count comparison, six-viewport evidence and rollback commit list.
+
+- [ ] **Step 1: 运行 focused contract/behavior tests**
+
+~~~bash
+npm --prefix frontend run test -- src/app src/components/ingredients src/components/foods src/features/eat src/features/inventory src/api/queryKeys.test.ts src/api/cacheInvalidation.test.ts
+~~~
+
+Expected: 所有旧/新 contract 和 behavior tests PASS；失败草稿、OCC、focus、family scope 均有断言。
+
+- [ ] **Step 2: 运行类型、质量、构建和 P0**
+
+~~~bash
 npm --prefix frontend run typecheck
 npm run frontend:quality
 npm run frontend:build
@@ -458,36 +609,25 @@ npm run frontend:e2e:p0
 git diff --check
 ~~~
 
-Focused tests 至少覆盖对应 model、state/action、workspace behavior、cache invalidation 和 navigation contract；不要只运行 Usage 字符串测试。
+- [ ] **Step 3: 比较 health/manifest 和请求拓扑**
 
-### 9.2 视口和网络证据
+记录 App、Ingredient、Food、Eat、Inventory dialog 行数；比较 main/route gzip、静态/动态边、首次激活请求数；发现新增 facade 字段、循环依赖、未登记 chunk 或 routeTotal 增长即停止。
 
-涉及 workspace/overlay 的提交固定验证 375×812、390×844、430×932、768×1024、1024×768、1440×900，记录截图/trace 和横向溢出断言。构建后比较：
+- [ ] **Step 4: 更新文档并提交**
 
-- main JS/CSS initial；
-- route entryCritical 与 routeTotal；
-- 新旧静态/动态依赖边；
-- 激活 Home/Eat/Ingredients/AI/Family 时的请求数量。
+~~~bash
+git add docs/plans/2026-08-27-frontend-code-governance-assessment.md docs/superpowers/plans/2026-08-27-frontend-code-governance.md frontend/src/app frontend/src/components/ingredients frontend/src/components/foods frontend/src/features/eat frontend/src/features/inventory frontend/src/api/types frontend/src/api/types.ts
+git commit -m "governance(frontend): verify phases 2 and 3"
+~~~
 
-App facade 拆分不应改变请求时序；若改变，先解释 enabled/placeholderData/后台 refresh 的意图并补测试。
+## Phase 2/3 Definition of Done
 
-### 9.3 停止条件与回滚
+- [ ] App 只负责认证、壳、导航、route 选择和 typed port；不再新增业务 JSX/API/QueryClient。
+- [ ] 21 个 query、37 个 mutation 各有唯一 owner；useFoodPlanQueries 是 Home/Eat 共享 food-plan/scenes/recommendations 的唯一 owner；facade 不增字段。
+- [ ] Router、OverlayHost、inventory/home/navigation controller 的副作用边界和关闭/focus 语义有测试。
+- [ ] Ingredient、Food、Eat task、reconciliation dialog 的 Data/State/Actions/ViewModel/View 可从依赖图解释，桌面/手机不共享大段 JSX。
+- [ ] api/types.ts 仅 type re-export，生产 bundle 无新增运行时代码；关键文件达到 App ≤850、Ingredient/Food ≤900、EatTaskBodies ≤900、Inventory dialog ≤800，或有带证据的例外。
+- [ ] loading/refresh/error/conflict/duplicate submit、family scope、OCC、AI/meal approval 和失败保留语义均通过测试。
+- [ ] 六固定视口、reduced-motion、focus、safe-area、横向溢出和 route request/manifest diff 有实际记录。
 
-遇到以下任一情况，停止当前域迁移，恢复最近一个已验证提交：
-
-- port/View 行为测试失败，或 App/Ingredient 仍只能靠隐式全局 Context 工作；
-- 家庭隔离、row version、OCC、AI/meal approval 或失败保留语义变化；
-- routeTotal 增长超过 ratchet 容差，或把代码移到未登记 chunk；
-- 任一固定视口主操作不可达、横向溢出、焦点恢复失败；
-- 只移动文件但 import graph 没有变薄，出现新增循环或 facade 字段继续增加。
-
-回滚不清理用户 localStorage、AI 草稿、cook session 或服务端数据。每个域的最后一个兼容 re-export 保留到两个稳定版本后再删除。
-
-### 9.4 Phase 3 Definition of Done
-
-- [ ] App 只做认证/壳/导航/route/port 组合；业务 API 与复合副作用已移出。
-- [ ] 21 个 query、37 个 mutation 均有唯一 owner；旧 facade 不再增加字段。
-- [ ] Ingredient、Food、Eat task、盘点 dialog 的 data/state/action/view 边界可从依赖图解释。
-- [ ] api/types.ts 兼容 barrel 只做 type re-export，生产 bundle 无新增运行时代码。
-- [ ] 关键桌面/手机行为、错误/冲突/重复提交、导航 focus 和六视口证据齐全。
-- [ ] 生产构建和 health ratchet 没有因拆分产生隐藏 chunk 或请求回归。
+停止条件：任一行为 contract、请求数量、家庭隔离、OCC、焦点或 manifest ratchet 失败时，停止当前域并回滚最近提交；不得用删除测试、扩大 facade 或新增全局 Context 继续推进。
