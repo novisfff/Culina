@@ -163,7 +163,7 @@ describe('FoodPlanDialog', () => {
 
     expect(view.querySelector('.workspace-overlay-root.food-workspace-overlay-root')).not.toBeNull();
     expect(view.querySelector('.food-plan-modal')).not.toBeNull();
-    expect(view.textContent).toContain('加食物到菜单');
+    expect(view.textContent).toContain('添加到餐食计划');
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
@@ -197,7 +197,7 @@ describe('FoodPlanDialog', () => {
 
     expect(view.querySelector('.workspace-overlay-root.home-dashboard-overlay-root')).not.toBeNull();
     expect(view.querySelector('.food-plan-modal.home-plan-add-modal')).not.toBeNull();
-    expect(view.textContent).toContain('正在加入菜单');
+    expect(view.textContent).toContain('正在加入餐食计划');
     expect(view.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
   });
 });

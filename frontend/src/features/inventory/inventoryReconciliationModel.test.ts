@@ -172,7 +172,7 @@ describe('inventoryReconciliationModel labels and grouping', () => {
     expect(CONFIRMATION_STATUS_LABELS.current).toBe('刚确认过');
     expect(CONFIRMATION_STATUS_LABELS.stale).toBe('建议再确认');
     expect(AVAILABILITY_LEVEL_LABELS.low).toBe('少量');
-    expect(AVAILABILITY_LEVEL_LABELS.absent).toBe('没有了');
+    expect(AVAILABILITY_LEVEL_LABELS.absent).toBe('没有库存');
   });
 
   it('includes expired physical batches in exact remaining calculations', () => {
@@ -189,9 +189,9 @@ describe('inventoryReconciliationModel labels and grouping', () => {
     const eggs = makeExactGroup({ ingredient_id: 'ing-egg', ingredient_name: '鸡蛋' });
     const salt = makePresenceGroup({ ingredient_id: 'ing-salt', ingredient_name: '盐' });
     const beef = makeFoodGroup();
-    expect(buildGroupHeadline(eggs, REFERENCE_DATE).detail).toContain('批次');
+    expect(buildGroupHeadline(eggs, REFERENCE_DATE).detail).toContain('库存');
     expect(buildGroupHeadline(eggs, REFERENCE_DATE).hasExpiredPhysicalBatch).toBe(true);
-    expect(buildGroupHeadline(salt, REFERENCE_DATE).detail).toContain('只记录有无');
+    expect(buildGroupHeadline(salt, REFERENCE_DATE).detail).toContain('只记录是否有库存');
     expect(buildGroupHeadline(beef, REFERENCE_DATE).detail).toContain('2 份');
   });
 });
@@ -577,7 +577,7 @@ describe('inventoryReconciliationModel intents and payload', () => {
       '库存数量调整',
       '标记少量',
       '调整为没有',
-      '新增漏记批次',
+      '补充库存',
     ]);
   });
 

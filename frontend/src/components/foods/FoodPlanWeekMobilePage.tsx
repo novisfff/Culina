@@ -13,13 +13,13 @@ export function FoodPlanWeekMobilePage(props: {
   const selectedDay = props.days.find((day) => day.date === props.selectedDate);
 
   return (
-    <main className="food-plan-week-mobile-page" aria-label="手机周菜单">
+    <main className="food-plan-week-mobile-page" aria-label="周餐食计划">
       <header className="food-plan-week-mobile-head">
         <button type="button" aria-label="返回食物页" onClick={props.onBack}>
           <DashboardIcon name="chevron" />
         </button>
         <div>
-          <span>完整周菜单</span>
+          <span>整周餐食计划</span>
           <h1>
             {props.weekRange.start} 至 {props.weekRange.end}
           </h1>
@@ -38,7 +38,7 @@ export function FoodPlanWeekMobilePage(props: {
           </button>
         ))}
       </div>
-      <section aria-label="所选日期菜单">
+      <section aria-label="所选日期餐食计划">
         {selectedDay?.items.length ? (
           selectedDay.items.map((item) => (
             <button key={item.id} type="button" onClick={() => props.onOpenItem(item)}>
@@ -47,7 +47,7 @@ export function FoodPlanWeekMobilePage(props: {
             </button>
           ))
         ) : (
-          <p className="food-plan-week-mobile-empty">这一天还没有菜单安排</p>
+          <p className="food-plan-week-mobile-empty">这一天还没有餐食安排</p>
         )}
       </section>
     </main>

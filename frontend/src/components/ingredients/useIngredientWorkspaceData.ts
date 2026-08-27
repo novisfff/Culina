@@ -190,8 +190,8 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     const stockedIngredientCount = summaries.filter((item) => item.quantitySummaries.length > 0).length;
     const workspaceMetrics = [
       { label: '提醒', value: `${priorityActionCount} 种`, detail: '过期、临期或待补货需要优先处理' },
-      { label: '待买', value: `${pendingShopping.length} 项`, detail: '购物清单中尚未完成的项目' },
-      { label: '在库食材', value: `${stockedIngredientCount} 种`, detail: '已经登记过库存的食材' },
+      { label: '待买', value: `${pendingShopping.length} 项`, detail: '采购清单中还没买到的内容' },
+      { label: '在库食材', value: `${stockedIngredientCount} 种`, detail: '已有库存的食材' },
     ];
     const summaryByIngredientId = new Map(summaries.map((summary) => [summary.ingredient.id, summary]));
     // Full priority surface keeps all shared groups, including 4-7 day later severity.

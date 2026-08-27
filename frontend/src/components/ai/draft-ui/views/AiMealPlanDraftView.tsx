@@ -45,7 +45,7 @@ function mealPlanActionLabel(action: string) {
   switch (action) {
     case 'create': return '新增';
     case 'update': return '修改';
-    case 'set_status': return '状态变更';
+    case 'set_status': return '更新状态';
     case 'delete': return '删除';
     default: return action || '计划';
   }
@@ -94,9 +94,9 @@ function mealPlanSummaryItems(items: Record<string, unknown>[], operations: Reco
     ? Object.entries(actionCounts).map(([label, count]) => `${label}${count}`).join('、')
     : '新增计划';
   return [
-    { label: '计划项', value: `${operations.length > 0 ? operations.length : items.length} 项` },
-    { label: '涉及天数', value: dates.size > 0 ? `${dates.size} 天` : '未填写' },
-    { label: '餐别', value: mealTypes.size > 0 ? Array.from(mealTypes).join('、') : '未填写' },
+    { label: '餐食安排', value: `${operations.length > 0 ? operations.length : items.length} 项` },
+    { label: '涉及天数', value: dates.size > 0 ? `${dates.size} 天` : '未填写日期' },
+    { label: '餐别', value: mealTypes.size > 0 ? Array.from(mealTypes).join('、') : '未填写餐别' },
     { label: '缺失食材', value: missingCount > 0 ? `${missingCount} 项` : '无' },
     { label: '变更', value: changeSummary },
   ];
@@ -104,9 +104,9 @@ function mealPlanSummaryItems(items: Record<string, unknown>[], operations: Reco
 
 function resolvedTitle(status: AiApprovalRequest['status'], hasOperations: boolean) {
   if (status === 'approved') return hasOperations ? '餐食计划变更已确认' : '餐食计划已确认';
-  if (status === 'rejected') return '未写入的餐食计划草稿';
-  if (status === 'expired') return '已过期的餐食计划草稿';
-  return hasOperations ? '待确认计划变更' : '待确认餐食计划';
+  if (status === 'rejected') return '这份餐食计划没有保存';
+  if (status === 'expired') return '这份餐食计划建议已过期';
+  return hasOperations ? '待确认餐食计划变更' : '待确认餐食计划';
 }
 
 function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -158,8 +158,8 @@ export function AiMealPlanDraftView(props: {
       [...props.ingredientOptions],
     );
     return (
-      <AiDraftImpactNote tone={normalizedItems.length > 0 ? 'warning' : 'neutral'} title="缺料提醒">
-        <p>这里仅作为计划缺料提醒，不会登记库存或加入购物清单。</p>
+      <AiDraftImpactNote tone={normalizedItems.length > 0 ? 'warning' : 'neutral'} title="缺少食材提醒">
+        <p>这里只提醒计划中缺少的食材，不会修改库存或加入采购清单。</p>
         <IngredientQuantityPicker
           label="缺失食材"
           items={normalizedItems}
@@ -177,11 +177,11 @@ export function AiMealPlanDraftView(props: {
       <AiDraftItemCard
         key={`${badge}-${record.date}-${record.title}-${index}`}
         title={record.title || '未选择食物'}
-        summary={[record.date, mealTypeLabel(record.mealType)].filter(Boolean).join(' · ') || '待安排'}
+        summary={[record.date, mealTypeLabel(record.mealType)].filter(Boolean).join(' · ') || '未安排餐食'}
         status={badge}
         className="ai-meal-plan-preview-card"
       >
-        <p>{record.foodId ? '已绑定食物库' : '需要从食物库选择'}</p>
+        <p>{record.foodId ? '已选择食物' : '请选择食物'}</p>
         {record.reason ? <p className="ai-meal-plan-preview-note">{record.reason}</p> : null}
       </AiDraftItemCard>
     );
@@ -198,18 +198,18 @@ export function AiMealPlanDraftView(props: {
       <AiDraftItemCard
         key={`${options.badge}-${record.date}-${record.title}-${index}`}
         title={record.title || selectedFood?.label || '未选择食物'}
-        summary={[record.date, mealTypeLabel(record.mealType)].filter(Boolean).join(' · ') || '待安排'}
+        summary={[record.date, mealTypeLabel(record.mealType)].filter(Boolean).join(' · ') || '未安排餐食'}
         status={options.badge}
         className="ai-meal-plan-item-card"
         footer={options.removable && !props.readonly ? (
-          <button className="ghost-button ai-draft-remove-button" type="button" onClick={options.onRemove}>删除计划项</button>
-        ) : undefined}
+          <button className="ghost-button ai-draft-remove-button" type="button" onClick={options.onRemove}>移除这项安排</button>
+          ) : undefined}
       >
-        <p>{selectedFood?.description || (record.foodId ? '已绑定食物库' : '需要从食物库选择')}</p>
+        <p>{selectedFood?.description || (record.foodId ? '已选择食物' : '请选择食物')}</p>
         {options.before ? (
-          <AiDraftImpactNote tone="plan" title="当前与调整后">
-            <p>当前：{[asText(options.before.date), mealTypeLabel(options.before.mealType), asText(options.before.title)].filter(Boolean).join(' · ') || '未记录'}</p>
-            <p>调整后：{[record.date, mealTypeLabel(record.mealType), record.title].filter(Boolean).join(' · ') || '待填写'}</p>
+          <AiDraftImpactNote tone="plan" title="原内容与调整后">
+            <p>当前：{[asText(options.before.date), mealTypeLabel(options.before.mealType), asText(options.before.title)].filter(Boolean).join(' · ') || '还没有记录'}</p>
+            <p>调整后：{[record.date, mealTypeLabel(record.mealType), record.title].filter(Boolean).join(' · ') || '还没有填写'}</p>
           </AiDraftImpactNote>
         ) : null}
         <div className="ai-meal-plan-item-top">
@@ -231,7 +231,7 @@ export function AiMealPlanDraftView(props: {
           label="食物"
           value={record.foodId}
           selectedLabel={record.title}
-          placeholder="搜索食物库"
+          placeholder="搜索食物"
           disabled={props.readonly}
           selectedOption={selectedFood}
           loadOptions={props.onLoadResourceOptions}
@@ -256,7 +256,7 @@ export function AiMealPlanDraftView(props: {
         <AiDraftResolvedSummary
           status={resolvedStatus(props.status)}
           title={resolvedTitle(props.status, hasOperations)}
-          summary={hasOperations ? `${operations.length} 条计划操作` : `${items.length} 条计划项`}
+          summary={hasOperations ? `${operations.length} 项计划变更` : `${items.length} 项餐食安排`}
           className="ai-meal-plan-summary-card"
         >
           <dl className="ai-draft-summary-items">
@@ -265,7 +265,7 @@ export function AiMealPlanDraftView(props: {
             ))}
           </dl>
         </AiDraftResolvedSummary>
-        <AiDraftSection title="计划项预览" description="已处理状态只保留核对摘要，不展示禁用长表单。">
+        <AiDraftSection title="餐食安排预览" description="下面展示本次建议的餐食安排。">
           {previews.map((entry, index) => {
             if (!hasOperations) return renderPlanPreviewCard(entry, index, '计划');
             const operation = entry;
@@ -284,13 +284,13 @@ export function AiMealPlanDraftView(props: {
         className="ai-meal-plan-summary-card"
       />
       <AiDraftImpactNote tone="plan" title="确认后">
-        {hasOperations ? '会按下方操作创建、修改、删除或更新计划状态。' : '会写入正式餐食计划，不会创建新食物资料。'}
+        {hasOperations ? '会按下方内容新增、修改、删除或更新计划状态。' : '会保存正式餐食计划，不会添加新的食物。'}
       </AiDraftImpactNote>
       <AiDraftSection
-        title="计划项"
-        description={hasOperations ? '按操作逐项核对会写入的计划变更。' : '每个计划项都需要绑定食物库中的食物。'}
+        title="餐食安排"
+        description={hasOperations ? '按操作逐项核对将保存的计划变更。' : '每项餐食安排都需要选择食物。'}
         action={!hasOperations && !props.readonly ? (
-          <button className="ghost-button ai-draft-add-button" type="button" onClick={() => addDraftItem('items', { date: new Date().toISOString().slice(0, 10), mealType: 'dinner', title: '', foodId: '', reason: '', missingIngredients: [] })}>添加计划</button>
+          <button className="ghost-button ai-draft-add-button" type="button" onClick={() => addDraftItem('items', { date: new Date().toISOString().slice(0, 10), mealType: 'dinner', title: '', foodId: '', reason: '', missingIngredients: [] })}>添加餐食安排</button>
         ) : null}
       >
         {hasOperations ? operations.map((operation, index) => {
@@ -301,15 +301,15 @@ export function AiMealPlanDraftView(props: {
             return (
               <AiDraftItemCard
                 key={`${action}-${asText(operation.targetId)}-${index}`}
-                title={asText(before.title) || asText(operation.targetId) || '计划项'}
-                summary={[asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ') || '计划项'}
+                title={asText(before.title) || asText(operation.targetId) || '餐食安排'}
+                summary={[asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ') || '餐食安排'}
                 status={mealPlanActionLabel(action)}
                 className="ai-meal-plan-item-card"
               >
                 <p>状态：{mealPlanStatusLabel(before.status)} → {mealPlanStatusLabel(payload.status)}</p>
                 <ApprovalSelectField label="计划状态" value={asText(payload.status, 'planned')} disabled={props.readonly} options={PLAN_STATUS_OPTIONS} icon="meal" onChange={(status) => updateOperationPayloadItem(index, { status })} />
                 <label className="ai-resource-field ai-meal-plan-reason-field">
-                  <span>状态说明</span>
+                  <span>补充说明</span>
                   <textarea className="text-input" rows={2} value={asText(payload.reason)} disabled={props.readonly} placeholder="可选，说明完成或跳过原因" onChange={(event) => updateOperationPayloadItem(index, { reason: event.target.value })} />
                 </label>
               </AiDraftItemCard>
@@ -319,16 +319,16 @@ export function AiMealPlanDraftView(props: {
             return (
               <AiDraftItemCard
                 key={`${action}-${asText(operation.targetId)}-${index}`}
-                title={asText(before.title) || asText(operation.targetId) || '计划项'}
-                summary={[asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ') || '计划项'}
+                title={asText(before.title) || asText(operation.targetId) || '餐食安排'}
+                summary={[asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ') || '餐食安排'}
                 status={mealPlanActionLabel(action)}
                 tone="danger"
                 className="ai-meal-plan-item-card is-danger"
               >
-                <p>确认后只删除这条计划，不删除食物资料。</p>
+                <p>确认后只删除这项餐食安排，不删除食物。</p>
                 <AiDraftImpactNote tone="danger" title="删除影响">
-                  <p>删除计划项：{[asText(before.date), mealTypeLabel(before.mealType), asText(before.title)].filter(Boolean).join(' · ') || asText(operation.targetId)}</p>
-                  <p>不会删除食物资料；如有关联餐食记录，请在确认前核对。</p>
+                  <p>删除餐食安排：{[asText(before.date), mealTypeLabel(before.mealType), asText(before.title)].filter(Boolean).join(' · ') || asText(operation.targetId)}</p>
+                  <p>不会删除食物；如有关联餐食记录，请在确认前核对。</p>
                 </AiDraftImpactNote>
                 <label className="ai-resource-field ai-meal-plan-reason-field">
                   <span>删除原因</span>

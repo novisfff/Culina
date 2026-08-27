@@ -240,7 +240,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     confirmBillable: boolean,
   ) => {
     const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;
-    if (!currentDraft) throw new Error('家庭模型草稿尚未加载完成。');
+    if (!currentDraft) throw new Error('家庭模型设置还没有加载完成，请稍后再试。');
     return mutationState.actions.testCapability(
       capability,
       variantKey,
@@ -310,7 +310,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
         <StateBlock
           status="empty"
           title="仅家庭主理人可以管理 AI 服务"
-          description="如需调整服务、凭据、模型或价格，请联系家庭主理人。"
+          description="如需调整服务、密钥、模型或价格，请联系家庭主理人。"
           actionLabel="返回家庭"
           onAction={requestBack}
         />
@@ -343,7 +343,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     return (
       <main className="family-model-settings-fallback" aria-labelledby="family-model-settings-loading-title">
         <h1 id="family-model-settings-loading-title">家庭 AI 服务</h1>
-        <StateBlock status="loading" title="正在加载家庭 AI 服务" description="正在读取当前家庭的非敏感配置。" />
+        <StateBlock status="loading" title="正在加载家庭 AI 服务" description="正在读取当前家庭设置。" />
       </main>
     );
   }

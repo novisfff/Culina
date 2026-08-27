@@ -19,8 +19,8 @@ type ModelUsageOverview = ModelUsagePersonalOverview | ModelUsageFamilyOverview;
 
 const PERSONAL_BUDGET_MESSAGES: Record<ModelUsagePersonalOverview['family_budget_state'], string> = {
   sufficient: '当前使用不会受到限制',
-  approaching_limit: '本月可用额度已经不多',
-  alert_threshold_reached: '本月用量已达到家庭提醒线',
+  approaching_limit: '当前周期可用额度已经不多',
+  alert_threshold_reached: '当前周期用量已达到家庭提醒线',
   capability_degraded: '部分模型功能可能改用基础方式处理',
   measurement_unavailable: '暂时无法完整确认家庭可用额度',
 };
@@ -37,7 +37,7 @@ function periodMonth(period: string): string {
 function trackingCopy(overview: ModelUsageOverview): string | null {
   if (!overview.is_partial_period) return null;
   const trackingStartedAt = formatModelUsageTrackingStartedAt(overview.tracking_started_at);
-  return trackingStartedAt ? `从 ${trackingStartedAt}开始记录` : '本账期从启用统计后开始记录';
+  return trackingStartedAt ? `自 ${trackingStartedAt}起记录` : '从启用统计之日起记录';
 }
 
 export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
@@ -51,7 +51,7 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
     return (
       <section className="model-usage-summary model-usage-summary-personal" aria-labelledby="model-usage-summary-heading">
         <div className="model-usage-summary-primary">
-          <p id="model-usage-summary-heading">{month}已记录费用</p>
+          <p id="model-usage-summary-heading">{month}已计入费用</p>
           <strong className="model-usage-number">{recordedCost}</strong>
           {startedAt ? <small>{startedAt}</small> : null}
         </div>
@@ -70,7 +70,7 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
   return (
     <section className="model-usage-summary model-usage-summary-family" aria-labelledby="model-usage-summary-heading">
       <div className="model-usage-summary-primary">
-        <p id="model-usage-summary-heading">{month}已记录费用</p>
+        <p id="model-usage-summary-heading">{month}已计入费用</p>
         <strong className="model-usage-number">{recordedCost}</strong>
         {startedAt ? <small>{startedAt}</small> : null}
       </div>
@@ -85,7 +85,7 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
             ) : null}
           </div>
           <StatusBadge tone={props.overview.hard_limit_enabled ? 'info' : 'neutral'}>
-            {props.overview.hard_limit_enabled ? '硬限制已开启' : '仅提醒'}
+            {props.overview.hard_limit_enabled ? '已开启超额停止' : '仅提醒'}
           </StatusBadge>
         </div>
         {usageRatio !== null ? (
@@ -104,11 +104,11 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
             </dd>
           </div>
           <div className="model-usage-summary-metric">
-            <dt>当前预留</dt>
+            <dt>已预留费用</dt>
             <dd className="model-usage-number">{formatModelUsageCny(props.overview.reserved_cost_cny)}</dd>
           </div>
           <div className="model-usage-summary-metric">
-            <dt>额度判断</dt>
+            <dt>计入额度</dt>
             <dd className="model-usage-number">{formatModelUsageCny(props.overview.effective_spend_cny)}</dd>
           </div>
         </dl>
@@ -144,8 +144,8 @@ export function ModelUsageAttention(props: { overview: ModelUsageOverview; alert
     ? `家庭预算已达到 ${thresholdPercent(alert.threshold)}`
     : '家庭预算需要留意';
   const description = Number(alert.threshold) >= 1
-    ? '本月额度已经达到或超过预算，后续模型功能可能受到限制。'
-    : '本月用量已达到家庭设置的预算提醒线。';
+    ? '所选周期额度已经达到或超过预算，后续模型功能可能受到限制。'
+    : '所选周期用量已达到家庭设置的预算提醒线。';
 
   return (
     <section className="model-usage-attention" aria-labelledby="model-usage-attention-heading">
@@ -158,7 +158,7 @@ export function ModelUsageAttention(props: { overview: ModelUsageOverview; alert
       </div>
       {alert ? (
         <dl className="model-usage-alert-facts">
-          <div><dt>额度判断</dt><dd className="model-usage-number">{formatModelUsageCny(alert.effective_spend_cny)}</dd></div>
+          <div><dt>计入额度</dt><dd className="model-usage-number">{formatModelUsageCny(alert.effective_spend_cny)}</dd></div>
           <div><dt>月预算</dt><dd className="model-usage-number">{formatModelUsageCny(alert.budget_cny)}</dd></div>
           <div><dt>提醒线</dt><dd className="model-usage-number">{thresholdPercent(alert.threshold)}</dd></div>
         </dl>
@@ -173,8 +173,8 @@ export function ModelUsageEmptyState() {
     <section className="model-usage-empty" role="status" aria-labelledby="model-usage-empty-heading">
       <span className="model-usage-empty-icon"><DashboardIcon name="bar-chart" /></span>
       <div>
-        <h2 id="model-usage-empty-heading">本月还没有模型调用</h2>
-        <p>使用菜谱生成、图片识别等功能后，用量会自动记录在这里。</p>
+        <h2 id="model-usage-empty-heading">当前统计周期还没有模型使用记录</h2>
+        <p>使用菜谱生成、图片识别等功能后，费用和用量会自动记录在这里。</p>
       </div>
     </section>
   );

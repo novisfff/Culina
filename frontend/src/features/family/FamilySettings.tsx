@@ -121,7 +121,7 @@ function FamilyActivityPreview(props: {
           />
         )}
         {props.activityPhase === 'empty' && (
-          <StateBlock status="empty" title="暂无家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />
+          <StateBlock status="empty" title="还没有家庭活动" description="记录餐食、采购和食材后，这里会自动更新。" />
         )}
         {props.activityPhase === 'ready' && logs.slice(0, 4).map((log, index) => (
           <article key={log.id} className="family-activity-item">
@@ -136,7 +136,7 @@ function FamilyActivityPreview(props: {
         ))}
         {props.activityPhase === 'ready' && props.activityQuery.isError && (
           <button className="family-activity-preview-refresh-warning" type="button" onClick={props.onRetry}>
-            刷新失败，重试
+            暂时无法更新，请重试
           </button>
         )}
       </div>
@@ -157,7 +157,7 @@ export function FamilySettings(props: FamilySettingsProps) {
   if (props.isLoading) {
     return (
       <main className="family-workspace">
-        <StateBlock status="loading" title="正在加载家庭资料" description="正在同步家庭成员与饮食偏好。" />
+        <StateBlock status="loading" title="正在加载家庭信息" description="正在同步家庭成员与饮食偏好。" />
       </main>
     );
   }
@@ -165,7 +165,7 @@ export function FamilySettings(props: FamilySettingsProps) {
   if (props.errorMessage) {
     return (
       <main className="family-workspace">
-        <StateBlock status="error" title="家庭资料加载失败" description={props.errorMessage} />
+        <StateBlock status="error" title="家庭信息加载失败" description={props.errorMessage} />
       </main>
     );
   }
@@ -173,7 +173,7 @@ export function FamilySettings(props: FamilySettingsProps) {
   if (!props.family) {
     return (
       <main className="family-workspace">
-        <StateBlock status="empty" title="暂时没有家庭资料" description="加入或创建家庭后即可维护饮食偏好。" />
+        <StateBlock status="empty" title="还没有家庭信息" description="加入或创建家庭后即可设置饮食偏好。" />
       </main>
     );
   }
@@ -223,7 +223,7 @@ export function FamilySettings(props: FamilySettingsProps) {
               <p>
                 {props.isOwner
                   ? '管理家庭成员、权限和协作邀请，让一家人的厨房协作保持同步。'
-                  : '查看家庭成员、协作权限和自己的账号资料，安心参与厨房日常。'}
+                  : '查看家庭成员、协作权限和自己的账号信息，安心参与厨房日常。'}
               </p>
             </div>
             <div className="family-hero-actions">
@@ -235,13 +235,13 @@ export function FamilySettings(props: FamilySettingsProps) {
               ) : (
                 <button className="solid-button family-action-primary" type="button" onClick={() => props.onOverlayChange('profile')}>
                   <DashboardIcon name="user-plus" />
-                  编辑我的资料
+                  编辑个人信息
                 </button>
               )}
               {props.isOwner ? (
                 <button className="ghost-button family-action-secondary" type="button" onClick={() => props.onOverlayChange('family')}>
                   <DashboardIcon name="edit" />
-                  编辑家庭资料
+                  编辑家庭信息
                 </button>
               ) : (
                 <button className="ghost-button family-action-secondary" type="button" onClick={() => props.onOverlayChange('password')}>
@@ -262,12 +262,12 @@ export function FamilySettings(props: FamilySettingsProps) {
               />
             </div>
             <div className="family-profile-copy">
-              <h2>{props.family?.name ?? '未设置家庭名称'}</h2>
+              <h2>{props.family?.name ?? '未填写家庭名称'}</h2>
               <p className="family-location">
                 <DashboardIcon name="map-pin" />
-                {props.family?.location || '未填写位置'}
+                {props.family?.location || '还没有填写位置'}
               </p>
-              <p>{props.family?.motto || '补充一句家庭口号，让厨房工作台更有归属感。'}</p>
+              <p>{props.family?.motto || '补充一句家庭口号，方便家人识别。'}</p>
               <div className="family-chip-row">
                 <Badge>
                   <ShellIcon name="logo" />
@@ -295,20 +295,20 @@ export function FamilySettings(props: FamilySettingsProps) {
                 />
                 <div className="family-owner-copy">
                   <h3>{props.currentUser.display_name}</h3>
-                  <p>{props.membership?.role ?? 'Member'} · {props.currentUser.username}</p>
+                  <p>{props.membership?.role === 'Owner' ? '家庭主理人' : '成员'} · {props.currentUser.username}</p>
                   <span>
                     <DashboardIcon name="mail" />
-                    {props.currentUser.email ?? '未填写邮箱'}
+                    {props.currentUser.email ?? '还没有填写邮箱'}
                   </span>
                   <span>
                     <DashboardIcon name="link" />
-                    {props.currentUser.phone ?? '未填写手机号'}
+                    {props.currentUser.phone ?? '还没有填写手机号'}
                   </span>
                 </div>
                 <div className="family-owner-actions">
                   <button className="ghost-button button-compact" type="button" onClick={() => props.onOverlayChange('profile')}>
                     <DashboardIcon name="user-plus" />
-                    编辑资料
+                    编辑个人信息
                   </button>
                   <button className="ghost-button button-compact" type="button" onClick={() => props.onOverlayChange('password')}>
                     <DashboardIcon name="lock" />
@@ -341,7 +341,7 @@ export function FamilySettings(props: FamilySettingsProps) {
         </section>
 
         <section className="family-model-usage-entry-card" aria-labelledby="family-model-usage-heading">
-          <h2 id="family-model-usage-heading" className="family-model-usage-entry-heading">家庭工具</h2>
+          <h2 id="family-model-usage-heading" className="family-model-usage-entry-heading">家庭 AI 服务</h2>
           <button
             className="family-model-usage-entry"
             type="button"
@@ -354,7 +354,7 @@ export function FamilySettings(props: FamilySettingsProps) {
               <strong>模型用量</strong>
               <small>
                 {props.isOwner
-                  ? '查看本账期费用、家庭额度和使用明细'
+                  ? '查看本统计周期的费用、家庭额度和使用明细'
                 : '查看个人费用和当前家庭额度'}
               </small>
             </span>
@@ -370,7 +370,7 @@ export function FamilySettings(props: FamilySettingsProps) {
               </span>
               <span className="family-model-usage-entry-copy">
                 <strong>AI 服务</strong>
-                <small>管理家庭的模型服务、凭据、能力与价格</small>
+                <small>管理家庭的模型服务、密钥、功能与价格</small>
               </span>
             </button>
           ) : null}
@@ -395,8 +395,10 @@ export function FamilySettings(props: FamilySettingsProps) {
                     <p>{member.username}</p>
                     <span>
                       {member.id === props.currentUser?.id
-                        ? `今天记录 ${props.currentUserRecentLogs ?? '--'} 次`
-                        : member.email ?? member.phone ?? '等待补充联系信息'}
+                        ? props.currentUserRecentLogs === null
+                          ? '今天的记录暂未统计'
+                          : `今天记录 ${props.currentUserRecentLogs} 次`
+                        : member.email ?? member.phone ?? '还没有填写联系方式'}
                     </span>
                   </div>
                 </div>
@@ -414,7 +416,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                   ) : (
                     <span className={member.role === 'Owner' ? 'family-member-note owner' : 'family-member-note'}>
                       <DashboardIcon name={member.role === 'Owner' ? 'shield' : 'check'} />
-                      {member.role === 'Owner' ? '家庭管理员' : member.id === props.currentUser?.id ? '这是你' : '协作成员'}
+                      {member.role === 'Owner' ? '家庭主理人' : member.id === props.currentUser?.id ? '这是你' : '协作成员'}
                     </span>
                   )}
                 </div>
@@ -442,11 +444,11 @@ export function FamilySettings(props: FamilySettingsProps) {
                     <DashboardIcon name="link" />
                   </span>
                   <div>
-                    <strong>发送邀请链接</strong>
-                    <p>适合已有邮箱或手机号的家人加入</p>
+                    <strong>创建登录账号</strong>
+                    <p>填写成员信息和初始密码，创建后即可登录</p>
                   </div>
                   <button className="solid-button button-compact" type="button" onClick={() => props.onOverlayChange('invite')}>
-                    邀请成员
+                    创建账号
                   </button>
                 </article>
                 <article className="family-invite-option tone-account">
@@ -478,8 +480,8 @@ export function FamilySettings(props: FamilySettingsProps) {
                     <DashboardIcon name="lock" />
                   </span>
                   <div>
-                    <strong>家庭资料由主理人管理</strong>
-                    <p>成员邀请、家庭名称、位置和权限调整需要管理员处理。</p>
+                    <strong>家庭信息由主理人管理</strong>
+                    <p>成员邀请、家庭名称、位置和权限调整需要家庭主理人处理。</p>
                   </div>
                 </article>
                 {props.familyOwnerMember && (
@@ -493,7 +495,7 @@ export function FamilySettings(props: FamilySettingsProps) {
                       <strong>{props.familyOwnerMember.display_name}</strong>
                       <p>主理人 · {props.familyOwnerMember.username}</p>
                     </div>
-                    <Badge>管理员</Badge>
+                    <Badge>家庭主理人</Badge>
                   </article>
                 )}
               </div>
@@ -504,7 +506,7 @@ export function FamilySettings(props: FamilySettingsProps) {
               </span>
               <div>
                 <strong>权限说明</strong>
-                <p>主理人可管理家庭资料与成员权限；普通成员可参与食材、菜谱与记录协作。</p>
+                <p>主理人可管理家庭信息与成员权限；普通成员可参与食材、菜谱与记录协作。</p>
               </div>
             </div>
           </section>
@@ -525,7 +527,7 @@ export function FamilySettings(props: FamilySettingsProps) {
         <ProfileEditModal
           form={props.profileForm}
           currentUser={props.currentUser}
-          roleLabel={props.membership?.role ?? 'Member'}
+          roleLabel={props.membership?.role === 'Owner' ? '家庭主理人' : '成员'}
           isSubmitting={props.isUpdatingProfile}
           imageControls={props.profileImageControls}
           resolveAssetUrl={props.resolveAssetUrl}

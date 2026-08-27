@@ -64,13 +64,13 @@ export function FoodEditorCompletion(props: {
   return (
     <div className="food-editor-completion">
       <div className="food-editor-completion-head">
-        <span>资料完整度</span>
+        <span>信息完整度</span>
         <strong>{completionPercent}%</strong>
       </div>
       <div
         className="food-editor-completion-bar"
         role="progressbar"
-        aria-label="资料完整度"
+        aria-label="信息完整度"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={completionPercent}

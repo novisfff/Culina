@@ -25,11 +25,24 @@ type SearchProfilePanelProps = Pick<FamilyModelSettingsSurfaceProps,
   | 'onTestCapability'
 >;
 
+const SEARCH_REPLACEMENT_STATUS_LABELS: Record<string, string> = {
+  provisioning: '更新中',
+  failed: '更新失败',
+  active: '已启用',
+  cancelled: '已取消',
+  superseded: '已替换',
+  retired: '已停用',
+};
+
+function searchReplacementStatusLabel(status: string) {
+  return SEARCH_REPLACEMENT_STATUS_LABELS[status] ?? '处理中';
+}
+
 function findEmbedding(draft: FamilyModelSettingsDraft): FamilyModelEmbeddingBindingDraft {
   const binding = draft.bindings.find(
     (item): item is FamilyModelEmbeddingBindingDraft => item.capability === 'embedding',
   );
-  if (!binding) throw new Error('搜索向量配置缺失。');
+  if (!binding) throw new Error('搜索模型配置缺失。');
   return binding;
 }
 
@@ -98,15 +111,15 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
   const summary = (() => {
     if (replacementIsCandidate && replacement?.status === 'provisioning') {
       return {
-        title: '正在建立搜索索引',
-        description: '向量模型已经确认，系统正在为现有家庭内容建立索引。',
+        title: '正在准备智能搜索',
+        description: '搜索模型已确认，正在更新家庭内容的搜索数据。',
         tone: 'is-progress',
       };
     }
     if (replacementIsCandidate && replacement?.status === 'failed') {
       return {
-        title: '搜索索引建立失败',
-        description: '向量模型配置仍被保留，可以在下方重试，不会重复创建索引身份。',
+        title: '智能搜索准备失败',
+        description: '原搜索模型设置仍保留，可以在下方重试；已完成的内容不会重复处理。',
         tone: 'is-danger',
       };
     }
@@ -119,35 +132,35 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
     }
     if (activeSearchProfileId) {
       return {
-        title: '当前搜索索引已启用',
-        description: '向量模型身份已锁定；更换 Provider、模型或维度会完整重建索引。',
+        title: '当前智能搜索已启用',
+        description: '当前搜索设置已生效；更换模型服务、模型或维度时，需要重新生成搜索数据。',
         tone: 'is-ready',
       };
     }
     if (configuredSearchProfileId) {
       return {
-        title: '搜索索引已配置',
-        description: '向量模型已经锁定，系统正在同步索引状态。',
+        title: '智能搜索已配置',
+        description: '搜索模型已确认，正在更新家庭内容的搜索数据。',
         tone: 'is-progress',
       };
     }
     if (isInitialReady) {
       return {
-        title: '向量模型待确认',
-        description: '确认后会为全部家庭内容建立搜索索引，之后更换向量身份需要完整重建。',
+        title: '智能搜索待确认',
+        description: '确认后会为家庭内容开启智能搜索；之后更换搜索模型时，需要重新生成搜索数据。',
         tone: 'is-warning',
       };
     }
     if (embedding.enabled) {
       return {
-        title: '向量模型配置尚未完成',
-        description: '请补全 Provider、模型名称和向量维度，再确认建立索引。',
+        title: '搜索模型配置未完成',
+        description: '请补全模型服务、模型名称和模型维度，再确认开启搜索。',
         tone: 'is-warning',
       };
     }
     return {
-      title: '尚未配置搜索索引',
-      description: '先配置并确认向量模型，系统才会为家庭内容建立语义索引。',
+      title: '未配置智能搜索',
+      description: '先配置并确认搜索模型，系统才会为家庭内容准备智能搜索。',
       tone: '',
     };
   })();
@@ -243,8 +256,8 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
     <section className="family-model-settings-editor family-model-settings-search-editor" aria-labelledby="family-model-search-title">
       <div className="family-model-settings-section-head">
         <div>
-          <h2 id="family-model-search-title">搜索索引</h2>
-          <p>在这里统一管理搜索向量与结果重排。重建期间会继续使用当前可用索引。</p>
+          <h2 id="family-model-search-title">智能搜索</h2>
+          <p>在这里统一管理家庭内容的搜索方式。更新期间会继续使用当前搜索。</p>
         </div>
       </div>
 
@@ -256,12 +269,8 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
       {replacement && (replacementIsCandidate || replacementWasCancelled) ? (
         <section className="family-model-settings-search-progress" aria-live="polite">
           <div>
-            <h3>{activeSearchProfileId ? '替换索引进度' : '首次索引进度'}</h3>
-            <p>{replacement.status === 'provisioning'
-              ? '正在完整建立索引，可继续使用当前可用的搜索方式。'
-              : replacement.status === 'failed'
-                ? '索引建立失败，现有可用索引没有被替换。'
-                : '重建已取消，现有可用索引保持不变。'}</p>
+            <h3>{activeSearchProfileId ? '智能搜索更新进度' : '首次启用智能搜索'}</h3>
+            <p>{replacement.status === 'provisioning' ? '正在更新家庭内容的搜索数据，可继续使用当前搜索。' : replacement.status === 'failed' ? '搜索数据更新失败，现有搜索没有被替换。' : `当前状态：${searchReplacementStatusLabel(replacement.status)}`}</p>
           </div>
           <strong>{replacement.indexed_documents} / {replacement.total_documents}</strong>
           {replacement.failed_documents > 0 ? <span>失败 {replacement.failed_documents} 项</span> : null}
@@ -275,8 +284,8 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
             </div>
           ) : null}
           <div className="family-model-settings-editor-actions">
-            {replacement.status === 'failed' && replacement.retryable ? <button className="ghost-button" type="button" disabled={busy} onClick={() => { void retryReplacement(); }}>重试建立索引</button> : null}
-            {activeSearchProfileId && (replacement.status === 'provisioning' || replacement.status === 'failed') ? <button className="tertiary-button" type="button" disabled={busy} onClick={() => { void cancelReplacement(); }}>取消重建</button> : null}
+            {replacement.status === 'failed' && replacement.retryable ? <button className="ghost-button" type="button" disabled={busy} onClick={() => { void retryReplacement(); }}>重试更新</button> : null}
+            {activeSearchProfileId && (replacement.status === 'provisioning' || replacement.status === 'failed') ? <button className="tertiary-button" type="button" disabled={busy} onClick={() => { void cancelReplacement(); }}>取消更新</button> : null}
           </div>
         </section>
       ) : null}
@@ -285,7 +294,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
         <div className="family-model-settings-subsection-head">
           <div>
             <h3 id="family-model-search-capabilities-title">搜索模型</h3>
-            <p>搜索向量决定索引身份；搜索重排只影响结果顺序，可独立调整。</p>
+            <p>搜索模型决定如何理解家庭内容；结果排序只影响展示顺序，可独立调整。</p>
           </div>
         </div>
         <CapabilityBindingEditor
@@ -302,11 +311,11 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
         {!configuredSearchProfileId ? (
           <div className="family-model-settings-initial-search-action">
             <div>
-              <strong>首次确认后会锁定向量身份</strong>
-              <span>后续更换 Provider、向量模型或维度会进入高风险重建流程。</span>
+              <strong>确认后会保存搜索模型设置</strong>
+              <span>后续更换模型服务、搜索模型或维度时，需要重新生成搜索数据。</span>
             </div>
             <button className="solid-button" type="button" disabled={busy || !isInitialReady} onClick={() => setInitialConfirmOpen(true)}>
-              确认向量模型
+              确认搜索模型
             </button>
           </div>
         ) : null}
@@ -315,22 +324,22 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
       {activeSearchProfileId ? (
         <section className="family-model-settings-search-danger-zone" aria-labelledby="family-model-search-danger-title">
           <div>
-            <span>高风险操作</span>
-            <h3 id="family-model-search-danger-title">更换向量模型</h3>
-            <p>更换 Provider、向量模型或维度会建立一套全新索引。完成前继续使用当前索引，成功后再安全切换。</p>
+            <span>需要谨慎确认</span>
+            <h3 id="family-model-search-danger-title">更换搜索模型</h3>
+            <p>更换模型服务、搜索模型或维度时，需要重新生成搜索数据。更新完成前继续使用当前搜索，成功后再切换。</p>
           </div>
           {!replacementEditorOpen ? (
             <button className="family-model-settings-danger-action" type="button" disabled={busy} onClick={() => setReplacementEditorOpen(true)}>
-              更换向量模型（高风险）
+              更换搜索模型
             </button>
           ) : (
             <div className="family-model-settings-search-replacement">
               <div className="family-model-settings-form-grid">
                 <div className="family-model-settings-field">
-                  <span>新的 Provider 服务</span>
+                  <span>新的模型服务</span>
                   <DropdownSelect
-                    ariaLabel="新的 Provider 服务选项"
-                    triggerAriaLabel="新的 Provider 服务"
+                    ariaLabel="新的模型服务选项"
+                    triggerAriaLabel="新的模型服务"
                     placeholder="选择兼容服务"
                     value={providerProfileId}
                     options={embeddingProfiles.map((profile) => ({
@@ -342,7 +351,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
                     clearOption={{
                       value: '',
                       label: '选择兼容服务',
-                      description: '选择用于新搜索索引的 Embedding 服务。',
+                      description: '选择用于新搜索配置的模型服务。',
                     }}
                     disabled={busy}
                     className="family-model-settings-dropdown"
@@ -350,33 +359,33 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
                   />
                 </div>
                 <label className="family-model-settings-field">
-                  <span>新的向量模型</span>
-                  <input value={requestedModel} disabled={busy} onChange={(event) => { setRequestedModel(event.target.value); setPreview(null); }} placeholder="输入向量模型标识" />
+                  <span>新的搜索模型</span>
+                  <input value={requestedModel} disabled={busy} onChange={(event) => { setRequestedModel(event.target.value); setPreview(null); }} placeholder="输入模型名称" />
                 </label>
                 <label className="family-model-settings-field">
-                  <span>向量维度</span>
+                  <span>模型维度</span>
                   <input type="number" min="1" value={dimensions} disabled={busy} onChange={(event) => { setDimensions(event.target.value); setPreview(null); }} />
                 </label>
               </div>
               <div className="family-model-settings-editor-actions">
                 <button className="ghost-button" type="button" disabled={busy} onClick={() => { setReplacementEditorOpen(false); setPreview(null); }}>取消</button>
-                <button className="family-model-settings-danger-action" type="button" disabled={busy || !providerProfileId || !requestedModel.trim() || rates.length === 0} onClick={() => { void previewReplacement(); }}>评估完整重建</button>
+                <button className="family-model-settings-danger-action" type="button" disabled={busy || !providerProfileId || !requestedModel.trim() || rates.length === 0} onClick={() => { void previewReplacement(); }}>查看更新范围</button>
               </div>
               {preview ? (
                 <section className="family-model-settings-search-confirmation">
-                  <strong>预计重建 {preview.document_count} 份家庭文档</strong>
-                  <p>保守费用约 ¥{preview.conservative_estimated_cost_cny}。重建期间继续使用当前索引，只有新索引完整成功后才会切换。</p>
+                  <strong>预计更新 {preview.document_count} 项家庭内容的搜索数据</strong>
+                  <p>预计费用约 ¥{preview.conservative_estimated_cost_cny}。更新期间继续使用当前搜索，完成后才会切换。</p>
                   <label className="family-model-settings-field">
                     <span>当前密码</span>
                     <input type="password" autoComplete="current-password" value={currentPassword} disabled={busy} onChange={(event) => setCurrentPassword(event.target.value)} />
                   </label>
                   <label className="family-model-settings-checkbox-field">
                     <input type="checkbox" checked={confirmed} disabled={busy} onChange={(event) => setConfirmed(event.target.checked)} />
-                    <span>我确认更换向量身份，并理解系统会完整重建搜索索引。</span>
+                    <span>我确认更换搜索模型，并了解系统会重新生成全部家庭内容的搜索数据。</span>
                   </label>
                   <div className="family-model-settings-editor-actions">
                     <button className="ghost-button" type="button" disabled={busy} onClick={() => setPreview(null)}>返回修改</button>
-                    <button className="family-model-settings-danger-action" type="button" disabled={busy || !currentPassword || !confirmed} onClick={() => { void startReplacement(); }}>{busy ? '正在开始' : '确认并开始重建'}</button>
+                    <button className="family-model-settings-danger-action" type="button" disabled={busy || !currentPassword || !confirmed} onClick={() => { void startReplacement(); }}>{busy ? '正在开始' : '确认并开始更新'}</button>
                   </div>
                 </section>
               ) : null}
@@ -387,14 +396,14 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
 
       <ConfirmDialog
         open={initialConfirmOpen}
-        title="确认建立搜索索引"
+        title="确认开启智能搜索"
         description={(
           <div className="family-model-settings-initial-confirm-copy">
-            <p>确认后，系统会使用 <strong>{embedding.requested_model}</strong>（{embedding.dimensions} 维）为全部家庭内容建立搜索索引。</p>
-            <p>今后更换向量模型、Provider 或维度时，需要完整重建搜索索引。首次建立完成前不会提供语义搜索。</p>
+            <p>确认后，系统会使用 <strong>{embedding.requested_model}</strong>（{embedding.dimensions} 维）为家庭内容生成搜索数据，并开启智能搜索。</p>
+            <p>今后更换搜索模型、模型服务或维度时，需要重新生成搜索数据。更新完成前会继续使用当前搜索。</p>
           </div>
         )}
-        confirmLabel="确认并建立索引"
+        confirmLabel="确认并开启搜索"
         cancelLabel="返回检查"
         isSubmitting={busy}
         rootClassName="family-model-settings-confirm-root"

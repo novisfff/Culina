@@ -106,10 +106,10 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const editingMember = args.members.find((member) => member.id === args.memberEditMemberId);
   const homeHighlightsViewModel = buildHomeHighlightsViewModel(args.activityHighlights);
   const headerName = currentUser?.display_name ?? '家庭成员';
-  const sidebarRoleLabel = args.membershipRole === 'Owner' ? 'Owner' : '成员';
+  const sidebarRoleLabel = args.membershipRole === 'Owner' ? '家庭主理人' : '成员';
   const sidebarFamilyName = args.family?.name ?? 'Culina 家庭厨房';
-  const sidebarLocation = args.family?.location || '未设置位置';
-  const sidebarMotto = args.family?.motto || '把食物、食材、记录和协作放在一个安静的大屏工作区里。';
+  const sidebarLocation = args.family?.location || '还没有填写位置';
+  const sidebarMotto = args.family?.motto || '把食物、食材、记录和协作放在一个温暖的家庭厨房里。';
   const sidebarMemberLabel = `${args.members.length} 位成员`;
   const sidebarActivityLabel = homeHighlightsViewModel.weekCountLabel;
   const sidebarUserMeta = currentUser?.username ? `${sidebarRoleLabel} · ${currentUser.username}` : sidebarRoleLabel;

@@ -108,32 +108,32 @@ async function renderApproval(
 describe('AiInventoryIntakeApproval', () => {
   it('renders grouped shopping direct and ignored sections without submit button', async () => {
     const { container: node } = await renderApproval(baseDraft());
-    expect(node.querySelector('[aria-label="确认入库内容"]')).not.toBeNull();
-    expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')?.textContent).toContain('本次入库概览');
+    expect(node.querySelector('[aria-label="确认库存更新内容"]')).not.toBeNull();
+    expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')?.textContent).toContain('本次库存更新概览');
     expect(Array.from(node.querySelectorAll('.ai-draft-section h3')).map((heading) => heading.textContent)).toEqual(
-      expect.arrayContaining(['采购清单关联', '直接入库']),
+      expect.arrayContaining(['采购清单内容', '直接加入库存']),
     );
-    expect(node.querySelector('[role="note"][aria-label="还需补充"]')).not.toBeNull();
-    expect(node.textContent).toContain('采购清单关联');
-    expect(node.textContent).toContain('直接入库');
+    expect(node.querySelector('[role="note"][aria-label="还需要补充"]')).not.toBeNull();
+    expect(node.textContent).toContain('采购清单内容');
+    expect(node.textContent).toContain('直接加入库存');
     expect(node.textContent).toContain('已忽略');
     expect(node.textContent).toContain('鸡蛋');
     expect(node.textContent).toContain('牛奶');
     expect(node.textContent).toContain('垃圾袋');
-    expect(node.textContent).toContain('只增加库存，不创建或完成采购项');
+    expect(node.textContent).toContain('这里只会加入库存，不会新增或完成采购清单内容');
     expect(node.textContent).toContain('无需确认');
     expect(node.textContent).not.toMatch(/还需确认/);
     expect(node.querySelector('button[type="submit"]')).toBeNull();
-    expect(Array.from(node.querySelectorAll('button')).some((button) => /确认入库|提交/.test(button.textContent || ''))).toBe(false);
+    expect(Array.from(node.querySelectorAll('button')).some((button) => /确认加入库存|提交/.test(button.textContent || ''))).toBe(false);
   });
 
   it('presents a compact overview and collapses ignored section by default', async () => {
     const { container: node } = await renderApproval(baseDraft());
     expect(node.querySelector('.ai-draft-summary-card.ai-inventory-intake-summary-card')).not.toBeNull();
-    expect(node.querySelector('[aria-label="入库项清单"]')).not.toBeNull();
+    expect(node.querySelector('[aria-label="库存清单"]')).not.toBeNull();
     const ignored = node.querySelector('.ai-inventory-intake-ignored');
     expect(ignored).not.toBeNull();
-    expect(ignored?.textContent).toContain('不会写入库存');
+    expect(ignored?.textContent).toContain('不会保存到库存');
 
     const toggle = ignored?.querySelector<HTMLButtonElement>('button.ai-inventory-intake-ignored-toggle');
     expect(toggle).not.toBeNull();
@@ -156,10 +156,10 @@ describe('AiInventoryIntakeApproval', () => {
 
     expect(overview?.querySelector('input[type="date"]')).toBeNull();
     expect(dateConfig).not.toBeNull();
-    expect(dateConfig?.textContent).toContain('调整入库日期');
+    expect(dateConfig?.textContent).toContain('调整记录日期');
     expect(dateConfig?.querySelector('.ai-inventory-intake-date-icon')).not.toBeNull();
     const dateTrigger = dateConfig?.querySelector<HTMLButtonElement>('.ui-date-picker-trigger');
-    expect(dateTrigger?.getAttribute('aria-label')).toContain('入库日期');
+    expect(dateTrigger?.getAttribute('aria-label')).toContain('记录日期');
     expect(dateTrigger?.textContent).toContain('2026年7月21日');
     expect(dateConfig?.querySelector('input[type="date"]')).toBeNull();
     expect(dateConfig?.querySelector('.ai-inventory-intake-source-badge')?.textContent).toBe('来自小票');
@@ -168,7 +168,7 @@ describe('AiInventoryIntakeApproval', () => {
   it('renders resolved intake as a compact summary without editor controls', async () => {
     const { container: node } = await renderApproval(baseDraft(), vi.fn(), true, 'approved');
 
-    expect(node.querySelector('.ai-draft-resolved-summary.ai-inventory-intake-summary-card')?.textContent).toContain('入库已确认');
+    expect(node.querySelector('.ai-draft-resolved-summary.ai-inventory-intake-summary-card')?.textContent).toContain('库存已确认');
     expect(node.querySelector('input, select, textarea')).toBeNull();
   });
 
@@ -179,7 +179,7 @@ describe('AiInventoryIntakeApproval', () => {
     const milkToggle = Array.from(node.querySelectorAll('button[aria-expanded]'))
       .find((button) => button.textContent?.includes('牛奶'));
     expect(eggToggle?.textContent).toContain('已就绪');
-    expect(milkToggle?.textContent).toContain('需补充');
+    expect(milkToggle?.textContent).toContain('需要补充');
   });
 
   it('starts incomplete rows expanded and complete rows collapsed', async () => {
@@ -192,7 +192,7 @@ describe('AiInventoryIntakeApproval', () => {
     expect(milkToggle?.getAttribute('aria-expanded')).toBe('true');
     expect(milkToggle?.querySelector('.ai-inventory-intake-chevron-icon')).not.toBeNull();
     expect(node.querySelector('.ai-inventory-intake-source-text svg')).not.toBeNull();
-    expect(node.querySelector('input[aria-label="牛奶实际入库数量"]')).not.toBeNull();
+    expect(node.querySelector('input[aria-label="牛奶实际数量"]')).not.toBeNull();
   });
 
   it('patches quantity through onChange while preserving protected identity', async () => {
@@ -202,7 +202,7 @@ describe('AiInventoryIntakeApproval', () => {
       .find((button) => button.textContent?.includes('牛奶')) as HTMLButtonElement;
     expect(milkToggle).toBeTruthy();
 
-    const quantityInput = node.querySelector('input[aria-label="牛奶实际入库数量"]') as HTMLInputElement;
+    const quantityInput = node.querySelector('input[aria-label="牛奶实际数量"]') as HTMLInputElement;
     expect(quantityInput).toBeTruthy();
     await act(async () => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -234,7 +234,7 @@ describe('AiInventoryIntakeApproval', () => {
     await act(async () => toggle?.click());
 
     const conversion = node.querySelector('fieldset.ai-inventory-intake-conversion');
-    expect(conversion?.querySelector('legend')?.textContent).toBe('一次性包装换算');
+    expect(conversion?.querySelector('legend')?.textContent).toBe('包装换算');
   });
 
   it('keeps ignored rows read-only', async () => {
@@ -281,11 +281,11 @@ describe('AiInventoryIntakeApproval', () => {
     });
     const labels = Array.from(actionField?.querySelectorAll<HTMLButtonElement>('.ai-single-select-menu button') ?? [])
       .map((button) => button.textContent?.replace('✓', '').trim());
-    expect(labels).toEqual(expect.arrayContaining(['完成并登记库存', '仅完成采购项，不入库', '跳过本行']));
-    expect(labels).not.toContain('直接入库');
+    expect(labels).toEqual(expect.arrayContaining(['完成购买并加入库存', '只记录已购买，不加入库存', '跳过这项']));
+    expect(labels).not.toContain('直接加入库存');
     expect(node.querySelector('select')).toBeNull();
     const skipOption = Array.from(actionField?.querySelectorAll<HTMLButtonElement>('.ai-single-select-menu button') ?? [])
-      .find((button) => button.textContent?.includes('跳过本行'));
+      .find((button) => button.textContent?.includes('跳过这项'));
     await act(async () => {
       skipOption?.click();
     });

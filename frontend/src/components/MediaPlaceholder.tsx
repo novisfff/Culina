@@ -4,7 +4,7 @@ import { mediaAccessReferenceFromUrl, renewMediaUrl, shouldRenewMediaUrl } from 
 export type MediaPlaceholderState = 'empty' | 'loading' | 'error';
 
 const DEFAULT_MEDIA_PLACEHOLDER_LABELS: Record<MediaPlaceholderState, string> = {
-  empty: '暂无图片',
+  empty: '还没有图片',
   loading: '图片加载中',
   error: '图片加载失败',
 };
@@ -109,6 +109,7 @@ export function MediaWithPlaceholder(props: {
   const [loaded, setLoaded] = useState(false);
   const renewalAttempted = useRef(false);
   const sourceGeneration = useRef(0);
+  const imageLoading = props.loading ?? 'lazy';
 
   const applyTerminalFailure = () => {
     if (props.fallbackSrc && activeSrc !== props.fallbackSrc) {
@@ -145,7 +146,7 @@ export function MediaWithPlaceholder(props: {
     setActiveSrc(source);
     setFailed(false);
     setLoaded(false);
-    if (source && shouldRenewMediaUrl(source)) {
+    if (source && imageLoading === 'eager' && shouldRenewMediaUrl(source)) {
       void renewActiveSource(source, generation).then((renewed) => {
         if (!renewed) applyTerminalFailure();
       });
@@ -155,7 +156,7 @@ export function MediaWithPlaceholder(props: {
         sourceGeneration.current += 1;
       }
     };
-  }, [props.src]);
+  }, [imageLoading, props.src]);
 
   const state: MediaPlaceholderState | 'loaded' = !activeSrc ? 'empty' : failed ? 'error' : loaded ? 'loaded' : 'loading';
   const label =
@@ -184,7 +185,7 @@ export function MediaWithPlaceholder(props: {
           sizes={activeSrc === props.src ? props.sizes : undefined}
           alt={props.alt}
           className={props.imageClassName}
-          loading={props.loading}
+          loading={imageLoading}
           decoding={props.decoding}
           aria-hidden={props.ariaHidden}
           onLoad={() => setLoaded(true)}

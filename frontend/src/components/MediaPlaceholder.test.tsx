@@ -45,7 +45,7 @@ describe('MediaWithPlaceholder', () => {
     expect(container.querySelector('.media-placeholder-empty-icon')).not.toBeNull();
     expect(container.querySelector('.media-placeholder-glow')).toBeNull();
     expect(container.querySelector('.media-placeholder-spark')).toBeNull();
-    expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('暂无图片');
+    expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('还没有图片');
     expect(container.querySelector('img')).toBeNull();
 
     act(() => root.unmount());
@@ -68,6 +68,19 @@ describe('MediaWithPlaceholder', () => {
     expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('图片加载中');
     expect(container.querySelector('img')).not.toBeNull();
 
+    act(() => root.unmount());
+  });
+
+  it('defaults media loading to lazy so large lists do not fetch every image at once', () => {
+    container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(<MediaWithPlaceholder src="/loading-image.jpg" alt="测试菜品" />);
+    });
+
+    expect(container.querySelector('img')?.getAttribute('loading')).toBe('lazy');
     act(() => root.unmount());
   });
 
@@ -122,7 +135,7 @@ describe('MediaWithPlaceholder', () => {
     act(() => root.unmount());
   });
 
-  it('renews an expired capability before a lazy image loads', async () => {
+  it('defers expired capability renewal until a lazy image is actually requested', async () => {
     vi.mocked(mediaApi.getMediaAccess).mockResolvedValue({
       id: 'photo-renew',
       name: 'renew.jpg',
@@ -143,6 +156,12 @@ describe('MediaWithPlaceholder', () => {
           loading="lazy"
         />
       );
+      await Promise.resolve();
+    });
+
+    expect(mediaApi.getMediaAccess).not.toHaveBeenCalled();
+    await act(async () => {
+      container?.querySelector('img')?.dispatchEvent(new Event('error'));
       await Promise.resolve();
     });
 

@@ -10,7 +10,7 @@ export const QUICK_FILTERS: Array<{ value: RecipeQuickFilter; label: string }> =
   { value: 'quick', label: '快手' },
   { value: 'common', label: '常做' },
   { value: 'favorite', label: '收藏' },
-  { value: 'missing', label: '缺料' },
+  { value: 'missing', label: '缺少食材' },
 ];
 
 export const SORT_OPTIONS: Array<{ value: RecipeSortMode; label: string }> = [
@@ -29,7 +29,7 @@ export const MEAL_TYPE_OPTIONS: Array<{ value: MealType; label: string }> = [
 
 export const SHOPPING_UNIT_OPTIONS = ['个', '颗', '盒', '袋', '斤', '克', '瓶', '把', '份', '片'];
 export const FALLBACK_SCENES = ['工作日晚餐', '孩子也能吃', '周末轻食', '高蛋白', '早餐', '汤羹'];
-export const DUPLICATED_TYPE_LABELS = new Set(['全部', '为你推荐', '快手', '快手菜', '下饭菜', '缺料', '可做', '常做', '家常菜']);
+export const DUPLICATED_TYPE_LABELS = new Set(['全部', '为你推荐', '快手', '快手菜', '下饭菜', '缺少食材', '可做', '常做', '家常菜']);
 export const OPTIONAL_INGREDIENT_NOTE_PATTERN = /^(?:可选|选用|装饰|替代|没有可不放)[：:\s、，,]*/;
 export const MAX_STEP_KEY_POINTS = 3;
 
@@ -49,20 +49,20 @@ export const DISCOVERY_SECTION_COPY: Record<RecipeQuickFilter, { title: string; 
   ready: {
     title: '可做菜谱',
     description: '优先展示当前库存更容易安排的菜谱',
-    emptyTitle: '暂无可做菜谱',
+    emptyTitle: '还没有可以开始做的菜谱',
     emptyDescription: '补充库存后，可直接做的菜谱会显示在这里。',
   },
   quick: {
     title: '快手',
     description: '适合 20 分钟内快速开饭',
-    emptyTitle: '暂无快手菜',
+    emptyTitle: '还没有快手菜',
     emptyDescription: '把准备时长设置在 20 分钟以内，就会归入快手菜。',
   },
   common: {
     title: '常做',
     description: '来自收藏、常做和高频餐食记录',
-    emptyTitle: '暂无常做菜谱',
-    emptyDescription: '收藏或多记录几次常吃菜谱后会自动聚合。',
+    emptyTitle: '还没有常做菜谱',
+    emptyDescription: '收藏或多记录几次常吃菜谱后，会自动显示在这里。',
   },
   favorite: {
     title: '我的收藏',
@@ -71,9 +71,9 @@ export const DISCOVERY_SECTION_COPY: Record<RecipeQuickFilter, { title: string; 
     emptyDescription: '点亮菜谱卡片上的收藏，之后会集中显示在这里。',
   },
   missing: {
-    title: '缺料菜谱',
+    title: '缺少食材的菜谱',
     description: '这些菜谱需要先补齐部分食材',
-    emptyTitle: '当前没有缺料菜谱',
+    emptyTitle: '当前没有缺少食材的菜谱',
     emptyDescription: '库存充足时这里会变少，可以切回为你推荐。',
   },
 };
@@ -88,12 +88,12 @@ export const RECIPE_STEP_ICON_OPTIONS = [
 ];
 
 export const COOK_TIMER_PRESETS = [
-  { label: '正计时', seconds: null },
+  { label: '记录已用时间', seconds: null },
   { label: '自定义', seconds: 'custom' as const },
-  { label: '30秒', seconds: 30 },
-  { label: '1分钟', seconds: 60 },
-  { label: '2分钟', seconds: 120 },
-  { label: '3分钟', seconds: 180 },
-  { label: '5分钟', seconds: 300 },
-  { label: '10分钟', seconds: 600 },
+  { label: '30 秒', seconds: 30 },
+  { label: '1 分钟', seconds: 60 },
+  { label: '2 分钟', seconds: 120 },
+  { label: '3 分钟', seconds: 180 },
+  { label: '5 分钟', seconds: 300 },
+  { label: '10 分钟', seconds: 600 },
 ];

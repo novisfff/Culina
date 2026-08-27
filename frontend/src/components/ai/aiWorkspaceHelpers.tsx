@@ -62,8 +62,18 @@ function hasOnlyTextParts(message: AiMessage) {
 export function extractRunActivitySkillName(event: AiRunEvent | undefined) {
   if (!event) return '任务规划';
   const match = event.user_message.match(/「(.+?)」技能/);
-  if (match?.[1]) return match[1];
-  return event.user_message.replace(/(?:执行完成|等待补充信息|等待补充)$/, '').trim() || event.user_message;
+  const rawName = match?.[1] || event.user_message.replace(/(?:执行完成|等待补充信息|等待补充|等你补充)$/, '').trim() || event.user_message;
+  const labels: Record<string, string> = {
+    inventory_analysis: '库存查看',
+    meal_plan: '餐食计划',
+    shopping_list: '采购清单',
+    meal_log: '餐食记录',
+    food_profile: '食物信息',
+    ingredient_profile: '食材信息',
+    recipe_draft: '菜谱',
+    recipe_cook: '做菜助手',
+  };
+  return labels[rawName] ?? rawName;
 }
 
 export function isDraftRunActivityEvent(event: AiRunEvent) {

@@ -48,15 +48,15 @@ export function HomeCompactCalendar(props: {
     ? `${selectedDay.isToday ? '今天' : `周${selectedDay.weekday}`} · ${selectedDateLabel}`
     : '已选日期';
   const selectedDayPlanSummary = isSelectedDayEmpty
-    ? '当日还没有安排菜单'
+    ? '当日还没有安排餐食'
     : selectedDayProgress.totalCount
-      ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项计划 · 已记录 ${selectedDayProgress.recordedCount} 项`
-      : '当天暂无安排';
+      ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项餐食安排 · 已记录 ${selectedDayProgress.recordedCount} 项`
+      : '当天还没有安排餐食';
 
   return (
     <section
       className={props.mobile ? 'home-compact-calendar is-mobile-calendar' : 'home-compact-calendar'}
-      aria-label="七天菜单"
+      aria-label="七天餐食计划"
       data-testid={props.mobile ? 'mobile-week-plan' : 'home-week-plan'}
       data-state={isSelectedDayEmpty ? 'empty' : 'ready'}
     >
@@ -114,7 +114,7 @@ export function HomeCompactCalendar(props: {
             <button
               key={day.date}
               type="button"
-              aria-label={`选择 ${day.date}，${day.totalCount} 项菜单`}
+              aria-label={`选择 ${day.date}，${day.totalCount} 项餐食安排`}
               aria-pressed={day.date === props.selectedDate}
               className={[
                 day.date === props.selectedDate ? 'is-selected' : '',
@@ -195,7 +195,7 @@ export function HomeCompactCalendar(props: {
               />
             </div>
             <div className="home-compact-week-empty-copy">
-              <strong>当日还没有安排菜单</strong>
+              <strong>当日还没有安排餐食</strong>
               <p>从任意餐次开始安排，让当天吃什么更清楚。</p>
             </div>
             <div className="home-compact-week-empty-actions" aria-label="餐次安排入口">
@@ -236,10 +236,10 @@ export function HomeCompactCalendar(props: {
                   : 'home-compact-full-week-button is-empty-day-button'
               }
               type="button"
-              aria-label="完整周菜单"
+              aria-label="整周餐食计划"
               onClick={() => props.onOpenFullWeek(props.selectedDate)}
             >
-              <span>完整周菜单</span>
+                  <span>整周餐食计划</span>
               <DashboardIcon name="arrow-right" />
             </button>
           </div>
@@ -252,17 +252,17 @@ export function HomeCompactCalendar(props: {
               <strong>{selectedDateLabel}</strong>
               <small>
                 {selectedDayProgress.totalCount
-                  ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项计划 · 已记录 ${selectedDayProgress.recordedCount} 项`
-                  : '当天暂无安排'}
+                  ? `${selectedDay?.plannedMealCount ?? 0} 个餐次 · ${selectedDayProgress.totalCount} 项餐食安排 · 已记录 ${selectedDayProgress.recordedCount} 项`
+                  : '当天还没有安排餐食'}
               </small>
             </div>
             <button
               className="home-compact-full-week-button"
               type="button"
-              aria-label="完整周菜单"
+              aria-label="整周餐食计划"
               onClick={() => props.onOpenFullWeek(props.selectedDate)}
             >
-              <span>完整周菜单</span>
+              <span>整周餐食计划</span>
               <DashboardIcon name="arrow-right" />
             </button>
           </div>
@@ -305,7 +305,7 @@ export function HomeCompactCalendar(props: {
                   {progress.totalCount > 0 && (
                     <>
                       <span className="home-compact-meal-status-long">
-                        {progress.totalCount} 项计划 · 已记录 {progress.recordedCount} 项
+                        {progress.totalCount} 项餐食安排 · 已记录 {progress.recordedCount} 项
                       </span>
                       <span className="home-compact-meal-status-tablet">
                         已记 {progress.recordedCount}/{progress.totalCount}
@@ -331,7 +331,7 @@ export function HomeCompactCalendar(props: {
                             .join(' ')}
                           type="button"
                           title={title}
-                          aria-label={`${title}，${item.status === 'cooked' ? '已记录' : '待记录'}`}
+                          aria-label={`${title}，${item.status === 'cooked' ? '已记录' : '还未记录'}`}
                           onClick={() => props.onOpenPlanDetail(item)}
                         >
                           <MediaWithPlaceholder
@@ -379,10 +379,10 @@ export function HomeCompactCalendar(props: {
           <button
             className="home-compact-full-week-button is-mobile-button"
             type="button"
-            aria-label="完整周菜单"
+            aria-label="整周餐食计划"
             onClick={() => props.onOpenFullWeek(props.selectedDate)}
           >
-            <span>完整周菜单</span>
+            <span>整周餐食计划</span>
             <DashboardIcon name="arrow-right" />
           </button>
         )}

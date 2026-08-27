@@ -194,7 +194,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
     }
     const currentState = stateRef.current;
     if (!currentState.draft) {
-      currentState.setErrorMessage('没有可提交的采购草稿。');
+      currentState.setErrorMessage('没有可提交的采购内容。');
       return;
     }
 
@@ -207,7 +207,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
     try {
       payload = buildShoppingIntakePayload(stateRef.current.draft!);
     } catch (reason) {
-      stateRef.current.setErrorMessage(messageOf(reason, '请检查采购项后再提交。'));
+      stateRef.current.setErrorMessage(messageOf(reason, '请检查待买内容后再提交。'));
       return;
     }
 
@@ -236,7 +236,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
           stateRef.current.setErrorMessage(
             fieldErrors.length === 1
               ? first.message
-              : `还有 ${fieldErrors.length} 处需要确认后才能入库。`,
+              : `还有 ${fieldErrors.length} 项需要确认后才能保存。`,
           );
         } else {
           stateRef.current.setErrorMessage(messageOf(reason, '提交内容无效，请检查后重试。'));
@@ -251,7 +251,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
         stateRef.current.setConflictState(conflictState);
         stateRef.current.setErrorMessage(
           detail?.message ||
-            messageOf(reason, '家人可能刚改动了采购项或库存，请刷新后重新确认。'),
+            messageOf(reason, '家人可能刚改动了待买内容或库存，请刷新后重新确认。'),
         );
         let conflictDraft = stateRef.current.draft;
         if (conflictState === 'idempotency_key_reused' && conflictDraft) {
@@ -283,7 +283,7 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
         return;
       }
 
-      stateRef.current.setErrorMessage(messageOf(reason, '登记本次购买失败，请稍后重试。'));
+      stateRef.current.setErrorMessage(messageOf(reason, '记录本次购买失败，请稍后重试。'));
       return;
     } finally {
       if (!writeSucceeded) {
@@ -302,8 +302,8 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
       stateRef.current.setErrorMessage(null);
       showNoticeRef.current?.({
         tone: 'success',
-        title: result?.summary.title || '本次购买已登记',
-        message: result?.summary.description || '库存与采购项已同步更新。',
+        title: result?.summary.title || '本次购买已记录',
+        message: result?.summary.description || '库存和采购清单已更新。',
       });
     } catch (reason) {
       // Write already succeeded — still show result, warn about refresh.
@@ -311,8 +311,8 @@ export function useShoppingIntakeActions(args: UseShoppingIntakeActionsArgs): Sh
       stateRef.current.setStep('result');
       showNoticeRef.current?.({
         tone: 'warning',
-        title: '购买已登记，但数据刷新失败',
-        message: messageOf(reason, '请下拉刷新后再继续。'),
+        title: '购买已记录',
+        message: messageOf(reason, '页面暂时没有更新，请下拉刷新后再试。'),
       });
     } finally {
       stateRef.current.setBusy(false);

@@ -20,7 +20,7 @@ function foodNames(foods: Array<{ name: string }>): string {
 }
 
 function candidatePrompt(mealType: MealType): string {
-  return mealType === 'snack' ? '要和这次加餐记在一起吗？' : '和今晚这顿一起记吗？';
+  return `要和这顿${MEAL_TYPE_LABELS[mealType] ?? '餐食'}记在一起吗？`;
 }
 
 function formatRecordedAt(iso: string): string {
@@ -57,7 +57,7 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
 
   if (props.mode === 'single') {
     const only = props.candidates[0]!;
-    const names = foodNames(only.foods) || '已有记录';
+    const names = foodNames(only.foods) || '已记录的食物';
     const mealPhoto = only.photo_count > 0 ? only.preview_media ?? null : null;
     const imageAlt = mealPhoto?.alt?.trim() || names;
     const isJoinSelected = props.target.kind === 'existing';
@@ -67,7 +67,7 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
         <div className="meal-composer-candidate-single">
           <div className="meal-composer-candidate-copy">
             <strong>{candidatePrompt(props.mealType)}</strong>
-            <span>{foodNames(only.foods) || '已有记录'}</span>
+            <span>{foodNames(only.foods) || '已记录的食物'}</span>
           </div>
           <span className="meal-composer-candidate-media">
             <MealCover
@@ -134,7 +134,7 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
       <div className="meal-composer-candidate-list" role="listbox" aria-label="候选餐列表">
         {props.candidates.map((item) => {
           const selectedItem = props.selectedCandidateId === item.meal_log_id && props.target.kind === 'existing';
-          const names = foodNames(item.foods) || '已有记录';
+          const names = foodNames(item.foods) || '已记录的食物';
           const mealPhoto = item.photo_count > 0 ? item.preview_media ?? null : null;
           return (
             <button
@@ -196,7 +196,7 @@ export function MealCandidateSelector(props: MealCandidateSelectorProps) {
         >
           <span className="meal-composer-candidate-option-copy">
             <strong>另记一顿</strong>
-            <span>不合并到已有记录</span>
+            <span>和已有记录分开</span>
           </span>
           <span className="meal-composer-candidate-option-indicator" aria-hidden="true" />
         </button>

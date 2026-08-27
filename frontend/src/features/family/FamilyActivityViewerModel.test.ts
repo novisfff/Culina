@@ -107,7 +107,7 @@ describe('FamilyActivityViewerModel', () => {
 
   it('maps known labels and detects active filters', () => {
     expect(familyActivityActionLabel('create')).toBe('新增');
-    expect(familyActivityEntityLabel('ShoppingListItem')).toBe('购物清单');
+    expect(familyActivityEntityLabel('ShoppingListItem')).toBe('采购清单');
     expect(familyActivityActionLabel('archive')).toBe('archive');
     expect(hasFamilyActivityFilters(DEFAULT_FAMILY_ACTIVITY_FILTERS)).toBe(false);
     expect(hasFamilyActivityFilters({ ...DEFAULT_FAMILY_ACTIVITY_FILTERS, actorId: 'user-1' })).toBe(true);

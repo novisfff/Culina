@@ -273,8 +273,8 @@ describe('ModelUsageWorkspace', () => {
 
     expect(await screen.findByRole('heading', { name: '每日费用趋势' })).toBeVisible();
     expect(screen.getByText('近 30 天')).toBeVisible();
-    expect(screen.getByRole('heading', { name: '费用细分' })).toBeVisible();
-    expect(screen.getByLabelText('细分方式')).toBeVisible();
+    expect(screen.getByRole('heading', { name: '费用明细' })).toBeVisible();
+    expect(screen.getByLabelText('查看方式')).toBeVisible();
     expect(screen.queryByText('统计维度')).not.toBeInTheDocument();
   });
 
@@ -283,10 +283,10 @@ describe('ModelUsageWorkspace', () => {
     modelUsageApi.getModelUsageAlerts.mockResolvedValue([usageAlert()]);
     renderWorkspace();
 
-    const summary = (await screen.findByText('7 月已记录费用')).closest('section');
+    const summary = (await screen.findByText('7 月已计入费用')).closest('section');
     const attention = screen.getByRole('heading', { name: '家庭预算已达到 80%' }).closest('section');
     const insights = screen.getByRole('heading', { name: '费用趋势与用量构成' }).closest('section');
-    const details = screen.getByRole('heading', { name: '费用细分' }).closest('section');
+    const details = screen.getByRole('heading', { name: '费用明细' }).closest('section');
 
     const sections = [summary, insights, attention, details];
     expect(sections.every(Boolean)).toBe(true);
@@ -301,14 +301,14 @@ describe('ModelUsageWorkspace', () => {
     resolveOwner();
     renderWorkspace();
 
-    const heading = await screen.findByRole('heading', { name: '费用细分' });
+    const heading = await screen.findByRole('heading', { name: '费用明细' });
     const section = heading.closest('section');
 
     expect(section).toHaveClass('model-usage-breakdown-ledger');
-    const table = within(section as HTMLElement).getByRole('table', { name: '费用细分明细' });
+    const table = within(section as HTMLElement).getByRole('table', { name: '费用明细' });
     expect(table).toHaveClass('model-usage-breakdown-table');
-    expect(within(table).getByRole('columnheader', { name: '能力' })).toBeVisible();
-    expect(within(table).getByRole('columnheader', { name: '已记录费用' })).toBeVisible();
+    expect(within(table).getByRole('columnheader', { name: '功能' })).toBeVisible();
+    expect(within(table).getByRole('columnheader', { name: '已计入费用' })).toBeVisible();
   });
 
   it('requests overview, selected breakdown and daily trend for the selected historical month', async () => {
@@ -316,7 +316,7 @@ describe('ModelUsageWorkspace', () => {
     renderWorkspace();
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
-    fireEvent.change(screen.getByLabelText('选择账期'), { target: { value: '2026-06' } });
+    fireEvent.change(screen.getByLabelText('选择统计周期'), { target: { value: '2026-06' } });
 
     await waitFor(() => expect(modelUsageApi.getFamilyModelUsageOverview).toHaveBeenCalledWith('2026-06'));
     expect(modelUsageApi.getFamilyModelUsageBreakdown).toHaveBeenCalledWith('2026-06', 'capability');
@@ -336,7 +336,7 @@ describe('ModelUsageWorkspace', () => {
     });
     renderWorkspace({ isPhoneViewport: true });
 
-    const meterPanel = (await screen.findByRole('heading', { name: '计量足迹' })).closest('article');
+    const meterPanel = (await screen.findByRole('heading', { name: '用量明细' })).closest('article');
     expect(meterPanel).not.toBeNull();
     expect(within(meterPanel as HTMLElement).getByText('生成图片')).toBeVisible();
     expect(within(meterPanel as HTMLElement).getByText('2')).toBeVisible();
@@ -350,7 +350,7 @@ describe('ModelUsageWorkspace', () => {
     ));
     renderWorkspace();
 
-    expect(await screen.findByText('从 2026 年 7 月 10 日开始记录')).toBeVisible();
+    expect(await screen.findByText('自 2026 年 7 月 10 日起记录')).toBeVisible();
     expect(screen.queryByText(/本月数据不包含此前调用/)).not.toBeInTheDocument();
   });
 
@@ -362,7 +362,7 @@ describe('ModelUsageWorkspace', () => {
     ));
     renderWorkspace({ isPhoneViewport: true });
 
-    expect(await screen.findByText('从 2026 年 7 月 10 日开始记录')).toBeVisible();
+    expect(await screen.findByText('自 2026 年 7 月 10 日起记录')).toBeVisible();
     expect(screen.queryByText(/本月数据不包含此前调用/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '返回家庭页' })).toBeVisible();
   });
@@ -383,7 +383,7 @@ describe('ModelUsageWorkspace', () => {
     renderWorkspace();
 
     expect(await screen.findByRole('heading', { name: '家庭预算已达到 80%' })).toBeVisible();
-    expect(screen.getAllByText('额度判断').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('计入额度').length).toBeGreaterThan(0);
     expect(screen.getByText('¥64.50')).toBeVisible();
     expect(screen.getAllByText('月预算').length).toBeGreaterThan(0);
     expect(screen.getAllByText('¥80.00').length).toBeGreaterThan(0);
@@ -400,10 +400,10 @@ describe('ModelUsageWorkspace', () => {
     }));
     renderWorkspace();
 
-    const summary = await screen.findByRole('region', { name: '7 月已记录费用' });
+    const summary = await screen.findByRole('region', { name: '7 月已计入费用' });
     expect(within(summary).getByText('¥12.35')).toBeVisible();
     expect(within(summary).queryByText(/另有未定价用量/)).not.toBeInTheDocument();
-    expect(screen.getByText('1 次调用尚未定价，暂未计入上方费用。')).toBeVisible();
+    expect(screen.getByText('1 次请求还没有定价，暂不计入上方费用。')).toBeVisible();
   });
 
   it('shows a personal budget state once instead of repeating it as another warning', async () => {
@@ -444,10 +444,10 @@ describe('ModelUsageWorkspace', () => {
     renderWorkspace();
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
-    fireEvent.change(screen.getByLabelText('细分方式'), { target: { value: 'provider_model' } });
+    fireEvent.change(screen.getByLabelText('查看方式'), { target: { value: 'provider_model' } });
 
-    const table = await screen.findByRole('table', { name: '费用细分明细' });
-    expect(within(table).getByRole('columnheader', { name: 'Provider' })).toBeVisible();
+    const table = await screen.findByRole('table', { name: '费用明细' });
+    expect(within(table).getByRole('columnheader', { name: '模型服务' })).toBeVisible();
     expect(within(table).getByRole('columnheader', { name: '用量' })).toBeVisible();
     expect(within(table).getByText('gpt-4.1-mini')).toBeVisible();
     expect(within(table).getByText('OpenAI')).toBeVisible();
@@ -482,7 +482,7 @@ describe('ModelUsageWorkspace', () => {
         });
       });
 
-      expect(await screen.findByText('当前离线，正在显示已缓存的数据。')).toBeVisible();
+      expect(await screen.findByText('当前离线，以下显示已缓存的数据。')).toBeVisible();
       expect(screen.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
     } finally {
       Object.defineProperty(navigator, 'onLine', { configurable: true, value: originalOnline });
@@ -500,8 +500,8 @@ describe('ModelUsageWorkspace', () => {
     modelUsageApi.getFamilyModelUsageBreakdown.mockResolvedValue({ ...breakdown('family'), items: [] });
     renderWorkspace();
 
-    expect(await screen.findByRole('heading', { name: '本月还没有模型调用' })).toBeVisible();
-    expect(screen.getByText('使用菜谱生成、图片识别等功能后，用量会自动记录在这里。')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '当前统计周期还没有模型使用记录' })).toBeVisible();
+    expect(screen.getByText('使用菜谱生成、图片识别等功能后，费用和用量会自动记录在这里。')).toBeVisible();
     expect(screen.queryByText(/后续使用模型功能后/)).not.toBeInTheDocument();
     expect(screen.queryByText('模型用量加载失败')).not.toBeInTheDocument();
   });

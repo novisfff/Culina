@@ -70,7 +70,7 @@ function recipeCookLinkedPlanSummary(value: Record<string, unknown> | undefined)
 }
 
 function recipeCookMealLogSummary(schemaVersion: RecipeCookSchemaVersion) {
-  return schemaVersion === 'recipe_cook_operation.v2' ? '完成后会记录这餐' : '旧草稿需要刷新后重新确认';
+  return schemaVersion === 'recipe_cook_operation.v2' ? '完成后会记录这餐' : '这份做菜建议需要刷新后重新确认';
 }
 
 function recipeCookSummaryItems(
@@ -83,21 +83,21 @@ function recipeCookSummaryItems(
   const mealType = asText(draft.mealType, 'dinner');
   return [
     { label: '菜谱', value: asText(draft.title) || '菜谱' },
-    { label: '日期', value: asText(draft.date) || '未设置' },
+    { label: '日期', value: asText(draft.date) || '未填写日期' },
     { label: '餐别', value: MEAL_TYPE_OPTIONS.find((option) => option.value === mealType)?.label || mealType },
     { label: '份数', value: `${formatServingCount(draft.servings)} 份` },
-    { label: '库存扣减', value: previewItems.length > 0 ? `${previewItems.length} 种食材` : '无扣减项' },
+    { label: '库存扣减', value: previewItems.length > 0 ? `${previewItems.length} 种食材` : '没有需要扣减的库存' },
     { label: '餐食记录', value: recipeCookMealLogSummary(schemaVersion) },
     { label: '关联计划', value: recipeCookLinkedPlanSummary(linkedPlanItem) },
-    { label: '缺料', value: shortages.length > 0 ? `${shortages.length} 项需补齐` : '库存充足' },
+    { label: '缺少食材', value: shortages.length > 0 ? `还缺 ${shortages.length} 项` : '库存充足' },
   ];
 }
 
 function resolvedTitle(status: string) {
-  if (status === 'approved') return '做菜执行已确认';
-  if (status === 'rejected') return '未执行的做菜草稿';
-  if (status === 'expired') return '已过期的做菜草稿';
-  return '已处理的做菜草稿';
+  if (status === 'approved') return '做菜安排已确认';
+  if (status === 'rejected') return '做菜安排未保存';
+  if (status === 'expired') return '做菜建议已过期';
+  return '做菜建议已处理';
 }
 
 function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -121,8 +121,8 @@ export function AiRecipeCookDraftView(props: {
   const summaryItems = recipeCookSummaryItems(props.draft, previewItems, shortages, linkedPlanItem, props.schemaVersion);
   const mealLogCopy = recipeCookMealLogSummary(props.schemaVersion);
   const executionCopy = props.schemaVersion === 'recipe_cook_operation.v2'
-    ? '确认后会按预览扣减库存，并同时写入餐食记录。'
-    : '这份旧草稿需要刷新后重新确认；当前不会执行扣库存或写入餐食记录。';
+    ? '确认后会按预览扣减库存，并同时保存餐食记录。'
+    : '这份做菜建议需要刷新后重新确认；当前不会扣减库存或保存餐食记录。';
   const updateDraft = (patch: Record<string, unknown>) => props.onDraftChange({ ...props.draft, ...patch });
 
   if (props.status !== 'pending') {
@@ -161,24 +161,24 @@ export function AiRecipeCookDraftView(props: {
       </AiDraftImpactNote>
       {props.requiresRegeneration ? (
         <AiDraftImpactNote tone="danger" title="需要刷新后重新确认">
-          仅支持始终记录餐食的 v2 做菜草稿。请刷新会话并重新生成草稿后再确认。
+          这份做菜建议已过期，请刷新后重新生成，才能确认并记录这餐。
         </AiDraftImpactNote>
       ) : null}
 
       <AiDraftSection
         title="做菜结果"
-        description="确认本次做菜设置，并补充将要写入餐食记录的结果。"
+        description="确认本次做菜设置，并补充要保存到餐食记录的结果。"
       >
         <div className="ai-recipe-draft-section">
           <div className="ai-recipe-draft-section-head">
-            <strong>执行设置</strong>
+            <strong>做菜设置</strong>
             <span>确认本次做菜份数、日期、餐别和关联计划。</span>
           </div>
           <div className="ai-confirmation-grid">
             <label className="ai-resource-field">
               <span>份数</span>
               <input className="text-input" type="number" min={0.1} step={0.1} value={draftNumberInputValue(props.draft.servings, 1)} disabled />
-              <small>份数会改变库存扣减预览，如需调整请重新生成草稿</small>
+              <small>份数会改变库存扣减预览，如需调整请重新生成做菜安排</small>
             </label>
             <label className="ai-resource-field ai-resource-field-date">
               <span>日期</span>
@@ -213,8 +213,8 @@ export function AiRecipeCookDraftView(props: {
             <strong>餐食记录补充</strong>
             <span>
               {props.schemaVersion === 'recipe_cook_operation.v2'
-                ? '完成后会自动写入餐食记录；这里补充备注与结果说明。'
-                : '这份旧草稿需要刷新后重新确认，当前不会写入餐食记录。'}
+                ? '完成后会自动保存餐食记录；这里补充备注与结果说明。'
+                : '这份做菜建议需要刷新后重新确认，当前不会保存餐食记录。'}
             </span>
           </div>
           <label className="ai-resource-field ai-confirmation-copy-field">
@@ -234,13 +234,13 @@ export function AiRecipeCookDraftView(props: {
 
       <AiDraftSection
         title="食材与库存"
-        description="按食材核对库存扣减预览与缺料阻断。"
+        description="按食材核对库存扣减预览和缺少食材提醒。"
       >
         <div className="ai-recipe-draft-section">
           <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
             <div>
               <strong>库存扣减预览</strong>
-              <span>按食材核对请求数量和实际扣减批次。</span>
+              <span>按食材核对所需数量和将扣减的库存。</span>
             </div>
             <span>{previewItems.length} 项</span>
           </div>
@@ -256,45 +256,45 @@ export function AiRecipeCookDraftView(props: {
                 <div className="ai-recipe-cook-batch-list">
                   {batches.length > 0 ? batches.map((batch, batchIndex) => (
                     <p className="ai-recipe-cook-batch-copy" key={`${asText(batch.inventory_item_id)}-${batchIndex}`}>
-                      批次 {batchIndex + 1}：扣 {formatDraftQuantity(batch.quantity, batch.unit)}
+                      库存明细 {batchIndex + 1}：扣减 {formatDraftQuantity(batch.quantity, batch.unit)}
                       {asText(batch.storage_location) ? ` · ${asText(batch.storage_location)}` : ''}
                       {asText(batch.purchase_date) ? ` · 购于 ${asText(batch.purchase_date)}` : ''}
                       {asText(batch.expiry_date) ? ` · 到期 ${asText(batch.expiry_date)}` : ''}
                     </p>
                   )) : (
-                    <p className="ai-recipe-summary-note">没有具体批次明细，确认前建议重新预览库存。</p>
+                    <p className="ai-recipe-summary-note">还没有具体库存明细，确认前建议重新预览库存。</p>
                   )}
                 </div>
               </AiDraftItemCard>
             );
           }) : (
-            <p className="ai-recipe-summary-note">没有库存扣减项，确认前建议检查菜谱食材或重新生成草稿。</p>
+            <p className="ai-recipe-summary-note">没有库存扣减项，确认前建议检查菜谱食材或重新生成做菜安排。</p>
           )}
         </div>
         <div className="ai-recipe-draft-section">
           <div className="ai-recipe-draft-section-head ai-recipe-draft-section-head-row">
             <div>
-              <strong>缺料与阻断</strong>
-              <span>有缺料时不能直接执行做菜扣库存。</span>
+              <strong>缺少食材提醒</strong>
+              <span>缺少食材时不能直接扣减库存。</span>
             </div>
             <span>{shortages.length > 0 ? `${shortages.length} 项` : '库存充足'}</span>
           </div>
           {shortages.length > 0 ? (
             <AiDraftImpactNote tone="warning" title="库存提醒">
-              当前草稿不能确认执行。请先补齐库存或调整份数后重新生成做菜草稿；确认按钮会被前端阻断。
+              当前安排还不能确认。请先补齐库存或调整份数，再重新生成做菜安排。
             </AiDraftImpactNote>
           ) : (
-            <p className="ai-recipe-summary-note">预览没有发现缺料，可以按上方批次扣减库存。</p>
+            <p className="ai-recipe-summary-note">预览没有发现缺少的食材，可以按上方内容扣减库存。</p>
           )}
           {shortages.map((item, index) => (
             <AiDraftItemCard
               key={`${asText(item.ingredient_name)}-${index}`}
-              title={asText(item.ingredient_name) || `缺料 ${index + 1}`}
+              title={asText(item.ingredient_name) || `缺少食材 ${index + 1}`}
               summary={`缺 ${formatDraftQuantity(item.missing_quantity, item.unit)} · 现有 ${formatDraftQuantity(item.available_quantity, item.unit)} · 需要 ${formatDraftQuantity(item.required_quantity, item.unit)}`}
               tone="warning"
               className="ai-recipe-cook-shortage-card"
             >
-              <span>请补齐库存或重新生成草稿。</span>
+              <span>请补齐库存或重新生成做菜安排。</span>
             </AiDraftItemCard>
           ))}
         </div>

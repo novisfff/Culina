@@ -113,7 +113,7 @@ function buildDisposeOnlyExpiryGroup(
     earliestExpiryDate: earliest?.expiryDate ?? null,
     earliestDaysLeft: earliest?.daysLeft ?? null,
     title: `${summary.ingredient.name}需要处理`,
-    detail: `${batches.length} 批已过期`,
+    detail: `${batches.length} 项库存已过期`,
     primaryAction: 'manage_expiry',
     targetKind: 'inventory_item',
   };
@@ -174,7 +174,7 @@ export function resolveExpiryInventoryActionGroup(args: {
       earliestDaysLeft: earliest?.daysLeft ?? shared.earliestDaysLeft,
       detail:
         expiredBatchCount > 0 && todayBatchCount + soonBatchCount + laterBatchCount === 0
-          ? `${expiredBatchCount} 批已过期`
+          ? `${expiredBatchCount} 项库存已过期`
           : shared.detail,
     };
   }

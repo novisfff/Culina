@@ -225,7 +225,7 @@ export function AiMobilePage(props: Props) {
 
       <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>
         {props.messagesLoading ? (
-          <p className="subtle">正在加载消息...</p>
+          <p className="subtle">正在加载消息…</p>
         ) : props.messagesError ? (
           <div className="ai-query-empty ai-message-load-error">
             <strong>历史消息加载失败</strong>
@@ -320,7 +320,7 @@ export function AiMobilePage(props: Props) {
             className="text-input"
             rows={1}
             value={props.draft}
-            placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿...' : '问问 AI 厨房助手...'}
+            placeholder={props.isComposerPaused ? props.composerPauseMessage ?? '等待你确认草稿…' : '问问 AI 厨房助手…'}
             disabled={props.isComposerPaused}
             onChange={(event) => props.onDraftChange(event.target.value)}
             onPaste={props.onPasteFiles}

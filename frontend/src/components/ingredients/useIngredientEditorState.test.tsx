@@ -240,7 +240,7 @@ describe('useIngredientEditorState dual-write recovery', () => {
     expect(latest!.ingredientForm.quantityTrackingMode).toBe('not_track_quantity');
     expect(latest!.ingredientForm.name).toBe('鸡蛋改名');
     expect(transient.current?.row_version).toBe(2);
-    expect(notices.some((item) => item.title === '数量记录方式已切换，资料未全部保存')).toBe(true);
+    expect(notices.some((item) => item.title === '库存数量记录方式已切换，信息未全部保存')).toBe(true);
 
     // Retry via normal save must be profile-only (no second transition).
     await act(async () => {

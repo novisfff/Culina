@@ -241,9 +241,9 @@ describe('aiInventoryIntakeDraftModel', () => {
     const draft = inventoryIntakeDraftFromRecord(baseDraft({
       items: [shoppingExact({ enteredQuantity: '1', enteredUnit: '个', plannedQuantity: '2', plannedUnit: '个' })],
     }));
-    expect(inventoryIntakeItemSummary(draft.items[0])).toContain('保留');
+    expect(inventoryIntakeItemSummary(draft.items[0])).toContain('实际购买');
     expect(inventoryIntakeItemSummary(draft.items[0])).toMatch(/1/);
-    expect(inventoryIntakeItemSummary(draft.items[0])).toMatch(/待买/);
+    expect(inventoryIntakeItemSummary(draft.items[0])).toMatch(/还需要购买/);
   });
 
   it('summarizes direct row without claiming shopping completion', () => {
@@ -251,7 +251,7 @@ describe('aiInventoryIntakeDraftModel', () => {
       items: [directFood()],
     }));
     const summary = inventoryIntakeItemSummary(draft.items[0]);
-    expect(summary).toMatch(/直接入库|只增加库存/);
+    expect(summary).toMatch(/直接补充|只会新增一批库存/);
     expect(summary).not.toMatch(/完成采购|完成购物|待买/);
   });
 
@@ -260,19 +260,19 @@ describe('aiInventoryIntakeDraftModel', () => {
       items: [shoppingExact({ enteredQuantity: '', enteredUnit: '个' })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(missingQty as unknown as Record<string, unknown>))
-      .toBe('请填写「鸡蛋」的实际入库数量');
+      .toBe('请填写「鸡蛋」的实际数量');
 
     const missingUnit = inventoryIntakeDraftFromRecord(baseDraft({
       items: [shoppingExact({ enteredQuantity: '2', enteredUnit: '' })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(missingUnit as unknown as Record<string, unknown>))
-      .toBe('请填写「鸡蛋」的实际入库单位');
+      .toBe('请填写「鸡蛋」的实际数量单位');
 
     const foodMissing = inventoryIntakeDraftFromRecord(baseDraft({
       items: [directFood({ enteredQuantity: '0', enteredUnit: '盒' })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(foodMissing as unknown as Record<string, unknown>))
-      .toBe('请填写「牛奶」的实际入库数量');
+      .toBe('请填写「牛奶」的实际数量');
   });
 
   it('validates package conversion evidence', () => {
@@ -282,7 +282,7 @@ describe('aiInventoryIntakeDraftModel', () => {
       })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
-      .toBe('请补全「鸡蛋」的包装换算倍率、目标单位和证据');
+      .toBe('请补全「鸡蛋」的包装换算比例、目标单位和换算依据');
 
     const incomplete = inventoryIntakeDraftFromRecord(baseDraft({
       items: [shoppingExact({
@@ -290,7 +290,7 @@ describe('aiInventoryIntakeDraftModel', () => {
       })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(incomplete as unknown as Record<string, unknown>))
-      .toBe('请补全「鸡蛋」的包装换算倍率、目标单位和证据');
+      .toBe('请补全「鸡蛋」的包装换算比例、目标单位和换算依据');
   });
 
   it('allows presence intake without numeric quantity', () => {
@@ -305,7 +305,7 @@ describe('aiInventoryIntakeDraftModel', () => {
       items: [presenceItem({ expectedIngredientRowVersion: null })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
-      .toBe('「食用油」缺少食材版本信息，请重新生成草稿');
+      .toBe('「食用油」的食材信息已更新，请重新生成库存建议');
   });
 
   it('rejects presence stock with stateId but missing state row version', () => {
@@ -313,7 +313,7 @@ describe('aiInventoryIntakeDraftModel', () => {
       items: [presenceItem({ expectedStateRowVersion: null })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
-      .toBe('「食用油」缺少库存状态版本信息，请重新生成草稿');
+      .toBe('「食用油」的库存状态已更新，请重新生成库存建议');
   });
 
   it('rejects empty action with row-named message even when another row is valid', () => {
@@ -339,7 +339,7 @@ describe('aiInventoryIntakeDraftModel', () => {
       intakeDate: '2026-07-21',
     }));
     expect(validateInventoryIntakeDraftForSubmit(badExpiry as unknown as Record<string, unknown>))
-      .toBe('「鸡蛋」的到期日不能早于入库日期');
+      .toBe('「鸡蛋」的到期日不能早于记录日期');
   });
 
   it('rejects all skipped rows', () => {
@@ -360,7 +360,7 @@ describe('aiInventoryIntakeDraftModel', () => {
     });
     expect(draft.draftType).toBe('');
     expect(draft.schemaVersion).toBe('');
-    expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>)).toMatch(/草稿类型|草稿版本|身份/);
+    expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>)).toMatch(/库存建议格式/);
   });
 
   it('rejects incompatible source and action combinations', () => {
@@ -368,6 +368,6 @@ describe('aiInventoryIntakeDraftModel', () => {
       items: [directFood({ action: 'stock_and_fulfill' })],
     }));
     expect(validateInventoryIntakeDraftForSubmit(draft as unknown as Record<string, unknown>))
-      .toBe('「牛奶」的处理方式不正确');
+      .toBe('「牛奶」的处理方式无法使用，请重新选择');
   });
 });

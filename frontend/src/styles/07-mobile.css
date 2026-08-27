@@ -5821,14 +5821,16 @@
   .mobile-notification-popover {
     position: fixed;
     top: calc(env(safe-area-inset-top, 0px) + 86px);
-    right: max(14px, calc((100vw - 480px) / 2 + 14px));
+    right: auto;
+    left: 50%;
     z-index: var(--z-mobile-notification);
-    width: min(360px, calc(100vw - 28px));
+    width: min(420px, calc(100vw - 32px));
     grid-template-rows: auto minmax(0, 1fr);
     max-height: min(456px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 102px));
     overflow: hidden;
-    border-radius: 22px;
+    border-radius: var(--radius-md);
     isolation: isolate;
+    transform: translateX(-50%);
   }
 
   .mobile-notification-center .app-notification-list,
@@ -5841,7 +5843,7 @@
 
   .mobile-notification-center .app-notification-popover-head,
   .mobile-notification-popover .app-notification-popover-head {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .mobile-notification-center .app-notification-summary,
@@ -5858,17 +5860,17 @@
   .mobile-notification-popover .app-notification-row {
     width: 100%;
     max-width: 100%;
-    grid-template-columns: var(--space-8) minmax(0, 1fr);
-    align-items: start;
+    grid-template-columns: var(--space-8) minmax(0, 1fr) auto;
+    align-items: center;
     gap: var(--space-3);
-    min-height: var(--tap-min);
+    min-height: calc(var(--control-height-touch) + var(--space-5));
     overflow: visible;
-    padding: var(--space-3);
+    padding: var(--space-5);
   }
 
   .mobile-notification-center .app-notification-row.is-actionable,
   .mobile-notification-popover .app-notification-row.is-actionable {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 0;
   }
 
@@ -5876,21 +5878,25 @@
   .mobile-notification-popover .app-notification-open {
     grid-template-columns: var(--space-8) minmax(0, 1fr);
     gap: var(--space-3);
-    padding: var(--space-3);
+    padding: var(--space-5);
   }
 
   .mobile-notification-center .app-notification-row-actions,
   .mobile-notification-popover .app-notification-row-actions {
-    grid-column: 2;
+    grid-column: 3;
+    grid-row: 1;
     min-width: 0;
-    justify-content: flex-start;
+    align-self: center;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
     gap: var(--space-2);
   }
 
   .mobile-notification-center .app-notification-row.is-actionable .app-notification-row-actions,
   .mobile-notification-popover .app-notification-row.is-actionable .app-notification-row-actions {
-    grid-column: 1;
-    padding: 0 var(--space-3) var(--space-3);
+    grid-column: 2;
+    grid-row: 1;
+    padding: var(--space-5) var(--space-5) var(--space-5) 0;
   }
 
   .mobile-notification-center .app-notification-row-icon,
@@ -5912,13 +5918,16 @@
   .mobile-notification-center .app-notification-row-copy small,
   .mobile-notification-popover .app-notification-row-copy small {
     display: block;
+    font-size: var(--text-sm);
+    line-height: 1.4;
     overflow-wrap: anywhere;
   }
 
   .mobile-notification-center .app-notification-row-copy strong,
   .mobile-notification-popover .app-notification-row-copy strong {
     min-width: 0;
-    font-size: var(--text-sm);
+    font-size: var(--text-meta);
+    font-weight: 700;
     overflow-wrap: anywhere;
   }
 
@@ -5927,12 +5936,12 @@
     max-width: none;
     padding: var(--space-1) var(--space-2);
     font-size: var(--text-xs);
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .mobile-notification-center .app-notification-retry,
   .mobile-notification-popover .app-notification-retry {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: var(--tap-min);
     min-height: var(--tap-min);
     padding: 0 var(--space-3);
@@ -5954,6 +5963,9 @@
     min-width: var(--tap-min);
     height: var(--tap-min);
     min-height: var(--tap-min);
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
   }
 
   .mobile-dashboard-family {
@@ -7343,10 +7355,12 @@
 
   :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) .mobile-notification-center .app-notification-popover, .mobile-notification-popover {
     top: calc(env(safe-area-inset-top, 0px) + 86px);
-    right: max(14px, calc((100vw - 480px) / 2 + 14px));
-    width: min(360px, calc(100vw - 28px));
+    right: auto;
+    left: 50%;
+    width: min(420px, calc(100vw - 32px));
     max-height: min(456px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 102px));
     overflow: hidden;
+    transform: translateX(-50%);
   }
 
 

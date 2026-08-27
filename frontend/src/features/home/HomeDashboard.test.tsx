@@ -226,7 +226,7 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     inventoryAlerts: [],
     dashboardStats: [
       { label: '在库食材', value: '4', unit: '种', detail: '库存充足', icon: 'leaf', tone: 'green' },
-      { label: '需处理食材', value: '3', unit: '种', detail: '过期、临期或待补货', icon: 'bell', tone: 'coral' },
+      { label: '需要处理的食材', value: '3', unit: '种', detail: '过期、临期或需要补货', icon: 'bell', tone: 'coral' },
       { label: '待采购', value: '0', unit: '项', detail: '清单已完成', icon: 'cart', tone: 'yellow' },
       { label: '本周已安排', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
     ],
@@ -249,7 +249,7 @@ function buildProps(overrides: Partial<HomeDashboardProps> = {}): HomeDashboardP
     compactPlanDays: [],
     selectedDashboardPlanDay: undefined,
     selectedDashboardPlanDateLabel: '今天 · 7月6日',
-    selectedPlanSummary: '今天 · 7月6日 · 0 项计划',
+    selectedPlanSummary: '今天 · 7月6日 · 0 项餐食安排',
     pendingShoppingCount: 0,
     pendingShoppingPreview: [],
     foodPlanWeekRange: { start: '2026-07-06', end: '2026-07-12' },
@@ -511,15 +511,15 @@ describe('HomeDashboard three-question desktop', () => {
 
     expect(
       desktopSurface(view)
-        .querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')
+        .querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，还未记录"]')
         ?.querySelector<HTMLImageElement>('.home-compact-meal-item-image')
         ?.getAttribute('src'),
     ).toBe('/media/番茄炒蛋.webp');
     expect(
-      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，还未记录"]')?.classList,
     ).toContain('has-cover');
     expect(
-      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，待记录"]')?.classList,
+      desktopSurface(view).querySelector<HTMLButtonElement>('button[aria-label="番茄炒蛋，还未记录"]')?.classList,
     ).not.toContain('is-condensed');
   });
 
@@ -543,8 +543,8 @@ describe('HomeDashboard three-question desktop', () => {
     const desktop = desktopSurface(view);
     expect(desktop.textContent).toContain('今天吃什么');
     expect(desktop.querySelectorAll('[data-testid="home-recommendation-card"]')).toHaveLength(3);
-    expect(desktop.querySelectorAll('[aria-label="七天菜单"] button[aria-label^="选择 "]')).toHaveLength(7);
-    expect(desktop.textContent).toContain('今天必须处理什么');
+    expect(desktop.querySelectorAll('[aria-label="七天餐食计划"] button[aria-label^="选择 "]')).toHaveLength(7);
+    expect(desktop.textContent).toContain('今天需要处理什么');
     expect(desktop.textContent).toContain('5 项待采购');
     expect(desktop.textContent).toContain('家里发生了什么');
     expect(desktop.querySelectorAll('[data-testid="home-highlight-row"]')).toHaveLength(5);
@@ -575,7 +575,7 @@ describe('HomeDashboard three-question desktop', () => {
 
     expect(search).not.toBeNull();
     expect(search?.classList.contains('solid-button')).toBe(false);
-    expect(search?.textContent).toContain('搜索食材、菜谱、计划');
+    expect(search?.textContent).toContain('搜索食材、菜谱、餐食计划');
     act(() => search?.click());
     expect(onOpenGlobalSearch).toHaveBeenCalledTimes(1);
   });
@@ -616,7 +616,7 @@ describe('HomeDashboard three-question desktop', () => {
     const emptyState = weeklyMenu?.querySelector('[data-testid="home-day-empty"]');
 
     expect(emptyState).not.toBeNull();
-    expect(emptyState?.textContent).toContain('当日还没有安排菜单');
+    expect(emptyState?.textContent).toContain('当日还没有安排餐食');
     expect(weeklyMenu?.querySelectorAll('.home-compact-meal-slot')).toHaveLength(0);
     expect(weeklyMenu?.textContent).not.toContain('智能安排本周');
     expect(weeklyMenu?.textContent).not.toContain('手动安排');
@@ -664,7 +664,7 @@ describe('HomeDashboard three-question desktop', () => {
       onHomePlanAddDialogOpen,
     });
 
-    const addPlanButton = buttonByText(desktopSurface(view), '加入计划');
+    const addPlanButton = buttonByText(desktopSurface(view), '加入餐食计划');
     act(() => addPlanButton.click());
 
     expect(onHomePlanAddDialogOpen).toHaveBeenCalledWith(
@@ -760,23 +760,23 @@ describe('HomeDashboard three-question desktop', () => {
     const desktop = desktopSurface(view);
 
     expect(desktop.textContent).toContain('已记录 1 / 2');
-    expect(desktop.textContent).toContain('2 项计划 · 已记录 1 项');
+    expect(desktop.textContent).toContain('2 项餐食安排 · 已记录 1 项');
     expect(buttonByText(desktop, '番茄炒蛋').getAttribute('aria-label')).toContain('已记录');
-    expect(buttonByText(desktop, '米饭').getAttribute('aria-label')).toContain('待记录');
+    expect(buttonByText(desktop, '米饭').getAttribute('aria-label')).toContain('还未记录');
   });
 
   it('renders local loading/error/stale states without hiding the other two questions', () => {
     const retry = vi.fn();
     const view = renderDashboard({
-      homeHighlights: { items: [], phase: 'loading', hasRefreshError: false, isRefreshing: true, weekCountLabel: '本周协作 --' },
+      homeHighlights: { items: [], phase: 'loading', hasRefreshError: false, isRefreshing: true, weekCountLabel: '本周协作暂未统计' },
       onRetryHighlights: retry,
     });
     expect(view.querySelector('[aria-label="家庭动态加载中"]')).not.toBeNull();
     expect(view.textContent).toContain('今天吃什么');
-    expect(view.textContent).toContain('今天必须处理什么');
+    expect(view.textContent).toContain('今天需要处理什么');
 
     act(() => root?.render(<HomeDashboard {...buildProps({
-      homeHighlights: { items: [], phase: 'error', hasRefreshError: false, isRefreshing: false, weekCountLabel: '本周协作 --' },
+      homeHighlights: { items: [], phase: 'error', hasRefreshError: false, isRefreshing: false, weekCountLabel: '本周协作暂未统计' },
       onRetryHighlights: retry,
     })} />));
     act(() => buttonByText(view, '重试家庭动态').click());
@@ -795,8 +795,8 @@ describe('HomeDashboard three-question desktop', () => {
       },
       onRetryHighlights: retry,
     });
-    expect(view.textContent).toContain('还没有家庭高亮');
-    const refreshRetry = buttonByText(view, '刷新失败，重试');
+    expect(view.textContent).toContain('还没有家庭动态');
+    const refreshRetry = buttonByText(view, '暂时无法更新，请重试');
     act(() => refreshRetry.click());
     expect(retry).toHaveBeenCalledTimes(1);
   });
@@ -893,13 +893,33 @@ describe('HomeDashboard three-question desktop', () => {
       hasMoreHomeActions: true,
     });
     const desktop = desktopSurface(view);
-    expect(desktop.textContent).toContain('今天必须处理什么');
+    expect(desktop.textContent).toContain('今天需要处理什么');
     expect(desktop.querySelectorAll('[data-testid="home-action-group"]')).toHaveLength(2);
     expect(desktop.textContent).toContain('番茄需要处理');
     expect(desktop.textContent).toContain('2 项待采购');
     expect(desktop.textContent).toContain('鸡蛋库存不足');
     expect(desktop.textContent).not.toContain('豆腐');
     expect(buttonByText(desktop, '查看全部')).toBeTruthy();
+  });
+
+  it('keeps one fully visible required action at the top and uses the remaining space for guidance', () => {
+    const view = renderDashboard({
+      requiredActions: [{ kind: 'shopping', pendingCount: 1 }],
+      hasMoreHomeActions: false,
+    });
+    const panel = desktopSurface(view).querySelector('.home-required-actions');
+    const homeStyles = readFileSync(resolve(__dirname, '../../styles/01-home-dashboard.css'), 'utf8');
+
+    expect(panel?.classList.contains('is-single-action')).toBe(true);
+    expect(panel?.querySelector('.home-required-single-hint')?.textContent).toContain(
+      '处理完这一项后，今天暂时没有其他需要处理的事。',
+    );
+    expect(homeStyles).toMatch(
+      /\.home-dashboard-lower-grid \.home-required-actions\.is-single-action \{[^}]*grid-template-rows: auto auto minmax\(0, 1fr\);/s,
+    );
+    expect(homeStyles).toMatch(
+      /\.home-dashboard-lower-grid \.home-required-actions\.is-single-action \.home-action-list \{[^}]*grid-auto-rows: auto;[^}]*align-self: start;/s,
+    );
   });
 
   it('routes inventory and shopping actions without owning overlays', () => {
@@ -926,7 +946,7 @@ describe('HomeDashboard three-question desktop', () => {
     const primaryButtons = Array.from(
       desktop.querySelectorAll('[data-testid="home-action-primary"]'),
     ) as HTMLButtonElement[];
-    expect(primaryButtons.map((button) => button.textContent?.trim())).toEqual(['集中处理', '去登记', '加入采购']);
+    expect(primaryButtons.map((button) => button.textContent?.trim())).toEqual(['集中处理', '记录购买', '加入采购清单']);
 
     act(() => {
       primaryButtons[0]?.click();
@@ -949,7 +969,7 @@ describe('HomeDashboard three-question desktop', () => {
       requiredActions: [],
       hasMoreHomeActions: false,
     });
-    expect(desktopSurface(view).textContent).toContain('今天没有必须处理的事项');
+    expect(desktopSurface(view).textContent).toContain('今天没有需要处理的事项');
   });
 
   it('never renders meal or food images inside highlight rows', () => {
@@ -1152,7 +1172,7 @@ describe('HomeDashboard meal recording ownership', () => {
     const recommendationCard = desktop.querySelector<HTMLElement>('[data-testid="home-recommendation-card"]');
     act(() => recommendationCard?.click());
     const recordButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('记到今天'),
+      button.textContent?.includes('记录这顿'),
     );
     expect(recordButton).toBeDefined();
     await act(async () => {
@@ -1160,7 +1180,7 @@ describe('HomeDashboard meal recording ownership', () => {
     });
 
     expect(view.textContent).toContain('快速记录');
-    expect(view.textContent).toContain('记到今天');
+    expect(view.textContent).toContain('记录这顿');
     expect(view.textContent).toContain(food.name);
     expect(view.querySelector('input[type="search"]')).toBeNull();
     expect(view.querySelector('[role="combobox"]')).toBeNull();
@@ -1242,7 +1262,7 @@ describe('HomeDashboard meal recording ownership', () => {
     const recommendationCard = desktop.querySelector<HTMLElement>('[data-testid="home-recommendation-card"]');
     act(() => recommendationCard?.click());
     const recordButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('记到今天'),
+      button.textContent?.includes('记录这顿'),
     );
     await act(async () => {
       recordButton?.click();
@@ -1267,7 +1287,7 @@ describe('HomeDashboard meal recording ownership', () => {
       }),
     );
 
-    const bar = view.querySelector('[aria-label="记录结果"]');
+    const bar = view.querySelector('[aria-label="餐食记录结果"]');
     expect(bar).not.toBeNull();
     expect(bar?.textContent).toContain('已记下');
     expect(bar?.textContent).toContain('撤销');
@@ -1316,7 +1336,7 @@ describe('HomeDashboard meal recording ownership', () => {
       rowVersion: null,
     });
     const view = renderDashboard({ recordResult: restored });
-    const bar = view.querySelector('[aria-label="记录结果"]');
+    const bar = view.querySelector('[aria-label="餐食记录结果"]');
     expect(bar).not.toBeNull();
     expect(bar?.getAttribute('data-operation-id')).toBe('op-restored-1');
     expect(bar?.textContent).toContain('已记下');
@@ -1336,7 +1356,7 @@ describe('HomeDashboard meal recording ownership', () => {
     const recommendationCard = desktop.querySelector<HTMLElement>('[data-testid="home-recommendation-card"]');
     act(() => recommendationCard?.click());
     const recordButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('记到今天'),
+      button.textContent?.includes('记录这顿'),
     );
     await act(async () => {
       recordButton?.click();

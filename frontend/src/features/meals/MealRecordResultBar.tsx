@@ -76,7 +76,7 @@ function CompactStarRating(props: {
       aria-valuemin={0.5}
       aria-valuemax={5}
       aria-valuenow={props.value ?? 0.5}
-      aria-valuetext={rating > 0 ? `${rating} 分` : '尚未评分'}
+      aria-valuetext={rating > 0 ? `${rating} 分` : '未评分'}
       aria-disabled={props.disabled ? true : undefined}
       tabIndex={props.disabled ? -1 : 0}
       style={{ ['--rating-width' as string]: fill }}
@@ -140,7 +140,7 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
       className={['meal-record-result-bar', props.className].filter(Boolean).join(' ')}
       data-meal-log-id={result.mealLogId}
       data-operation-id={result.operationId}
-      aria-label="记录结果"
+      aria-label="餐食记录结果"
     >
       <div className="meal-record-result-media">
         <MealCover
@@ -159,7 +159,7 @@ export function MealRecordResultBar(props: MealRecordResultBarProps) {
         {canUndo ? (
           <small>还可撤销 {formatCountdown(remainingMs)}</small>
         ) : (
-          <small>已过撤销时限</small>
+          <small>已超过可撤销时间</small>
         )}
       </div>
       <div className="meal-record-result-actions">

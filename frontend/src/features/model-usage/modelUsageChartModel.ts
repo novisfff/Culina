@@ -200,7 +200,7 @@ const METER_UNIT: Record<ModelUsageMeter, ModelUsageMeterUnit> = {
 };
 
 const METER_GROUPS: ReadonlyArray<{ unit: ModelUsageMeterUnit; label: string }> = [
-  { unit: 'tokens', label: 'Token 用量' },
+  { unit: 'tokens', label: '文本用量（Token）' },
   { unit: 'seconds', label: '音频时长' },
   { unit: 'characters', label: '内容规模' },
   { unit: 'counts', label: '次数与产出' },

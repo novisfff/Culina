@@ -86,7 +86,7 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
   function addRecipeIngredientToShoppingDraft(item: RecipeIngredient) {
     if (!shoppingDialogCard) return;
     if (!item.ingredient_id) {
-      args.showRecipeNotice({ tone: 'warning', title: '先创建食材档案', message: '这个菜谱食材还没有绑定食材档案，先建档后才能加入采购清单。' });
+      args.showRecipeNotice({ tone: 'warning', title: '先添加食材', message: '这份食材还没有加入食材库，请先添加或选择食材，再加入采购清单。' });
       return;
     }
     const draft = buildShoppingDraftFromRecipeIngredient(shoppingDialogCard.recipe.title, item);
@@ -127,7 +127,7 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
   async function submitShoppingDrafts() {
     const payloads = buildShoppingPayloadsFromDrafts(shoppingDrafts);
     if (payloads.length === 0) {
-      args.showRecipeNotice({ tone: 'warning', title: '没有可加入项', message: '请至少保留一个有效采购项。' });
+      args.showRecipeNotice({ tone: 'warning', title: '没有可加入的内容', message: '请至少保留一个有效的待买内容。' });
       return;
     }
     try {
@@ -135,7 +135,7 @@ export function useRecipeShoppingState(args: UseRecipeShoppingStateArgs) {
       closeShoppingDialog();
       args.showRecipeNotice({ tone: 'success', title: '已加入采购清单', message: `${payloads.length} 项食材已放进采购清单。` });
     } catch (reason) {
-      args.showRecipeNotice({ tone: 'danger', title: '加入采购失败', message: resolveErrorMessage(reason, '加入采购失败') });
+      args.showRecipeNotice({ tone: 'danger', title: '加入采购清单失败', message: resolveErrorMessage(reason, '加入采购清单失败') });
     }
   }
 

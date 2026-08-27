@@ -23,7 +23,7 @@ const applied: InventoryOperationResult = {
   revertible_until: '2026-07-11T08:16:00.000Z',
   can_revert: true,
   summary: {
-    title: '本次购买已登记',
+    title: '本次购买已记录',
     description: '完成 2 项',
     confirmed_count: 0,
     adjusted_count: 0,
@@ -96,18 +96,18 @@ describe('InventoryOperationBanner helpers', () => {
 describe('InventoryOperationBanner', () => {
   it('renders live countdown copy and eligible actions', () => {
     const props = renderBanner();
-    expect(container!.textContent).toContain('本次购买已登记');
+    expect(container!.textContent).toContain('本次购买已记录');
     expect(container!.textContent).toContain('可在');
     expect(container!.textContent).toContain('前撤销');
     expect(container!.textContent).toContain('剩余');
     expect(container!.textContent).toContain('查看');
-    expect(container!.textContent).toContain('撤销本次操作');
+    expect(container!.textContent).toContain('撤销本次变更');
 
     const view = Array.from(container!.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('查看'),
     );
     const revert = Array.from(container!.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('撤销本次操作'),
+      button.textContent?.includes('撤销本次变更'),
     );
     act(() => {
       view!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -125,8 +125,8 @@ describe('InventoryOperationBanner', () => {
       },
       now: () => Date.parse('2026-07-11T08:05:00.000Z'),
     });
-    expect(container!.textContent).toContain('撤销窗口已过');
-    expect(container!.textContent).not.toContain('撤销本次操作');
+    expect(container!.textContent).toContain('已超过可撤销时间');
+    expect(container!.textContent).not.toContain('撤销本次变更');
 
     act(() => root?.unmount());
     container?.remove();
@@ -138,7 +138,7 @@ describe('InventoryOperationBanner', () => {
       },
       now: () => Date.parse('2026-07-11T08:05:00.000Z'),
     });
-    expect(container!.textContent).not.toContain('撤销本次操作');
+    expect(container!.textContent).not.toContain('撤销本次变更');
   });
 
   it('respects server-provided can_revert for Member/Owner', () => {
@@ -153,6 +153,6 @@ describe('InventoryOperationBanner', () => {
       },
     });
     expect(container!.textContent).toContain('家人的盘点已完成');
-    expect(container!.textContent).not.toContain('撤销本次操作');
+    expect(container!.textContent).not.toContain('撤销本次变更');
   });
 });

@@ -136,7 +136,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       const payload = resolution.payload satisfies Parameters<typeof args.createShoppingItem>[0];
       if (args.editingShoppingItemId) {
         if (args.editingShoppingItemRowVersion === null) {
-          args.showNotice({ tone: 'warning', title: '采购项已变化', message: '请刷新购物清单后再编辑。' });
+          args.showNotice({ tone: 'warning', title: '采购清单已更新', message: '请刷新采购清单后再编辑。' });
           return;
         }
         await args.updateShoppingItem({
@@ -154,8 +154,8 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     } catch (reason) {
       args.showNotice({
         tone: 'danger',
-        title: args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败',
-        message: args.resolveErrorMessage(reason, args.editingShoppingItemId ? '修改采购项失败' : '加入购物清单失败'),
+        title: args.editingShoppingItemId ? '修改待买内容失败' : '加入采购清单失败',
+        message: args.resolveErrorMessage(reason, args.editingShoppingItemId ? '修改待买内容失败' : '加入采购清单失败'),
       });
     }
   }
@@ -163,29 +163,29 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
   async function submitInventory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!args.inventoryForm.ingredientId) {
-      args.showNotice({ tone: 'warning', title: '还不能录入库存', message: '先选中这次补的是哪种食材，再保存这批库存。' });
+      args.showNotice({ tone: 'warning', title: '暂时无法加入库存', message: '先选择这次补充的食材，再保存库存。' });
       return;
     }
     const tracksQuantity = tracksIngredientQuantity(args.selectedInventoryIngredient);
     const quantity = tracksQuantity ? parsePositiveNumber(args.inventoryForm.quantity) : null;
     if (tracksQuantity && quantity === null) {
-      args.showNotice({ tone: 'warning', title: '库存数量无效', message: '数量要大于 0，才能把这批库存记进系统。' });
+      args.showNotice({ tone: 'warning', title: '库存数量无效', message: '数量必须大于 0，才能保存这份库存。' });
       return;
     }
     if (!args.inventoryForm.purchaseDate) {
-      args.showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这批食材的购买日期。' });
+      args.showNotice({ tone: 'warning', title: '缺少购买日期', message: '请确认这份库存的购买日期。' });
       return;
     }
     if (!args.inventoryForm.storageLocation.trim()) {
-      args.showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这批食材放在哪里，后面的提醒才会更准确。' });
+      args.showNotice({ tone: 'warning', title: '缺少存放位置', message: '请确认这份库存放在哪里，后面的提醒才会更准确。' });
       return;
     }
     if (args.inventoryForm.expiryInputMode === 'days' && parsePositiveNumber(args.inventoryForm.expiryDays) === null) {
-      args.showNotice({ tone: 'warning', title: '缺少保质期', message: '请填写这批食材大概几天后到期，系统才能自动算出到期日。' });
+      args.showNotice({ tone: 'warning', title: '缺少保质期信息', message: '请填写这份库存预计几天后到期，系统才能自动计算到期日。' });
       return;
     }
     if (args.inventoryForm.expiryInputMode === 'manual_date' && !args.inventoryForm.expiryDate) {
-      args.showNotice({ tone: 'warning', title: '缺少到期日期', message: '请填写包装上的到期日期，系统才能继续帮你监控临期。' });
+      args.showNotice({ tone: 'warning', title: '缺少到期日', message: '请填写包装上的到期日，系统才能继续帮你监控临期。' });
       return;
     }
     try {
@@ -224,14 +224,14 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       args.setInventoryAdvancedOpen(false);
       args.closeOverlay();
     } catch (reason) {
-      args.showNotice({ tone: 'danger', title: '录入库存失败', message: args.resolveErrorMessage(reason, '录入库存失败') });
+      args.showNotice({ tone: 'danger', title: '保存库存失败', message: args.resolveErrorMessage(reason, '保存库存失败') });
     }
   }
 
   async function submitConsume(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!args.consumeForm.ingredientId) {
-      args.showNotice({ tone: 'warning', title: '还不能记录消费', message: '先确认是要消费哪种食材。' });
+      args.showNotice({ tone: 'warning', title: '还不能记录用量', message: '先确认要记录哪种食材。' });
       return;
     }
 
@@ -241,7 +241,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       return;
     }
     if (!tracksIngredientQuantity(selectedSummary.ingredient)) {
-      args.showNotice({ tone: 'warning', title: '不需要扣数量', message: '这类食材只记录家里有没有，做菜时不会扣减数量。' });
+      args.showNotice({ tone: 'warning', title: '无需记录数量', message: '这类食材只记录家里有没有，做菜时不会按数量扣减。' });
       return;
     }
 
@@ -252,13 +252,13 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     );
     const selectedUnitOption = unitOptions.find((item) => item.unit === args.consumeForm.unit) ?? unitOptions[0] ?? null;
     if (!selectedUnitOption) {
-      args.showNotice({ tone: 'warning', title: '没有可消费库存', message: '这份食材当前没有可消费的库存。' });
+      args.showNotice({ tone: 'warning', title: '没有可用库存', message: '这份食材当前没有可记录用量的库存。' });
       return;
     }
 
     const quantity = parsePositiveNumber(args.consumeForm.quantity);
     if (quantity === null) {
-      args.showNotice({ tone: 'warning', title: '消费数量无效', message: '请确认这次实际消费了多少。' });
+      args.showNotice({ tone: 'warning', title: '用量无效', message: '请确认这次实际用了多少。' });
       return;
     }
 
@@ -266,7 +266,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       args.showNotice({
         tone: 'warning',
         title: '超过可用库存',
-        message: `当前最多还能消费 ${formatNumericString(selectedUnitOption.available)}${selectedUnitOption.unit}。`,
+        message: `当前最多还能记录 ${formatNumericString(selectedUnitOption.available)} ${selectedUnitOption.unit}。`,
       });
       return;
     }
@@ -280,7 +280,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       args.setSelectedIngredientId(args.consumeForm.ingredientId);
       args.closeOverlay();
     } catch (reason) {
-      args.showNotice({ tone: 'danger', title: '记录消费失败', message: args.resolveErrorMessage(reason, '记录消费失败') });
+      args.showNotice({ tone: 'danger', title: '记录用量失败', message: args.resolveErrorMessage(reason, '记录用量失败') });
     }
   }
 
@@ -293,12 +293,12 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       surviving = await args.refreshInventoryActionGroup(argsLocal.ingredientId);
     } catch (reason) {
       args.setInventoryActionConflict('review_again');
-      args.setInventoryActionError('家人可能改动了这批库存，但刷新失败，请稍后重试。');
+      args.setInventoryActionError('家人可能刚改动了库存，但页面暂时无法更新，请稍后重试。');
       return;
     }
     if (surviving) {
       args.setInventoryActionConflict('review_again');
-      args.setInventoryActionError('家人刚刚改动了这批库存，请重新选择后再提交。');
+      args.setInventoryActionError('家人刚刚改动了库存，请重新选择后再提交。');
       return;
     }
     args.setInventoryActionConflict('none');
@@ -306,8 +306,8 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     args.closeOverlay();
     args.showNotice({
       tone: 'success',
-      title: '这批库存已由家人处理',
-      message: `${argsLocal.ingredientName} 已不在今天要处理列表中。`,
+      title: '库存已由家人处理',
+      message: `${argsLocal.ingredientName} 已不在今天的提醒列表中。`,
     });
   }
 
@@ -348,8 +348,8 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
         args.setInventoryActionError(null);
         args.showNotice({
           tone: 'success',
-          title: `已处理${mutationArgs.ingredientName}`,
-          message: '还有批次需要处理，请继续选择。',
+          title: `已处理 ${mutationArgs.ingredientName}`,
+          message: '还剩部分库存，请继续选择要处理的内容。',
         });
         return;
       }
@@ -361,8 +361,8 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       args.closeOverlay();
       args.showNotice({
         tone: 'warning',
-        title: '操作已完成，但数据刷新失败',
-        message: messageOf(reason, '请稍后刷新页面后再继续处理。'),
+        title: '操作已完成',
+        message: messageOf(reason, '页面暂时没有更新，请刷新后查看最新库存。'),
       });
     } finally {
       args.setInventoryActionBusy(false);
@@ -380,14 +380,14 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
       return;
     }
     if (items.length === 0) {
-      args.setInventoryActionError('请先选择要销毁的过期批次。');
+      args.setInventoryActionError('请先选择要丢弃的过期库存。');
       return;
     }
 
     await runInventoryMutation({
       ingredientId: group.ingredientId,
       ingredientName: group.ingredientName,
-      failureTitle: '销毁过期批次失败',
+      failureTitle: '处理过期库存失败',
       mutate: () =>
         args.disposeExpiredInventory({
           ingredient_id: group.ingredientId,
@@ -412,7 +412,7 @@ export function useIngredientActionState(args: UseIngredientActionStateArgs) {
     }
     if (snoozeArgs.items.length === 0) {
       args.setInventoryActionError(
-        snoozeArgs.action === 'retain_expired' ? '请先选择要暂时保留的过期批次。' : '请先选择要稍后提醒的批次。',
+        snoozeArgs.action === 'retain_expired' ? '请先选择要暂时保留的过期库存。' : '请先选择要稍后提醒的库存。',
       );
       return;
     }

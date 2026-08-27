@@ -226,7 +226,7 @@ describe('FoodQuickMealDialog', () => {
   it('keeps the dialog open and locks choices while submitting', () => {
     const { onChange, onClose, view } = renderDialog({ isSubmitting: true });
 
-    expect(findButton(view, '处理中...')?.disabled).toBe(true);
+    expect(findButton(view, '处理中…')?.disabled).toBe(true);
     expect(findButton(view, '取消')?.disabled).toBe(true);
     expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.food-quick-meal-date-strip button')).every((button) => button.disabled)).toBe(true);
     expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.food-quick-meal-segments button')).every((button) => button.disabled)).toBe(true);

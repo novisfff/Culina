@@ -138,7 +138,7 @@ describe('FoodPlanDetailModal', () => {
 
     expect(view.querySelector('[role="status"]')?.textContent).toContain('正在准备这餐');
     expect(view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.disabled).toBe(true);
-    expect(findButton(view, '处理中...')?.disabled).toBe(true);
+    expect(findButton(view, '处理中…')?.disabled).toBe(true);
     expect(findButton(view, '修改')?.disabled).toBe(true);
     expect(findButton(view, '删除')?.disabled).toBe(true);
 
@@ -155,7 +155,7 @@ describe('FoodPlanDetailModal', () => {
     );
 
     expect(actionButtons.map((button) => button.textContent?.trim())).toEqual([
-      '记录已吃',
+      '记录这餐',
       '修改',
       '删除',
     ]);
@@ -183,9 +183,9 @@ describe('FoodPlanDetailModal', () => {
     });
 
     expect(findButton(view, '开始做')).toBeDefined();
-    expect(findButton(view, '直接记录已吃')).toBeDefined();
+    expect(findButton(view, '直接记录这餐')).toBeDefined();
     expect(view.querySelector('.recipe-plan-detail-actions.is-recipe')).not.toBeNull();
-    act(() => findButton(view, '直接记录已吃')?.click());
+    act(() => findButton(view, '直接记录这餐')?.click());
     act(() => findButton(view, '开始做')?.click());
     expect(onRecordEaten).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -198,7 +198,7 @@ describe('FoodPlanDetailModal', () => {
     const placeholder = view.querySelector('.food-plan-detail-cover-fallback');
     expect(placeholder).not.toBeNull();
     expect(placeholder?.querySelector('strong')).toBeNull();
-    expect(view.textContent).toContain('适合餐次');
+    expect(view.textContent).toContain('适合餐别');
     expect(view.textContent).toContain('午餐、晚餐');
     expect(view.textContent).toContain('关联菜谱');
   });
@@ -206,7 +206,7 @@ describe('FoodPlanDetailModal', () => {
   it('locks edit fields while saving changes', () => {
     const { view } = renderModal({ isEditing: true, isUpdatingPlan: true });
 
-    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在保存菜单变更');
+    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在保存餐食计划变更');
     expect(findButton(view, '取消修改')?.disabled).toBe(true);
     expect(view.querySelector<HTMLInputElement>('input.text-input')?.disabled).toBe(true);
     expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.recipe-plan-date-strip button')).every((button) => button.disabled)).toBe(true);

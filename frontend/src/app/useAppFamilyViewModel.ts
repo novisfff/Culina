@@ -38,7 +38,7 @@ export function buildAppFamilyViewModel(input: FamilyActivityQueryState & {
               currentBusinessDateKey
         ).length
       : null,
-    weekActivityValue: input.weekHighlightCount ?? '--' as const,
+    weekActivityValue: input.weekHighlightCount ?? null,
   };
 }
 
@@ -47,7 +47,7 @@ export function buildFamilyStatCards(input: {
   isOwner: boolean;
   pendingShoppingCount: number;
   currentUserRecentLogs: number | null;
-  weekActivityValue: number | '--';
+  weekActivityValue: number | null;
   family?: FamilyDetail | null;
 }): FamilyStatCard[] {
   return [
@@ -60,28 +60,28 @@ export function buildFamilyStatCards(input: {
       tone: 'green',
     },
     {
-      label: input.isOwner ? '待处理采购' : '我的记录',
+      label: input.isOwner ? '待采购' : '我的记录',
       value: input.isOwner
         ? input.pendingShoppingCount
-        : (input.currentUserRecentLogs ?? '--'),
-      unit: input.isOwner ? '项' : '次',
+        : (input.currentUserRecentLogs ?? '暂无'),
+      unit: input.isOwner || input.currentUserRecentLogs !== null ? (input.isOwner ? '项' : '次') : '',
       detail: input.isOwner ? '等待家人确认' : '今日参与协作',
       icon: input.isOwner ? 'mail' : 'edit',
       tone: 'orange',
     },
     {
       label: '本周协作',
-      value: input.weekActivityValue,
-      unit: '次',
+      value: input.weekActivityValue ?? '暂无',
+      unit: input.weekActivityValue === null ? '' : '次',
       detail: '做菜、采购和记录',
       icon: 'bar-chart',
       tone: 'yellow',
     },
     {
-      label: '家庭资料',
-      value: input.family?.location || '未填写',
+      label: '家庭信息',
+      value: input.family?.location || '未填写位置',
       unit: '',
-      detail: input.family?.motto || '补充口号和位置',
+      detail: input.family?.motto || '补充家庭口号和所在位置',
       icon: 'map-pin',
       tone: 'purple',
     },

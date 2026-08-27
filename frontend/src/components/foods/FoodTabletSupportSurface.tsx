@@ -28,7 +28,7 @@ export function FoodTabletSupportSurface(props: {
   scenes: FoodTabletScene[];
 }) {
   return (
-    <aside className="food-tablet-support-surface" aria-label="Pad 食物辅助操作">
+    <aside className="food-tablet-support-surface" aria-label="食物辅助操作">
       <section className="food-tablet-management-band">
         <div className="food-tablet-management-title">
           <strong>食物管理</strong>
@@ -53,7 +53,7 @@ export function FoodTabletSupportSurface(props: {
             <strong>{props.nextTaskSummary}</strong>
           </span>
           <button type="button" disabled={!props.canOpenNextTask} onClick={props.onOpenNextTask}>
-            去处理
+            继续完善
           </button>
         </div>
       </section>
@@ -93,7 +93,7 @@ export function FoodTabletSupportSurface(props: {
               </span>
             </button>
           )) : (
-            <span className="food-tablet-scene-empty">暂无场景标签</span>
+            <span className="food-tablet-scene-empty">还没有场景标签</span>
           )}
         </div>
       </section>

@@ -21,7 +21,7 @@ function getInventorySnapshot(state: AppState): string[] {
   return state.inventoryItems
     .map((item) => {
       const ingredient = state.ingredients.find((entry) => entry.id === item.ingredientId);
-      return ingredient ? `${ingredient.name}${item.quantity}${item.unit}` : null;
+      return ingredient ? `${ingredient.name} ${item.quantity} ${item.unit}` : null;
     })
     .filter((item): item is string => Boolean(item));
 }
@@ -62,7 +62,7 @@ function pickRecommendation(state: AppState): AIRecommendation {
     familyId: state.family.id,
     title: best.food ? `今晚推荐：${best.food.name}` : '今晚推荐一份轻松晚餐',
     detail: best.food
-      ? `匹配库存度 ${Math.round(best.score * 100)}%，${best.recipe ? `建议准备 ${best.recipe.prepMinutes} 分钟。` : '适合直接安排。'}${inventoryAlerts[0] ? ` 另外别忘了优先处理：${inventoryAlerts[0].title}。` : ''}`
+      ? `现有食材匹配度 ${Math.round(best.score * 100)}%，${best.recipe ? `建议准备 ${best.recipe.prepMinutes} 分钟。` : '适合直接安排。'}${inventoryAlerts[0] ? ` 另外别忘了优先处理：${inventoryAlerts[0].title}。` : ''}`
       : '先补齐常用食材后，系统会给出更准确的推荐。',
     createdAt: new Date().toISOString()
   };
@@ -85,8 +85,8 @@ function buildFoodAnswer(state: AppState, food: Food | undefined, prompt: string
     ? '如果要更清淡，可以把油量减到平时的 70%，并增加蒸/焯步骤。'
     : '可以优先保留这道菜的核心步骤，再根据家庭口味调整调味。';
 
-  return `${food.name} 适合 ${recipe.sceneTags.join('、') || '家庭日常'} 场景，当前难度是 ${recipe.difficulty}，准备约 ${recipe.prepMinutes} 分钟。${lighterTip} 现有原料包括 ${recipe.ingredientItems
-    .map((item) => `${item.ingredientName}${item.quantity}${item.unit}`)
+  return `${food.name} 适合 ${recipe.sceneTags.join('、') || '家庭日常'} 场景，当前难度是 ${recipe.difficulty}，准备约 ${recipe.prepMinutes} 分钟。${lighterTip} 现有食材包括 ${recipe.ingredientItems
+    .map((item) => `${item.ingredientName} ${item.quantity} ${item.unit}`)
     .join('、')}。`;
 }
 
@@ -95,12 +95,12 @@ function buildInventoryAnswer(state: AppState): string {
   const snapshot = getInventorySnapshot(state);
 
   if (alerts.length === 0) {
-    return `当前库存状态平稳，主要食材有：${snapshot.slice(0, 6).join('、')}。可以优先安排 1 道自做菜和 1 份轻主食组合。`;
+    return `当前库存状态正常，主要食材有：${snapshot.slice(0, 6).join('、')}。可以优先安排 1 道家常菜和 1 份轻主食组合。`;
   }
 
-  return `目前最需要关注的是：${alerts
+  return `现在最需要关注的是：${alerts
     .map((item) => item.title)
-    .join('、')}。现有库存里可以优先消耗 ${snapshot.slice(0, 5).join('、')}。如果你愿意，我下一步可以直接给你一顿晚餐搭配建议。`;
+    .join('、')}。现有库存里可以优先使用 ${snapshot.slice(0, 5).join('、')}。如果你愿意，我下一步可以直接给你一顿晚餐搭配建议。`;
 }
 
 function buildRecipeDraft(state: AppState, ingredientIds: string[], prompt: string): string {

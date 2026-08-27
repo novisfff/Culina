@@ -96,16 +96,16 @@ function isReadyLikeFoodProfileType(value: string) {
 
 function stockLabel(record: ReturnType<typeof profileRecord>) {
   const quantity = draftNumberInputValue(record.stockQuantity, '');
-  return typeof quantity === 'number' ? formatFoodStockAmount(quantity, record.stockUnit || '份') : '未填写';
+  return typeof quantity === 'number' ? formatFoodStockAmount(quantity, record.stockUnit || '份') : '未填写库存数量';
 }
 
 function summaryItems(record: ReturnType<typeof profileRecord>) {
   return [
-    { label: '食物名', value: record.name || '未命名食物' },
-    { label: '类型', value: FOOD_TYPE_OPTIONS.find((option) => option.value === record.type)?.label || foodTypeText(record.type) || '未设置' },
+    { label: '食物名称', value: record.name || '未命名食物' },
+    { label: '类型', value: FOOD_TYPE_OPTIONS.find((option) => option.value === record.type)?.label || foodTypeText(record.type) || '未设置类型' },
     { label: '分类', value: record.category || '未填写' },
-    { label: '适合餐别', value: record.suitableMealTypes.map(mealTypeLabel).filter(Boolean).join('、') || '未设置' },
-    { label: '口味标签', value: record.flavorTags.join('、') || '未设置' },
+    { label: '适合餐别', value: record.suitableMealTypes.map(mealTypeLabel).filter(Boolean).join('、') || '未设置餐别' },
+    { label: '口味标签', value: record.flavorTags.join('、') || '未设置口味标签' },
     { label: '来源', value: record.sourceName || '未填写' },
     ...(isReadyLikeFoodProfileType(record.type)
       ? [
@@ -125,16 +125,16 @@ function actionLabel(action: string) {
     case 'set_favorite':
       return '收藏';
     default:
-      return action || '创建';
+      return action || '新增';
   }
 }
 
 function statusTitle(status: AiApprovalRequest['status'], action: string) {
   const label = actionLabel(action);
-  if (status === 'approved') return `${label}食物资料已确认`;
-  if (status === 'rejected') return '未写入的食物资料草稿';
-  if (status === 'expired') return '已过期的食物资料草稿';
-  return `${label}食物资料`;
+  if (status === 'approved') return `${label}食物信息已确认`;
+  if (status === 'rejected') return '这份食物信息没有保存';
+  if (status === 'expired') return '这份食物信息建议已过期';
+  return `${label}食物信息`;
 }
 
 function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -185,8 +185,8 @@ export function AiFoodProfileDraftView(props: {
 
   const renderSummary = () => {
     const summary = action === 'set_favorite'
-      ? '确认后只更新收藏状态，不修改食物资料内容。'
-      : '确认后会写入食物资料，用于餐食记录、计划和推荐。';
+      ? '确认后只更新收藏状态，不修改其他食物信息。'
+      : '确认后会保存食物信息，用于餐食记录、计划和推荐。';
 
     if (props.status !== 'pending') {
       return (
@@ -221,7 +221,7 @@ export function AiFoodProfileDraftView(props: {
     <>
       <AiDraftSection
         title="核心信息"
-        description="确认名称、类型和家庭分类，分类可选择已有值或自定义。"
+        description="确认名称、类型和分类；分类可以选择已有选项，也可以自己填写。"
         className="ai-food-profile-section"
       >
         <label className="ai-resource-field">
@@ -253,7 +253,7 @@ export function AiFoodProfileDraftView(props: {
       </AiDraftSection>
       <AiDraftSection
         title="适用场景"
-        description="餐别是固定多选；口味标签会去重并过滤空值。"
+        description="选择适合的餐别和口味，方便以后安排餐食。"
         className="ai-food-profile-section"
       >
         <ApprovalMultiSelectField
@@ -291,7 +291,7 @@ export function AiFoodProfileDraftView(props: {
       </AiDraftSection>
       <AiDraftSection
         title="来源与备注"
-        description="来源属于开放信息，作为补充字段保留。"
+        description="填写店铺、品牌等来源信息，方便以后回看。"
         className="ai-food-profile-section"
       >
         <label className="ai-resource-field">
@@ -337,7 +337,7 @@ export function AiFoodProfileDraftView(props: {
       <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
         {renderSummary()}
         <AiDraftItemCard
-          title={record.name || asText(props.draft.targetId) || '食物资料'}
+          title={record.name || asText(props.draft.targetId) || '食物信息'}
           summary={`当前：${favoriteLabel(before.favorite)} · 调整后：${favoriteLabel(payload.favorite)}`}
           status={actionLabel(currentAction)}
           className="ai-food-profile-favorite-card"
@@ -363,8 +363,8 @@ export function AiFoodProfileDraftView(props: {
     <div className="ai-recipe-editor ai-confirmation-editor ai-food-profile-draft-editor">
       {renderSummary()}
       {action === 'update' ? (
-        <AiDraftImpactNote tone="plan" title="当前资料" className="ai-approval-compare-copy">
-          <p>{[asText(before.name), foodTypeText(asText(before.type)), asText(before.category)].filter(Boolean).join(' · ') || '未记录'}</p>
+        <AiDraftImpactNote tone="plan" title="当前信息" className="ai-approval-compare-copy">
+          <p>{[asText(before.name), foodTypeText(asText(before.type)), asText(before.category)].filter(Boolean).join(' · ') || '还没有记录'}</p>
         </AiDraftImpactNote>
       ) : null}
       {renderProfileForm()}

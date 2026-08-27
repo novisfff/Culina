@@ -91,7 +91,7 @@ describe('AI Draft field adapters', () => {
     const option = view.querySelector<HTMLButtonElement>('[role="option"]');
     act(() => option?.click());
     expect(onChange).toHaveBeenCalledWith('ingredient-tomato');
-    expect(view.textContent).toContain('正在加载更多...');
+    expect(view.textContent).toContain('正在加载更多…');
   });
 
   it('keeps the selected resource label visible before a new search begins', () => {
@@ -152,7 +152,7 @@ describe('AI Draft field adapters', () => {
     expect(view.textContent).toContain('周末聚餐');
     expect(view.querySelectorAll('[data-draft-tag="快手晚餐"]')).toHaveLength(1);
 
-    const removeButton = view.querySelector<HTMLButtonElement>('[aria-label="删除场景标签：一人食"]');
+    const removeButton = view.querySelector<HTMLButtonElement>('[aria-label="移除场景标签：一人食"]');
     act(() => removeButton?.click());
     expect(view.textContent).not.toContain('一人食');
   });

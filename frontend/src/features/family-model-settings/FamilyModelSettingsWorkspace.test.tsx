@@ -152,7 +152,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await user.click(await screen.findByRole('button', { name: /能力配置/ }));
+    await user.click(await screen.findByRole('button', { name: /功能设置/ }));
     const modelField = await screen.findByRole('combobox', { name: '模型名称' });
     await user.clear(modelField);
     await user.type(modelField, 'draft-model-v2');
@@ -169,9 +169,9 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     expect(screen.getByRole('heading', { name: '家庭 AI 服务' })).toBeVisible();
-    expect(screen.queryByText('API Key：')).not.toBeInTheDocument();
+    expect(screen.queryByText('API 密钥：')).not.toBeInTheDocument();
   });
 
   it('offers one state-derived next step and routes it to Provider setup', async () => {
@@ -180,12 +180,12 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    const nextStep = await screen.findByRole('button', { name: '连接第一个 AI 服务' });
-    expect(screen.getByText('1. 连接服务')).toBeVisible();
+    const nextStep = await screen.findByRole('button', { name: '添加第一个 AI 服务' });
+    expect(screen.getByText('1. 添加模型服务')).toBeVisible();
     expect(screen.queryByRole('button', { name: '配置能力' })).not.toBeInTheDocument();
 
     fireEvent.click(nextStep);
-    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();
   });
 
   it('uses the same state-derived next step in the phone action bar', async () => {
@@ -194,12 +194,12 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    const nextStep = await screen.findByRole('button', { name: '连接第一个 AI 服务' });
+    const nextStep = await screen.findByRole('button', { name: '添加第一个 AI 服务' });
     const footer = document.querySelector('.family-model-settings-mobile-footer');
     expect(footer).not.toBeNull();
     expect(within(footer as HTMLElement).queryByRole('button', { name: '配置检查' })).not.toBeInTheDocument();
     fireEvent.click(nextStep);
-    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();
   });
 
   it('exposes configuration checking without a global confirmation step', async () => {
@@ -246,9 +246,9 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByRole('main', { name: '手机家庭 AI 服务' })).toBeVisible());
+    await screen.findByRole('button', { name: '模型服务' });
     expect(container.querySelector('.family-model-settings-desktop')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '模型服务' })).toBeVisible();
   });
 
   it('routes a browser-back event through the workspace back contract', async () => {
@@ -258,7 +258,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     expect(window.history.state?.culinaWorkspaceGuard).toBe('family-model-settings:family-a');
     await act(async () => {
       window.history.back();
@@ -275,7 +275,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
@@ -291,7 +291,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -352,7 +352,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
       { wrapper: wrapper() },
     );
-    await waitFor(() => expect(screen.getByText(/1 类已启用能力/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/1 类已启用功能/)).toBeVisible());
 
     rendered.rerender(
       <FamilyModelSettingsWorkspace familyId="family-b" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
@@ -363,6 +363,6 @@ describe('FamilyModelSettingsWorkspace', () => {
     });
 
     await waitFor(() => expect(screen.getByText('正在加载家庭 AI 服务')).toBeVisible());
-    expect(screen.queryByText(/1 类已启用能力/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 类已启用功能/)).not.toBeInTheDocument();
   });
 });

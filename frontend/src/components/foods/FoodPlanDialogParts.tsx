@@ -38,7 +38,7 @@ export function FoodPlanSelectedHero(props: {
         />
       </div>
       <div className="recipe-plan-selected-copy">
-        <span className="recipe-plan-dialog-kicker">即将加入</span>
+        <span className="recipe-plan-dialog-kicker">将加入餐食计划</span>
         <strong>{props.food.name}</strong>
         <div className="recipe-plan-selected-meta">
           <span>
@@ -94,7 +94,7 @@ export function FoodPlanFoodPicker(props: {
         hasMore={props.hasMore}
         disabled={props.disabled}
         loadMoreText="加载更多食物"
-        loadingMoreText="正在加载更多食物..."
+        loadingMoreText="正在加载更多食物…"
         options={props.options}
         emptyText={props.emptyText}
         onSearchCompositionStart={props.onCompositionStart}

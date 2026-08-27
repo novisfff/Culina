@@ -9,13 +9,13 @@ export const FAMILY_MODEL_CAPABILITY_OPTIONS: Record<FamilyModelCapability, {
   label: string;
   description: string;
 }> = {
-  llm: { label: '对话与视觉理解', description: '用于家庭助手、菜谱草稿和图片理解。' },
+  llm: { label: '对话与图片理解', description: '用于家庭助手、菜谱草稿和图片理解。' },
   image_generation: { label: '图片生成', description: '用于菜谱、食物和家庭图片。' },
   stt: { label: '语音识别', description: '把做菜时的语音转成文字。' },
   tts: { label: '语音播报', description: '朗读步骤和助手回复。' },
   realtime_audio: { label: '实时语音', description: '支持连续的语音交互。' },
-  embedding: { label: '搜索向量', description: '为家庭内容建立语义索引。' },
-  rerank: { label: '搜索重排', description: '优化家庭搜索结果顺序。' },
+  embedding: { label: '智能搜索', description: '让搜索理解家庭里的食材、菜谱等内容。' },
+  rerank: { label: '搜索排序', description: '调整家庭搜索结果的先后顺序。' },
 };
 
 export const FAMILY_MODEL_ADAPTER_OPTIONS: ReadonlyArray<{
@@ -23,8 +23,8 @@ export const FAMILY_MODEL_ADAPTER_OPTIONS: ReadonlyArray<{
   label: string;
   description: string;
 }> = [
-  { value: 'openai_compatible_http', label: 'OpenAI 兼容 HTTP', description: '支持对话、图片、语音和搜索能力。' },
-  { value: 'dashscope_http', label: 'DashScope HTTP', description: '支持通义兼容的 HTTP 模型能力。' },
+  { value: 'openai_compatible_http', label: 'OpenAI 兼容 HTTP', description: '支持对话、图片、语音和搜索功能。' },
+  { value: 'dashscope_http', label: 'DashScope HTTP', description: '支持通义兼容的 HTTP 模型功能。' },
   { value: 'openai_realtime', label: 'OpenAI Realtime', description: '仅用于实时语音。' },
   { value: 'dashscope_realtime', label: 'DashScope Realtime', description: '仅用于实时语音。' },
 ];
@@ -40,7 +40,7 @@ export const FAMILY_MODEL_METER_LABELS: Partial<Record<ModelUsageMeter, string>>
   generated_images: '生成图片',
   audio_input_seconds: '音频输入秒数',
   tts_characters: '语音合成字符',
-  embedding_tokens: '向量 Token',
+  embedding_tokens: '智能搜索用量（Token）',
   input_tokens: '输入 Token',
 };
 

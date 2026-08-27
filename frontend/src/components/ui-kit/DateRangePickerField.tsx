@@ -197,7 +197,7 @@ export function DateRangePickerField({
         style={mobile ? undefined : popoverStyle}
       >
         <div className="ui-date-range-picker-head">
-          <div><p>请求日期</p><h3 id={titleId}>选择日期范围</h3></div>
+          <div><p>日期筛选</p><h3 id={titleId}>选择日期范围</h3></div>
           <button type="button" aria-label="关闭日期范围选择器" onClick={() => closePicker()}>×</button>
         </div>
         <div className="ui-date-range-picker-selection" aria-live="polite">

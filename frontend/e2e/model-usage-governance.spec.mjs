@@ -49,7 +49,7 @@ for (const viewport of MODEL_USAGE_VIEWPORTS) {
 
     await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '每日费用趋势' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '费用细分' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '费用明细' })).toBeVisible();
     await expect(page.getByText('近 30 天', { exact: true })).toBeVisible();
     await expect(page.getByText('最高单日费用', { exact: true })).toHaveCount(0);
     await expect(page.getByText('有记录天数', { exact: true })).toHaveCount(0);
@@ -83,7 +83,7 @@ test('@p0 @model-usage-390x844 long provider and model names wrap without horizo
   const { page } = app;
   await openModelUsage(page);
 
-  await page.getByLabel('细分方式').selectOption('provider_model');
+  await page.getByLabel('查看方式').selectOption('provider_model');
   await expect(page.getByText(/gpt-smoke-regional-routing-snapshot-2026-08-05-with-a-very-long-model-name/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await saveVisualReviewScreenshot(page, '390x844-long-model.png');
@@ -93,7 +93,7 @@ test('@p0 @model-usage-390x844 @model-usage-1440x900 request logs use a normal e
   const { page } = app;
   await openModelUsage(page);
 
-  const entry = page.getByRole('button', { name: /请求日志/ });
+  const entry = page.getByRole('button', { name: /请求记录/ });
   const arrow = entry.locator('svg');
   await expect(entry).toBeVisible();
   await expect(arrow).toHaveCSS('width', '18px');
@@ -102,7 +102,7 @@ test('@p0 @model-usage-390x844 @model-usage-1440x900 request logs use a normal e
   await expectNoHorizontalOverflow(page);
 
   await entry.click();
-  await expect(page.getByRole('heading', { name: '请求日志' })).toBeVisible();
+  await expect(page.locator('.model-usage-request-page-header').getByRole('heading', { name: '请求记录', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '筛选请求' })).toBeVisible();
   const requestPageHeader = page.locator('.model-usage-request-page-header');
   const requestPageBack = page.getByRole('button', { name: '返回模型用量' });
@@ -113,12 +113,12 @@ test('@p0 @model-usage-390x844 @model-usage-1440x900 request logs use a normal e
     await expect(page.locator('.model-usage-request-logs-page')).toHaveCSS('padding-bottom', '0px');
   }
   expect((await requestPageBack.boundingBox())?.width).toBeLessThan(80);
-  await expect(page.getByRole('button', { name: /请求日期/ })).toBeVisible();
-  await expect(page.getByText('模型能力', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '全部能力' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /日期范围/ })).toBeVisible();
+  await expect(page.getByText('模型功能', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '全部功能' })).toBeVisible();
   await expect(page.getByText('核对状态', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '全部状态' })).toBeVisible();
-  await expect(page.getByLabel('Provider')).toBeVisible();
+  await expect(page.getByLabel('模型服务')).toBeVisible();
   await expect(page.getByLabel('模型', { exact: true })).toBeVisible();
   await expect(page.locator('input[type="date"], input[type="month"]')).toHaveCount(0);
   await expect(page.getByText('共 23 次请求')).toBeVisible();
@@ -132,13 +132,13 @@ test('@p0 @model-usage-390x844 @model-usage-1440x900 request logs use a normal e
       && url.searchParams.get('date_to') === '2026-08-08'
       && !url.searchParams.has('period');
   });
-  await page.getByRole('button', { name: /请求日期/ }).click();
+  await page.getByRole('button', { name: /日期范围/ }).click();
   await saveVisualReviewScreenshot(page, `${page.viewportSize()?.width ?? 'unknown'}x${page.viewportSize()?.height ?? 'unknown'}-date-range-picker.png`);
   await page.getByRole('gridcell', { name: /2026年8月6日/ }).click();
   await page.getByRole('gridcell', { name: /2026年8月8日/ }).click();
   await page.getByRole('button', { name: '应用范围' }).click();
-  await page.getByLabel('Provider').fill('dashscope');
-  await page.getByRole('button', { name: '查询记录' }).click();
+  await page.getByLabel('模型服务').fill('dashscope');
+  await page.getByRole('button', { name: '查看记录' }).click();
   await filteredRequest;
   await expect(page.getByText('qwen3-rerank').first()).toBeVisible();
   await expect(page.getByText(/model-usage-request-|provider-request-/)).toHaveCount(0);
@@ -155,8 +155,8 @@ test.describe('personal empty model usage', () => {
     await page.getByRole('button', { name: '我的' }).click();
 
     await expect(page.getByRole('heading', { name: '我的模型用量' })).toBeVisible();
-    await expect(page.getByText('从 2026 年 8 月 5 日开始记录')).toBeVisible();
-    await expect(page.getByRole('heading', { name: '本月还没有模型调用' })).toBeVisible();
+    await expect(page.getByText('自 2026 年 8 月 5 日起记录')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '当前统计周期还没有模型使用记录' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '需要核对的用量' })).toHaveCount(0);
     await expect(page.getByText(/避免把未知情况伪装成精确数据/)).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -193,7 +193,7 @@ test('@p0 @model-usage-1440x900 owner alert deep links to its period and can be 
   await seenRequest;
 
   await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
-  await expect(page.getByLabel('选择账期')).toHaveValue('2026-06');
+  await expect(page.getByLabel('选择统计周期')).toHaveValue('2026-06');
   await expect(page.getByRole('heading', { name: '家庭预算已达到 80%' })).toBeVisible();
 
   await page.getByRole('button', { name: /查看通知/ }).first().click();
@@ -214,7 +214,7 @@ test('@p0 @model-usage-375x812 @model-usage-390x844 @model-usage-430x932 @model-
   await expect(page.getByRole('heading', { name: '模型预算设置' })).toBeVisible();
   await expect(page.getByRole('region', { name: '当前预算策略' })).toBeVisible();
   await expect(page.getByLabel('家庭月预算（元）')).toHaveValue('80');
-  await expect(page.getByText(/新发起的模型调用会按新额度检查/)).toBeVisible();
+  await expect(page.getByText(/新发起的模型请求会按新额度检查/)).toBeVisible();
   await expect(page.getByText(/Decimal|持久化发送授权|放行凭证/)).toHaveCount(0);
   if ((page.viewportSize()?.width ?? 0) < 768) {
     await expect(page.locator('.model-usage-policy-mobile > .model-usage-policy-settings')).toHaveCSS('overflow-y', 'visible');
@@ -258,7 +258,7 @@ test.describe('@p0 @model-usage-1440x900 owner policy conflict recovery', () => 
 
     await page.getByRole('button', { name: '保存设置' }).click();
     await expect(page.getByRole('heading', { name: '预算设置已被更新' })).toBeVisible();
-    await expect(page.getByText('当前版本：5')).toBeVisible();
+    await expect(page.getByText('最新设置已保存')).toBeVisible();
 
     await page.getByRole('button', { name: '重新应用保留的修改' }).click();
     const retryRequest = page.waitForRequest((request) => (
@@ -286,15 +286,15 @@ test('@p0 @model-usage-1440x900 owner keeps the last model-usage data visible du
     });
   });
   await context.setOffline(true);
-  await page.getByLabel('细分方式').selectOption('provider_model');
+  await page.getByLabel('查看方式').selectOption('provider_model');
 
-  await expect(page.getByText('当前离线，正在显示已缓存的数据。')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('当前离线，以下显示已缓存的数据。')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('家庭额度', { exact: true })).toBeVisible();
 
   await context.setOffline(false);
   await page.unroute(failingBreakdown);
-  await page.getByLabel('细分方式').selectOption('capability');
-  await expect(page.getByText('当前离线，正在显示已缓存的数据。')).toHaveCount(0, { timeout: 15_000 });
+  await page.getByLabel('查看方式').selectOption('capability');
+  await expect(page.getByText('当前离线，以下显示已缓存的数据。')).toHaveCount(0, { timeout: 15_000 });
 });
 
 test('@p0 @model-usage-390x844 model usage keeps keyboard controls and accessible names at reduced motion and 200% text zoom', async ({ app }) => {
@@ -305,8 +305,8 @@ test('@p0 @model-usage-390x844 model usage keeps keyboard controls and accessibl
 
   const budgetSettings = page.getByRole('button', { name: '预算设置' });
   await expect(budgetSettings).toBeVisible();
-  await expect(page.getByLabel('选择账期')).toBeVisible();
-  await expect(page.getByLabel('细分方式')).toBeVisible();
+  await expect(page.getByLabel('选择统计周期')).toBeVisible();
+  await expect(page.getByLabel('查看方式')).toBeVisible();
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
 
   await page.evaluate(() => {

@@ -442,7 +442,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
         const message =
           reason instanceof Error && reason.message.trim()
             ? reason.message
-            : '加载候选失败，请重试';
+            : '暂时无法加载可选餐食，请重试';
         setQuickRecord((current) =>
           current && current.date === date && current.mealType === mealType
             ? {
@@ -470,8 +470,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
               ...current,
               error:
                 current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '加载候选失败，请重试'
-                  : '正在确认是否有可加入的餐食…',
+                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
+                  : '正在查找可加入的餐食…',
             }
           : current,
       );
@@ -502,7 +502,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               ...current,
               error: reason instanceof Error && reason.message.trim()
                 ? reason.message
-                : '记录失败，请重试',
+                : '餐食记录失败，请重试',
             }
           : current,
       );
@@ -561,7 +561,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           ? {
               ...current,
               busy: false,
-              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
+              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
             }
           : current,
       );
@@ -818,8 +818,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
           onClose={() => setMorePlansPopover(null)}
         >
           <WorkspaceModal
-            title={`${formatDate(morePlansPopover.date)} · ${MEAL_TYPE_LABELS[morePlansPopover.mealType]}计划`}
-            description={`共 ${morePlansPopover.items.length} 项计划`}
+            title={`${formatDate(morePlansPopover.date)} · ${MEAL_TYPE_LABELS[morePlansPopover.mealType]}餐食安排`}
+            description={`共 ${morePlansPopover.items.length} 项餐食安排`}
             eyebrow="餐食清单"
             className="home-more-plans-modal"
             onClose={() => setMorePlansPopover(null)}
@@ -863,7 +863,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 onClick={onOpenGlobalSearch}
               >
                 <DashboardIcon name="search" />
-                <span>搜索食材、菜谱、计划...</span>
+                <span>搜索食材、菜谱、餐食计划…</span>
               </button>
             </div>
           }
@@ -928,7 +928,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               {desktopRecommendations.map(({ recommendation, coverUrl }) => {
                 const food = recommendation.food;
                 const canStartRecipe = Boolean(food.recipe_id);
-                const primaryActionLabel = canStartRecipe ? '开始做' : '加入计划';
+                const primaryActionLabel = canStartRecipe ? '开始做' : '加入餐食计划';
                 return (
                   <article
                     key={food.id}
@@ -947,7 +947,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                       <h3>{food.name}</h3>
                       <div className="dashboard-badge-row">
                         <Badge>{FOOD_TYPE_LABELS[food.type]}</Badge>
-                        <Badge>{food.routine_note || `${food.suitable_meal_types.length || 1} 餐适合`}</Badge>
+                        <Badge>{food.routine_note || `适合 ${food.suitable_meal_types.length || 1} 个餐别`}</Badge>
                       </div>
                       <p>{recommendation.reasons[0] ?? food.notes ?? '适合今天安排'}</p>
                       <div className="dashboard-food-actions">
@@ -974,8 +974,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
                             openHomePlanAddDialog(food, foodRecommendations?.target_meal_type ?? 'dinner');
                           }}
                           disabled={isCreatingFoodPlanItem}
-                          aria-label={`加入菜单：${food.name}`}
-                          title="加入菜单"
+                          aria-label={`加入餐食计划：${food.name}`}
+                          title="加入餐食计划"
                         >
                           <DashboardIcon name="calendar" />
                         </button>
@@ -987,7 +987,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
               </div>
             </div>
           ) : (
-            <EmptyState title="暂无推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
+            <EmptyState title="还没有今日推荐" description="补充食材或菜谱后，这里会出现今日建议。" />
           )}
         </section>
 

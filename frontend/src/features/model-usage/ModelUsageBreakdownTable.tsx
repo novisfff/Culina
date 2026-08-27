@@ -51,10 +51,10 @@ function pricingStatus(item: ModelUsagePersonalBreakdownItem): ReactNode {
 function measurementStatus(item: ModelUsagePersonalBreakdownItem): ReactNode {
   const health = item.measurement_health;
   if (health.measurement_gap || health.uncertain_attempt_count > 0 || health.known_unmeasured_attempt_count > 0) {
-    return <span className="model-usage-table-status is-warning">需核对</span>;
+    return <span className="model-usage-table-status is-warning">需要核对</span>;
   }
   if (health.pending_attempt_count > 0) {
-    return <span className="model-usage-table-status is-info">结算中</span>;
+    return <span className="model-usage-table-status is-info">费用确认中</span>;
   }
   if (health.estimated_event_count > 0) {
     return <span className="model-usage-table-status is-info">含估算</span>;
@@ -65,7 +65,7 @@ function measurementStatus(item: ModelUsagePersonalBreakdownItem): ReactNode {
 function costColumn<Item extends ModelUsagePersonalBreakdownItem>(): Column<Item> {
   return {
     key: 'cost',
-    label: '已记录费用',
+    label: '已计入费用',
     className: 'is-numeric',
     render: (item) => <span className="model-usage-breakdown-cost">{costDisplay(item)}</span>,
   };
@@ -75,25 +75,25 @@ function personalColumnsFor(groupBy: ModelUsagePersonalGroupBy): Column<ModelUsa
   switch (groupBy) {
     case 'meter':
       return [
-        { key: 'meter', label: '计量项', render: (item) => personalDimensionLabel(item, groupBy) },
+        { key: 'meter', label: '用量类型', render: (item) => personalDimensionLabel(item, groupBy) },
         { key: 'usage', label: '总用量', render: usageValue },
         costColumn(),
         { key: 'pricing', label: '定价状态', render: pricingStatus },
       ];
     case 'daily_capability_cost':
       return [
-        { key: 'day', label: '日期与能力', render: (item) => item.local_day ? `${item.local_day} · ${personalDimensionLabel(item, 'capability')}` : item.label },
+        { key: 'day', label: '日期与功能', render: (item) => item.local_day ? `${item.local_day} · ${personalDimensionLabel(item, 'capability')}` : item.label },
         costColumn(),
         { key: 'pricing', label: '定价状态', render: pricingStatus },
-        { key: 'measurement', label: '计量状态', render: measurementStatus },
+        { key: 'measurement', label: '用量状态', render: measurementStatus },
       ];
     case 'capability':
     default:
       return [
-        { key: 'capability', label: '能力', render: (item) => personalDimensionLabel(item, groupBy) },
+        { key: 'capability', label: '功能', render: (item) => personalDimensionLabel(item, groupBy) },
         costColumn(),
         { key: 'pricing', label: '定价状态', render: pricingStatus },
-        { key: 'measurement', label: '计量状态', render: measurementStatus },
+        { key: 'measurement', label: '用量状态', render: measurementStatus },
       ];
   }
 }
@@ -101,7 +101,7 @@ function personalColumnsFor(groupBy: ModelUsagePersonalGroupBy): Column<ModelUsa
 function familyColumnsFor(groupBy: ModelUsageFamilyGroupBy): Column<ModelUsageFamilyBreakdownItem>[] {
   if (groupBy === 'provider_model') {
     return [
-      { key: 'provider', label: 'Provider', render: (item) => item.provider || '—' },
+      { key: 'provider', label: '模型服务', render: (item) => item.provider || '—' },
       { key: 'model', label: '模型', render: (item) => item.billing_model || item.label || '—' },
       { key: 'usage', label: '用量', render: usageValue },
       costColumn(),
@@ -112,7 +112,7 @@ function familyColumnsFor(groupBy: ModelUsageFamilyGroupBy): Column<ModelUsageFa
       { key: 'subject', label: '成员', render: (item) => item.label },
       costColumn(),
       { key: 'pricing', label: '定价状态', render: pricingStatus },
-      { key: 'measurement', label: '计量状态', render: measurementStatus },
+      { key: 'measurement', label: '用量状态', render: measurementStatus },
     ];
   }
   return personalColumnsFor(groupBy);
@@ -150,7 +150,7 @@ function Table<Item extends ModelUsagePersonalBreakdownItem>(props: {
   items: Item[];
 }) {
   return (
-    <table className={props.className} aria-label="费用细分明细">
+    <table className={props.className} aria-label="费用明细">
       <thead>
         <tr>
           {props.columns.map((column) => <th key={column.key} scope="col" className={column.className}>{column.label}</th>)}

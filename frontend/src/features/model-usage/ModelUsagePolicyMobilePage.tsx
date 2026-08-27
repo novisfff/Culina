@@ -31,7 +31,7 @@ export function ModelUsagePolicyMobilePage(props: ModelUsagePolicyMobilePageProp
         <div>
           <p>家庭额度管理</p>
           <h1>模型预算设置</h1>
-          <small>设置提醒、限制和各项能力额度</small>
+          <small>设置提醒、限制和各项功能额度</small>
         </div>
       </header>
       <ModelUsagePolicySettings {...props.settings} formId={formId} onSaved={props.onClose} />

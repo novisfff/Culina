@@ -165,7 +165,7 @@ export function MealComposer(props: MealComposerProps) {
             primaryForm={formId}
             primaryDisabled={submitDisabled}
             isSubmitting={busy}
-            submittingLabel="正在记下..."
+            submittingLabel="正在记录…"
             secondaryLabel="取消"
             onSecondary={closeIfAllowed}
           />
@@ -290,12 +290,12 @@ export function MealComposer(props: MealComposerProps) {
                           {food.kind === 'new' ? <small>新建</small> : null}
                           {food.kind === 'existing' && food.planItems?.length ? (
                             <small className="meal-composer-plan-badge">
-                              本餐计划{food.planItems.length > 1 ? ` · ${food.planItems.length} 项` : ''}
+                              餐食计划{food.planItems.length > 1 ? ` · ${food.planItems.length} 项` : ''}
                             </small>
                           ) : null}
                         </span>
                         <TouchStepperField
-                          label={`${food.name}份量`}
+                          label={`${food.name} 份量`}
                           value={food.servings}
                           min={0.5}
                           step={0.5}

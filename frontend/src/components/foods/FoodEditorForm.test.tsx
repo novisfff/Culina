@@ -132,7 +132,7 @@ describe('FoodEditorForm', () => {
   it('locks the return action while saving food', () => {
     const { view } = renderForm({ isSavingFood: true });
 
-    expect(findButton(view, '保存中...')?.disabled).toBe(true);
+    expect(findButton(view, '保存中…')?.disabled).toBe(true);
     expect(findButton(view, '返回食物库')?.disabled).toBe(true);
   });
 

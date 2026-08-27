@@ -61,7 +61,7 @@ export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQuerie
   const error = queries.find((query) => query.error)?.error ?? null;
   const discoverProviderModels = useCallback((profileId: string) => {
     if (!enabled || !profileId) {
-      return Promise.reject(new Error('家庭 AI 服务尚未加载完成。'));
+      return Promise.reject(new Error('家庭 AI 服务还没有加载完成，请稍后再试。'));
     }
     return queryClient.fetchQuery({
       queryKey: queryKeys.familyProviderModels(args.familyId, profileId),

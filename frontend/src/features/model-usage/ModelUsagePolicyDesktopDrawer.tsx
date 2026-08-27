@@ -21,7 +21,7 @@ export function ModelUsagePolicyDesktopDrawer(props: ModelUsagePolicyDesktopDraw
     <WorkspaceOverlayFrame onClose={props.onClose} busy={props.settings.isSaving}>
       <WorkspaceDrawer
         title="模型预算设置"
-        description="设置当前家庭的预算提醒、硬限制和能力护栏。"
+        description="设置当前家庭的预算提醒、超额停止和功能限额。"
         onClose={props.onClose}
         busy={props.settings.isSaving}
         footerActions={(

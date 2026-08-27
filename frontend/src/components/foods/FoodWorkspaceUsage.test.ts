@@ -63,8 +63,8 @@ describe('FoodWorkspace navigation usage', () => {
     expect(hubSource).toContain('<PageHeader');
     expect(hubSource).toContain('variant="compact"');
     expect(hubSource).toContain('actions={props.heroActions}');
-    expect(hubSource).toContain('选一份，安排这餐。');
-    expect(mobileSource).toContain('选一份，安排这餐。');
+    expect(hubSource).toContain('选一份，安排这一餐。');
+    expect(mobileSource).toContain('选一份，安排这一餐。');
     expect(hubSource).not.toContain('recommendationSection');
     expect(workspaceSource).not.toContain('food-quick-strip');
     expect(mobileSource).not.toContain('mobile-dashboard-recommend');

@@ -485,10 +485,10 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
         setErrorMessage(
           replay.length === 1
             ? first.message
-            : `还有 ${replay.length} 项版本已变化，请重新确认后再提交。`,
+            : `还有 ${replay.length} 项内容发生变化，请重新确认后再提交。`,
         );
       } else {
-        setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能提交。`);
+        setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 项需要确认后才能提交。`);
       }
       return false;
     }
@@ -573,10 +573,10 @@ export function useInventoryReconciliationState(): UseInventoryReconciliationSta
         setErrorMessage(
           replay.length === 1
             ? first.message
-            : `还有 ${replay.length} 项版本已变化，请重新确认后再提交。`,
+            : `还有 ${replay.length} 项内容发生变化，请重新确认后再提交。`,
         );
       } else {
-        setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 处需要确认后才能提交。`);
+        setErrorMessage(errors.length === 1 ? first.message : `还有 ${errors.length} 项需要确认后才能提交。`);
       }
     } else {
       setFocusFieldKey(null);

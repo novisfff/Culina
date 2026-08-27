@@ -24,7 +24,7 @@ function CapabilityDistribution(props: {
   let segmentOffset = 0;
 
   if (props.isLoading && props.items.length === 0) {
-    return <div className="model-usage-insight-empty" role="status">正在加载能力费用分布。</div>;
+    return <div className="model-usage-insight-empty" role="status">正在加载功能费用分布。</div>;
   }
 
   return (
@@ -37,9 +37,9 @@ function CapabilityDistribution(props: {
           aria-labelledby={`${chartId}-title`}
           aria-describedby={`${chartId}-desc`}
         >
-          <title id={`${chartId}-title`}>能力费用分布图</title>
+          <title id={`${chartId}-title`}>功能费用分布图</title>
           <desc id={`${chartId}-desc`}>
-            本账期已记录费用合计 {formatModelUsageCny(distribution.totalCostCny)}，按模型能力展示费用占比。
+            本统计周期已计入费用合计 {formatModelUsageCny(distribution.totalCostCny)}，按模型功能展示费用占比。
           </desc>
           <circle className="model-usage-donut-track" cx="60" cy="60" r="45" pathLength="100" />
           {pricedEntries.map((entry) => {
@@ -60,7 +60,7 @@ function CapabilityDistribution(props: {
           })}
         </svg>
         <span className="model-usage-donut-center" aria-hidden="true">
-          <small>已记录</small>
+          <small>已计入</small>
           <strong>{formatModelUsageCny(distribution.totalCostCny)}</strong>
         </span>
       </div>
@@ -97,7 +97,7 @@ function CapabilityDistribution(props: {
           })}
         </ol>
       ) : (
-        <div className="model-usage-insight-empty">本账期暂无可绘制的已定价能力费用。</div>
+        <div className="model-usage-insight-empty">本统计周期还没有可绘制的已定价功能费用。</div>
       )}
     </div>
   );
@@ -128,7 +128,7 @@ function MeterOverview(props: { overview: ModelUsageOverview }) {
       ))}
     </div>
   ) : (
-    <div className="model-usage-insight-empty">本账期暂无可展示的计量项。</div>
+    <div className="model-usage-insight-empty">本统计周期还没有可展示的用量类型。</div>
   );
 }
 
@@ -147,7 +147,7 @@ export function ModelUsageInsights(props: {
           <p className="model-usage-eyebrow">用量洞察</p>
           <h2 id="model-usage-insights-heading">费用趋势与用量构成</h2>
         </div>
-        <p>趋势显示截至所选账期的最近 30 天；能力费用和计量足迹仍按所选账期统计。</p>
+        <p>趋势显示截至所选统计周期的最近 30 天；功能费用和用量明细仍按所选统计周期统计。</p>
       </div>
 
       <div className="model-usage-insights-grid">
@@ -169,8 +169,8 @@ export function ModelUsageInsights(props: {
         <article className="model-usage-insight-card model-usage-capability-panel" aria-labelledby="model-usage-capability-heading">
           <div className="model-usage-insight-card-head">
             <div>
-              <h3 id="model-usage-capability-heading">能力费用分布</h3>
-              <p>看清费用主要来自哪些能力</p>
+              <h3 id="model-usage-capability-heading">功能费用分布</h3>
+              <p>看清费用主要来自哪些功能</p>
             </div>
             <span>按费用</span>
           </div>
@@ -183,10 +183,10 @@ export function ModelUsageInsights(props: {
         <article className="model-usage-insight-card model-usage-meter-panel" aria-labelledby="model-usage-meter-heading">
           <div className="model-usage-insight-card-head">
             <div>
-              <h3 id="model-usage-meter-heading">计量足迹</h3>
-              <p>核对本账期实际记录的模型用量</p>
+              <h3 id="model-usage-meter-heading">用量明细</h3>
+              <p>核对本统计周期实际记录的模型用量</p>
             </div>
-            <span>按单位</span>
+            <span>按用量单位</span>
           </div>
           <MeterOverview overview={props.overview} />
         </article>

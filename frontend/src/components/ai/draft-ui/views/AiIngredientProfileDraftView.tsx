@@ -24,9 +24,9 @@ const STORAGE_OPTIONS = INVENTORY_STORAGE_PRESETS.map((storage) => ({
 }));
 
 const EXPIRY_MODE_OPTIONS = [
-  { value: 'days', label: '按天数' },
-  { value: 'manual_date', label: '手动日期' },
-  { value: 'none', label: '不设置' },
+  { value: 'days', label: '按购买后天数' },
+  { value: 'manual_date', label: '加入库存时填写到期日' },
+  { value: 'none', label: '不设置到期日' },
 ];
 
 type DraftRecord = Record<string, unknown>;
@@ -40,13 +40,13 @@ function recordFrom(value: unknown): DraftRecord {
 function expiryModeLabel(value: unknown) {
   switch (asText(value, 'none')) {
     case 'days':
-      return '按天数';
+      return '按购买后天数';
     case 'manual_date':
-      return '入库时手动日期';
+      return '加入库存时填写到期日';
     case 'none':
-      return '不设置';
+      return '不设置到期日';
     default:
-      return asText(value) || '不设置';
+      return asText(value) || '不设置到期日';
   }
 }
 
@@ -54,26 +54,26 @@ function expirySummary(payload: DraftRecord) {
   const mode = asText(payload.default_expiry_mode, 'none');
   if (mode === 'days') {
     const days = asNumber(payload.default_expiry_days, 0);
-    return days > 0 ? `${days} 天` : '按天数，待补天数';
+    return days > 0 ? `${days} 天` : '未填写保质期天数';
   }
   return expiryModeLabel(mode);
 }
 
 function lowStockSummary(payload: DraftRecord) {
   const threshold = payload.default_low_stock_threshold;
-  if (threshold === null || threshold === undefined || threshold === '') return '不设置';
+  if (threshold === null || threshold === undefined || threshold === '') return '不提醒';
   const unit = asText(payload.default_unit);
   return `${String(threshold)}${unit ? ` ${unit}` : ''}`;
 }
 
 function conversionSummary(value: unknown, defaultUnit: string) {
   const conversions = asDraftArray(value);
-  if (conversions.length === 0) return '未设置副单位';
+  if (conversions.length === 0) return '未设置其他单位';
   return conversions.map((item) => {
     const unit = asText(item.unit);
     const ratio = item.ratio_to_default;
     const ratioText = typeof ratio === 'number' && Number.isFinite(ratio) ? String(ratio) : asText(ratio);
-    return `${unit || '副单位'} = ${ratioText || '?'}${defaultUnit ? ` ${defaultUnit}` : ''}`;
+    return `${unit || '其他单位'} = ${ratioText || '?'}${defaultUnit ? ` ${defaultUnit}` : ''}`;
   }).join('、');
 }
 
@@ -82,9 +82,9 @@ function actionLabel(action: string) {
 }
 
 function resolvedTitle(status: AiApprovalRequest['status'], action: string) {
-  if (status === 'approved') return `${action === 'update' ? '已更新' : '已创建'}食材档案`;
-  if (status === 'rejected') return '未写入的食材草稿';
-  return '已过期的食材草稿';
+  if (status === 'approved') return `${action === 'update' ? '已更新' : '已添加'}食材信息`;
+  if (status === 'rejected') return '这份食材信息没有保存';
+  return '这份食材信息建议已过期';
 }
 
 function resolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -100,9 +100,9 @@ function profileSummaryItems(payload: DraftRecord, before: DraftRecord) {
     { label: '食材名称', value: asText(payload.name) || asText(before.name) || '未命名食材' },
     { label: '分类', value: asText(payload.category) || asText(before.category) || '未填写' },
     { label: '默认单位', value: defaultUnit || asText(before.default_unit) || '未填写' },
-    { label: '默认保存', value: asText(payload.default_storage) || asText(before.default_storage) || '未填写' },
+    { label: '默认存放', value: asText(payload.default_storage) || asText(before.default_storage) || '未填写' },
     { label: '保质期', value: expirySummary(payload) },
-    { label: '低库存提醒', value: lowStockSummary(payload) },
+    { label: '低库存提醒值', value: lowStockSummary(payload) },
     { label: '单位换算', value: conversionSummary(payload.unit_conversions, defaultUnit) },
   ];
 }
@@ -141,7 +141,7 @@ function IngredientProfileFields(props: {
     <>
       <AiDraftSection
         title="核心信息"
-        description="用于食材库检索和后续菜谱、库存匹配。"
+        description="用于搜索食材库，方便后续匹配菜谱和库存。"
         className="ai-ingredient-profile-section"
       >
         <div className="ai-confirmation-grid">
@@ -173,21 +173,21 @@ function IngredientProfileFields(props: {
         </div>
       </AiDraftSection>
       <AiDraftSection
-        title="库存与追踪"
-        description="保存与提醒作为新增库存时的默认建议，入库时仍可单独调整。"
+        title="库存与到期提醒"
+        description="存放位置与提醒会作为新增库存时的默认设置，加入库存时仍可单独调整。"
         className="ai-ingredient-profile-section"
       >
         <div className="ai-confirmation-grid ai-confirmation-grid-three">
           <ApprovalComboboxField
-            label="默认保存"
+            label="默认存放"
             value={asText(props.payload.default_storage)}
             disabled={props.readonly}
             options={STORAGE_OPTIONS}
-            placeholder="选择保存位置"
+            placeholder="选择存放位置"
             onChange={(defaultStorage) => props.onPayloadChange({ default_storage: defaultStorage })}
           />
           <ApprovalSelectField
-            label="保质期模式"
+            label="到期日设置方式"
             value={expiryMode}
             disabled={props.readonly}
             options={EXPIRY_MODE_OPTIONS}
@@ -216,12 +216,12 @@ function IngredientProfileFields(props: {
           ) : (
             <div className="ai-resource-field ai-ingredient-profile-field-note">
               <span>默认保质期天数</span>
-              <strong>{expiryMode === 'manual_date' ? '入库时手动选择日期' : '不设置默认保质期'}</strong>
+              <strong>{expiryMode === 'manual_date' ? '加入库存时填写到期日' : '不设置默认到期日'}</strong>
             </div>
           )}
         </div>
         <label className="ai-resource-field ai-ingredient-profile-low-stock">
-          <span>低库存阈值</span>
+          <span>低库存提醒值</span>
           <div className="ai-inline-unit-input">
             <input
               className="text-input"
@@ -237,20 +237,20 @@ function IngredientProfileFields(props: {
             />
             {defaultUnit ? <span>{defaultUnit}</span> : null}
           </div>
-          <small>当可用库存低于这个数量时提醒；不需要提醒可以留空。</small>
+          <small>当可用库存低于这个数量时提醒；如果不需要提醒，可以留空。</small>
         </label>
       </AiDraftSection>
       <AiDraftSection
         title="高级设置"
-        description="副单位用于以后入库换算，含义不确定时建议先留空。"
+        description="如果平时会用“袋、盒”等单位，可以在这里设置换算；不确定时先留空。"
         className="ai-ingredient-profile-section"
       >
         <div className="ai-ingredient-profile-conversion-list">
           {unitConversions.length > 0 ? unitConversions.map((item, index) => (
             <AiDraftItemCard
               key={index}
-              title={asText(item.unit) || `副单位 ${index + 1}`}
-              summary={`${asText(item.unit) || '副单位'} = ${item.ratio_to_default == null ? '?' : String(item.ratio_to_default)}${defaultUnit ? ` ${defaultUnit}` : ''}`}
+              title={asText(item.unit) || `其他单位 ${index + 1}`}
+              summary={`${asText(item.unit) || '其他单位'} = ${item.ratio_to_default == null ? '?' : String(item.ratio_to_default)}${defaultUnit ? ` ${defaultUnit}` : ''}`}
               status="单位换算"
               className="ai-ingredient-profile-conversion-row"
               footer={!props.readonly ? (
@@ -259,21 +259,21 @@ function IngredientProfileFields(props: {
                   type="button"
                   onClick={() => removeUnitConversion(index)}
                 >
-                  删除
+                  移除
                 </button>
               ) : undefined}
             >
               <div className="ai-ingredient-profile-conversion-fields">
                 <ApprovalComboboxField
-                  label="副单位"
+                  label="其他单位"
                   value={asText(item.unit)}
                   disabled={props.readonly}
                   options={buildUnitPresetOptions(asText(item.unit)).map((unit) => ({ value: unit, label: unit }))}
-                  placeholder="选择副单位"
+                  placeholder="选择其他单位"
                   onChange={(unit) => updateUnitConversion(index, { unit })}
                 />
                 <label className="ai-resource-field">
-                  <span>等于多少默认单位</span>
+                  <span>换算为多少默认单位</span>
                   <div className="ai-inline-unit-input">
                     <input
                       className="text-input"
@@ -293,11 +293,11 @@ function IngredientProfileFields(props: {
               </div>
             </AiDraftItemCard>
           )) : (
-            <p className="ai-ingredient-profile-empty-conversion">暂不设置副单位。</p>
+            <p className="ai-ingredient-profile-empty-conversion">未设置其他单位。</p>
           )}
           {!props.readonly ? (
             <button className="ghost-button ai-ingredient-profile-add-conversion" type="button" onClick={addUnitConversion}>
-              添加副单位
+              添加其他单位
             </button>
           ) : null}
         </div>
@@ -326,8 +326,8 @@ function AiIngredientProfileBatchDraftView(props: {
 }) {
   const names = props.operations.map((operation) => asText(recordFrom(operation.payload).name)).filter(Boolean);
   const batchItems = [
-    { label: '食材档案', value: `${props.operations.length} 项` },
-    { label: '待创建', value: names.join('、') || '食材档案' },
+    { label: '食材信息', value: `${props.operations.length} 项` },
+    { label: '将添加', value: names.join('、') || '食材' },
   ];
   const updatePayload = (index: number, patch: DraftRecord) => {
     props.onDraftChange({
@@ -342,16 +342,16 @@ function AiIngredientProfileBatchDraftView(props: {
 
   if (props.status !== 'pending') {
     const title = props.status === 'approved'
-      ? `已创建 ${props.operations.length} 个食材档案`
+      ? `已添加 ${props.operations.length} 项食材`
       : props.status === 'rejected'
-        ? '未写入的批量食材草稿'
-        : '已过期的批量食材草稿';
+        ? '这些食材信息没有保存'
+        : '这组食材建议已过期';
     return (
       <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
         <AiDraftResolvedSummary
           status={resolvedStatus(props.status)}
           title={title}
-          summary={names.join('、') || '食材档案'}
+          summary={names.join('、') || '食材'}
           className="ai-ingredient-profile-summary-card"
         >
           <dl className="ai-draft-summary-items">
@@ -370,12 +370,12 @@ function AiIngredientProfileBatchDraftView(props: {
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
       <AiDraftSummaryCard
-        title="待确认批量食材档案"
+        title="待确认批量添加食材"
         items={batchItems}
         className="ai-ingredient-profile-summary-card"
       />
       <AiDraftImpactNote tone="plan" title="确认后">
-        <p>会一次创建 {props.operations.length} 个食材档案，不会登记库存数量。</p>
+        <p>会一次把 {props.operations.length} 项食材添加到食材库，不会记录库存数量。</p>
       </AiDraftImpactNote>
       {props.operations.map((operation, index) => {
         const payload = recordFrom(operation.payload);
@@ -383,8 +383,8 @@ function AiIngredientProfileBatchDraftView(props: {
           <AiDraftItemCard
             key={asText(operation.operationId) || String(index)}
             title={`食材 ${index + 1}`}
-            summary={asText(payload.name) || '待填写名称'}
-            status="待创建"
+            summary={asText(payload.name) || '未填写食材名称'}
+            status="将添加"
             className="ai-ingredient-profile-batch-item"
           >
             <IngredientProfileFields
@@ -429,8 +429,8 @@ export function AiIngredientProfileDraftView(props: {
     props.onDraftChange({ ...props.draft, payload: { ...payload, ...patch } });
   };
   const confirmationCopy = action === 'update'
-    ? '只更新食材档案默认值，不直接修改已有库存批次。'
-    : '确认后会创建新的家庭食材档案，不会登记库存数量。';
+    ? '只更新食材的默认设置，不直接修改已有库存。'
+    : '确认后会把食材添加到当前家庭的食材库，不会记录库存数量。';
 
   if (props.status !== 'pending') {
     return (
@@ -438,7 +438,7 @@ export function AiIngredientProfileDraftView(props: {
         <AiDraftResolvedSummary
           status={resolvedStatus(props.status)}
           title={resolvedTitle(props.status, action)}
-          summary={asText(payload.name) || asText(before.name) || '食材档案'}
+          summary={asText(payload.name) || asText(before.name) || '食材信息'}
           className="ai-ingredient-profile-summary-card"
         >
           <dl className="ai-draft-summary-items">
@@ -458,7 +458,7 @@ export function AiIngredientProfileDraftView(props: {
   return (
     <div className="ai-recipe-editor ai-confirmation-editor ai-ingredient-profile-draft-editor">
       <AiDraftSummaryCard
-        title={`待确认${actionLabel(action)}食材档案`}
+        title={`待确认${actionLabel(action)}食材`}
         items={items}
         className="ai-ingredient-profile-summary-card"
       >
@@ -468,10 +468,10 @@ export function AiIngredientProfileDraftView(props: {
         <p>{confirmationCopy}</p>
       </AiDraftImpactNote>
       {action === 'update' ? (
-        <AiDraftImpactNote tone="plan" title="当前与调整后" className="ai-ingredient-profile-before-after">
-          <p>当前：{[asText(before.name), asText(before.category), asText(before.default_unit), asText(before.default_storage)].filter(Boolean).join(' · ') || '未记录'}</p>
-          <p>调整后：{[asText(payload.name), asText(payload.category), asText(payload.default_unit), asText(payload.default_storage)].filter(Boolean).join(' · ') || '待填写'}</p>
-          <p>只更新食材档案默认值，不直接修改已有库存批次。</p>
+        <AiDraftImpactNote tone="plan" title="原内容与调整后" className="ai-ingredient-profile-before-after">
+          <p>当前：{[asText(before.name), asText(before.category), asText(before.default_unit), asText(before.default_storage)].filter(Boolean).join(' · ') || '还没有记录'}</p>
+          <p>调整后：{[asText(payload.name), asText(payload.category), asText(payload.default_unit), asText(payload.default_storage)].filter(Boolean).join(' · ') || '还没有填写'}</p>
+          <p>只更新食材的默认设置，不直接修改已有库存。</p>
         </AiDraftImpactNote>
       ) : null}
       <IngredientProfileFields payload={payload} readonly={props.readonly} onPayloadChange={updatePayload} />

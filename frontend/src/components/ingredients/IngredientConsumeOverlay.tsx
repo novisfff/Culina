@@ -46,7 +46,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
 
   return (
     <WorkspaceModal
-      title="快速消费"
+      title="快速记录用量"
       description="输入这次用掉的量，系统自动扣减库存。"
       closeLabel="关闭"
       closeAriaLabel="关闭"
@@ -54,25 +54,25 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
       onClose={props.closeOverlay}
       footerInfo={
         <div className="consume-quick-footer-summary">
-          <span>本次将记录</span>
+          <span>本次将记录用量</span>
           <strong>
             {props.selectedConsumeUnit
-              ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
-              : '先选单位'}
+              ? `${formatNumericString(props.consumeQuantityValue)} ${props.selectedConsumeUnit.unit}`
+              : '请先选择单位'}
           </strong>
           <p>
             {props.selectedConsumeUnit
               ? props.consumeIsAllState
-                ? '提交后这一单位库存会接近清空。'
-                : `提交后剩余 ${formatNumericString(props.consumeRemainingQuantity)}${props.selectedConsumeUnit.unit}。`
-              : '系统会自动优先扣减更早到期批次。'}
+                ? '提交后该单位库存将接近用完。'
+                : `提交后剩余 ${formatNumericString(props.consumeRemainingQuantity)} ${props.selectedConsumeUnit.unit}。`
+              : '系统会优先扣减更早到期的库存。'}
           </p>
         </div>
       }
       footerActions={
         <FormActions
           className="consume-quick-actions"
-          primaryLabel="确认消耗"
+          primaryLabel="确认记录用量"
           primaryType="submit"
           primaryForm={consumeFormId}
           primaryDisabled={!props.consumeCanSubmit}
@@ -99,15 +99,14 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                 </div>
                 <div className="consume-quick-identity-badges">
                   <Badge>剩余 {props.consumeTotalRemainingLabel}</Badge>
-                  {props.consumeIsAllState && <Badge className="consume-quick-state-badge">接近清空</Badge>}
+                  {props.consumeIsAllState && <Badge className="consume-quick-state-badge">即将用完</Badge>}
                 </div>
               </div>
               {props.consumeUnitOptions.length > 1 && (
                 <div className="ingredients-consume-stock-strip consume-quick-stock-strip">
                   {props.consumeUnitOptions.map((item) => (
                     <span key={`${props.selectedConsumeSummary.ingredient.id}-${item.unit}`} className="ingredient-visual-pill">
-                      {item.unit} · {formatNumericString(item.available)}
-                      {item.unit}
+                      {formatNumericString(item.available)} {item.unit}
                     </span>
                   ))}
                 </div>
@@ -133,9 +132,9 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
               quantityDisabled={!consumeTracksQuantity || !props.selectedConsumeUnit}
               quantityDisabledReason={
                 !consumeTracksQuantity
-                  ? '这个食材只记录是否还有，不按数量扣减。'
+                  ? '这个食材只记录是否有库存，不按数量扣减。'
                   : !props.selectedConsumeUnit
-                    ? '先选择可消费单位。'
+                    ? '先选择可用单位。'
                     : undefined
               }
               onQuantityChange={props.updateConsumeQuantityInput}
@@ -149,12 +148,12 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
               }
             >
               <div className="touch-field-head consume-quick-range-head">
-                <span>拖拉条</span>
+                <span>快速调整用量</span>
               </div>
               <div className="touch-field-helper">
                 {props.selectedConsumeUnit
-                  ? `最多 ${formatNumericString(props.consumeAvailableQuantity)}${props.selectedConsumeUnit.unit}`
-                  : '先选择单位'}
+                  ? `最多 ${formatNumericString(props.consumeAvailableQuantity)} ${props.selectedConsumeUnit.unit}`
+                  : '请先选择单位'}
               </div>
               <div className="touch-range-main">
                 <ActionButton
@@ -162,7 +161,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                   size="compact"
                   type="button"
                   className="touch-stepper-button"
-                  aria-label="消费量减少"
+                    aria-label="用量减少"
                   disabled={!props.selectedConsumeUnit}
                   onClick={() => props.updateConsumeQuantity(props.consumeQuantityValue - props.consumeStep)}
                 >
@@ -179,7 +178,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                   disabled={!props.selectedConsumeUnit}
                   aria-valuetext={
                     props.selectedConsumeUnit
-                      ? `${formatNumericString(props.consumeQuantityValue)}${props.selectedConsumeUnit.unit}`
+                      ? `${formatNumericString(props.consumeQuantityValue)} ${props.selectedConsumeUnit.unit}`
                       : formatNumericString(props.consumeQuantityValue)
                   }
                   onChange={(event) => props.updateConsumeQuantity(Number(event.target.value))}
@@ -189,7 +188,7 @@ export function IngredientConsumeOverlay(props: IngredientConsumeOverlayProps) {
                   size="compact"
                   type="button"
                   className="touch-stepper-button"
-                  aria-label="消费量增加"
+                    aria-label="用量增加"
                   disabled={!props.selectedConsumeUnit}
                   onClick={() => props.updateConsumeQuantity(props.consumeQuantityValue + props.consumeStep)}
                 >

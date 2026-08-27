@@ -44,7 +44,7 @@ const CAPABILITY_GROUPS: ReadonlyArray<{
 }> = [
   { id: 'generation', label: '对话与生成', description: '对话理解、图片理解与图片生成。', capabilities: ['llm', 'image_generation'] },
   { id: 'voice', label: '语音', description: '语音识别、播报与实时语音。', capabilities: ['stt', 'tts', 'realtime_audio'] },
-  { id: 'search', label: '搜索', description: '家庭内容的向量检索与结果重排。', capabilities: ['embedding', 'rerank'] },
+  { id: 'search', label: '搜索', description: '家庭内容的智能搜索与结果排序。', capabilities: ['embedding', 'rerank'] },
 ];
 
 const IMAGE_SIZE_OPTIONS = [
@@ -55,7 +55,7 @@ const IMAGE_SIZE_OPTIONS = [
 
 const RESPONSE_FORMAT_OPTIONS = [
   { value: 'b64_json', label: '内联图片', description: '直接返回图片内容，适合安全存储。' },
-  { value: 'url', label: '服务地址', description: '由服务商返回临时图片链接。' },
+  { value: 'url', label: '图片链接', description: '由模型服务返回图片链接。' },
 ] as const;
 
 function bindingKey(binding: FamilyModelBindingDraft): string {
@@ -225,8 +225,8 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
       const nextState: CapabilityTestState = resultStatus === 'succeeded'
         ? { status: 'succeeded', message: '测试成功，点击可再次测试。' }
         : resultStatus === 'blocked'
-          ? { status: 'blocked', message: '测试被用量限制阻止，未调用模型。请检查模型用量限制后重试。' }
-          : { status: 'failed', message: '服务未通过能力测试，请检查 Provider、模型和价格配置后重试。' };
+          ? { status: 'blocked', message: '测试被用量限制阻止，未请求模型。请检查模型用量限制后重试。' }
+          : { status: 'failed', message: '服务未通过功能测试，请检查模型服务、模型和价格配置后重试。' };
       setCapabilityTests((current) => ({
         ...current,
         [key]: nextState,
@@ -292,13 +292,13 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                     </label>
                   </div>
                   {expanded ? <div id={`family-model-settings-binding-panel-${key}`} className="family-model-settings-binding-panel">
-                  {embeddingLocked ? <p className="family-model-settings-readonly-note">向量模型已锁定。更换 Provider、模型或维度会完整重建搜索索引。</p> : null}
+                  {embeddingLocked ? <p className="family-model-settings-readonly-note">搜索设置已生效。更换模型服务、模型或维度时，需要重新生成搜索数据。</p> : null}
                   <div className="family-model-settings-form-grid">
                     <div className="family-model-settings-field">
-                      <span>Provider 服务</span>
+                      <span>模型服务</span>
                       <DropdownSelect
-                        ariaLabel="Provider 服务选项"
-                        triggerAriaLabel="Provider 服务"
+                        ariaLabel="模型服务选项"
+                        triggerAriaLabel="模型服务"
                         placeholder="选择兼容服务"
                         value={binding.provider_profile_id ?? ''}
                         options={profiles.map((profile) => ({
@@ -326,7 +326,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                           .map((model) => ({ value: model, label: model }))}
                         allowCustom
                         disabled={props.busy || embeddingLocked}
-                        placeholder={binding.provider_profile_id ? '选择或输入模型标识' : '请先选择 Provider 服务'}
+                        placeholder={binding.provider_profile_id ? '选择或输入模型名称' : '请先选择模型服务'}
                         onChange={(value) => patchBinding(index, binding, { requested_model: String(value) })}
                       />
                       {binding.provider_profile_id ? (
@@ -337,10 +337,10 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                           <span>
                             {modelDiscovery[binding.provider_profile_id]?.status === 'ready'
                               ? modelDiscovery[binding.provider_profile_id].models.length > 0
-                                ? `已自动读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可以直接输入其他模型标识。`
-                                : '服务连接正常，但未返回模型列表，请手动输入模型标识。'
+                                ? `已自动读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可以直接输入其他模型名称。`
+                                : '服务连接正常，但未返回模型列表，请手动输入模型名称。'
                               : modelDiscovery[binding.provider_profile_id]?.status === 'not_supported'
-                                ? '此服务不支持自动读取模型列表，请手动输入模型标识。'
+                                ? '此服务不支持自动读取模型列表，请手动输入模型名称。'
                                 : modelDiscovery[binding.provider_profile_id]?.status === 'error'
                                   ? '自动读取模型列表失败，仍可手动输入。'
                                   : '正在自动读取模型列表…'}
@@ -365,11 +365,11 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                     {binding.capability === 'llm' ? (
                       <>
                         <label className="family-model-settings-field">
-                          <span>最大输出 Token</span>
+                          <span>最大回复长度（Token）</span>
                           <input type="number" min="1" value={binding.max_output_tokens} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { max_output_tokens: Number(event.target.value) || 1 })} />
                         </label>
                         <div className="family-model-settings-field">
-                          <span>视觉多模态</span>
+                          <span>图片理解</span>
                           <label className="family-model-settings-toggle-card">
                             <input type="checkbox" checked={binding.supports_vision} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { supports_vision: event.target.checked })} />
                             <span className="family-model-settings-switch-track" aria-hidden="true" />
@@ -413,7 +413,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                     ) : null}
                     {binding.capability === 'embedding' ? (
                       <label className="family-model-settings-field">
-                        <span>向量维度</span>
+                        <span>模型维度</span>
                         <input type="number" min="1" value={binding.dimensions} disabled={props.busy || embeddingLocked} onChange={(event) => patchBinding(index, binding, { dimensions: Number(event.target.value) || 1 })} />
                       </label>
                     ) : null}
@@ -429,9 +429,9 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                       className={`ghost-button family-model-settings-test-button ${capabilityTest ? `is-${capabilityTest.status}` : ''}`}
                       type="button"
                       title={testBlocked
-                        ? '请先确认向量模型并建立搜索索引。'
+                        ? '请先确认搜索模型并开启智能搜索。'
                         : !canRunDraftTest
-                          ? '请先启用能力，并补全 Provider 服务和模型名称。'
+                          ? '请先启用功能，并补全模型服务和模型名称。'
                           : capabilityTest?.message}
                       aria-busy={capabilityTest?.status === 'running'}
                       disabled={props.busy || !canRunDraftTest || capabilityTest?.status === 'running'}
@@ -453,7 +453,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                             ? '用量受限，重试'
                             : capabilityTest?.status === 'failed' || capabilityTest?.status === 'request-error'
                               ? '测试失败，重试'
-                              : '测试能力'}
+                              : '测试功能'}
                     </button>
                   </div>
                   </div> : null}
@@ -472,8 +472,8 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
     <section className="family-model-settings-editor" aria-labelledby="family-model-capability-editor-title">
       <div className="family-model-settings-section-head">
         <div>
-          <h2 id="family-model-capability-editor-title">能力配置</h2>
-          <p>为对话、图片和语音能力选择兼容服务与模型；搜索相关配置统一在“搜索索引”中管理。</p>
+          <h2 id="family-model-capability-editor-title">功能设置</h2>
+          <p>为对话、图片和语音功能选择兼容服务与模型；搜索相关设置统一在“智能搜索”中管理。</p>
         </div>
       </div>
       {bindingGroups}

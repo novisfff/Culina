@@ -115,8 +115,8 @@ export function useFoodPlanState(input: {
     if (!planForm.foodId) {
       input.showNotice({
         tone: 'warning',
-        title: '还不能加入菜单',
-        message: '请选择要加入菜单的食物。',
+        title: '还不能加入餐食计划',
+        message: '请选择要加入餐食计划的食物。',
       });
       return;
     }
@@ -131,8 +131,8 @@ export function useFoodPlanState(input: {
     } catch (reason) {
       input.showNotice({
         tone: 'danger',
-        title: '添加菜单计划失败',
-        message: resolveErrorMessage(reason, '添加菜单计划失败'),
+        title: '添加餐食计划失败',
+        message: resolveErrorMessage(reason, '添加餐食计划失败'),
       });
     }
   }
@@ -194,8 +194,8 @@ export function useFoodPlanState(input: {
     } catch (reason) {
       input.showNotice({
         tone: 'danger',
-        title: '更新菜单计划失败',
-        message: resolveErrorMessage(reason, '更新菜单计划失败'),
+        title: '更新餐食计划失败',
+        message: resolveErrorMessage(reason, '更新餐食计划失败'),
       });
     }
   }
@@ -207,8 +207,8 @@ export function useFoodPlanState(input: {
     } catch (reason) {
       input.showNotice({
         tone: 'danger',
-        title: '删除菜单计划失败',
-        message: resolveErrorMessage(reason, '删除菜单计划失败'),
+        title: '删除餐食计划失败',
+        message: resolveErrorMessage(reason, '删除餐食计划失败'),
       });
     }
   }
@@ -237,14 +237,14 @@ export function useFoodPlanState(input: {
       // Accepts replayed stored MealLog as success (backend idempotent complete).
       // Plan complete may open enrichment / view, but never ordinary record undo.
       const createdMeal = await input.completeFoodPlanItem(item.id, payload);
-      input.setFeedback(`${item.food_name} 已完成菜单计划`);
+      input.setFeedback(`${item.food_name} 已完成餐食计划`);
       closePlanDetail();
       input.onMealRecorded?.(createdMeal, item);
     } catch (reason) {
       input.showNotice({
         tone: 'danger',
-        title: '完成菜单计划失败',
-        message: resolveErrorMessage(reason, '完成菜单计划失败'),
+        title: '完成餐食计划失败',
+        message: resolveErrorMessage(reason, '完成餐食计划失败'),
       });
     }
   }

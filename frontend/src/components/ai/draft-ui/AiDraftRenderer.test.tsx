@@ -98,7 +98,7 @@ describe('AiDraftRenderer', () => {
       payload: { target_mode: 'not_track_quantity', observed_batches: [] },
     }));
 
-    expect(view.textContent).toContain('数量追踪方式切换');
+    expect(view.textContent).toContain('切换库存管理方式的影响');
 
     act(() => {
       root?.render(renderer('meal_log', {
@@ -110,7 +110,7 @@ describe('AiDraftRenderer', () => {
     });
 
     expect(view.querySelector('.ai-meal-composition-correction')).not.toBeNull();
-    expect(view.textContent).toContain('库存调整边界');
+    expect(view.textContent).toContain('库存影响说明');
   });
 
   it('compresses resolved special Drafts into summaries without editor controls', () => {

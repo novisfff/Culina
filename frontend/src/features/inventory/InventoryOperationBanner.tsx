@@ -52,7 +52,7 @@ export function selectRecentBannerOperation(
 }
 
 export function operationTypeLabel(operationType: InventoryOperationResult['operation_type']) {
-  return operationType === 'shopping_intake' ? '本次购买已登记' : '本次盘点已完成';
+  return operationType === 'shopping_intake' ? '本次购买已记录' : '本次盘点已完成';
 }
 
 export function InventoryOperationBanner(props: InventoryOperationBannerProps) {
@@ -86,24 +86,24 @@ export function InventoryOperationBanner(props: InventoryOperationBannerProps) {
       ? '已撤销'
       : canRevert
         ? `可在 ${compactTimeLabel(operation.revertible_until)} 前撤销`
-        : '撤销窗口已过';
+      : '已超过可撤销时间';
 
   return (
     <section
       className={['inventory-operation-banner', props.className].filter(Boolean).join(' ')}
-      aria-label="最近库存操作"
+      aria-label="最近库存变更"
       data-operation-id={operation.operation_id}
     >
       <div className="inventory-operation-banner-copy">
-        <p className="eyebrow">最近操作</p>
+        <p className="eyebrow">最近变更</p>
         <strong>
           {title}
           {canRevert ? ` · ${statusCopy}` : ` · ${statusCopy}`}
         </strong>
         <p className="subtle" aria-live="polite">
           {canRevert
-            ? `剩余 ${formatCountdown(remainingMs)} · 撤销将回退整次操作`
-            : operation.summary.description || '可在操作历史中查看详情'}
+            ? `剩余 ${formatCountdown(remainingMs)} · 撤销会恢复这次变更的全部内容`
+            : operation.summary.description || '可在变更记录中查看详情'}
         </p>
       </div>
       <div className="inventory-operation-banner-actions">
@@ -132,7 +132,7 @@ export function InventoryOperationBanner(props: InventoryOperationBannerProps) {
             disabled={Boolean(props.busy)}
             onClick={() => props.onRevert?.(operation.operation_id)}
           >
-            撤销本次操作
+            撤销本次变更
           </ActionButton>
         ) : null}
       </div>

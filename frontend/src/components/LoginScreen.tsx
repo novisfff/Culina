@@ -36,7 +36,7 @@ export function LoginScreen() {
       setError('');
       await login(username, password);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '登录失败');
+      setError(reason instanceof Error ? reason.message : '登录失败，请稍后再试');
     }
   }
 
@@ -44,7 +44,7 @@ export function LoginScreen() {
     <AuthStatusScreen
       eyebrow="Culina 家庭厨房"
       title="登录家庭厨房"
-      description="使用管理员配置或家庭成员账号登录。"
+      description="使用家庭管理员或家庭成员账号登录。"
     >
       <form className="form-grid" onSubmit={handleSubmit}>
         <label className="span-two">
@@ -62,7 +62,7 @@ export function LoginScreen() {
         </label>
         {error && <p className="error-text span-two">{error}</p>}
         <button className="solid-button span-two" type="submit" disabled={isLoading}>
-          {isLoading ? '登录中...' : '进入家庭厨房'}
+          {isLoading ? '登录中…' : '进入家庭厨房'}
         </button>
       </form>
     </AuthStatusScreen>

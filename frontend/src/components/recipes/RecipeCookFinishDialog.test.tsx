@@ -119,7 +119,7 @@ describe('RecipeCookFinishDialog', () => {
 
     // Navigate to meal step and summary via next buttons.
     act(() => findButton(view, '下一步')?.click());
-    expect(view.textContent).toContain('完成后会自动记入吃过的');
+    expect(view.textContent).toContain('完成后会自动记入用餐记录');
     act(() => findButton(view, '下一步')?.click());
     act(() => findButton(view, '下一步')?.click());
     expect(view.textContent).toContain('将生成 1 条餐食记录');
@@ -142,9 +142,9 @@ describe('RecipeCookFinishDialog', () => {
   });
 
   it('announces incomplete status messages live', () => {
-    const { view } = renderDialog({ statusMessage: '完成结果不完整，请重试' });
+    const { view } = renderDialog({ statusMessage: '完成记录不完整，请重试' });
     const status = view.querySelector('[role="status"]');
-    expect(status?.textContent).toContain('完成结果不完整，请重试');
+    expect(status?.textContent).toContain('完成记录不完整，请重试');
   });
 
   it('uses the shared sliding star rating for optional satisfaction feedback', () => {

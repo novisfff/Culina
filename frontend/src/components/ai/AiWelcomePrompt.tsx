@@ -13,7 +13,7 @@ export function AiWelcomePrompt(props: { onPickSuggestion: (value: string) => vo
         </div>
         <div className="ai-welcome-copy">
           <strong>你好，我是你的 AI 厨房助手 👋</strong>
-          <span>我可以帮你根据现有食材推荐菜谱、安排晚餐、分析临期食材、生成采购清单。</span>
+          <span>我可以帮你根据现有食材推荐菜谱、安排晚餐、分析临期食材，生成采购清单草稿，确认后再保存。</span>
         </div>
       </section>
       <div className="ai-welcome-grid" aria-label="快捷问题">

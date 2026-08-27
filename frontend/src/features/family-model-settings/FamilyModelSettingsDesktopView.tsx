@@ -9,11 +9,11 @@ import { SearchProfilePanel } from './SearchProfilePanel';
 
 const SECTIONS: ReadonlyArray<{ id: FamilyModelSettingsSection; label: string; description: string }> = [
   { id: 'overview', label: '服务概览', description: '查看当前配置状态' },
-  { id: 'providers', label: 'Provider 服务', description: '管理连接地址与凭据' },
-  { id: 'capabilities', label: '能力配置', description: '绑定七类模型能力' },
-  { id: 'prices', label: '模型价格', description: '可选，未填按 0 计算' },
-  { id: 'search', label: '搜索索引', description: '管理向量索引切换' },
-  { id: 'review', label: '配置检查', description: '查看配置完善度' },
+  { id: 'providers', label: '模型服务', description: '管理连接地址与密钥' },
+  { id: 'capabilities', label: '功能设置', description: '选择七类 AI 功能' },
+  { id: 'prices', label: '模型价格', description: '可选，未填写的价格按 0 元计入费用' },
+  { id: 'search', label: '智能搜索', description: '管理家庭内容的搜索方式' },
+  { id: 'review', label: '配置检查', description: '查看配置是否完整' },
 ];
 
 function renderSectionIcon(id: FamilyModelSettingsSection): ReactNode {
@@ -93,7 +93,7 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
         <div className="family-model-settings-steps-header">
           <div className="family-model-settings-steps-header-title">
             <h3>配置引导</h3>
-            <p>连接服务并绑定需要的能力即可使用；价格和完整度检查可按需查看</p>
+            <p>添加模型服务并选择需要的功能即可使用；价格和配置是否完整可随时查看。</p>
           </div>
           <span className="family-model-settings-steps-badge">自动保存</span>
         </div>
@@ -115,10 +115,10 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
                     {step.status === 'complete'
                       ? '已完成'
                       : step.id === 'prices' || step.id === 'review'
-                        ? '按需'
+                        ? '可选'
                         : step.status === 'current'
                           ? '下一步'
-                          : '待完成'}
+                          : '未完成'}
                   </span>
                 </div>
                 <div className="family-model-settings-step-card-body">
@@ -129,7 +129,7 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
                   <span>{step.status === 'complete'
                     ? '查看配置'
                     : step.id === 'prices' || step.id === 'review'
-                      ? '按需查看'
+                      ? '查看详情'
                       : step.status === 'current'
                         ? '立即开始'
                         : '前往配置'}</span>
@@ -154,11 +154,11 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
               </svg>
             </div>
             <div className="family-model-settings-metric-tile-content">
-              <span>Provider 服务</span>
+              <span>模型服务</span>
               <strong>{overview.providerCount} <small>个</small></strong>
             </div>
             <span className={`family-model-settings-metric-tile-badge ${overview.providerCount > 0 ? 'is-ready' : 'is-pending'}`}>
-              {overview.providerCount > 0 ? '已连接' : '待配置'}
+              {overview.providerCount > 0 ? '已连接' : '未配置'}
             </span>
           </article>
 
@@ -170,7 +170,7 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
               </svg>
             </div>
             <div className="family-model-settings-metric-tile-content">
-              <span>已启用能力</span>
+              <span>已启用功能</span>
               <strong>{overview.enabledCapabilityCount} <small>/ 7 类</small></strong>
             </div>
             <span className={`family-model-settings-metric-tile-badge ${overview.enabledCapabilityCount > 0 ? 'is-ready' : 'is-pending'}`}>
@@ -190,15 +190,15 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
             </div>
             <span className={`family-model-settings-metric-tile-badge ${overview.enabledCapabilityCount > 0 && overview.pricedCapabilityCount === overview.enabledCapabilityCount ? 'is-ready' : 'is-pending'}`}>
               {overview.enabledCapabilityCount === 0
-                ? '暂无能力'
+                ? '还没有可用功能'
                 : overview.pricedCapabilityCount === overview.enabledCapabilityCount
                   ? '已填写'
-                  : '未填按 0'}
+                  : '未填写，按 0 元计入费用'}
             </span>
           </article>
         </div>
         <p className="family-model-settings-overview-summary">
-          {overview.providerCount} 个服务 · {overview.enabledCapabilityCount} 类已启用能力 · {overview.pricedCapabilityCount}/{overview.enabledCapabilityCount} 类已填写价格
+          {overview.providerCount} 个服务 · {overview.enabledCapabilityCount} 类已启用功能 · {overview.pricedCapabilityCount}/{overview.enabledCapabilityCount} 类已填写价格
         </p>
       </div>
     </section>
@@ -262,11 +262,11 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
               </div>
               <div>
                 <h1 id="family-model-settings-title">家庭 AI 服务</h1>
-                <p className="family-model-settings-page-head-desc">由家庭主理人统一管理服务、凭据、模型和价格。</p>
+                <p className="family-model-settings-page-head-desc">由家庭主理人统一管理服务、密钥、模型和价格。</p>
               </div>
             </div>
           </div>
-          {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
+          {props.stale ? <p className="family-model-settings-stale" role="status">暂时无法刷新，以下显示最近一次成功加载的设置。</p> : null}
           {props.errorMessage ? (
             <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
           ) : (

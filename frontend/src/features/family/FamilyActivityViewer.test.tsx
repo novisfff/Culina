@@ -112,6 +112,6 @@ describe('FamilyActivityViewer remote states', () => {
     }));
     await flushQueries();
     expect(view.textContent).toContain(auditLog.summary);
-    expect(buttonByText(view, '刷新失败，重试')).not.toBeNull();
+    expect(buttonByText(view, '暂时无法更新，请重试')).not.toBeNull();
   });
 });

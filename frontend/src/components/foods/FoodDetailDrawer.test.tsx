@@ -108,14 +108,14 @@ function renderDrawer(options: { isQuickAdding?: boolean } = {}) {
           relationFacts: [],
           shortagePreview: [],
           summary: '已有菜谱',
-          detail: '全部原料均有库存。',
+          detail: '所有食材均有库存。',
         }}
         status={{ label: '可安排', detail: '适合今天', tone: 'ready' }}
         usage={{ count: 0, last: null }}
         getDefaultMealType={() => 'dinner'}
         getPrimaryFoodActionLabel={() => '记一餐'}
         getRepurchaseLabel={() => '适合复吃'}
-        getSecondaryFoodActionLabel={() => '编辑档案'}
+        getSecondaryFoodActionLabel={() => '编辑食物'}
         getSceneTags={(food) => food.scene_tags ?? []}
         onClose={onClose}
         onOpenPlanDialog={vi.fn()}
@@ -153,9 +153,9 @@ describe('FoodDetailDrawer', () => {
   it('keeps the drawer open and locks detail actions while quick adding', () => {
     const { onClose, view } = renderDrawer({ isQuickAdding: true });
 
-    expectButtonsDisabled(view, '处理中...');
-    expectButtonsDisabled(view, '编辑档案');
-    expectButtonsDisabled(view, '加入菜单');
+    expectButtonsDisabled(view, '处理中…');
+    expectButtonsDisabled(view, '编辑食物');
+    expectButtonsDisabled(view, '加入餐食计划');
     expectButtonsDisabled(view, '编辑菜谱');
     expectButtonsDisabled(view, '+ 晚餐');
 
