@@ -448,7 +448,7 @@ frontend-health.json
 frontend-health-manifest.json
 .artifacts/frontend-health-manifest.json
 mkdir -p .artifacts
-cp frontend/dist/.vite/frontend-health-manifest.json
+cp frontend/dist/.vite/frontend-health-manifest.json .artifacts/frontend-health-manifest.json
 if: always()
 ~~~
 

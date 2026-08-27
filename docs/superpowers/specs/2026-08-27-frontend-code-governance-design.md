@@ -146,7 +146,7 @@ main.tsx
 
 ### 4.1 Baseline B0
 
-B0 固定为 `b559246669dd3fd9ec4636582ed4504df2a1ba`，由脚本写入 `frontend/scripts/frontend-health-baseline.json`，同时记录 Node、npm、Vite、TypeScript、Vitest 版本和构建环境。B0 的关键值：
+B0 固定为 `b559246669dd3fd9ec463658ce2ed4504df2a1ba`，由脚本写入 `frontend/scripts/frontend-health-baseline.json`，同时记录 Node、npm、Vite、TypeScript、Vitest 版本和构建环境。B0 的关键值：
 
 | 指标 | B0 |
 | --- | ---: |
