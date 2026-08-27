@@ -1243,10 +1243,23 @@ def cancel_search_replacement(
         search_profile_id=command.profile_id,
         for_update=True,
     )
-    if profile.base_search_profile_id is None or settings.active_search_profile_id == profile.id:
+    is_initial_candidate = (
+        profile.base_search_profile_id is None
+        and settings.active_search_profile_id is None
+    )
+    if settings.active_search_profile_id == profile.id:
         raise FamilyModelSettingsVersionConflict("family_search_profile_locked")
     if profile.status not in _LIVE_REBUILD_STATUSES:
         raise FamilyModelSettingsError("family_search_rebuild_failed")
+    if is_initial_candidate:
+        _detach_failed_initial_search_candidate(
+            db,
+            settings=settings,
+            profile=profile,
+            actor_user_id=command.actor_user_id,
+        )
+    elif profile.base_search_profile_id is None:
+        raise FamilyModelSettingsVersionConflict("family_search_profile_locked")
     profile.status = FamilyModelSearchProfileStatus.CANCELLED
     profile.cancelled_at = utcnow()
     for job in tuple(
@@ -1315,7 +1328,7 @@ def _binding_identity_checksum(
 def _revision_checksum(
     *,
     bindings: Sequence[FamilyModelCapabilityBinding],
-    search_profile_id: str,
+    search_profile_id: str | None,
 ) -> str:
     return _canonical_digest(
         {
@@ -1337,6 +1350,255 @@ def _revision_checksum(
             ],
             "search_profile_id": search_profile_id,
         }
+    )
+
+
+def _clone_revision_without_initial_embedding(
+    db: Session,
+    *,
+    current: FamilyModelConfigRevision,
+    actor_user_id: str,
+) -> FamilyModelConfigRevision:
+    source_bindings = tuple(
+        db.scalars(
+            select(FamilyModelCapabilityBinding)
+            .where(
+                FamilyModelCapabilityBinding.family_id == current.family_id,
+                FamilyModelCapabilityBinding.config_revision_id == current.id,
+            )
+            .order_by(
+                FamilyModelCapabilityBinding.capability,
+                FamilyModelCapabilityBinding.variant_key,
+            )
+        )
+    )
+    cloned: list[FamilyModelCapabilityBinding] = []
+    embedding_removed = False
+    for source in source_bindings:
+        if (
+            source.capability is ModelUsageCapability.EMBEDDING
+            and source.variant_key == "search"
+        ):
+            options: dict[str, object] = {"dimensions": 1536}
+            cloned.append(
+                FamilyModelCapabilityBinding(
+                    id=create_id("family-model-binding"),
+                    family_id=current.family_id,
+                    config_revision_id="",
+                    capability=ModelUsageCapability.EMBEDDING,
+                    variant_key="search",
+                    enabled=False,
+                    provider_profile_id=None,
+                    provider_profile_version_id=None,
+                    requested_model="",
+                    options_json=options,
+                    billing_scheme_key="embedding-token-v1",
+                    identity_checksum=_binding_identity_checksum(
+                        capability=ModelUsageCapability.EMBEDDING,
+                        variant_key="search",
+                        provider_profile_id=None,
+                        provider_profile_version_id=None,
+                        requested_model="",
+                        billing_scheme_key="embedding-token-v1",
+                        options=options,
+                    ),
+                )
+            )
+            embedding_removed = True
+            continue
+        cloned.append(
+            FamilyModelCapabilityBinding(
+                id=create_id("family-model-binding"),
+                family_id=current.family_id,
+                config_revision_id="",
+                capability=source.capability,
+                variant_key=source.variant_key,
+                enabled=source.enabled,
+                provider_profile_id=source.provider_profile_id,
+                provider_profile_version_id=source.provider_profile_version_id,
+                requested_model=source.requested_model,
+                options_json=dict(source.options_json or {}),
+                billing_scheme_key=source.billing_scheme_key,
+                identity_checksum=source.identity_checksum,
+            )
+        )
+    if not embedding_removed:
+        raise FamilyModelSettingsError("family_search_profile_locked")
+
+    checksum = _revision_checksum(bindings=cloned, search_profile_id=None)
+    existing = db.scalar(
+        select(FamilyModelConfigRevision).where(
+            FamilyModelConfigRevision.family_id == current.family_id,
+            FamilyModelConfigRevision.config_checksum == checksum,
+        )
+    )
+    if existing is not None:
+        existing.status = FamilyModelConfigRevisionStatus.PUBLISHED
+        return existing
+
+    revision = FamilyModelConfigRevision(
+        id=create_id("family-model-revision"),
+        family_id=current.family_id,
+        version_number=(
+            int(
+                db.scalar(
+                    select(func.max(FamilyModelConfigRevision.version_number)).where(
+                        FamilyModelConfigRevision.family_id == current.family_id
+                    )
+                )
+                or 0
+            )
+            + 1
+        ),
+        base_revision_id=current.id,
+        config_checksum=checksum,
+        status=FamilyModelConfigRevisionStatus.PUBLISHED,
+        search_profile_id=None,
+        change_note="放弃首次智能搜索配置",
+        published_by=actor_user_id,
+    )
+    db.add(revision)
+    db.flush()
+    for binding in cloned:
+        binding.config_revision_id = revision.id
+        db.add(binding)
+    db.flush()
+    return revision
+
+
+def _clone_price_without_embedding(
+    db: Session,
+    *,
+    current: ModelUsagePriceVersion,
+    revision: FamilyModelConfigRevision,
+    actor_user_id: str,
+) -> ModelUsagePriceVersion:
+    copied_rates = tuple(
+        rate
+        for rate in db.scalars(
+            select(ModelUsagePriceRate)
+            .where(ModelUsagePriceRate.price_version_id == current.id)
+            .order_by(
+                ModelUsagePriceRate.capability,
+                ModelUsagePriceRate.variant_key,
+                ModelUsagePriceRate.meter,
+            )
+        )
+        if rate.capability is not ModelUsageCapability.EMBEDDING
+    )
+    checksum = _canonical_digest(
+        [_rate_checksum_record(rate) for rate in copied_rates]
+    )
+    now = utcnow()
+    price = ModelUsagePriceVersion(
+        id=create_id("family-model-price"),
+        family_id=current.family_id,
+        config_revision_id=revision.id,
+        search_profile_id=None,
+        base_price_version_id=current.id,
+        purpose=FamilyModelPricePurpose.ACTIVE,
+        published_by=actor_user_id,
+        version_number=next_price_version_number(db),
+        status="published",
+        effective_from=now,
+        reviewed_at=now,
+        source_ref="family-search-cancellation",
+        change_note="放弃首次智能搜索配置",
+        operator=actor_user_id,
+        change_ticket=None,
+        manifest_checksum=checksum,
+        model_aliases_json={
+            f"{rate.provider}:{alias}": rate.billing_model
+            for rate in copied_rates
+            for alias in (rate.reported_model_aliases or [])
+        },
+        fx_rates_json={
+            "CNY": "1",
+            **{rate.source_currency: str(rate.fx_to_cny) for rate in copied_rates},
+        },
+    )
+    db.add(price)
+    db.flush()
+    for rate in copied_rates:
+        db.add(
+            ModelUsagePriceRate(
+                id=create_id("model-usage-rate"),
+                price_version_id=price.id,
+                provider=rate.provider,
+                billing_model=rate.billing_model,
+                capability=rate.capability,
+                variant_key=rate.variant_key,
+                billing_scheme_key=rate.billing_scheme_key,
+                meter=rate.meter,
+                meter_role=rate.meter_role,
+                unit_quantity=rate.unit_quantity,
+                unit_price=rate.unit_price,
+                source_currency=rate.source_currency,
+                fx_to_cny=rate.fx_to_cny,
+                unit_price_cny=rate.unit_price_cny,
+                reported_model_aliases=list(rate.reported_model_aliases or []),
+            )
+        )
+    db.flush()
+    return price
+
+
+def _detach_failed_initial_search_candidate(
+    db: Session,
+    *,
+    settings: FamilyModelSettings,
+    profile: FamilySearchProfile,
+    actor_user_id: str,
+) -> None:
+    current_revision = get_config_revision(
+        db,
+        family_id=settings.family_id,
+        config_revision_id=settings.active_config_revision_id,
+        for_update=True,
+    ) if settings.active_config_revision_id is not None else None
+    current_price = get_family_price_version(
+        db,
+        family_id=settings.family_id,
+        price_version_id=settings.active_price_version_id,
+        for_update=True,
+    ) if settings.active_price_version_id is not None else None
+    if (
+        current_revision is None
+        or current_price is None
+        or not _initial_profile_matches_current_revision(
+            db,
+            revision=current_revision,
+            profile=profile,
+        )
+    ):
+        raise FamilyModelSettingsVersionConflict("family_search_profile_locked")
+
+    revision = _clone_revision_without_initial_embedding(
+        db,
+        current=current_revision,
+        actor_user_id=actor_user_id,
+    )
+    price = _clone_price_without_embedding(
+        db,
+        current=current_price,
+        revision=revision,
+        actor_user_id=actor_user_id,
+    )
+    if current_revision.id != revision.id:
+        current_revision.status = FamilyModelConfigRevisionStatus.SUPERSEDED
+    settings.active_config_revision_id = revision.id
+    settings.active_price_version_id = price.id
+
+    from app.services.family_model_settings.drafts import (
+        abandon_initial_embedding_candidate,
+    )
+
+    abandon_initial_embedding_candidate(
+        db,
+        family_id=settings.family_id,
+        cancelled_search_profile_id=profile.id,
+        active_config_revision_id=revision.id,
+        actor_user_id=actor_user_id,
     )
 
 

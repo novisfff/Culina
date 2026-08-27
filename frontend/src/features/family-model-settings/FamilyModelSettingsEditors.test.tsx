@@ -530,6 +530,58 @@ describe('Family model settings editors', () => {
     });
   });
 
+  it('lets the Owner abandon a failed first search setup and return to editing', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.search_profile_id = 'search-profile-initial-failed';
+    const cancelSearchReplacement = vi.fn().mockResolvedValue(undefined);
+    const onReplacementProfileIdChange = vi.fn();
+    render(
+      <SearchProfilePanel
+        settings={{ ...settings, active_search_profile_id: null }}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={{
+          profile_id: 'search-profile-initial-failed',
+          status: 'failed',
+          total_documents: 12,
+          indexed_documents: 0,
+          failed_documents: 1,
+          budget_blocked_documents: 0,
+          retryable: true,
+          created_at: '2026-08-19T10:00:00Z',
+          activated_at: null,
+          failure: {
+            code: 'search_embedding_provider_rejected',
+            detail: '模型名称无效，首次搜索配置未启用。',
+            provider_http_status: null,
+            provider_error_code: null,
+            provider_error_message: null,
+            request_sent: true,
+            execution_certainty: 'confirmed_not_executed',
+          },
+        }}
+        replacementProfileId="search-profile-initial-failed"
+        actions={{
+          retrySearchReplacement: vi.fn().mockResolvedValue(undefined),
+          cancelSearchReplacement,
+        } as unknown as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={onReplacementProfileIdChange}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '放弃并重新配置' }));
+
+    expect(cancelSearchReplacement).toHaveBeenCalledWith('search-profile-initial-failed', {
+      base_settings_version_number: settings.version_number,
+    });
+    expect(onReplacementProfileIdChange).toHaveBeenCalledWith(null);
+  });
+
   it('keeps capability test progress and success feedback inside the button', async () => {
     const user = userEvent.setup();
     const draft = createEmptyFamilyModelDraft();

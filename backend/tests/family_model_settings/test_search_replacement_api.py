@@ -11,10 +11,12 @@ from app.models.domain import SearchDocument, SearchIndexJob
 from app.models.family_model_settings import (
     FamilyModelCapabilityBinding,
     FamilyModelConfigDraft,
+    FamilyModelConfigRevision,
     FamilyModelSettings,
     FamilySearchProfile,
     FamilySearchProfileDocument,
 )
+from app.models.model_usage import ModelUsagePriceRate
 from app.services.search.embeddings import EmbeddingUnavailableError
 from app.services.search.jobs import (
     MAX_ATTEMPTS,
@@ -194,6 +196,103 @@ def test_search_replacement_api_preview_create_replay_and_safe_progress(
         SECRET_MARKER,
     ):
         assert forbidden not in serialized
+
+
+def test_failed_initial_search_can_be_abandoned_without_reverting_other_capabilities(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    provider = family_model_api.create_profile(
+        idempotency_key="search-api-initial-abandon-provider",
+    )
+    initial = _publish(
+        family_model_api,
+        profile_id=str(provider["id"]),
+        llm_model="llm-before-search-failure",
+        id_suffix="initial-abandon",
+    )
+    profile_id = str(initial["search_profile_id"])
+
+    current_draft = family_model_api.client.get("/api/family/model-settings/draft")
+    assert current_draft.status_code == 200, current_draft.text
+    llm_payload = _llm_payload(str(provider["id"]))
+    llm_payload["bindings"][0]["requested_model"] = "llm-after-search-failure"
+    updated_llm = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json=llm_payload
+        | {
+            "base_draft_version_number": current_draft.json()["draft_version_number"],
+            "idempotency_key": "search-api-initial-abandon-llm-update",
+        },
+    )
+    assert updated_llm.status_code == 200, updated_llm.text
+
+    with family_model_api.session_factory() as db:
+        candidate = db.get(FamilySearchProfile, profile_id)
+        assert candidate is not None
+        candidate.status = FamilyModelSearchProfileStatus.FAILED
+        db.commit()
+
+    current_settings = family_model_api.client.get("/api/family/model-settings")
+    assert current_settings.status_code == 200, current_settings.text
+    cancelled = family_model_api.client.post(
+        f"/api/family/model-settings/search/replacements/{profile_id}/cancel",
+        json={
+            "base_settings_version_number": current_settings.json()["version_number"],
+            "idempotency_key": "search-api-initial-abandon-cancel",
+        },
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    replayed = family_model_api.client.post(
+        f"/api/family/model-settings/search/replacements/{profile_id}/cancel",
+        json={
+            "base_settings_version_number": current_settings.json()["version_number"],
+            "idempotency_key": "search-api-initial-abandon-cancel",
+        },
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json() == cancelled.json()
+
+    with family_model_api.session_factory() as db:
+        settings = db.get(FamilyModelSettings, "family-a")
+        draft = db.get(FamilyModelConfigDraft, "family-a")
+        profile = db.get(FamilySearchProfile, profile_id)
+        assert settings is not None and settings.active_config_revision_id is not None
+        assert settings.active_price_version_id is not None
+        assert settings.active_search_profile_id is None
+        assert draft is not None
+        assert profile is not None and profile.status is FamilyModelSearchProfileStatus.CANCELLED
+
+        revision = db.get(FamilyModelConfigRevision, settings.active_config_revision_id)
+        assert revision is not None and revision.search_profile_id is None
+        bindings = {
+            (binding.capability.value, binding.variant_key): binding
+            for binding in db.scalars(
+                select(FamilyModelCapabilityBinding).where(
+                    FamilyModelCapabilityBinding.config_revision_id == revision.id
+                )
+            )
+        }
+        assert bindings[("llm", "primary")].enabled is True
+        assert bindings[("llm", "primary")].requested_model == "llm-after-search-failure"
+        assert bindings[("embedding", "search")].enabled is False
+
+        active_rates = tuple(
+            db.scalars(
+                select(ModelUsagePriceRate).where(
+                    ModelUsagePriceRate.price_version_id == settings.active_price_version_id
+                )
+            )
+        )
+        assert any(rate.capability is ModelUsageCapability.LLM for rate in active_rates)
+        assert all(rate.capability is not ModelUsageCapability.EMBEDDING for rate in active_rates)
+        assert draft.payload_json.get("search_profile_id") is None
+        draft_bindings = {
+            (binding["capability"], binding["variant_key"]): binding
+            for binding in draft.payload_json["bindings"]
+        }
+        assert draft_bindings[("llm", "primary")]["requested_model"] == "llm-after-search-failure"
+        assert draft_bindings[("embedding", "search")]["enabled"] is False
 
 
 def test_search_replacement_api_owner_scope_retry_and_cancel(

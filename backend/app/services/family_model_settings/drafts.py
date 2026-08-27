@@ -1774,6 +1774,74 @@ def restore_active_embedding_after_failed_search_replacement(
     return True
 
 
+def abandon_initial_embedding_candidate(
+    db: Session,
+    *,
+    family_id: str,
+    cancelled_search_profile_id: str,
+    active_config_revision_id: str,
+    actor_user_id: str,
+) -> bool:
+    """Clear only the failed first Embedding card from the repairable draft."""
+
+    draft = get_config_draft(db, family_id=family_id, for_update=True)
+    if draft is None:
+        return False
+    payload, payload_issues = _safe_payload_from_raw(draft.payload_json)
+    if payload.search_profile_id != cancelled_search_profile_id:
+        return False
+
+    bindings, rates = _payload_identity_maps(payload)
+    embedding_identity = (ModelUsageCapability.EMBEDDING.value, "search")
+    disabled_embedding = _parse_single_binding_record(
+        _default_binding_record(ModelUsageCapability.EMBEDDING, "search")
+    )
+    assert disabled_embedding is not None
+    bindings[embedding_identity] = disabled_embedding
+    rates.pop(embedding_identity, None)
+    restored = payload.model_copy(
+        update={
+            "base_config_revision_id": active_config_revision_id,
+            "search_profile_id": None,
+            "bindings": [
+                bindings[identity]
+                for identity in sorted(bindings, key=_identity_sort_key)
+            ],
+            "price_rates": [
+                rate
+                for identity in sorted(rates, key=_identity_sort_key)
+                for rate in rates[identity]
+            ],
+        }
+    )
+    retained_errors = [
+        issue
+        for issue in _carry_forward_draft_issues(
+            [
+                *(draft.validation_errors_json or []),
+                *(issue.record() for issue in payload_issues),
+            ],
+            existing_payload=payload,
+            incoming_identities={embedding_identity},
+        )
+        if issue.code not in {
+            "family_search_initial_confirmation_required",
+            "family_search_profile_locked",
+            "family_search_profile_not_found",
+        }
+    ]
+    draft.base_config_revision_id = active_config_revision_id
+    draft.payload_json = remove_write_only_secret_commands(
+        restored.model_dump(mode="json", exclude_none=True)
+    )
+    draft.draft_version_number += 1
+    draft.validation_status = "invalid" if retained_errors else "valid"
+    draft.validation_errors_json = [issue.record() for issue in retained_errors]
+    draft.updated_at = utcnow()
+    draft.updated_by = actor_user_id
+    return True
+
+
 def _only_initial_embedding_candidate(
     payload: FamilyModelConfigDraftPayload,
     *,

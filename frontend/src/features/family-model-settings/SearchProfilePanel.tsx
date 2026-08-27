@@ -119,7 +119,9 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
     if (replacementIsCandidate && replacement?.status === 'failed') {
       return {
         title: '智能搜索准备失败',
-        description: '原搜索模型设置仍保留，可以在下方重试；已完成的内容不会重复处理。',
+        description: activeSearchProfileId
+          ? '原搜索模型设置仍保留，可以在下方重试；已完成的内容不会重复处理。'
+          : '首次搜索配置尚未启用，可以重试，也可以放弃后重新配置模型。',
         tone: 'is-danger',
       };
     }
@@ -247,6 +249,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
       await props.actions.cancelSearchReplacement(replacement.profile_id, {
         base_settings_version_number: props.settings.version_number,
       });
+      props.onReplacementProfileIdChange(null);
     } catch {
       // Preserve the operation state until the server settles it.
     }
@@ -286,6 +289,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
           <div className="family-model-settings-editor-actions">
             {replacement.status === 'failed' && replacement.retryable ? <button className="ghost-button" type="button" disabled={busy} onClick={() => { void retryReplacement(); }}>重试更新</button> : null}
             {activeSearchProfileId && (replacement.status === 'provisioning' || replacement.status === 'failed') ? <button className="tertiary-button" type="button" disabled={busy} onClick={() => { void cancelReplacement(); }}>取消更新</button> : null}
+            {!activeSearchProfileId && replacement.status === 'failed' ? <button className="tertiary-button" type="button" disabled={busy} onClick={() => { void cancelReplacement(); }}>放弃并重新配置</button> : null}
           </div>
         </section>
       ) : null}
