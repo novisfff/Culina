@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { isApiError } from '../../api/request';
@@ -88,6 +88,7 @@ import {
   resolveErrorMessage,
 } from '../recipes/RecipeWorkspaceModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
+import { getFoodEditorProfile, getFoodPriority, getQuickDefaultMealType } from './FoodWorkspaceHelpers';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   FOOD_GOVERNANCE_ISSUE_OPTIONS,
@@ -101,7 +102,6 @@ import {
   buildDirectCookTarget,
   getFoodPlanDateParts,
   getSuggestedMealTypeForHour,
-  normalizeFormFoodType,
   isReadyLikeType,
   isOutsideType,
   resolveFoodAssetUrl,
@@ -345,37 +345,6 @@ const MOBILE_DEFAULT_FOOD_SCENES = [
   { key: 'light', title: '周末轻食', fallbackIndex: 3 },
 ];
 
-function getFoodPriority(food: Food, mealLogs: MealLog[], lensFilter: FoodWorkspaceLens, recipes: Recipe[] = []) {
-  const usage = getMealUsage(food, mealLogs);
-  const daysUntilExpiry = getDaysUntil(food.expiry_date);
-  const expiryScore = isFoodExpiring(food) ? 500 - Math.max(daysUntilExpiry ?? 0, -30) : 0;
-  const missingScore = isFoodMissingDecisionInfo(food, recipes) ? 120 : 0;
-  const favoriteScore = food.favorite ? 80 : 0;
-  const usageScore = usage.count * 12;
-  const recentScore = usage.last ? Number(usage.last.replace(/-/g, '')) / 10_000_000 : 0;
-  const lensBoost =
-    lensFilter === 'expiring'
-      ? expiryScore * 2
-      : lensFilter === 'needsInfo'
-        ? missingScore * 2
-        : lensFilter === 'favorite'
-          ? favoriteScore + usageScore
-          : 0;
-  return lensBoost + expiryScore + missingScore + favoriteScore + usageScore + recentScore;
-}
-
-function getQuickDefaultMealType(food: Food, suggestedMealType: MealType): MealType {
-  if (food.suitable_meal_types.includes(suggestedMealType)) return suggestedMealType;
-  if (food.suitable_meal_types.length === 0) return suggestedMealType;
-  return getDefaultMealType(food);
-}
-
-function openFoodDetailFromCard(event: KeyboardEvent<HTMLElement>, onOpenDetail: () => void) {
-  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
-  event.preventDefault();
-  onOpenDetail();
-}
-
 export function buildTodayFoodRecommendations(
   foods: Food[],
   mealLogs: MealLog[],
@@ -500,25 +469,6 @@ export function buildTodayFoodRecommendations(
 
 
 
-function getFoodEditorProfile(foodType: FoodType) {
-  const normalizedType = normalizeFormFoodType(foodType);
-  if (normalizedType === 'selfMade') {
-    return {
-      title: '家常菜核心信息',
-      description: '重点确认菜谱与用料、适合餐别和家庭备注。',
-    };
-  }
-  if (normalizedType === 'takeout' || normalizedType === 'diningOut') {
-    return {
-      title: normalizedType === 'takeout' ? '外卖下次选择参考' : '外食下次选择参考',
-      description: '补上店铺/餐厅、价格、评分和下次是否还想吃，之后更容易做决定。',
-    };
-  }
-  return {
-    title: '成品与速食库存信息',
-    description: '先补充购买渠道、剩余数量和到期日，这类食物会进入临期提醒。',
-  };
-}
 
 export function filterFoodWorkspaceItems(
   foods: Food[],
