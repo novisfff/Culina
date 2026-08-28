@@ -33,7 +33,7 @@ import type {
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
-import { addDateKeyDays, getRecipeWeekRange } from './components/recipes/workspaceModel';
+import { addDateKeyDays, getWeekRange } from './lib/date';
 import { businessDateKey } from './lib/date';
 import { tracksIngredientQuantity } from './lib/ingredientTracking';
 import {
@@ -130,7 +130,7 @@ function App() {
   const { isPhoneViewport, sidebarCollapsed, setSidebarCollapsed } = useAppShellLayoutState();
   const navigation = useAppNavigationState();
   const [selectedRecipePlanDate, setSelectedRecipePlanDate] = useState(todayKey());
-  const foodPlanWeekRange = useMemo(() => getRecipeWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
+  const foodPlanWeekRange = useMemo(() => getWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
   const [hasBooted, setHasBooted] = useState(false);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
   const [homeShoppingDialogOpen, setHomeShoppingDialogOpen] = useState(false);
