@@ -94,7 +94,9 @@ test('Home, Ingredients, Food, Eat, AI, and Family stay within governance contra
     await assertNoHorizontalOverflow(page);
     await assertInteractiveTargetMinimum(page);
 
-    const nav = (name) => page.locator('.mobile-bottom-nav:visible, .sidebar-nav:visible').getByRole('button', { name, exact: true }).first();
+    const nav = (name) => page.locator(
+      '.mobile-bottom-nav:visible, .sidebar-nav:visible, .tabbar:visible',
+    ).getByRole('button', { name, exact: true }).first();
     const resetHome = async () => {
       await page.goto('/', { waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('heading', { name: '今天吃什么' })).toBeVisible();
