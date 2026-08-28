@@ -15,7 +15,7 @@ export function AppGlobalOverlays({ search, shopping }: Props) {
       <Suspense fallback={null}>
         <GlobalSearchOverlay {...search} />
       </Suspense>
-      <IngredientShoppingDialog {...shopping} />
+      {shopping.open ? <IngredientShoppingDialog {...shopping} /> : null}
     </>
   );
 }
