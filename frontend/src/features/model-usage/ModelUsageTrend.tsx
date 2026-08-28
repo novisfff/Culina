@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type CSSProperties } from 'react';
-import type { ModelUsageBreakdownItem } from '../../api/types';
+import type { ModelUsageBreakdownItem } from '../../api/types/modelUsage';
 import { formatModelUsageCny } from './modelUsageModel';
 import {
   buildModelUsageTrendPoints,

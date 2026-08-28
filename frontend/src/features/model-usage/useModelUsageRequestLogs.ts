@@ -6,7 +6,7 @@ import type {
   ModelUsageRequestLogPage,
   ModelUsageScope,
   UserRole,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { currentModelUsagePeriod } from './useModelUsageQueries';
 import {
   createModelUsageRequestLogFilters,

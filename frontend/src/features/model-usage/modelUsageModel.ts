@@ -11,7 +11,7 @@ import type {
   ModelUsagePersonalOverview,
   ModelUsagePolicy,
   UpdateModelUsagePolicyPayload,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { MODEL_USAGE_CAPABILITY_METERS, MODEL_USAGE_HEALTH_OPTIONS } from './modelUsageOptions';
 
 type ModelUsageOverview = ModelUsagePersonalOverview | ModelUsageFamilyOverview;

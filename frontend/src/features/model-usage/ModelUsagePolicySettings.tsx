@@ -5,7 +5,7 @@ import type {
   ModelUsageLimitKind,
   ModelUsageMeter,
   ModelUsagePolicy,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { ActionButton, FormActions, StateBlock } from '../../components/ui-kit';
 import {
   formatModelUsageCny,

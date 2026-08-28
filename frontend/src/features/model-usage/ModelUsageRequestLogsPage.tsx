@@ -1,4 +1,4 @@
-import type { UserRole } from '../../api/types';
+import type { UserRole } from '../../api/types/modelUsage';
 import { DashboardIcon } from '../../app/shellIcons';
 import { DateRangePickerField, DropdownSelect, StateBlock } from '../../components/ui-kit';
 import { businessDateKey } from '../../lib/date';

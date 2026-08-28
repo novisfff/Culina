@@ -3,7 +3,7 @@ import type {
   ModelUsageBreakdownItem,
   ModelUsageFamilyOverview,
   ModelUsagePersonalOverview,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { formatModelUsageCny } from './modelUsageModel';
 import {
   buildCapabilityCostDistribution,

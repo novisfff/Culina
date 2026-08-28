@@ -2,7 +2,7 @@ import type {
   ModelUsageAlert,
   ModelUsageFamilyOverview,
   ModelUsagePersonalOverview,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { DashboardIcon } from '../../app/shellIcons';
 import { StatusBadge } from '../../components/ui-kit';
 import {

@@ -3,7 +3,7 @@ import type {
   ModelUsageCapability,
   ModelUsageMeter,
   ModelUsageMeterTotal,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import {
   addCalendarDaysToDateKey,
   calendarDaysBetweenDateKeys,
