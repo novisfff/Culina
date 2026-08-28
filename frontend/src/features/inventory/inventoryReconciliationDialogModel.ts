@@ -1,4 +1,4 @@
-import type { InventoryOperationResult, InventoryReconciliationGroup } from '../../api/types';
+import type { InventoryOperationResult, InventoryReconciliationGroup } from '../../api/types/inventory';
 import type {
   InventoryReconciliationDraft,
   InventoryReconciliationScope,
