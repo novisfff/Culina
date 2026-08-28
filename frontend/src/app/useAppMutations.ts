@@ -17,8 +17,15 @@ import {
   invalidateAfterRecipeDeleted,
   invalidateAfterShoppingChanged,
 } from '../api/cacheInvalidation';
+import { useIngredientMutationActions } from './mutations/useIngredientMutations';
+import { useInventoryMutationActions } from './mutations/useInventoryMutations';
+import { useShoppingMutationActions } from './mutations/useShoppingMutations';
+import { useRecipeMutationActions } from './mutations/useRecipeMutations';
+import { useFoodPlanMutationActions } from './mutations/useFoodPlanMutations';
+import { useFoodMutationActions } from './mutations/useFoodMutations';
+import { useMealMutationActions } from './mutations/useMealMutations';
 
-export function useAppMutations() {
+export function useAppMutationRegistry() {
   const queryClient = useQueryClient();
 
   const createIngredientMutation = useMutation({
@@ -356,5 +363,20 @@ export function useAppMutations() {
     updateMealCompositionMutation,
     revertMealRecordMutation,
     completeFoodPlanItemMutation,
+  };
+}
+
+export type AppMutationRegistry = ReturnType<typeof useAppMutationRegistry>;
+
+export function useAppMutations() {
+  const registry = useAppMutationRegistry();
+  return {
+    ...useIngredientMutationActions(registry),
+    ...useInventoryMutationActions(registry),
+    ...useShoppingMutationActions(registry),
+    ...useRecipeMutationActions(registry),
+    ...useFoodPlanMutationActions(registry),
+    ...useFoodMutationActions(registry),
+    ...useMealMutationActions(registry),
   };
 }

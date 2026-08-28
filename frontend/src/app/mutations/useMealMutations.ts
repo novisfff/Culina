@@ -1,0 +1,2 @@
+import type { AppMutationRegistry } from '../useAppMutations';
+export function useMealMutationActions(m: AppMutationRegistry) { return { updateMealMutation: m.updateMealMutation, recordMealMutation: m.recordMealMutation, updateMealCompositionMutation: m.updateMealCompositionMutation, revertMealRecordMutation: m.revertMealRecordMutation, completeFoodPlanItemMutation: m.completeFoodPlanItemMutation }; }

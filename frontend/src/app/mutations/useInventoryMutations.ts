@@ -1,0 +1,4 @@
+import type { AppMutationRegistry } from '../useAppMutations';
+export function useInventoryMutationActions(m: AppMutationRegistry) {
+  return { createInventoryMutation: m.createInventoryMutation, consumeInventoryMutation: m.consumeInventoryMutation, disposeExpiredInventoryMutation: m.disposeExpiredInventoryMutation, snoozeInventoryExpiryAlertsMutation: m.snoozeInventoryExpiryAlertsMutation, correctInventoryExpiryDateMutation: m.correctInventoryExpiryDateMutation, upsertInventoryStateMutation: m.upsertInventoryStateMutation, snoozeStateExpiryAlertMutation: m.snoozeStateExpiryAlertMutation, correctStateExpiryDateMutation: m.correctStateExpiryDateMutation, setInventoryStateAbsentMutation: m.setInventoryStateAbsentMutation, submitShoppingIntakeMutation: m.submitShoppingIntakeMutation, submitInventoryReconciliationMutation: m.submitInventoryReconciliationMutation, revertInventoryOperationMutation: m.revertInventoryOperationMutation };
+}
