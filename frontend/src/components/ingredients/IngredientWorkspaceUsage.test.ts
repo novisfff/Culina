@@ -108,7 +108,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('handles unified food-stock actions inside the ingredient workspace', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+    ].join('\n');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
 
@@ -137,7 +140,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('splits ingredient Food record from independent inventory mutation', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+    ].join('\n');
 
     // Record payloads must not include stock/plan fields.
     expect(workspaceSource).not.toContain('deduct_food_stock');
@@ -167,7 +173,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('makes the food restock dialog a fuller quick-entry flow without storage editing', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+    ].join('\n');
     const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
 
     expect(workspaceSource).toContain('ingredients-food-stock-restock-section');
@@ -176,8 +185,8 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('setFoodStockRestockQuantity');
     expect(workspaceSource).toContain('setFoodStockRestockExpiryDays');
     expect(workspaceSource).toContain('setFoodStockRestockSource');
-    expect(workspaceSource).toContain("const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10']");
-    expect(workspaceSource).not.toContain("const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '3', '6', '12']");
+    expect(workspaceSource).toContain("const QUANTITY_PRESETS = ['1', '2', '5', '10']");
+    expect(workspaceSource).not.toContain("const QUANTITY_PRESETS = ['1', '3', '6', '12']");
     expect(workspaceSource).toContain('不设置到期日');
     expect(workspaceSource).toContain('7 天');
     expect(workspaceSource).toContain('30 天');

@@ -25,17 +25,14 @@ import type {
   ShoppingListItem,
   UpsertIngredientInventoryStateRequest,
 } from '../../api/types';
-import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { formatDate, getFoodCoverAsset, todayKey } from '../../lib/ui';
-import { addDateKeyDays, businessDateKey } from '../../lib/date';
+import { getFoodCoverAsset, todayKey } from '../../lib/ui';
+import { businessDateKey } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
-  FormActions,
   WorkspaceDrawer,
   WorkspaceModal,
   WorkspaceOverlayFrame,
@@ -131,6 +128,7 @@ import { ScrollableChipRail } from './ScrollableChipRail';
 import {
   useIngredientFoodStockState,
 } from './useIngredientFoodStockState';
+import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -263,14 +261,6 @@ type IngredientWorkspaceProps = {
   isCreatingShopping?: boolean;
   isUpdatingShopping?: boolean;
 };
-
-const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10'];
-const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
-  { value: 7, label: '7 天' },
-  { value: 30, label: '30 天' },
-  { value: 90, label: '90 天' },
-];
-const FOOD_STOCK_RESTOCK_SOURCE_PRESETS = ['超市', '便利店', '网购', '盒马'];
 
 const PANEL_ITEMS: Array<{ value: IngredientWorkspacePanel; label: string; icon: IngredientWorkspaceIconName }> = [
   { value: 'catalog', label: '食材库', icon: 'archive' },
@@ -1784,383 +1774,22 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         />
       ) : null}
 
-      {inventoryFollowUp && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
-          closeOnBackdrop={foodStockSubmitting !== 'meal'}
-          onClose={() => {
-            // Cancelling inventory follow-up does not roll back the meal.
-            if (foodStockSubmitting !== 'meal') {
-              setInventoryFollowUp(null);
-            }
-          }}
-        >
-          <WorkspaceModal
-            eyebrow="成品库存"
-            title="更新库存"
-            description="餐已记下。可选继续扣减库存；取消不影响刚才的记录。"
-            className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
-            closeLabel="关闭"
-            onClose={() => {
-              if (foodStockSubmitting !== 'meal') {
-                setInventoryFollowUp(null);
-              }
-            }}
-            footerActions={
-              <FormActions
-                primaryLabel="确认扣减"
-                primaryType="submit"
-                primaryForm="ingredients-food-stock-inventory-followup-form"
-                isSubmitting={foodStockSubmitting === 'meal'}
-                secondaryLabel="跳过"
-                onSecondary={() => setInventoryFollowUp(null)}
-              />
-            }
-          >
-            <form
-              id="ingredients-food-stock-inventory-followup-form"
-              className="ingredients-food-stock-form ingredients-food-stock-quick-form"
-              onSubmit={submitInventoryFollowUp}
-            >
-              <div className="ingredients-food-stock-quick-hero">
-                <span className="ingredients-food-stock-quick-cover">
-                  <MediaWithPlaceholder
-                    src={resolveMediaUrl(inventoryFollowUp.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(inventoryFollowUp.item.image)}
-                    sizes={buildMediaSizes('thumb')}
-                    alt=""
-                    emptyLabel="成品图片"
-                    showLabel={false}
-                  />
-                </span>
-                <span className="ingredients-food-stock-quick-copy">
-                  <strong>{inventoryFollowUp.item.title}</strong>
-                  <small>
-                    {[
-                      inventoryFollowUp.item.category || '成品',
-                      inventoryFollowUp.item.storage_location || '常温',
-                      `库存 ${inventoryFollowUp.item.quantity_label}`,
-                    ].join(' · ')}
-                  </small>
-                </span>
-              </div>
-              <label className="ingredients-food-stock-field">
-                <span>扣减数量</span>
-                <div className="ingredients-food-stock-inline-input">
-                  <input
-                    className="text-input"
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={inventoryFollowUp.stockQuantity}
-                    disabled={foodStockSubmitting === 'meal'}
-                    onChange={(event) =>
-                      setInventoryFollowUp({
-                        ...inventoryFollowUp,
-                        stockQuantity: event.target.value,
-                        error: null,
-                      })
-                    }
-                  />
-                  <em>{inventoryFollowUp.item.unit || '份'}</em>
-                </div>
-              </label>
-              {inventoryFollowUp.error ? (
-                <p className="form-error ingredients-food-stock-error" role="alert">
-                  {inventoryFollowUp.error}
-                </p>
-              ) : null}
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {foodStockDeductDialog && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
-          closeOnBackdrop={foodStockSubmitting !== 'meal'}
-          onClose={() => {
-            if (foodStockSubmitting !== 'meal') {
-              setFoodStockDeductDialog(null);
-            }
-          }}
-        >
-          <WorkspaceModal
-            eyebrow="成品库存"
-            title="扣减库存"
-            description="只扣库存，不保存餐食记录。"
-            className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
-            closeLabel="关闭"
-            onClose={() => {
-              if (foodStockSubmitting !== 'meal') {
-                setFoodStockDeductDialog(null);
-              }
-            }}
-            footerActions={
-              <FormActions
-                primaryLabel="确认扣减"
-                primaryType="submit"
-                primaryForm="ingredients-food-stock-deduct-form"
-                isSubmitting={foodStockSubmitting === 'meal'}
-                secondaryLabel="取消"
-                onSecondary={() => setFoodStockDeductDialog(null)}
-              />
-            }
-          >
-            <form
-              id="ingredients-food-stock-deduct-form"
-              className="ingredients-food-stock-form ingredients-food-stock-quick-form"
-              onSubmit={submitFoodStockDeductDialog}
-            >
-              <div className="ingredients-food-stock-quick-hero">
-                <span className="ingredients-food-stock-quick-cover">
-                  <MediaWithPlaceholder
-                    src={resolveMediaUrl(foodStockDeductDialog.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(foodStockDeductDialog.item.image)}
-                    sizes={buildMediaSizes('thumb')}
-                    alt=""
-                    emptyLabel="成品图片"
-                    showLabel={false}
-                  />
-                </span>
-                <span className="ingredients-food-stock-quick-copy">
-                  <strong>{foodStockDeductDialog.item.title}</strong>
-                  <small>
-                    {[
-                      foodStockDeductDialog.item.category || '成品',
-                      foodStockDeductDialog.item.storage_location || '常温',
-                      `库存 ${foodStockDeductDialog.item.quantity_label}`,
-                    ].join(' · ')}
-                  </small>
-                </span>
-              </div>
-              <div className="ingredients-food-stock-no-record-note">
-                <strong>不保存餐食记录</strong>
-                <span>这次只从成品库存里扣掉数量，适合清点、丢失或已经记录过的情况。</span>
-              </div>
-              <label className="ingredients-food-stock-field">
-                <span>扣减数量</span>
-                <div className="ingredients-food-stock-inline-input">
-                  <input
-                    className="text-input"
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={foodStockDeductDialog.stockQuantity}
-                    disabled={foodStockSubmitting === 'meal'}
-                    onChange={(event) =>
-                      setFoodStockDeductDialog({
-                        ...foodStockDeductDialog,
-                        stockQuantity: event.target.value,
-                        error: null,
-                      })
-                    }
-                  />
-                  <em>{foodStockDeductDialog.item.unit || '份'}</em>
-                </div>
-              </label>
-              {foodStockDeductDialog.error ? (
-                <p className="form-error ingredients-food-stock-error" role="alert">
-                  {foodStockDeductDialog.error}
-                </p>
-              ) : null}
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {foodStockAdjustDialog && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
-          closeOnBackdrop={foodStockSubmitting !== 'adjust'}
-          onClose={() => {
-            if (foodStockSubmitting !== 'adjust') {
-              setFoodStockAdjustDialog(null);
-            }
-          }}
-        >
-          <WorkspaceModal
-            eyebrow="成品库存"
-            title="补充库存"
-            description="补充数量和到期信息；存放位置统一在食物信息中设置。"
-            className="ingredients-food-stock-modal ingredients-food-stock-restock-modal"
-            closeLabel="关闭"
-            onClose={() => {
-              if (foodStockSubmitting !== 'adjust') {
-                setFoodStockAdjustDialog(null);
-              }
-            }}
-            footerActions={
-              <FormActions
-                primaryLabel="确认补充"
-                primaryType="submit"
-                primaryForm="ingredients-food-stock-adjust-form"
-                isSubmitting={foodStockSubmitting === 'adjust'}
-                secondaryLabel="取消"
-                onSecondary={() => setFoodStockAdjustDialog(null)}
-              />
-            }
-          >
-            <form id="ingredients-food-stock-adjust-form" className="ingredients-food-stock-form ingredients-food-stock-restock-form" onSubmit={submitFoodStockAdjustDialog}>
-              <div className="ingredients-food-stock-quick-hero ingredients-food-stock-restock-hero">
-                <span className="ingredients-food-stock-quick-cover">
-                  <MediaWithPlaceholder
-                    src={resolveMediaUrl(foodStockAdjustDialog.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(foodStockAdjustDialog.item.image)}
-                    sizes={buildMediaSizes('thumb')}
-                    alt=""
-                    emptyLabel="成品图片"
-                    showLabel={false}
-                  />
-                </span>
-                <span className="ingredients-food-stock-quick-copy">
-                  <strong>{foodStockAdjustDialog.item.title}</strong>
-                  <small>
-                    {[foodStockAdjustDialog.item.category || '成品', foodStockAdjustDialog.item.storage_location || '常温', `当前 ${foodStockAdjustDialog.item.quantity_label}`].join(' · ')}
-                  </small>
-                </span>
-              </div>
-
-              <div className="ingredients-food-stock-summary ingredients-food-stock-restock-summary">
-                  <strong>补充后更新成品库存</strong>
-                <span>
-                  存放位置：{foodStockAdjustDialog.item.storage_location || '常温'}，如需调整请到食物信息修改。
-                </span>
-              </div>
-
-              <section className="ingredients-food-stock-restock-section">
-                <div className="ingredients-food-stock-restock-section-head">
-                  <strong>补充数量</strong>
-                  <span>常用数量点一下就填好</span>
-                </div>
-                <div className="ingredients-food-stock-restock-unit-row">
-                  <label className="ingredients-food-stock-field">
-                    <span>数量</span>
-                    <input
-                      className="text-input"
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={foodStockAdjustDialog.quantity}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onChange={(event) =>
-                        setFoodStockAdjustDialog({ ...foodStockAdjustDialog, quantity: event.target.value, error: null })
-                      }
-                    />
-                  </label>
-                  <label className="ingredients-food-stock-field">
-                    <span>单位</span>
-                    <input
-                      className="text-input"
-                      value={foodStockAdjustDialog.unit}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onChange={(event) =>
-                        setFoodStockAdjustDialog({ ...foodStockAdjustDialog, unit: event.target.value, error: null })
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-quantity-presets" aria-label="常用补充数量">
-                  {FOOD_STOCK_RESTOCK_QUANTITY_PRESETS.map((quantity) => (
-                    <button
-                      key={quantity}
-                      type="button"
-                      className={foodStockAdjustDialog.quantity === quantity ? 'active' : ''}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onClick={() => setFoodStockRestockQuantity(quantity)}
-                    >
-                      +{quantity}
-                      <span>{foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份'}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="ingredients-food-stock-restock-section">
-                <div className="ingredients-food-stock-restock-section-head">
-                  <strong>到期信息</strong>
-                  <span>不确定可以先不填</span>
-                </div>
-                <label className="ingredients-food-stock-field">
-                  <span>到期日</span>
-                  <input
-                    className="text-input"
-                    type="date"
-                    value={foodStockAdjustDialog.expiryDate}
-                    disabled={foodStockSubmitting === 'adjust'}
-                    onChange={(event) =>
-                      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, expiryDate: event.target.value, error: null })
-                    }
-                  />
-                </label>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-expiry-presets" aria-label="常用到期时间">
-                  <button
-                    type="button"
-                    className={foodStockAdjustDialog.expiryDate ? '' : 'active'}
-                    disabled={foodStockSubmitting === 'adjust'}
-                    onClick={() => setFoodStockRestockExpiryDays(null)}
-                  >
-                    不设置到期日
-                  </button>
-                  {FOOD_STOCK_RESTOCK_EXPIRY_PRESETS.map((preset) => {
-                    const presetDate = addDateKeyDays(todayDate, preset.value);
-                    return (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        className={foodStockAdjustDialog.expiryDate === presetDate ? 'active' : ''}
-                        disabled={foodStockSubmitting === 'adjust'}
-                        onClick={() => setFoodStockRestockExpiryDays(preset.value)}
-                      >
-                        {preset.label}
-                        <span>{formatDate(presetDate)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="ingredients-food-stock-restock-helper">包装没有明确日期时可以留空，之后可在食物信息中修改，或下次补充库存时再填写。</p>
-              </section>
-
-              <section className="ingredients-food-stock-restock-section">
-                <div className="ingredients-food-stock-restock-section-head">
-                  <strong>购买来源</strong>
-                  <span>方便下次再选和回看</span>
-                </div>
-                <label className="ingredients-food-stock-field">
-                  <span>购买来源</span>
-                  <input
-                    className="text-input"
-                    placeholder="例如：楼下超市、京东、盒马"
-                    value={foodStockAdjustDialog.purchaseSource}
-                    disabled={foodStockSubmitting === 'adjust'}
-                    onChange={(event) =>
-                      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: event.target.value, error: null })
-                    }
-                  />
-                </label>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-source-presets" aria-label="常用购买来源">
-                  {FOOD_STOCK_RESTOCK_SOURCE_PRESETS.map((source) => (
-                    <button
-                      key={source}
-                      type="button"
-                      className={foodStockAdjustDialog.purchaseSource === source ? 'active' : ''}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onClick={() => setFoodStockRestockSource(source)}
-                    >
-                      {source}
-                    </button>
-                  ))}
-                </div>
-              </section>
-              {foodStockAdjustDialog.error ? (
-                <p className="form-error ingredients-food-stock-error" role="alert">
-                  {foodStockAdjustDialog.error}
-                </p>
-              ) : null}
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
+      <IngredientFoodStockDialogs
+        todayDate={todayDate}
+        inventoryFollowUp={inventoryFollowUp}
+        foodStockDeductDialog={foodStockDeductDialog}
+        foodStockAdjustDialog={foodStockAdjustDialog}
+        foodStockSubmitting={foodStockSubmitting}
+        setInventoryFollowUp={setInventoryFollowUp}
+        setFoodStockDeductDialog={setFoodStockDeductDialog}
+        setFoodStockAdjustDialog={setFoodStockAdjustDialog}
+        setFoodStockRestockQuantity={setFoodStockRestockQuantity}
+        setFoodStockRestockExpiryDays={setFoodStockRestockExpiryDays}
+        setFoodStockRestockSource={setFoodStockRestockSource}
+        submitInventoryFollowUp={submitInventoryFollowUp}
+        submitFoodStockDeductDialog={submitFoodStockDeductDialog}
+        submitFoodStockAdjustDialog={submitFoodStockAdjustDialog}
+      />
     </>
   );
 }
