@@ -310,3 +310,12 @@ git diff --check
 ```
 
 上述定向测试均通过。随后运行全量 `npm run frontend:quality && npm run frontend:build`：249 个测试文件、1,902 个测试通过，style-token gate 通过，Vite 转换 685 modules，build 与 bundle checker 退出 0（历史 targetGap 仍为 warning）。之后重新运行 `npm run frontend:e2e:p0`，固定路径 52/52 通过。后续又将 Markdown 专属依赖显式拆为 `ai-markdown-vendor` chunk，并重新 build：686 modules、manifest 无 error，Markdown entryCritical gzip 降至约 0.88 KiB，但 AI routeTotal 仍超过目标。一次 route-owned CSS 实验因 P0 首帧/cascade 回归撤回，并在恢复全局样式、重建 dist 后以 52/52 P0 通过确认回滚有效。新增 bundle rollout state 校验与 checker 集成测试（18 个脚本测试通过）；当前所有入口仍为 ratchet，target 仅在连续 build/viewport 证据完整后启用。人工截图与 route-owned CSS 仍未完成，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
+
+## 13. Phase 3 workspace model 增量（2026-08-29）
+
+继续在同一治理 worktree 完成两批真实职责收敛：
+
+- `36557051`：Ingredient 目录/库存摘要、状态、展开说明和采购原因迁入 `workspaceModel.ts`，并以 model 契约测试锁定展示结果；`IngredientWorkspace.tsx` 删除重复实现。
+- `69c3e70a`：Food 日期投影、食物类型归一化、推荐餐别、卡片主操作、采购资格和库存文案迁入 `FoodWorkspaceModel.ts`，保留 Workspace 的兼容导出。
+
+本批验证：全量 Vitest 256 个文件 / 1,919 个测试通过；Vite 696 modules、manifest 无 error，bundle 历史超目标继续以 ratchet warning 输出；P0 固定路径 52/52 通过。构建后仍有未收敛的历史预算 gap，route-owned CSS、App/Ingredient/Food 大文件最终目标、连续 viewport 发布证据和 target hard-failure 尚未完成，不能据此勾选 Phase 3/5 最终验收。
