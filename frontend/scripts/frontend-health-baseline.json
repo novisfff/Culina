@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "sourceCommit": "b559246669dd3fd9ec463658ce2ed4504df2a1ba",
+  "generatedAtPolicy": "source-commit-only",
+  "toolchain": {
+    "node": "v20.18.0",
+    "typescript": "5.9.3"
+  },
+  "health": {
+    "version": 1,
+    "source": {
+      "ref": {
+        "commit": "b559246669dd3fd9ec463658ce2ed4504df2a1ba",
+        "source": "git"
+      },
+      "parseErrorsByFile": {}
+    },
+    "css": {
+      "important": 837,
+      "media": 214,
+      "selectorBlocks": 10247,
+      "declarations": 38905,
+      "undefinedVariables": [
+        "--brand",
+        "--font-mono",
+        "--ingredient-line",
+        "--ingredient-soft-surface",
+        "--input-height-lg",
+        "--model-usage-meter-weight",
+        "--model-usage-share",
+        "--shadow-xs",
+        "--tap-large",
+        "--text-main",
+        "--text-muted"
+      ],
+      "importantByFile": {
+        "src/styles/00-foundation.css": 13,
+        "src/styles/00-ui-kit.css": 71,
+        "src/styles/01-home-dashboard.css": 1,
+        "src/styles/02-family-settings.css": 122,
+        "src/styles/03-recipe-workspace.css": 92,
+        "src/styles/04-ingredients-workspace.css": 175,
+        "src/styles/05-workspace-overlays.css": 1,
+        "src/styles/06-food-workspace.css": 35,
+        "src/styles/07-mobile.css": 145,
+        "src/styles/08-meal-log.css": 8,
+        "src/styles/09-ai-draft-ui.css": 11,
+        "src/styles/09-ai-workspace.css": 152,
+        "src/styles/11-inventory-maintenance.css": 9,
+        "src/styles/15-family-model-settings.css": 2
+      },
+      "undefinedVariablesByFile": {
+        "src/styles/01-home-dashboard.css": 1,
+        "src/styles/03-recipe-workspace.css": 3,
+        "src/styles/04-ingredients-workspace.css": 5,
+        "src/styles/05-workspace-overlays.css": 1,
+        "src/styles/08-meal-log.css": 1,
+        "src/styles/09-ai-workspace.css": 3,
+        "src/styles/14-model-usage.css": 3,
+        "src/styles/15-family-model-settings.css": 1
+      }
+    }
+  },
+  "bundles": {}
+}

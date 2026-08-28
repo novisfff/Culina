@@ -17,6 +17,7 @@
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
     "health:report": "node scripts/frontend-health-metrics.mjs",
     "health:test": "vitest run scripts/frontend-health-metrics.test.mjs",
+    "health:baseline:check": "node scripts/frontend-health-metrics.mjs --check-baseline scripts/frontend-health-baseline.json",
     "check:bundle": "node scripts/check-bundle-budgets.mjs",
     "check:style-tokens": "node scripts/check-style-token-drift.mjs",
     "quality": "npm run typecheck && npm run test && npm run check:style-tokens"

@@ -730,6 +730,7 @@ function parseCommandLine(argv) {
     if (argument === '--format') options.format = argv[++index];
     else if (argument === '--output') options.output = argv[++index];
     else if (argument === '--commit') options.commit = argv[++index];
+    else if (argument === '--check-baseline') options.checkBaseline = argv[++index];
     else throw new Error(`unknown argument: ${argument}`);
   }
   if (!['json', 'markdown'].includes(options.format)) {
@@ -741,6 +742,12 @@ function parseCommandLine(argv) {
 
 async function runCli() {
   const options = parseCommandLine(process.argv.slice(2));
+  if (options.checkBaseline) {
+    const { readHealthBaseline } = await import('./frontend-health-baseline.mjs');
+    const baseline = await readHealthBaseline(path.resolve(process.cwd(), options.checkBaseline));
+    process.stdout.write(`${baseline.sourceCommit}\n`);
+    return;
+  }
   const report = await collectFrontendHealth({ commit: options.commit });
   const output = options.format === 'markdown'
     ? formatHealthMarkdown(report)
