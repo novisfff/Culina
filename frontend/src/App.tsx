@@ -73,7 +73,6 @@ import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
-import { HomeDashboard } from './features/home/HomeDashboard';
 import {
   buildShoppingForm,
   type ShoppingDialogFormState,
@@ -88,6 +87,9 @@ const AiWorkspace = lazy(() =>
 );
 const EatWorkspace = lazy(() =>
   import('./features/eat/EatWorkspace').then((module) => ({ default: module.EatWorkspace }))
+);
+const HomeDashboard = lazy(() =>
+  import('./features/home/HomeDashboard').then((module) => ({ default: module.HomeDashboard }))
 );
 const MealLogWorkspace = lazy(() =>
   import('./features/meals/MealLogWorkspace').then((module) => ({ default: module.MealLogWorkspace }))
@@ -1086,6 +1088,7 @@ function App() {
       <AppWorkspaceRouter navigationState={navigation.state}>
 
           {navigation.state.primaryTab === 'home' && (
+          <Suspense fallback={<WorkspaceLoadingFallback />}>
           <HomeDashboard
             sidebarFamilyName={sidebarFamilyName}
             sidebarMotto={sidebarMotto}
@@ -1160,6 +1163,7 @@ function App() {
             onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
             onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
           />
+          </Suspense>
         )}
 
         {navigation.state.primaryTab === 'eat' ? (
