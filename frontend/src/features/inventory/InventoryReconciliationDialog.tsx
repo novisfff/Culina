@@ -37,7 +37,6 @@ import {
   formatSubmitSummaryLines,
   isPhysicalBatchExpired,
   reconciliationGroupTargetKey,
-  SCOPE_LABELS,
   scopeLabel,
   storageLocationForScope,
   type ExactBatchCreateIntent,
@@ -54,6 +53,7 @@ import {
   type ReconciliationIntent,
   type ReconciliationSubmitSummary,
 } from './inventoryReconciliationModel';
+import { InventoryReconciliationScopeStep } from './InventoryReconciliationScopeStep';
 
 export type InventoryReconciliationDialogProps = {
   open: boolean;
@@ -88,14 +88,6 @@ export type InventoryReconciliationDialogProps = {
   onRevertResult?: (operationId: string) => void;
   onViewResult?: (operationId: string) => void;
 };
-
-const SCOPE_OPTIONS: InventoryReconciliationScope[] = [
-  'suggested',
-  'refrigerated',
-  'frozen',
-  'room_temperature',
-  'all',
-];
 
 const PRESENCE_OPTIONS: Array<{ value: InventoryAvailabilityLevel; label: string }> = [
   { value: 'present_unknown', label: AVAILABILITY_LEVEL_LABELS.present_unknown },
@@ -343,32 +335,13 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           </div>
 
           {!loading && props.step !== 'result' ? (
-            <section className="inventory-maintenance-section inventory-reconciliation-scope" aria-label="盘点范围">
-              <div className="inventory-maintenance-section-head">
-                <span>盘点范围</span>
-                <em>
-                  {checkedCount}/{totalCount} 已核对
-                </em>
-              </div>
-              <OptionChipGroup
-                ariaLabel="盘点范围"
-                value={props.scope}
-                size="large"
-                className="inventory-maintenance-chip-group"
-                onChange={(value) => {
-                  if (busy || loading) return;
-                  props.onChangeScope(value as InventoryReconciliationScope);
-                }}
-                options={SCOPE_OPTIONS.map((scope) => ({
-                  value: scope,
-                  label: SCOPE_LABELS[scope],
-                }))}
-              />
-              <div className="inventory-reconciliation-progress" aria-live="polite">
-                <progress value={checkedCount} max={Math.max(totalCount, 1)} aria-label={`盘点进度 ${checkedCount} / ${totalCount}`} />
-                <span>进度 {checkedCount} / {totalCount}</span>
-              </div>
-            </section>
+            <InventoryReconciliationScopeStep
+              scope={props.scope}
+              checkedCount={checkedCount}
+              totalCount={totalCount}
+              disabled={busy || loading}
+              onChange={props.onChangeScope}
+            />
           ) : null}
 
           {props.conflictState && props.conflictState !== 'none' ? (
@@ -454,7 +427,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
   );
 }
 
-function ReviewLayout(props: {
+export function ReviewLayout(props: {
   draft: InventoryReconciliationDraft;
   orderedGroups: InventoryReconciliationGroup[];
   totalGroupCount: number;
@@ -1569,7 +1542,7 @@ function FoodGroupActions(props: {
   );
 }
 
-function SummaryStep(props: {
+export function SummaryStep(props: {
   summary: ReconciliationSubmitSummary;
   draft: InventoryReconciliationDraft;
   groups: InventoryReconciliationGroup[];
@@ -1679,7 +1652,7 @@ function intentTargetKeySafe(intent: ReconciliationIntent) {
   return `food:${intent.foodId}`;
 }
 
-function ResultStep(props: {
+export function ResultStep(props: {
   result: InventoryOperationResult;
   busy?: boolean;
   onRevertResult?: (operationId: string) => void;
