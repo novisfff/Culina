@@ -564,7 +564,7 @@ Run: npm --prefix frontend run test -- scripts/release-governance-check.test.mjs
 
 Expected: FAIL，因为 release evidence checker 尚不存在。
 
-- [ ] **Step 2: 运行真实构建和 manifest**
+- [x] **Step 2: 运行真实构建和 manifest**
 
 ~~~bash
 npm --prefix frontend run typecheck

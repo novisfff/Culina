@@ -367,3 +367,7 @@ bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构
 - `9aefd2a9`：新增 `release-governance-check.mjs` 与 10 个 fail-closed 测试，校验 manifest/budget、六固定视口浏览器证据、请求数、cache reuse、long-task、构建 commit、Node/Vite 版本和回滚命令；新增 `check:release-governance` npm script。
 
 缺失任一 viewport、请求数据或 rollback command 时检查非零；`browserRun=false` 即使 build/unit tests 为真也不能通过。CI 接线和真实发布证据仍待完成。
+
+- `35f7e0a8`：新增 `route-transfer-report.mjs` 与 4 个测试，从 health manifest 生成按入口的 initial/routeTotal/entryCritical raw/gzip、asset hash、shared/cache 复用报告；新增 `route-transfer-report` npm script。真实构建后已生成本地报告（仅作验证产物，不提交）。
+
+该批 release/transfer 测试 14/14 通过，实际 route transfer report 生成退出 0；六视口浏览器报告、请求计数和回滚演练仍未完成。
