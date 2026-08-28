@@ -163,6 +163,7 @@ import {
   buildFoodCookingSummaryFromRecipeCards,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
+import { buildFoodWorkspaceViewModel } from './FoodWorkspaceViewModel';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -529,25 +530,16 @@ export function filterFoodWorkspaceItems(
   recipes: Recipe[] = [],
   matchedFoodIds: readonly string[] = []
 ) {
-  const keyword = search.trim().toLowerCase();
-  const matchedIdSet = new Set(matchedFoodIds);
-  return foods.filter((food) => {
-    const normalizedType = normalizeFoodType(food);
-    const text = [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').toLowerCase();
-    const searchMatch = !keyword || matchedIdSet.has(food.id) || text.includes(keyword);
-    const typeMatch = typeFilter === 'all' || normalizedType === typeFilter;
-    const mealMatch = mealFilter === 'all' || food.suitable_meal_types.includes(mealFilter);
-    const lensMatch =
-      lensFilter === 'all' ||
-      (lensFilter === 'today' && food.suitable_meal_types.some((meal) => meal === 'lunch' || meal === 'dinner')) ||
-      (lensFilter === 'selfMade' && normalizedType === 'selfMade') ||
-      (lensFilter === 'outside' && isOutsideFood(food)) ||
-      (lensFilter === 'ready' && isReadyLikeFood(food)) ||
-      (lensFilter === 'expiring' && isFoodExpiring(food)) ||
-      (lensFilter === 'favorite' && food.favorite) ||
-      (lensFilter === 'needsInfo' && isFoodMissingDecisionInfo(food, recipes));
-    return searchMatch && typeMatch && mealMatch && lensMatch;
-  });
+  return buildFoodWorkspaceViewModel({
+    foods,
+    recipes,
+    mealLogs: [],
+    search,
+    typeFilter,
+    mealFilter,
+    lensFilter,
+    matchedFoodIds,
+  }).items;
 }
 
 export function getMobileFoodSceneFilterState(sceneName: string) {
