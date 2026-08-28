@@ -1,21 +1,18 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { api } from '../../api/client';
 import type {
   AiChatAttachment,
   AiChatResponse,
   AiHumanInputRequest,
   AiMessage,
-  AiMessagePart,
-  AiRunEvent,
 } from '../../api/types';
 import { isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import type { AiApprovalDecisionSubmit } from './AiConversationThread';
 import { useAiHumanInputStream } from './useAiHumanInputStream';
+import { useAiApprovalStream } from './useAiApprovalStream';
 import {
   buildStreamProgressEvent,
-  clearActiveStreamRun,
   handleInaccessibleStreamError,
-  removeRunController,
   type StreamMutationContext,
 } from './aiStreamSupport';
 
@@ -53,7 +50,7 @@ export type AiConversationStreams = {
 };
 
 export function useAiConversationStreams(context: StreamMutationContext): AiConversationStreams {
-  const [submittingApprovalIds, setSubmittingApprovalIds] = useState<Set<string>>(() => new Set());
+  const approval = useAiApprovalStream(context);
   const humanInput = useAiHumanInputStream(context);
 
   const startChat = useCallback(async (payload: ChatStreamPayload) => {
@@ -109,121 +106,11 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
     }
   }, [context]);
 
-  const startApproval = useCallback(async (payload: ApprovalStreamPayload) => {
-    const controller = new AbortController();
-    const conversationKey = payload.approval.conversation_id;
-    const runId = payload.approval.run_id;
-    const approvalId = payload.approval.id;
-    const isRunAlreadyStreaming = Boolean(runId && context.activeStreamRunIdsByConversationKey[conversationKey] === runId);
-    const decisionPayload = {
-      decision: payload.decision,
-      draft_version: payload.approval.draft_version,
-      values: payload.values,
-      comment: payload.comment,
-    };
-    if (isRunAlreadyStreaming) {
-      throw new Error('当前确认结果已经在处理中，请稍后查看结果。');
-    }
-
-    setSubmittingApprovalIds((current) => {
-      const next = new Set(current);
-      next.add(approvalId);
-      return next;
-    });
-
-    if (runId) {
-      context.chatAbortByRunIdRef.current = { ...context.chatAbortByRunIdRef.current, [runId]: controller };
-      context.setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: runId }));
-      context.startThinking(runId);
-      if (payload.approval.message_id) {
-        context.streamMessageTargetRef.current = { ...context.streamMessageTargetRef.current, [runId]: payload.approval.message_id };
-      } else {
-        context.ensureStreamingAssistantMessage(runId, conversationKey);
-      }
-    }
-
-    let settleDecisionResult: (() => void) | null = null;
-    let rejectDecisionResult: ((error: unknown) => void) | null = null;
-    let isDecisionResultSettled = false;
-    const decisionResultVisible = new Promise<void>((resolve, reject) => {
-      settleDecisionResult = resolve;
-      rejectDecisionResult = reject;
-    });
-    const settleDecisionVisible = () => {
-      if (isDecisionResultSettled) return;
-      isDecisionResultSettled = true;
-      settleDecisionResult?.();
-    };
-    const rejectDecisionVisible = (error: unknown) => {
-      if (isDecisionResultSettled) return;
-      isDecisionResultSettled = true;
-      rejectDecisionResult?.(error);
-    };
-
-    try {
-      void api.streamAiApprovalDecision(
-        payload.approval.conversation_id,
-        payload.approval.id,
-        decisionPayload,
-        {
-          signal: controller.signal,
-          onProgress: (event) => {
-            const nextEvent = buildStreamProgressEvent(event, runId, 'approval-stream');
-            if (!context.streamMessageTargetRef.current[nextEvent.run_id]) {
-              context.ensureStreamingAssistantMessage(nextEvent.run_id, conversationKey);
-            }
-            context.updateThinkingForProgressEvent(nextEvent, runId);
-            context.upsertStreamProgressEvent(nextEvent);
-          },
-          onMessagePart: (event) => {
-            context.applyStreamPart(event, conversationKey);
-            if (context.isApprovalDecisionSettledPart(event.part, payload.approval.id)) {
-              settleDecisionVisible();
-            }
-          },
-          onMessageDelta: (event) => context.applyStreamDelta(event, conversationKey),
-        },
-      ).then((response) => {
-        context.applyChatResponse(response, payload.approval.conversation_id, runId ?? response.run.id);
-        settleDecisionVisible();
-      }).catch(async (error) => {
-        if (isExpectedAiStreamAbort(error, controller.signal)) {
-          await context.refreshAfterApprovalSettled();
-          rejectDecisionVisible(error);
-          return;
-        }
-        if (!handleInaccessibleStreamError(context, error, payload.approval.conversation_id)) {
-          const message = context.streamFailureMessage(error);
-          context.stopThinking(runId);
-          context.markStreamingAssistantStopped(runId ?? null, `AI 处理失败：${message}`);
-        }
-        void context.refreshAfterApprovalSettled();
-        rejectDecisionVisible(error);
-      }).finally(() => {
-        if (runId) {
-          context.stopThinking(runId);
-          removeRunController(context.chatAbortByRunIdRef, runId);
-          clearActiveStreamRun(context.setActiveStreamRunIdsByConversationKey, payload.approval.conversation_id, runId);
-        }
-        void context.refreshAfterApprovalSettled();
-      });
-      await decisionResultVisible;
-    } finally {
-      setSubmittingApprovalIds((current) => {
-        if (!current.has(approvalId)) return current;
-        const next = new Set(current);
-        next.delete(approvalId);
-        return next;
-      });
-      void context.refreshAfterApprovalSettled();
-    }
-  }, [context]);
-
   return {
     startChat,
-    startApproval,
+    startApproval: approval.startApproval,
     startHumanInput: humanInput.startHumanInput,
-    submittingApprovalIds,
+    submittingApprovalIds: approval.submittingApprovalIds,
     submittingHumanInputRequestIds: humanInput.submittingRequestIds,
     submittingHumanInputByRequestId: humanInput.submittingByRequestId,
   };
