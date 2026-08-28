@@ -130,6 +130,7 @@ import {
 } from './useIngredientFoodStockState';
 import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
 import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
+import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -388,117 +389,35 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     editingIngredientId,
     ingredientForm,
   });
-  const normalizedInventorySearch = inventorySearch.trim();
-  const normalizedCatalogSearch = catalogSearch.trim();
-  const inventorySearchComposition = useSearchCompositionState();
-  const catalogSearchComposition = useSearchCompositionState();
-  const inventorySearchValue = useDebouncedSearchValue(inventorySearch, { isComposing: inventorySearchComposition.isComposing });
-  const catalogSearchValue = useDebouncedSearchValue(catalogSearch, { isComposing: catalogSearchComposition.isComposing });
-  const catalogSearchQuery = useQuery({
-    queryKey: queryKeys.ingredientSearch(catalogSearchValue),
-    queryFn: () => api.getIngredients({ q: catalogSearchValue, limit: 100 }),
-    enabled: Boolean(catalogSearchValue),
-    placeholderData: keepPreviousData,
+  const {
+    catalogSearchComposition,
+    inventorySearchComposition,
+    inventoryOverviewQuery,
+    appliedCatalogSearch,
+    appliedInventorySearch,
+    catalogSearchMatchedIngredientIds,
+    inventorySearchMatchedIngredientIds,
+    searchAwareIngredients,
+    searchAwareInventoryItems,
+    unifiedInventoryItems,
+    entryFilterBaseUnifiedInventoryItems,
+    filteredUnifiedInventoryItems,
+    unifiedInventoryGroups,
+    unifiedInventorySummary,
+    unifiedInventoryEntrySummary,
+    mobileFoodStockItems,
+    isCatalogSearchFetching,
+    isInventorySearchFetching,
+  } = useIngredientWorkspaceSearch({
+    ingredients: props.ingredients,
+    inventoryItems: props.inventoryItems,
+    catalogSearch,
+    inventorySearch,
+    inventorySourceFilter,
+    inventoryEntryFilter,
+    inventoryQuickFilter,
+    inventoryStorageFocus,
   });
-  const inventorySearchQuery = useQuery({
-    queryKey: queryKeys.inventorySearch(inventorySearchValue),
-    queryFn: () => api.getInventory({ q: inventorySearchValue }),
-    enabled: Boolean(inventorySearchValue),
-    placeholderData: keepPreviousData,
-  });
-  const inventoryOverviewQuery = useQuery({
-    queryKey: queryKeys.inventoryOverview(inventorySourceFilter, inventorySearchValue),
-    queryFn: () => api.getInventoryOverview({ scope: inventorySourceFilter, q: inventorySearchValue }),
-    placeholderData: (previous) => previous,
-  });
-  const [appliedCatalogSearch, setAppliedCatalogSearch] = useState('');
-  const [appliedCatalogResults, setAppliedCatalogResults] = useState<Ingredient[]>([]);
-  const [appliedInventorySearch, setAppliedInventorySearch] = useState('');
-  const [appliedInventoryResults, setAppliedInventoryResults] = useState<InventoryItem[]>([]);
-  useEffect(() => {
-    if (!normalizedCatalogSearch) {
-      setAppliedCatalogSearch('');
-      setAppliedCatalogResults([]);
-      return;
-    }
-    if (catalogSearchValue && !catalogSearchQuery.isPlaceholderData && catalogSearchQuery.data) {
-      setAppliedCatalogSearch(catalogSearchValue);
-      setAppliedCatalogResults(catalogSearchQuery.data);
-    }
-  }, [catalogSearchQuery.data, catalogSearchQuery.isPlaceholderData, catalogSearchValue, normalizedCatalogSearch]);
-  useEffect(() => {
-    if (!normalizedInventorySearch) {
-      setAppliedInventorySearch('');
-      setAppliedInventoryResults([]);
-      return;
-    }
-    if (inventorySearchValue && !inventorySearchQuery.isPlaceholderData && inventorySearchQuery.data) {
-      setAppliedInventorySearch(inventorySearchValue);
-      setAppliedInventoryResults(inventorySearchQuery.data);
-    }
-  }, [inventorySearchQuery.data, inventorySearchQuery.isPlaceholderData, inventorySearchValue, normalizedInventorySearch]);
-  const inventorySearchMatchedIngredientIds = useMemo(
-    () =>
-      appliedInventorySearch
-        ? Array.from(new Set(appliedInventoryResults.map((item) => item.ingredient_id)))
-        : [],
-    [appliedInventoryResults, appliedInventorySearch]
-  );
-  const catalogSearchMatchedIngredientIds = useMemo(
-    () => (appliedCatalogSearch ? Array.from(new Set(appliedCatalogResults.map((item) => item.id))) : []),
-    [appliedCatalogResults, appliedCatalogSearch]
-  );
-  const searchAwareIngredients = appliedCatalogSearch ? appliedCatalogResults : props.ingredients;
-  const searchAwareInventoryItems =
-    appliedInventorySearch ? appliedInventoryResults : props.inventoryItems;
-  const unifiedInventoryItems = inventoryOverviewQuery.data?.items ?? [];
-  const entryFilterBaseUnifiedInventoryItems = useMemo(
-    () =>
-      filterUnifiedInventoryItems(unifiedInventoryItems, {
-        source: inventorySourceFilter,
-        entry: 'all',
-        quick: inventoryQuickFilter,
-        storage: inventoryStorageFocus,
-        search: appliedInventorySearch,
-      }),
-    [appliedInventorySearch, inventoryQuickFilter, inventorySourceFilter, inventoryStorageFocus, unifiedInventoryItems]
-  );
-  const filteredUnifiedInventoryItems = useMemo(
-    () =>
-      filterUnifiedInventoryItems(entryFilterBaseUnifiedInventoryItems, {
-        source: inventorySourceFilter,
-        entry: inventoryEntryFilter,
-        quick: inventoryQuickFilter,
-        storage: inventoryStorageFocus,
-        search: appliedInventorySearch,
-      }),
-    [appliedInventorySearch, entryFilterBaseUnifiedInventoryItems, inventoryEntryFilter, inventoryQuickFilter, inventorySourceFilter, inventoryStorageFocus]
-  );
-  const unifiedInventoryGroups = useMemo(
-    () => buildUnifiedInventoryGroups(filteredUnifiedInventoryItems),
-    [filteredUnifiedInventoryItems]
-  );
-  const unifiedInventorySummary = useMemo(
-    () => buildUnifiedInventorySummary(filteredUnifiedInventoryItems),
-    [filteredUnifiedInventoryItems]
-  );
-  const unifiedInventoryEntrySummary = useMemo(
-    () => buildUnifiedInventorySummary(entryFilterBaseUnifiedInventoryItems),
-    [entryFilterBaseUnifiedInventoryItems]
-  );
-  const mobileFoodStockItems = useMemo(
-    () => unifiedInventoryItems.filter((item) => item.source_type === 'food'),
-    [unifiedInventoryItems]
-  );
-  const isCatalogSearchFetching =
-    Boolean(normalizedCatalogSearch) &&
-    !catalogSearchComposition.isComposing &&
-    (appliedCatalogSearch !== normalizedCatalogSearch || catalogSearchQuery.isFetching);
-  const isInventorySearchFetching =
-    Boolean(normalizedInventorySearch) &&
-    !inventorySearchComposition.isComposing &&
-    (appliedInventorySearch !== normalizedInventorySearch || inventorySearchQuery.isFetching);
-
   const {
     summaries,
     catalogCategories,

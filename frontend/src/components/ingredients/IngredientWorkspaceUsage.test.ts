@@ -61,7 +61,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(panelsSource).toContain('inventorySummaryText');
     expect(panelsSource).toContain('扣减');
 
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientWorkspaceSearch.ts'), 'utf8'),
+    ].join('\n');
     expect(workspaceSource).toContain('api.getInventoryOverview');
     expect(workspaceSource).toContain('queryKeys.inventoryOverview');
     expect(workspaceSource).toContain('inventoryEntryFilter');
