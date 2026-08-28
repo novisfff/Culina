@@ -340,6 +340,9 @@ git diff --check
 本批定向 typecheck 与 Food/Ingredient 使用契约测试通过；全量 `frontend:quality` 已完成 typecheck 并运行 Vitest，未发现新增编译错误。Food workspace 约 2316 行，Ingredient workspace 约 3175 行，仍高于规格目标，后续必须继续按完整组件边界拆分。
 
 - `ea356d84`：将采购历史行的媒体、标签和操作渲染迁入 `ShoppingHistoryRow`，进一步缩小 Ingredient workspace 的 View 组合范围。
+- `07264fb5`：将 Eat workspace domain CSS 移至 lazy Eat route stylesheet，并同步更新 layer contract；主 CSS gzip 降至约 133.21 KiB，Eat route 获得独立 CSS chunk（约 1.06 KiB gzip）。
+
+Eat/Food 定向测试 74/74、typecheck、build 与 diff check 通过；bundle 历史目标仍为 ratchet warning，未启用 target。
 
 - `fccda6c6`：将 Eat shell 与 MealLog workspace 从 App 首屏静态闭包改为显式 lazy route；新增 `meal-log` logical entry、预算和 rollout state，并把 `eat` 标记为 dynamic entry。构建后主 JS gzip 从约 267.18 KiB 降至约 258.95 KiB，生成独立 Eat（约 2.01 KiB gzip）与 MealLog（约 8.38 KiB gzip）chunk。
 
