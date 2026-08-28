@@ -387,3 +387,5 @@ CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一�
 在当前 worktree 完成真实 rollback rehearsal：临时复制 rollout state 并将 `ai` 设为 `target`，执行逐 entry rollback 后确认 `sourceUnchanged=true`、`evidencePreserved=true`、`otherEntriesPreserved=true`；随后验证 `--entry=all` 非零拒绝。该演练没有写入正式 rollout state，也未触碰 localStorage、AI draft/run、cook session 或服务端数据。完整 Step 4 仍未勾选，因为仓库尚未实现 `VITE_LEGACY_GLOBAL_STYLES=1` 兼容开关，也未进行上一 manifest 恢复演练。
 
 随后重新运行完整 P0：在 `frontend/` 工作目录执行 `npx playwright test --grep @p0`，52/52 通过（39.1s）。这更新了此前 lazy/CSS 提交后的失败记录；release evidence、完整 P0 与 rollback CLI 演练均有真实命令和结果，但 App/Ingredient/Food 大文件、target budget 启用和 legacy CSS 开关仍未完成。
+
+补充运行 `npm --prefix frontend audit --omit=dev --audit-level=high`，production dependency audit 退出 0，报告 `found 0 vulnerabilities`。审计日志仅保留在本地 `.artifacts/frontend-production-audit-20260829.log`，未纳入提交。
