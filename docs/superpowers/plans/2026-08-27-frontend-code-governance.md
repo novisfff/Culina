@@ -128,11 +128,11 @@ perf(frontend): enforce route manifest budgets
 
 详细步骤见 [Phase 0](2026-08-27-frontend-code-governance-phase-0-gates.md)。主任务：
 
-- [ ] 建立包含 commit/toolchain 的 `frontend-health-baseline.json`，并以 TypeScript/CSS 扫描生成 JSON/Markdown 报告。
-- [ ] 为 Vite 输出所有 static/dynamic entry、CSS、imports、dynamicImports 和模块大小的 manifest。
-- [ ] 将 `check-bundle-budgets.mjs` 改为 report/ratchet/target 三态；ratchet 对新增债务和新增 entry fail-closed，target 逐域启用。
-- [ ] 在 CI 添加 required `Frontend Governance` 聚合检查，上传 health/manifest artifact；保留现有 `Frontend Build`、Vitest shard 和 P0 检查。
-- [ ] 覆盖率先作为 artifact，不立即增加全局阈值；为后续域 floor 记录 71.11/75.84/66.58 基线。
+- [x] 建立包含 commit/toolchain 的 `frontend-health-baseline.json`，并以 TypeScript/CSS 扫描生成 JSON/Markdown 报告。
+- [x] 为 Vite 输出所有 static/dynamic entry、CSS、imports、dynamicImports 和模块大小的 manifest。
+- [x] 将 `check-bundle-budgets.mjs` 改为 report/ratchet/target 三态；ratchet 对新增债务和新增 entry fail-closed，target 逐域启用。
+- [x] 在 CI 添加 required `Frontend Governance` 聚合检查，上传 health/manifest artifact；保留现有 `Frontend Build`、Vitest shard 和 P0 检查。
+- [x] 覆盖率先作为 artifact，不立即增加全局阈值；为后续域 floor 记录 71.11/75.84/66.58 基线。
 
 Phase 0 验收：对临时 fixture 增加一个 `!important`、超预算 chunk、未登记 dynamic import 时测试必须失败；在 B0 代码上 ratchet 仍通过。
 

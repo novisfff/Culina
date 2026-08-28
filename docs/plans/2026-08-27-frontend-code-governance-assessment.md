@@ -221,4 +221,44 @@ CSS append-only + 07-mobile final override
 未执行：
 
 - 没有运行浏览器/P0 smoke 或人工截图，因为本次交付是只含文档的治理基线；后续涉及 CSS、路由、弹层或响应式的每个工作包必须使用 375×812、390×844、430×932、768×1024、1024×768、1440×900 验证矩阵。
-- 没有修改原始脏 `main` 工作区，也没有在治理分支实现拆分代码；本分支当前只应包含本治理文档。
+- 基线体检当时没有修改原始脏 `main` 工作区，也尚未在治理分支实现拆分代码；后续落地状态见第 10 节。
+
+## 10. Phase 0 门禁落地记录（2026-08-28）
+
+Phase 0 在独立 worktree `/Users/zyf/IdeaProjects/Culina/.worktrees/frontend-code-governance-implementation`、分支 `codex/frontend-code-governance-implementation` 完成。分支从 `59ea22b7` 创建，但 ratchet 真相源仍固定为 B0 `b559246669dd3fd9ec463658ce2ed4504df2a1ba`，不跟随 `origin/main` 移动。
+
+独立回滚提交：
+
+- `65a21ead`：共享 metric fixture。
+- `92cb0e4e`：frontend health reporter。
+- `e4781286`：固定 B0 baseline。
+- `6e67bcbf`：逻辑入口 manifest。
+- `2ea53eb7`：report/ratchet/target 三态 bundle checker。
+- `f5280778`：fail-closed Frontend Governance CI job 和 canonical artifact。
+- `0e54c5df`：coverage topology 只报告 artifact。
+- `dab575e9`：把 health B0 comparator 接入 CI 聚合器。
+
+### 实际验证
+
+以下命令均退出 0：
+
+```bash
+npm --prefix frontend run test -- scripts/frontend-health-metrics.test.mjs scripts/frontend-health-baseline.test.mjs scripts/bundle-manifest.test.mjs scripts/check-bundle-budgets.test.mjs scripts/check-frontend-governance.test.mjs scripts/coverage-topology-report.test.mjs
+npm --prefix frontend run typecheck
+npm --prefix frontend run health:report -- --format json --output "$PWD/.artifacts/frontend-health.json"
+npm --prefix frontend run build:manifest
+cp frontend/dist/.vite/frontend-health-manifest.json .artifacts/frontend-health-manifest.json
+npm --prefix frontend run check:governance -- --mode=ratchet --health="$PWD/.artifacts/frontend-health.json" --manifest="$PWD/.artifacts/frontend-health-manifest.json" --coverage="$PWD/.artifacts/frontend-coverage-topology.json" --result="$PWD/.artifacts/frontend-governance-result.json"
+node frontend/scripts/check-frontend-governance.mjs --fixtures frontend/scripts/fixtures/governance-ci
+npm run frontend:test:coverage
+npm --prefix frontend run coverage:report
+git diff --check
+```
+
+focused 集成集为 6 个文件、33 个测试。构建转换 640 modules；canonical manifest 包含 14 个逻辑入口：`main`、`home`、`eat`、`ingredients`、`food`、`ai`、`family-profile`、`family-model-settings`、`model-usage`、`model-usage-requests`、`markdown`、`ai-approval`、`inventory-operation`、`home-dialogs`。ratchet 聚合结果为 health/manifest/bundle/coverage 全部 `success`，0 violation、0 manifest error；28 条历史超目标均保留为 `targetGap` warning。
+
+注入验证覆盖新增 `!important`、513-byte bundle 增量、未登记 dynamic import 和缺失逻辑 entry，失败路径均被 fixture/子进程测试锁定为非零；B0 历史 gap 无增量仍退出 0。coverage 没有设置全局 hard floor；当前治理分支采样为 221 个测试文件、1,823 个测试，行/分支/函数为 71.16%/75.84%/66.66%，与固定 B0 的 214/1,786 和 71.11%/75.84%/66.58% 分开记录。topology artifact 仍明确列出 `App.tsx`、`IngredientWorkspace.tsx` 等 8 个低覆盖组合层文件。
+
+新 CSS tokenizer 在 B0 上得到 10,247 个 selector block、38,905 个 declaration；与原体检的启发式 10,316/39,038 不同，因为新口径跳过 keyframe 内部规则。当前 `59ea22b7` 后代源码采样为 10,255/38,944；B0 baseline 没有因此改写。`!important=837`、`@media=214` 与 B0 一致。
+
+本阶段没有修改用户可见 UI，未运行 Playwright/P0 smoke、人工截图或 375×812、390×844、430×932、768×1024、1024×768、1440×900 六视口；Phase 0 结论不替代后续 CSS/响应式阶段的视觉验收。`.artifacts`、`frontend/dist`、`frontend/coverage` 均只作本地验证并在提交前删除。
