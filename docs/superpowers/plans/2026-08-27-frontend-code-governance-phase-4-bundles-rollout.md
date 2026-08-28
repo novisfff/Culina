@@ -556,7 +556,7 @@ Rollback: 单 entry 将 enabledMode 设为 ratchet；不允许全局关闭 gover
 - checkReleaseEvidence({ manifest, budgetResult, viewportReport, requestReport }) => { ok, missing, violations }
 - release evidence contains build commit, Node/Vite versions, initial/routeTotal gzip/raw, request count, long-task sample, cache reuse, six viewport result and rollback command.
 
-- [ ] **Step 1: 写失败 evidence tests**
+- [x] **Step 1: 写失败 evidence tests**
 
 缺任一 viewport、manifest entry、budget result、request count 或 rollback command 时非零；浏览器未运行不能被 Vitest/build 结果替代。
 
