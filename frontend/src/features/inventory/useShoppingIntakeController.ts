@@ -11,6 +11,7 @@ import {
   type ShoppingIntakeDraft,
 } from './shoppingIntakeModel';
 import { useShoppingIntakeState } from './useShoppingIntakeState';
+import { useShoppingIntakeActions, type ShoppingIntakeActions } from './useShoppingIntakeActions';
 
 export function useShoppingIntakeController(args: {
   shoppingItems: ShoppingListItem[];
@@ -18,6 +19,10 @@ export function useShoppingIntakeController(args: {
   foods: Food[];
   inventoryStates: IngredientInventoryState[];
   referenceDate: string;
+  submitShoppingIntake: (payload: import('../../api/types/inventory').ShoppingIntakeRequest) => Promise<import('../../api/types/inventory').ShoppingIntakeResult>;
+  invalidateAfterInventoryOperation: () => Promise<void>;
+  showNotice: (notice: { tone: 'success' | 'warning' | 'danger'; title: string; message: string }) => void;
+  refreshSources: () => Promise<import('./shoppingIntakeModel').ShoppingIntakeSources>;
 }) {
   const state = useShoppingIntakeState();
   const openShoppingIntake = useCallback((selectedItemId?: string) => state.openIntake({ ...args, selectedItemId }), [state, args]);
@@ -47,5 +52,12 @@ export function useShoppingIntakeController(args: {
     if (!target || !state.draft) return;
     state.replaceDraft(linkFreeTextDraft(state.draft, shoppingItemId, target, state.draft.purchaseDate));
   }, [resolveTarget, state]);
-  return { ...state, openShoppingIntake, candidatesByItemId, linkOptions, linkCandidate };
+  const actions: ShoppingIntakeActions = useShoppingIntakeActions({
+    state,
+    submitShoppingIntake: args.submitShoppingIntake,
+    invalidateAfterInventoryOperation: args.invalidateAfterInventoryOperation,
+    showNotice: args.showNotice,
+    refreshSources: args.refreshSources,
+  });
+  return { ...state, ...actions, openShoppingIntake, candidatesByItemId, linkOptions, linkCandidate };
 }

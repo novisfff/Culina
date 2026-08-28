@@ -57,7 +57,6 @@ import {
   selectRecentBannerOperation,
 } from './features/inventory/InventoryOperationBanner';
 import { useReconciliationController } from './features/inventory/useReconciliationController';
-import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
@@ -405,9 +404,6 @@ function App() {
     foods,
     inventoryStates,
     referenceDate: homeBusinessDateKey,
-  });
-  const shoppingIntakeActions = useShoppingIntakeActions({
-    state: shoppingIntakeState,
     submitShoppingIntake: (payload) => submitShoppingIntakeMutation.mutateAsync(payload),
     invalidateAfterInventoryOperation: async () => {
       await invalidateAfterInventoryOperation(queryClient);
@@ -421,12 +417,7 @@ function App() {
         queryClient.fetchQuery({ queryKey: queryKeys.inventoryStates, queryFn: () => api.listInventoryStates() }),
         queryClient.fetchQuery({ queryKey: queryKeys.inventory, queryFn: () => api.getInventory() }),
       ]);
-      return {
-        shoppingItems: latest[0],
-        ingredients: latest[1],
-        foods: latest[2],
-        inventoryStates: latest[3],
-      };
+      return { shoppingItems: latest[0], ingredients: latest[1], foods: latest[2], inventoryStates: latest[3] };
     },
   });
 
@@ -1444,10 +1435,10 @@ function App() {
                   onLinkFreeText: shoppingIntakeState.linkCandidate,
                   onToggleException: shoppingIntakeState.toggleExceptionExpanded,
                   onSubmit: () => {
-                    void shoppingIntakeActions.submitDraft();
+                    void shoppingIntakeState.submitDraft();
                   },
                   onRetry: () => {
-                    void shoppingIntakeActions.retryLatest();
+                    void shoppingIntakeState.retryLatest();
                   },
                   onRevertResult: (operationId) => {
                     void handleRevertInventoryOperation(operationId);
