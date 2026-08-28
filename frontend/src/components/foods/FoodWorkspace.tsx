@@ -59,6 +59,7 @@ import {
   canSubmitWithCandidateResolution,
   createMealBusinessDate,
   createMealRecordDateOptions,
+  deriveCandidatePresentation,
   type MealCandidateResolution,
 } from '../../features/meals/MealComposerModel';
 import {
