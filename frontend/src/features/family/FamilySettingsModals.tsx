@@ -1,5 +1,5 @@
 import type { FormEventHandler } from 'react';
-import type { FamilyDetail, ImageInputValue, Member, UserSummary } from '../../api/types';
+import type { FamilyDetail, ImageInputValue, Member, UserSummary } from '../../api/types/shell';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { ActionButton, Avatar, DropdownSelect, FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 

@@ -1,5 +1,5 @@
 import type { FormEventHandler, ReactNode } from 'react';
-import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types';
+import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types/shell';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';

@@ -1,2 +1,12 @@
-/** Application shell and identity contracts. */
-export type { UserSummary, MembershipSummary, FamilyDetail, AuthSnapshot, LoginResponse, Member } from '../types';
+/** Application shell, identity, and family-administration contracts. */
+export type {
+  ActivityLog,
+  ActivityLogQuery,
+  AuthSnapshot,
+  FamilyDetail,
+  ImageInputValue,
+  LoginResponse,
+  Member,
+  MembershipSummary,
+  UserSummary,
+} from '../types';
