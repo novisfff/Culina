@@ -46,6 +46,12 @@ import { AiComposerView } from './views/AiComposerView';
 import { AiDebugHost } from './views/AiDebugHost';
 import { AiQualityHost } from './views/AiQualityHost';
 import { AiDeleteHost } from './views/AiDeleteHost';
+import { secondaryEntryLoaders } from './entries';
+import { lazy } from 'react';
+
+void secondaryEntryLoaders;
+const LazyAiDebugEntry = lazy(secondaryEntryLoaders[3]);
+void LazyAiDebugEntry;
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,

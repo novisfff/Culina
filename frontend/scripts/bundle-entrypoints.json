@@ -11,8 +11,10 @@
     "family-model-settings": { "source": "src/features/family-model-settings/FamilyModelSettingsWorkspace.tsx", "dynamic": true },
     "model-usage": { "source": "src/features/model-usage/ModelUsageWorkspace.tsx", "dynamic": true },
     "model-usage-requests": { "source": "src/features/model-usage/ModelUsageRequestLogsPage.tsx", "dynamic": true },
-    "markdown": { "source": "src/components/ai/MarkdownMessage.tsx", "dynamic": true },
-    "ai-approval": { "source": "src/components/ai/AiApprovalPanel.tsx", "dynamic": false },
+    "markdown": { "source": "src/components/ai/entries/AiMarkdownEntry.tsx", "dynamic": true },
+    "ai-approval": { "source": "src/components/ai/entries/AiApprovalEntry.tsx", "dynamic": true },
+    "ai-human-input": { "source": "src/components/ai/entries/AiHumanInputEntry.tsx", "dynamic": true },
+    "ai-debug": { "source": "src/components/ai/entries/AiDebugEntry.tsx", "dynamic": true },
     "inventory-operation": { "source": "src/features/inventory/InventoryMaintenanceDialogs.tsx", "dynamic": false },
     "home-dialogs": { "source": "src/features/home/HomeDashboardDialogs.tsx", "dynamic": true }
   }

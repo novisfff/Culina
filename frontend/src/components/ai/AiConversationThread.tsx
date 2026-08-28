@@ -29,6 +29,7 @@ import { AiApprovalHost } from './views/AiApprovalHost';
 import { AiHumanInputHost } from './views/AiHumanInputHost';
 import { AiMessagePartRenderer, type NormalizedAiMessagePart } from './views/AiMessagePartRenderer';
 import { loadAiApproval } from './entries';
+import { loadAiHumanInput } from './entries';
 import { ResultCard } from './AiResultCards';
 import {
   extractRunActivitySkillName,
@@ -48,6 +49,9 @@ export type AiHumanInputResponseSubmit = (
 
 const MarkdownMessage = lazy(() => import('./MarkdownMessage'));
 const LazyAiApprovalEntry = lazy(loadAiApproval);
+void LazyAiApprovalEntry;
+const LazyAiHumanInputEntry = lazy(loadAiHumanInput);
+void LazyAiHumanInputEntry;
 
 function buildHumanInputAnswerSummary(request: AiHumanInputRequest, selectedIds: string[], text: string) {
   const selectedLabels = selectedIds
@@ -834,8 +838,7 @@ export function MessageBubble({
                     : undefined;
               return (
                 <AiApprovalHost key={item.key} open busy={isSubmittingThisApproval}>
-                <Suspense fallback={<div className="ai-approval-loading" role="status">正在准备确认内容…</div>}>
-                <LazyAiApprovalEntry
+                <ApprovalPanel
                   approval={part.approval}
                   foods={foods}
                   ingredients={ingredients}
@@ -845,7 +848,6 @@ export function MessageBubble({
                   canSubmit={canSubmitApproval || !isPendingApproval}
                   submitDisabledReason={submitDisabledReason}
                 />
-                </Suspense>
                 </AiApprovalHost>
               );
             }
