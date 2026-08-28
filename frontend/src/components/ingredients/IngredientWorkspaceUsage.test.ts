@@ -111,6 +111,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
     ].join('\n');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
@@ -125,7 +126,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('MealRecordResultBar');
     expect(workspaceSource).toContain('api.restockFoodStock');
     expect(workspaceSource).toContain('api.consumeFoodStock');
-    expect(workspaceSource).toContain('expected_row_version: foodStockAdjustDialog.item.row_version');
+    expect(workspaceSource).toContain('expected_row_version: current.item.row_version');
     expect(workspaceSource).not.toContain('api.disposeFoodStock');
     expect(workspaceSource).toContain('step="0.1"');
     expect(workspaceSource).toContain('parseUnifiedFoodStockQuantity');
@@ -143,6 +144,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
     ].join('\n');
 
     // Record payloads must not include stock/plan fields.
@@ -176,6 +178,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
     ].join('\n');
     const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
 
@@ -196,7 +199,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('网购');
     expect(workspaceSource).toContain('盒马');
     expect(workspaceSource).not.toContain('山姆');
-    expect(workspaceSource).toContain('purchase_source: foodStockAdjustDialog.purchaseSource || null');
+    expect(workspaceSource).toContain('purchase_source: current.purchaseSource || null');
     expect(workspaceSource).not.toContain('ingredients-food-stock-storage-segments');
 
     expect(styleSource).toContain('.ingredients-food-stock-restock-section');

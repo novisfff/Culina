@@ -129,6 +129,7 @@ import {
   useIngredientFoodStockState,
 } from './useIngredientFoodStockState';
 import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
+import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -1259,140 +1260,18 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     }
   }
 
-  async function submitInventoryFollowUp(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!inventoryFollowUp || foodStockSubmitting) return;
-    const parsedQuantity = parseUnifiedFoodStockQuantity(inventoryFollowUp.stockQuantity, '扣减数量');
-    if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setInventoryFollowUp({
-        ...inventoryFollowUp,
-        error: parsedQuantity.error ?? '请输入大于 0 的扣减数量。',
-      });
-      return;
-    }
-    const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
-      parsedQuantity.quantity,
-      inventoryFollowUp.item.quantity,
-      inventoryFollowUp.item.unit || '份',
-    );
-    if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
-      setInventoryFollowUp({
-        ...inventoryFollowUp,
-        error: resolvedQuantity.error ?? '当前库存不足。',
-      });
-      return;
-    }
-    setFoodStockSubmitting('meal');
-    try {
-      await api.consumeFoodStock(inventoryFollowUp.item.source_id, {
-        expected_row_version: inventoryFollowUp.item.row_version,
-        quantity: resolvedQuantity.quantity,
-        unit: inventoryFollowUp.item.unit || '份',
-        note: '从库存页扣减成品库存',
-      });
-      invalidateAfterFoodChanged(queryClient);
-      setInventoryFollowUp(null);
-      showNotice({
-        tone: 'success',
-        title: '已扣减库存',
-        message: `${inventoryFollowUp.item.title} 已扣减 ${resolvedQuantity.quantity} ${inventoryFollowUp.item.unit || '份'}。`,
-      });
-    } catch (error) {
-      // Inventory failure must not affect the already-published meal result bar.
-      setInventoryFollowUp({
-        ...inventoryFollowUp,
-        error: error instanceof Error ? error.message : '扣减库存失败，请稍后再试。',
-      });
-    } finally {
-      setFoodStockSubmitting(null);
-    }
-  }
-
-  async function submitFoodStockDeductDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!foodStockDeductDialog || foodStockSubmitting) return;
-    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockDeductDialog.stockQuantity, '扣减数量');
-    if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setFoodStockDeductDialog({
-        ...foodStockDeductDialog,
-        error: parsedQuantity.error ?? '请输入大于 0 的扣减数量。',
-      });
-      return;
-    }
-    const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
-      parsedQuantity.quantity,
-      foodStockDeductDialog.item.quantity,
-      foodStockDeductDialog.item.unit || '份',
-    );
-    if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
-      setFoodStockDeductDialog({
-        ...foodStockDeductDialog,
-        error: resolvedQuantity.error ?? '当前库存不足。',
-      });
-      return;
-    }
-    setFoodStockSubmitting('meal');
-    try {
-      await api.consumeFoodStock(foodStockDeductDialog.item.source_id, {
-        expected_row_version: foodStockDeductDialog.item.row_version,
-        quantity: resolvedQuantity.quantity,
-        unit: foodStockDeductDialog.item.unit || '份',
-        note: '从库存页扣减成品库存',
-      });
-      invalidateAfterFoodChanged(queryClient);
-      setFoodStockDeductDialog(null);
-      showNotice({
-        tone: 'success',
-        title: '已扣减库存',
-        message: `${foodStockDeductDialog.item.title} 已扣减 ${resolvedQuantity.quantity} ${foodStockDeductDialog.item.unit || '份'}。`,
-      });
-    } catch (error) {
-      setFoodStockDeductDialog({
-        ...foodStockDeductDialog,
-        error: error instanceof Error ? error.message : '扣减库存失败，请稍后再试。',
-      });
-    } finally {
-      setFoodStockSubmitting(null);
-    }
-  }
-
-  async function submitFoodStockAdjustDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!foodStockAdjustDialog || foodStockSubmitting) {
-      return;
-    }
-    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockAdjustDialog.quantity);
-    if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, error: parsedQuantity.error ?? '请输入大于 0 的数量。' });
-      return;
-    }
-    const payload = {
-      expected_row_version: foodStockAdjustDialog.item.row_version,
-      quantity: parsedQuantity.quantity,
-      unit: foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份',
-      expiry_date: foodStockAdjustDialog.expiryDate || null,
-      purchase_source: foodStockAdjustDialog.purchaseSource || null,
-      note: '从库存页补充成品库存',
-    };
-    setFoodStockSubmitting('adjust');
-    try {
-      await api.restockFoodStock(foodStockAdjustDialog.item.source_id, payload);
-      invalidateAfterFoodChanged(queryClient);
-      setFoodStockAdjustDialog(null);
-      showNotice({
-        tone: 'success',
-        title: '库存已补充',
-        message: `${foodStockAdjustDialog.item.title} 已补充 ${parsedQuantity.quantity} ${payload.unit}。`,
-      });
-    } catch (error) {
-      setFoodStockAdjustDialog({
-        ...foodStockAdjustDialog,
-        error: error instanceof Error ? error.message : '库存调整失败，请稍后再试。',
-      });
-    } finally {
-      setFoodStockSubmitting(null);
-    }
-  }
+  const { submitInventoryFollowUp, submitFoodStockDeductDialog, submitFoodStockAdjustDialog } = useIngredientFoodStockActions({
+    queryClient,
+    foodStockSubmitting,
+    setFoodStockSubmitting,
+    inventoryFollowUp,
+    setInventoryFollowUp,
+    foodStockDeductDialog,
+    setFoodStockDeductDialog,
+    foodStockAdjustDialog,
+    setFoodStockAdjustDialog,
+    showNotice,
+  });
 
   const renderIngredientHubPage = (mobileDetailPopover?: ReactNode) => (
     <IngredientInventoryPanelContextProvider
