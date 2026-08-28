@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
-import '../../styles/routes/eat.css';
+void import('../../styles/routes/eat.css');
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import { ActionButton, StateBlock } from '../../components/ui-kit';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';

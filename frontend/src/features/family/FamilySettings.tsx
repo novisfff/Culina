@@ -1,5 +1,5 @@
 import type { FormEventHandler, ReactNode } from 'react';
-import '../../styles/routes/family.css';
+void import('../../styles/routes/family.css');
 import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../../api/types/shell';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';

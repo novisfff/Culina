@@ -1,3 +1,5 @@
 @import '../03-recipe-workspace.css' layer(domain);
 @import '../05-workspace-overlays.css' layer(domain);
 @import '../06-food-workspace.css' layer(domain);
+@import '../food-responsive.css' layer(responsive);
+@import '../recipe-responsive.css' layer(responsive);

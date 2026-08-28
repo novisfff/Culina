@@ -3,3 +3,6 @@
 @import '../08-meal-log.css' layer(domain);
 @import '../12-eat-workspace.css' layer(domain);
 @import '../13-meal-composer.css' layer(domain);
+@import '../eat-responsive.css' layer(responsive);
+@import '../meal-responsive.css' layer(responsive);
+@import '../recipe-responsive.css' layer(responsive);
