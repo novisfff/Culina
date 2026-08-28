@@ -309,4 +309,4 @@ npm --prefix frontend run test -- src/features/inventory/InventoryReconciliation
 git diff --check
 ```
 
-上述定向测试均通过。随后运行全量 `npm run frontend:quality && npm run frontend:build`：249 个测试文件、1,902 个测试通过，style-token gate 通过，Vite 转换 685 modules，build 与 bundle checker 退出 0（历史 targetGap 仍为 warning）。本增量未重新运行 P0 六视口，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
+上述定向测试均通过。随后运行全量 `npm run frontend:quality && npm run frontend:build`：249 个测试文件、1,902 个测试通过，style-token gate 通过，Vite 转换 685 modules，build 与 bundle checker 退出 0（历史 targetGap 仍为 warning）。之后重新运行 `npm run frontend:e2e:p0`，固定路径 52/52 通过。人工截图与 bundle target hard-failure rollout 仍未完成，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
