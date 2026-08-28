@@ -344,6 +344,10 @@ git diff --check
 
 Eat/Food 定向测试 74/74、typecheck、build 与 diff check 通过；bundle 历史目标仍为 ratchet warning，未启用 target。
 
+- `490610e0`：将 InventoryMaintenanceDialogs 改为 lazy overlay entry，并修正 manifest routeTotal 图遍历：route entry 不再穿过共享 main chunk 的 sibling dynamic imports。新增回归测试锁定“只计算自身动态后代”的语义；manifest 现包含 17 个入口，routeTotal 从全站聚合值收敛为按入口图计算（例如 AI 约 528.6 KiB、Eat 约 407.4 KiB），主入口仍保留全站初始路由图。
+
+该批 App/Inventory 定向测试 123/123、bundle-manifest 8/8 通过；typecheck、build 与 manifest 检查通过。历史 ratchet target gap 继续保留，尚未启用 target hard-failure。
+
 - `fccda6c6`：将 Eat shell 与 MealLog workspace 从 App 首屏静态闭包改为显式 lazy route；新增 `meal-log` logical entry、预算和 rollout state，并把 `eat` 标记为 dynamic entry。构建后主 JS gzip 从约 267.18 KiB 降至约 258.95 KiB，生成独立 Eat（约 2.01 KiB gzip）与 MealLog（约 8.38 KiB gzip）chunk。
 
 该批 App/Eat/Meal 定向测试 46 文件、364 个测试通过；bundle/manifest/rollout 脚本 20 个测试通过；Vite build 706 modules，manifest 检查通过并包含 17 个 logical entry，0 orphan/unregistered dynamic entry。历史 routeTotal 与主包目标差距仍保持 ratchet warning，未启用 target。
