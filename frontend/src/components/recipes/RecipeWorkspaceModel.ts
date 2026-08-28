@@ -14,7 +14,7 @@ import type {
   RecipePayload,
   RecipeScene,
   RecipeStep,
-} from '../../api/types';
+} from '../../api/types/recipe';
 import { resolveAssetUrl } from '../../lib/assets';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';

@@ -1,4 +1,4 @@
-import type { Ingredient, RecipeIngredient } from '../../api/types';
+import type { Ingredient, RecipeIngredient } from '../../api/types/recipe';
 import { resolveMediaUrl } from '../../lib/assets';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';

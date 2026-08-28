@@ -7,7 +7,7 @@ import type {
   AssistantAudioStartEvent,
   AssistantAudioTraceEvent,
 } from '../../api/aiApi';
-import type { AiChatResponse, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
+import type { AiChatResponse, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types/recipe';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { abortAiStream, isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import { buildCookingActionTaskText, type CookingAssistantActionResult } from './cookingAssistantModel';

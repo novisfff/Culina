@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Ingredient, RecipeIngredient, ShoppingListItem } from '../../api/types';
+import type { Ingredient, RecipeIngredient, ShoppingListItem } from '../../api/types/recipe';
 import type { RecipeCardViewModel } from './workspaceModel';
 import {
   buildCustomShoppingDraft,

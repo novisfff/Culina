@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react';
-import type { CookRecipeResponse, Food, Recipe } from '../../api/types';
+import type { CookRecipeResponse, Food, Recipe } from '../../api/types/recipe';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import { StateBlock } from '../ui-kit';
 import { RecipeCookView } from './RecipeCookView';

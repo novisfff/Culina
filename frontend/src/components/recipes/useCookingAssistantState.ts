@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { AiUiActionsCardData } from '../../api/types';
+import type { AiUiActionsCardData } from '../../api/types/recipe';
 
 type DragState = {
   pointerId: number;

@@ -5,7 +5,7 @@ import type {
   CookRecipeRequest,
   CookRecipeResponse,
   RecordMealTarget,
-} from '../../api/types';
+} from '../../api/types/recipe';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import { deriveCandidatePresentation } from '../../features/meals/MealComposerModel';
 import { useMealCandidateData } from '../../features/meals/useMealCandidateData';

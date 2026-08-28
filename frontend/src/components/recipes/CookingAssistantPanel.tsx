@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import type { AiResultCard, CookRecipePreviewResponse, RecipeStep } from '../../api/types';
+import type { AiResultCard, CookRecipePreviewResponse, RecipeStep } from '../../api/types/recipe';
 import { ActionButton } from '../ui-kit';
 import { RecipeUiIcon } from './RecipeWorkspaceCards';
 import { DashboardIcon } from '../../app/shellIcons';

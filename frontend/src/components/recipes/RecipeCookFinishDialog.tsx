@@ -7,7 +7,7 @@ import type {
   MealType,
   MediaAsset,
   RecordMealTarget,
-} from '../../api/types';
+} from '../../api/types/recipe';
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import type { MealComposerFood } from '../../features/meals/MealComposerModel';
 import { formatDate } from '../../lib/ui';

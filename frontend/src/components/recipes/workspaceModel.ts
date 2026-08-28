@@ -1,4 +1,4 @@
-import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeIngredient, FoodPlanItem } from '../../api/types';
+import type { Difficulty, Food, Ingredient, InventoryItem, MealLog, MediaAsset, Recipe, RecipeIngredient, FoodPlanItem } from '../../api/types/recipe';
 import { getIngredientAvailableQuantityInDefault, convertQuantityToDefaultUnit } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import { addDateKeyDays, daysBetweenDateKeys, getWeekRange, parseDateKey, todayKey } from '../../lib/date';

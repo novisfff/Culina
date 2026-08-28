@@ -1,4 +1,4 @@
-import type { MealType, Recipe } from '../../api/types';
+import type { MealType, Recipe } from '../../api/types/recipe';
 import type { StorageLike } from '../../lib/storage';
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../../lib/storage';
 import { createMealBusinessDate } from '../../features/meals/MealComposerModel';

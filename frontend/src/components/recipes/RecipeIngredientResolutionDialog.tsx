@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Ingredient } from '../../api/types';
+import type { Ingredient } from '../../api/types/recipe';
 import { resolveAssetUrl } from '../../lib/assets';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
