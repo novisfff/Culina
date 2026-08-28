@@ -80,9 +80,11 @@ function entryMetrics(entry, manifest) {
 
 
 function baselineMetric(bundle, metric) {
-  if (!bundle) return 0;
-  if (metric === 'criticalGzipBytes') return bundle.criticalGzipBytes ?? bundle.gzipBytes ?? 0;
-  return bundle[metric] ?? 0;
+  if (!bundle) return undefined;
+  if (metric === 'criticalGzipBytes') {
+    return bundle.criticalGzipBytes ?? bundle.gzipBytes;
+  }
+  return bundle[metric];
 }
 
 
@@ -112,7 +114,8 @@ function compareEntry({ mode, entry, metrics, budget, baseline, completedPhase }
     const current = metrics[definition.key];
     assertNonNegativeInteger(current, `${entry}.${definition.key}`);
     const baselineValue = baselineMetric(baseline, definition.key);
-    const delta = current - baselineValue;
+    const hasBaseline = Number.isInteger(baselineValue);
+    const delta = hasBaseline ? current - baselineValue : undefined;
     const source = definition.key === 'criticalGzipBytes' ? 'entryCritical' : definition.key;
     const targetGap = current > definition.target;
 
@@ -126,7 +129,7 @@ function compareEntry({ mode, entry, metrics, budget, baseline, completedPhase }
     }
 
     if (mode === 'ratchet' || (mode === 'target' && budget.phase > completedPhase)) {
-      if (delta > 512) {
+      if (hasBaseline && delta > 512) {
         violations.push(diagnostic({
           severity: 'error',
           entry,

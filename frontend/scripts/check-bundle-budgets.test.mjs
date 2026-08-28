@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -129,6 +129,17 @@ async function writeRollout(paths, evidence) {
 
 
 describe('bundle budget modes', () => {
+  it('does not treat an entry missing from the B0 baseline as zero bytes', async () => {
+    await withBudgetFixture({}, async (paths) => {
+      const baseline = JSON.parse(await readFile(paths.baseline, 'utf8'));
+      delete baseline.bundles.main;
+      await writeFile(paths.baseline, JSON.stringify(baseline), 'utf8');
+      const result = runChecker(paths, 'ratchet');
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).not.toContain('bundle.gzipBytes');
+    });
+  });
+
   it('target over-budget exits 1', async () => {
     await withBudgetFixture({ criticalGzipBytes: 1000 }, async (paths) => {
       expect(runChecker(paths, 'target')).toMatchObject({ exitCode: 1 });

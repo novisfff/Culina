@@ -64,13 +64,11 @@
   "bundles": {
     "ai": {
       "gzipBytes": 87577,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "ai-approval": {
       "gzipBytes": 87577,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "eat": {
       "gzipBytes": 268678,
@@ -79,18 +77,15 @@
     },
     "family-model-settings": {
       "gzipBytes": 24878,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "family-profile": {
       "gzipBytes": 10326,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "food": {
       "gzipBytes": 25771,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "home": {
       "gzipBytes": 268678,
@@ -99,13 +94,11 @@
     },
     "home-dialogs": {
       "gzipBytes": 3139,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "ingredients": {
       "gzipBytes": 53477,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "inventory-operation": {
       "gzipBytes": 268678,
@@ -119,18 +112,15 @@
     },
     "markdown": {
       "gzipBytes": 48009,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "model-usage": {
       "gzipBytes": 11626,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     },
     "model-usage-requests": {
       "gzipBytes": 5256,
-      "routeTotalGzipBytes": 743175,
-      "cssGzipBytes": 0
+      "routeTotalGzipBytes": 743175
     }
   }
 }
