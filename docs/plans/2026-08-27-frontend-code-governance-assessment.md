@@ -363,3 +363,7 @@ bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构
 - `fccda6c6`：将 Eat shell 与 MealLog workspace 从 App 首屏静态闭包改为显式 lazy route；新增 `meal-log` logical entry、预算和 rollout state，并把 `eat` 标记为 dynamic entry。构建后主 JS gzip 从约 267.18 KiB 降至约 258.95 KiB，生成独立 Eat（约 2.01 KiB gzip）与 MealLog（约 8.38 KiB gzip）chunk。
 
 该批 App/Eat/Meal 定向测试 46 文件、364 个测试通过；bundle/manifest/rollout 脚本 20 个测试通过；Vite build 706 modules，manifest 检查通过并包含 17 个 logical entry，0 orphan/unregistered dynamic entry。历史 routeTotal 与主包目标差距仍保持 ratchet warning，未启用 target。
+
+- `9aefd2a9`：新增 `release-governance-check.mjs` 与 10 个 fail-closed 测试，校验 manifest/budget、六固定视口浏览器证据、请求数、cache reuse、long-task、构建 commit、Node/Vite 版本和回滚命令；新增 `check:release-governance` npm script。
+
+缺失任一 viewport、请求数据或 rollback command 时检查非零；`browserRun=false` 即使 build/unit tests 为真也不能通过。CI 接线和真实发布证据仍待完成。
