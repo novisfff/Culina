@@ -26,6 +26,7 @@ import { ApprovalPanel } from './AiApprovalPanel';
 import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
 import { AiMessageImageGrid } from './AiMessageImageGrid';
 import { AiApprovalHost } from './views/AiApprovalHost';
+import { AiHumanInputHost } from './views/AiHumanInputHost';
 import { ResultCard } from './AiResultCards';
 import {
   extractRunActivitySkillName,
@@ -847,6 +848,7 @@ export function MessageBubble({
               const isPendingHumanInput = isPendingHumanInputPart(part);
               const isCancelledHumanInput = part.status === 'cancelled';
               return (
+                <AiHumanInputHost open>
                 <HumanInputRequestPanel
                   key={item.key}
                   message={message}
@@ -857,6 +859,7 @@ export function MessageBubble({
                   isCancelled={isCancelledHumanInput}
                   onResponse={onHumanInputResponse}
                 />
+                </AiHumanInputHost>
               );
             }
             return null;
