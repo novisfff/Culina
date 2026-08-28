@@ -26,15 +26,22 @@ describe('CSS cascade layer contract', () => {
     expect(entrypoint.match(/@layer\s+reset\s*,/g)).toHaveLength(1);
   });
 
-  it('assigns foundation, ui-kit, shell, domain, and responsive imports', async () => {
+  it('keeps main CSS shell-only and assigns domain imports to route entries', async () => {
     const entrypoint = await readFrontend('src/styles.css');
     const responsiveEntrypoint = await readFrontend('src/styles/responsive.css');
+    const homeRoute = await readFrontend('src/styles/routes/home.css');
+    const aiRoute = await readFrontend('src/styles/routes/ai.css');
 
     expect(entrypoint).toContain("@import './styles/00-ui-kit.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/legacy-primitives.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/shell.css' layer(shell);");
-    expect(entrypoint).toContain("@import './styles/01-home-dashboard.css' layer(domain);");
-    expect(entrypoint).toContain("@import './styles/responsive.css' layer(responsive);");
+    expect(entrypoint).not.toMatch(/@import '\.\/styles\/(01|02|03|04|05|06|08|09|10|11|12|13|14|15)-/);
+    expect(entrypoint).toContain("@import './styles/shell-responsive.css' layer(responsive);");
+    expect(entrypoint).toContain("@import './styles/compatibility-responsive.css' layer(compatibility);");
+    expect(homeRoute).toContain("@import '../01-home-dashboard.css' layer(domain);");
+    expect(homeRoute).toContain("@import '../home-responsive.css' layer(responsive);");
+    expect(aiRoute).toContain("@import '../09-ai-workspace.css' layer(domain);");
+    expect(aiRoute).toContain("@import '../09-ai-draft-ui.css' layer(domain);");
     expect(responsiveEntrypoint).not.toContain("@import './07-mobile.css';");
     expect(responsiveEntrypoint).toContain("@import './compatibility-responsive.css';");
     expect(responsiveEntrypoint).toContain("@import './family-responsive.css';");

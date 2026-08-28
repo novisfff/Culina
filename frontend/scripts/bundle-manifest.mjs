@@ -139,7 +139,19 @@ function summarizeAssets(assetNames, assets) {
 }
 
 
-function reachableAssets(rootChunk, chunks, assets, includeDynamic) {
+const ROUTE_CSS_OWNER_BY_SOURCE = new Map([
+  ['src/styles/routes/home.css', 'home'],
+  ['src/styles/routes/eat.css', 'eat'],
+  ['src/styles/routes/ingredients.css', 'ingredients'],
+  ['src/styles/routes/food.css', 'food'],
+  ['src/styles/routes/ai.css', 'ai'],
+  ['src/styles/routes/family.css', 'family-profile'],
+  ['src/styles/routes/family-model-settings.css', 'family-model-settings'],
+  ['src/styles/routes/model-usage.css', 'model-usage'],
+  ['src/styles/routes/search.css', 'home'],
+]);
+
+function reachableAssets(rootChunk, chunks, assets, includeDynamic, ownerEntryId = null) {
   const reachable = new Set();
   const visitedChunks = new Set();
   const visit = (fileName) => {
@@ -152,7 +164,14 @@ function reachableAssets(rootChunk, chunks, assets, includeDynamic) {
     }
     for (const imported of chunk.imports) visit(imported);
     if (includeDynamic) {
-      for (const imported of chunk.dynamicImports) visit(imported);
+      for (const imported of chunk.dynamicImports) {
+        const importedChunk = chunks.get(imported);
+        const cssOwner = importedChunk?.facadeSource
+          ? ROUTE_CSS_OWNER_BY_SOURCE.get(importedChunk.facadeSource)
+          : undefined;
+        if (cssOwner && cssOwner !== ownerEntryId) continue;
+        visit(imported);
+      }
     }
   };
   visit(rootChunk.fileName);
@@ -266,7 +285,7 @@ export function createFrontendHealthManifest({
       dynamicImports: [...chunk.dynamicImports],
       initial: summarizeAssets(reachableAssets(chunk, chunks, assets, false), assets),
       entryCritical: summarizeAssets([chunk.fileName], assets),
-      routeTotal: summarizeAssets(reachableAssets(chunk, chunks, assets, true), assets),
+      routeTotal: summarizeAssets(reachableAssets(chunk, chunks, assets, true, id), assets),
       shared: [],
     };
   }
@@ -276,6 +295,11 @@ export function createFrontendHealthManifest({
     const source = chunk.facadeSource;
     const entryId = logicalEntryForChunk(chunk, config);
     const registeredAsDynamic = entryId && config.entries[entryId].dynamic;
+    // Route-owned CSS is emitted as a dynamic Rollup chunk whose facade is the
+    // stylesheet itself. It is tracked through the importing route's asset
+    // graph, not as a JavaScript logical entry.
+    const isRouteCssChunk = chunk.isDynamicEntry && typeof source === 'string' && source.endsWith('.css');
+    if (isRouteCssChunk) continue;
     if (chunk.isDynamicEntry && !registeredAsDynamic) {
       manifestErrors.push(createManifestError('unregistered-dynamic-entry', {
         asset: chunk.fileName,
