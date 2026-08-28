@@ -101,6 +101,15 @@ import {
 } from './FoodWorkspaceOptions';
 import {
   buildDirectCookTarget,
+  getFoodPlanDateParts,
+  getSuggestedMealTypeForHour,
+  normalizeFormFoodType,
+  isReadyLikeType,
+  isOutsideType,
+  resolveFoodAssetUrl,
+  getFoodCardPrimaryActionLabel,
+  isFoodShoppingEligible,
+  formatFoodStock,
   getFoodFormCompletionItems,
   getFoodImagePayload,
   buildFoodPayloadFromForm,
@@ -152,7 +161,6 @@ import {
   isFoodMissingDecisionInfo,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
-  formatFoodStockQuantity,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
 
@@ -160,6 +168,7 @@ const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
 export { FOOD_CREATE_TYPE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
 export { buildFoodPayloadFromForm, type FoodFormState } from './FoodWorkspaceModel';
+export { getSuggestedMealTypeForHour } from './FoodWorkspaceModel';
 
 export type TodayFoodRecommendation = {
   food: Food;
@@ -322,16 +331,6 @@ function createClientRequestId(): string {
   return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getFoodPlanDateParts(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  return {
-    day: String(day || 1),
-    month: String(month || 1),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-  };
-}
-
 const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'selfMade', label: '家常菜' },
@@ -345,31 +344,6 @@ const MOBILE_DEFAULT_FOOD_SCENES = [
   { key: 'kid', title: '孩子也能吃', fallbackIndex: 2 },
   { key: 'light', title: '周末轻食', fallbackIndex: 3 },
 ];
-
-function resolveFoodAssetUrl(url: string) {
-  return resolveAssetUrl(url) ?? url;
-}
-
-export function getSuggestedMealTypeForHour(hour = new Date().getHours()): MealType {
-  if (hour < 10) return 'breakfast';
-  if (hour < 15) return 'lunch';
-  if (hour < 22) return 'dinner';
-  return 'snack';
-}
-
-function normalizeFormFoodType(foodType: FoodType): NormalizedFoodType {
-  return foodType === 'packaged' ? 'readyMade' : foodType;
-}
-
-function isReadyLikeType(foodType: FoodType) {
-  const normalizedType = normalizeFormFoodType(foodType);
-  return normalizedType === 'readyMade' || normalizedType === 'instant';
-}
-
-function isOutsideType(foodType: FoodType) {
-  const normalizedType = normalizeFormFoodType(foodType);
-  return normalizedType === 'takeout' || normalizedType === 'diningOut';
-}
 
 function getFoodPriority(food: Food, mealLogs: MealLog[], lensFilter: FoodWorkspaceLens, recipes: Recipe[] = []) {
   const usage = getMealUsage(food, mealLogs);
@@ -400,19 +374,6 @@ function openFoodDetailFromCard(event: KeyboardEvent<HTMLElement>, onOpenDetail:
   if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
   event.preventDefault();
   onOpenDetail();
-}
-
-function getFoodCardPrimaryActionLabel(food: Food) {
-  if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) return '开始做';
-  return getPrimaryFoodActionLabel(food);
-}
-
-function isFoodShoppingEligible(food: Food) {
-  return isReadyLikeFood(food) || (normalizeFoodType(food) === 'selfMade' && Boolean(food.recipe_id));
-}
-
-function formatFoodStock(food: Food) {
-  return formatFoodStockQuantity(food);
 }
 
 export function buildTodayFoodRecommendations(
