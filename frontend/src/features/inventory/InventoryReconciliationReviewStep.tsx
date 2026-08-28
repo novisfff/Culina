@@ -1,4 +1,4 @@
-import { ReviewLayout } from './InventoryReconciliationDialog';
+import { InventoryReconciliationReviewStepImpl } from './InventoryReconciliationDialog';
 
 /** Compatibility boundary for the review step; implementation remains shared during migration. */
-export { ReviewLayout as InventoryReconciliationReviewStep };
+export { InventoryReconciliationReviewStepImpl as InventoryReconciliationReviewStep };

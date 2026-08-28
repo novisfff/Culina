@@ -54,6 +54,9 @@ import {
   type ReconciliationSubmitSummary,
 } from './inventoryReconciliationModel';
 import { InventoryReconciliationScopeStep } from './InventoryReconciliationScopeStep';
+import { InventoryReconciliationReviewStep } from './InventoryReconciliationReviewStep';
+import { InventoryReconciliationSummaryStep } from './InventoryReconciliationSummaryStep';
+import { InventoryReconciliationResultStep } from './InventoryReconciliationResultStep';
 
 export type InventoryReconciliationDialogProps = {
   open: boolean;
@@ -393,7 +396,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           ) : null}
 
           {!loading && props.step === 'review' && props.draft ? (
-            <ReviewLayout
+            <InventoryReconciliationReviewStep
               draft={props.draft}
               orderedGroups={deferredOrderedGroups}
               totalGroupCount={props.orderedGroups.length}
@@ -410,11 +413,11 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
           ) : null}
 
           {!loading && props.step === 'summary' && props.draft ? (
-            <SummaryStep summary={summary} draft={props.draft} groups={props.groups} />
+            <InventoryReconciliationSummaryStep summary={summary} draft={props.draft} groups={props.groups} />
           ) : null}
 
           {!loading && props.step === 'result' && props.result ? (
-            <ResultStep
+            <InventoryReconciliationResultStep
               result={props.result}
               busy={busy}
               onRevertResult={props.onRevertResult}
@@ -427,7 +430,7 @@ export function InventoryReconciliationDialog(props: InventoryReconciliationDial
   );
 }
 
-export function ReviewLayout(props: {
+export function InventoryReconciliationReviewStepImpl(props: {
   draft: InventoryReconciliationDraft;
   orderedGroups: InventoryReconciliationGroup[];
   totalGroupCount: number;
@@ -1542,7 +1545,7 @@ function FoodGroupActions(props: {
   );
 }
 
-export function SummaryStep(props: {
+export function InventoryReconciliationSummaryStepImpl(props: {
   summary: ReconciliationSubmitSummary;
   draft: InventoryReconciliationDraft;
   groups: InventoryReconciliationGroup[];
@@ -1652,7 +1655,7 @@ function intentTargetKeySafe(intent: ReconciliationIntent) {
   return `food:${intent.foodId}`;
 }
 
-export function ResultStep(props: {
+export function InventoryReconciliationResultStepImpl(props: {
   result: InventoryOperationResult;
   busy?: boolean;
   onRevertResult?: (operationId: string) => void;
