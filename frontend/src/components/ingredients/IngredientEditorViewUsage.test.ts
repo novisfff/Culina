@@ -37,7 +37,7 @@ describe('IngredientEditorView tracking transition guard', () => {
   it('renders a blocking confirmation surface for tracking mode changes', () => {
     const editorSource = readFileSync(editorSourcePath, 'utf8');
     const editorStateSource = readFileSync(resolve(__dirname, 'useIngredientEditorState.ts'), 'utf8');
-    const mutationsSource = readFileSync(resolve(__dirname, '../../app/useAppMutations.ts'), 'utf8');
+    const mutationsSource = readFileSync(resolve(__dirname, '../../app/mutations/useIngredientMutations.ts'), 'utf8');
 
     expect(editorSource).toContain('ingredients-tracking-transition-modal');
     expect(editorSource).toContain('切换为只记录库存状态');

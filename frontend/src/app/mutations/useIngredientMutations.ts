@@ -12,6 +12,7 @@ export function useIngredientMutations() {
   const transitionIngredientTrackingModeMutation = useMutation({
     mutationFn: ({ ingredientId, payload }: { ingredientId: string; payload: Parameters<typeof api.transitionIngredientTrackingMode>[1] }) => api.transitionIngredientTrackingMode(ingredientId, payload),
     retry: false,
+    // Intentionally no onSuccess invalidation: the editor invalidates only after its dual-write settles.
   });
   return { createIngredientMutation, updateIngredientMutation, transitionIngredientTrackingModeMutation };
 }
