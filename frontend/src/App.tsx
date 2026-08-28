@@ -59,7 +59,6 @@ import {
 import { useReconciliationController } from './features/inventory/useReconciliationController';
 import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
-import { storageLocationForScope } from './features/inventory/inventoryReconciliationScope';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
@@ -464,7 +463,7 @@ function App() {
 
   function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
     const scope = args?.scope ?? 'suggested';
-    void reconciliationActions.openReconciliation(scope);
+    reconciliationController.openForScope(scope);
   }
 
   const [recentBannerOverride, setRecentBannerOverride] = useState<InventoryOperationResult | null>(null);
@@ -1489,12 +1488,7 @@ function App() {
                       force: reconciliationState.loading,
                     });
                   },
-                  onChangeScope: (scope) => {
-                    void reconciliationActions.openReconciliation(
-                      scope,
-                      storageLocationForScope(scope),
-                    );
-                  },
+                  onChangeScope: reconciliationController.changeScope,
                   onToggleBatchDetails: reconciliationState.toggleBatchDetails,
                   onSetIntent: (intent) => {
                     reconciliationState.setIntent(intent, new Date().toISOString());

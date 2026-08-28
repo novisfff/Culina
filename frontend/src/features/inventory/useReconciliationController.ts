@@ -3,6 +3,7 @@ import type {
   InventoryReconciliationRequest,
   InventoryReconciliationResponse,
 } from '../../api/types/inventory';
+import { useCallback } from 'react';
 import { useInventoryReconciliationActions } from './useInventoryReconciliationActions';
 import { useInventoryReconciliationState } from './useInventoryReconciliationState';
 import type { InventoryReconciliationScope } from './inventoryReconciliationScope';
@@ -18,5 +19,11 @@ export function useReconciliationController(args: {
 }) {
   const state = useInventoryReconciliationState();
   const actions = useInventoryReconciliationActions({ ...args, state });
-  return { state, actions };
+  const openForScope = useCallback((scope: InventoryReconciliationScope) => {
+    void actions.openReconciliation(scope);
+  }, [actions]);
+  const changeScope = useCallback((scope: InventoryReconciliationScope) => {
+    void actions.openReconciliation(scope);
+  }, [actions]);
+  return { state, actions, openForScope, changeScope };
 }
