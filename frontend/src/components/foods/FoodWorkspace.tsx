@@ -54,6 +54,7 @@ import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodWorkspaceDetailOverlay } from './FoodWorkspaceDetailOverlay';
 import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
+import { FoodWorkspaceQuickRecordOverlay } from './FoodWorkspaceQuickRecordOverlay';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
@@ -1800,83 +1801,14 @@ export function FoodWorkspace(props: Props) {
         onDismiss={props.onDismissRecord}
       />
 
-      {quickRecord ? (
-        <MealQuickRecordView
-          open
-          prefilledFood={{
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            cover: getFoodCoverAsset(quickRecord.food, props.recipes) ?? null,
-            servings: 1,
-          }}
-          date={quickRecord.date}
-          mealType={quickRecord.mealType}
-          dateOptions={quickMealDateOptions}
-          candidates={quickRecord.candidates}
-          selectedCandidateId={quickRecord.selectedCandidateId}
-          candidateMode={quickRecord.candidateMode}
-          target={quickRecord.target}
-          busy={quickRecord.busy || Boolean(props.isQuickAdding)}
-          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
-          error={quickRecord.error}
-          overlayRootClassName="food-workspace-overlay-root"
-          onClose={() => {
-            if (!quickRecord.busy) setQuickRecord(null);
-          }}
-          onDateChange={(date) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    date,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onMealTypeChange={(mealType) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    mealType,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onTargetChange={(target, selectedCandidateId) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    target,
-                    selectedCandidateId:
-                      selectedCandidateId ??
-                      (target.kind === 'existing' ? target.meal_log_id : null),
-                    targetTouchedByUser: true,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onSubmit={() => {
-            void submitCompactRecord();
-          }}
-        />
-      ) : null}
+      <FoodWorkspaceQuickRecordOverlay
+        record={quickRecord}
+        recipes={props.recipes}
+        dateOptions={quickMealDateOptions}
+        isRecording={props.isQuickAdding}
+        setRecord={setQuickRecord}
+        onSubmit={() => void submitCompactRecord()}
+      />
 
       {quickMealDialog && (() => {
         const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
