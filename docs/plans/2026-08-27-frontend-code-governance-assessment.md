@@ -348,6 +348,10 @@ Eat/Food 定向测试 74/74、typecheck、build 与 diff check 通过；bundle �
 
 Ingredient overlay 定向测试 28/28、typecheck 与 `git diff --check` 通过；Ingredient workspace 约降至 2959 行，仍高于规格目标，目录卡本体和 App 组合层还需继续拆分。
 
+- `7f8e830b`：将 Ingredient 目录卡本体（状态摘要、库存动作、Popover 接线）迁入 `IngredientCatalogCard`，Workspace 仅保留列表编排；文件约降至 2749 行。
+
+本批 Ingredient overlay/usage 测试 28/28、typecheck、build（710 modules）和 bundle ratchet-report 通过；历史 target gap 继续保留。
+
 - `490610e0`：将 InventoryMaintenanceDialogs 改为 lazy overlay entry，并修正 manifest routeTotal 图遍历：route entry 不再穿过共享 main chunk 的 sibling dynamic imports。新增回归测试锁定“只计算自身动态后代”的语义；manifest 现包含 17 个入口，routeTotal 从全站聚合值收敛为按入口图计算（例如 AI 约 528.6 KiB、Eat 约 407.4 KiB），主入口仍保留全站初始路由图。
 
 该批 App/Inventory 定向测试 123/123、bundle-manifest 8/8 通过；typecheck、build 与 manifest 检查通过。历史 ratchet target gap 继续保留，尚未启用 target hard-failure。
