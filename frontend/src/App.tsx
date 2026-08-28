@@ -14,7 +14,7 @@ import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { useAppHomeController } from './app/useAppHomeController';
-import { useAppInventoryOperations } from './app/useAppInventoryOperations';
+import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppGlobalOverlays } from './app/AppGlobalOverlays';
@@ -506,15 +506,13 @@ function App() {
     void reconciliationActions.openReconciliation(scope, storageLocationForScope(scope));
   }
 
-  const [operationHistoryOpen, setOperationHistoryOpen] = useState(false);
-  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
-  const [operationHistoryInitialId, setOperationHistoryInitialId] = useState<string | null>(null);
-  const [operationDetail, setOperationDetail] = useState<InventoryOperationDetail | null>(null);
-  const [operationDetailLoading, setOperationDetailLoading] = useState(false);
-  const [operationDetailError, setOperationDetailError] = useState<string | null>(null);
-  const [operationHistoryError, setOperationHistoryError] = useState<string | null>(null);
-  const [operationHistoryConflict, setOperationHistoryConflict] = useState<string | null>(null);
   const [recentBannerOverride, setRecentBannerOverride] = useState<InventoryOperationResult | null>(null);
+
+  const operationHistory = useAppInventoryOperationHistory({
+    getDetail: api.getInventoryOperation,
+    errorMessage: (reason) => messageFromApiError(reason, '加载变更详情失败'),
+    isRevertPending: revertInventoryOperationMutation.isPending,
+  });
 
   const recentBannerOperation = useMemo(() => {
     const nowMs = Date.now();
@@ -527,37 +525,13 @@ function App() {
     return fromList;
   }, [inventoryOperations, recentBannerOverride]);
 
-  function openOperationHistory(operationId?: string) {
-    setOperationHistoryOpen(true);
-    setOperationHistoryError(null);
-    setOperationHistoryConflict(null);
-    if (operationId) {
-      setOperationHistoryInitialId(operationId);
-      setSelectedOperationId(operationId);
-    } else {
-      setOperationHistoryInitialId(null);
-    }
-  }
-
-  function closeOperationHistory() {
-    if (revertInventoryOperationMutation.isPending) return;
-    setOperationHistoryOpen(false);
-    setOperationHistoryInitialId(null);
-    setOperationHistoryConflict(null);
-  }
-
-  const inventoryOperationController = useAppInventoryOperations({
-    getDetail: api.getInventoryOperation,
-    setDetail: setOperationDetail,
-    setLoading: setOperationDetailLoading,
-    setError: setOperationDetailError,
-    errorMessage: (reason) => messageFromApiError(reason, '加载变更详情失败'),
-  });
-  const loadOperationDetail = inventoryOperationController.loadDetail;
+  const openOperationHistory = operationHistory.openHistory;
+  const closeOperationHistory = operationHistory.closeHistory;
+  const loadOperationDetail = operationHistory.loadDetail;
 
   async function handleRevertInventoryOperation(operationId: string) {
-    setOperationHistoryConflict(null);
-    setOperationHistoryError(null);
+    operationHistory.setConflict(null);
+    operationHistory.setError(null);
     try {
       const result = await revertInventoryOperationMutation.mutateAsync(operationId);
       setRecentBannerOverride(result);
@@ -576,12 +550,12 @@ function App() {
           userId: user?.id ?? '',
         });
       }
-      if (selectedOperationId === operationId) {
+      if (operationHistory.selectedOperationId === operationId) {
         try {
           const detail = await api.getInventoryOperation(operationId);
-          setOperationDetail(detail);
+          operationHistory.setDetail(detail);
         } catch {
-          setOperationDetail((current) =>
+          operationHistory.setDetail((current) =>
             current && current.operation_id === operationId
               ? {
                   ...current,
@@ -600,8 +574,8 @@ function App() {
       });
     } catch (reason) {
       const message = messageFromApiError(reason, '撤销失败，请稍后重试');
-      if (operationHistoryOpen) {
-        setOperationHistoryConflict(message);
+      if (operationHistory.open) {
+        operationHistory.setConflict(message);
       } else {
         showNotice({ tone: 'danger', title: '无法撤销', message });
       }
@@ -1033,7 +1007,7 @@ function App() {
     ? { kind: 'global-search' }
     : homeShoppingDialogOpen
       ? { kind: 'ingredient-shopping', ingredientId: 'home' }
-      : shoppingIntakeState.open || reconciliationState.open || operationHistoryOpen
+      : shoppingIntakeState.open || reconciliationState.open || operationHistory.open
         ? { kind: 'inventory-maintenance', busy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending }
         : { kind: 'none' };
 
@@ -1691,25 +1665,25 @@ function App() {
               : null
           }
           operationHistory={
-            operationHistoryOpen
+            operationHistory.open
               ? {
-                  open: operationHistoryOpen,
+                  open: operationHistory.open,
                   operations: inventoryOperations,
                   loading:
                     inventoryOperationsQuery.isLoading ||
                     (inventoryOperationsQuery.isFetching && !inventoryOperationsQuery.data),
                   busy: revertInventoryOperationMutation.isPending,
                   errorMessage:
-                    operationHistoryError ??
+                    operationHistory.error ??
                     queryErrorMessage(inventoryOperationsQuery.error, '加载库存变更记录失败'),
-                  selectedOperationId,
-                  detail: operationDetail,
-                  detailLoading: operationDetailLoading,
-                  detailError: operationDetailError,
-                  conflictMessage: operationHistoryConflict,
-                  initialOperationId: operationHistoryInitialId,
+                  selectedOperationId: operationHistory.selectedOperationId,
+                  detail: operationHistory.detail,
+                  detailLoading: operationHistory.detailLoading,
+                  detailError: operationHistory.detailError,
+                  conflictMessage: operationHistory.conflict,
+                  initialOperationId: operationHistory.initialOperationId,
                   onClose: closeOperationHistory,
-                  onSelectOperation: setSelectedOperationId,
+                  onSelectOperation: operationHistory.setSelectedOperationId,
                   onLoadDetail: (operationId) => {
                     void loadOperationDetail(operationId);
                   },
@@ -1718,8 +1692,8 @@ function App() {
                   },
                   onRetry: () => {
                     void inventoryOperationsQuery.refetch();
-                    if (selectedOperationId) {
-                      void loadOperationDetail(selectedOperationId);
+                    if (operationHistory.selectedOperationId) {
+                      void loadOperationDetail(operationHistory.selectedOperationId);
                     }
                   },
                 }
