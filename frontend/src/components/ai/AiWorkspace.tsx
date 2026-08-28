@@ -45,6 +45,7 @@ import { AiWorkspaceRoute } from './AiWorkspaceRoute';
 import { AiComposerView } from './views/AiComposerView';
 import { AiDebugHost } from './views/AiDebugHost';
 import { AiQualityHost } from './views/AiQualityHost';
+import { AiDeleteHost } from './views/AiDeleteHost';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1470,14 +1471,14 @@ export function AiWorkspace({
         }}
         onSubmit={submitRecommendationPlan}
       />
-      {pendingDeleteConversation && (
-        <AiDeleteConversationDialog
-          conversation={pendingDeleteConversation}
-          isDeleting={deleteConversationMutation.isPending}
-          onCancel={() => setPendingDeleteConversation(null)}
-          onConfirm={confirmDeleteConversation}
-        />
-      )}
+      <AiDeleteHost open={Boolean(pendingDeleteConversation)} busy={deleteConversationMutation.isPending}>
+        {pendingDeleteConversation ? <AiDeleteConversationDialog
+            conversation={pendingDeleteConversation}
+            isDeleting={deleteConversationMutation.isPending}
+            onCancel={() => setPendingDeleteConversation(null)}
+            onConfirm={confirmDeleteConversation}
+          /> : null}
+      </AiDeleteHost>
       <AiMobilePage
         conversations={historyConversations}
         isLoading={isLoading}
