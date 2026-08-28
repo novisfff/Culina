@@ -126,6 +126,13 @@
       "cssBudget": 16384,
       "phase": 5,
       "owner": "search"
+    },
+    "shopping-dialog": {
+      "criticalGzipBudget": 16384,
+      "routeTotalGzipBudget": 32768,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ingredients"
     }
   }
 }

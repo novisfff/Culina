@@ -18,6 +18,7 @@
     "ai-human-input": { "source": "src/components/ai/entries/AiHumanInputEntry.tsx", "dynamic": true },
     "ai-debug": { "source": "src/components/ai/entries/AiDebugEntry.tsx", "dynamic": true },
     "inventory-operation": { "source": "src/features/inventory/InventoryMaintenanceDialogs.tsx", "dynamic": true },
-    "home-dialogs": { "source": "src/features/home/HomeDashboardDialogs.tsx", "dynamic": true }
+    "home-dialogs": { "source": "src/features/home/HomeDashboardDialogs.tsx", "dynamic": true },
+    "shopping-dialog": { "source": "src/components/ingredients/IngredientShoppingDialog.tsx", "dynamic": true }
   }
 }
