@@ -29,9 +29,10 @@ export function checkReleaseEvidence({ manifest, budgetResult, viewportReport, r
   if ((manifest?.manifestErrors?.length ?? 0) > 0) violations.push('manifest contains errors');
 
   addMissing(missing, budgetResult && typeof budgetResult === 'object', 'budgetResult');
+  addMissing(missing, budgetResult?.exitCode === 0, 'budgetResult.exitCode');
   addMissing(missing, Array.isArray(budgetResult?.violations), 'budgetResult.violations');
   addMissing(missing, Array.isArray(budgetResult?.manifestErrors), 'budgetResult.manifestErrors');
-  if ((budgetResult?.violations?.length ?? 0) > 0) violations.push('bundle budget contains violations');
+  if ((budgetResult?.violations?.length ?? 0) > 0 || budgetResult?.exitCode !== 0) violations.push('bundle budget contains violations');
   if ((budgetResult?.manifestErrors?.length ?? 0) > 0) violations.push('bundle budget contains manifest errors');
 
   addMissing(missing, viewportReport?.browserRun === true, 'viewportReport.browserRun');

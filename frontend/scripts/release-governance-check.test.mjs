@@ -6,7 +6,7 @@ const commit = '0123456789abcdef0123456789abcdef01234567';
 function completeEvidence() {
   return {
     manifest: { version: 1, sourceCommit: commit, entries: { main: {} }, manifestErrors: [] },
-    budgetResult: { violations: [], manifestErrors: [] },
+    budgetResult: { exitCode: 0, violations: [], manifestErrors: [] },
     viewportReport: {
       browserRun: true,
       viewports: Object.fromEntries(REQUIRED_VIEWPORTS.map((viewport) => [viewport, { status: 'passed' }])),
