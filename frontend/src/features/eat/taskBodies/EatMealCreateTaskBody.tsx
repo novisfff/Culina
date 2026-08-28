@@ -1,1 +1,1 @@
-export { EatMealCreateTaskBody as default, EatMealCreateTaskBody } from '../EatTaskBodies';
+export { EatMealCreateTaskBody as default, EatMealCreateTaskBody } from './EatMealTaskBodies';
