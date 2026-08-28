@@ -25,6 +25,12 @@ export function validateBudgetRolloutState(state, budgetConfig) {
     }
     if (!isNonEmptyString(value.owner)) throw new Error(`budget rollout ${entry}.owner must be non-empty`);
     if (!Number.isInteger(value.phase) || value.phase < 0) throw new Error(`budget rollout ${entry}.phase must be non-negative`);
+    if (typeof budgetConfig.entries[entry].owner === 'string' && value.owner !== budgetConfig.entries[entry].owner) {
+      throw new Error(`budget rollout ${entry}.owner must match bundle budget owner`);
+    }
+    if (Number.isInteger(budgetConfig.entries[entry].phase) && value.phase !== budgetConfig.entries[entry].phase) {
+      throw new Error(`budget rollout ${entry}.phase must match bundle budget phase`);
+    }
     const evidence = value.evidence;
     if (!evidence || typeof evidence !== 'object') throw new Error(`budget rollout ${entry}.evidence is required`);
     assertCommitList(evidence.buildCommits, `budget rollout ${entry}.evidence.buildCommits`);

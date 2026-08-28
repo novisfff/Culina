@@ -37,4 +37,14 @@ describe('budget rollout state', () => {
     expect(isTargetEligible(entry)).toBe(true);
     expect(resolveEntryMode(entry)).toBe('target');
   });
+
+  it('rejects owner or phase drift when budget metadata is present', () => {
+    const config = { entries: { home: { owner: 'home', phase: 5 }, ai: { owner: 'ai', phase: 5 } } };
+    const state = structuredClone(baseState);
+    state.entries.home.owner = 'other';
+    expect(() => validateBudgetRolloutState(state, config)).toThrow(/owner must match/);
+    state.entries.home.owner = 'home';
+    state.entries.home.phase = 4;
+    expect(() => validateBudgetRolloutState(state, config)).toThrow(/phase must match/);
+  });
 });
