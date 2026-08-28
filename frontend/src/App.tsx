@@ -17,6 +17,7 @@ import { buildHomeShoppingController } from './app/useAppHomeController';
 import { createInventoryOperationController } from './app/useAppInventoryOperations';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
+import { AppGlobalOverlays } from './app/AppGlobalOverlays';
 import type { AppOverlayState } from './app/appOverlayState';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import { EatWorkspace } from './features/eat/EatWorkspace';
@@ -75,8 +76,6 @@ import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
 import { HomeDashboard } from './features/home/HomeDashboard';
-import { GlobalSearchOverlay } from './features/search/GlobalSearchOverlay';
-import { IngredientShoppingDialog } from './components/ingredients/IngredientShoppingDialog';
 import {
   buildShoppingForm,
   type ShoppingDialogFormState,
@@ -1522,25 +1521,24 @@ function App() {
         )}
 
         <AppOverlayHost state={appOverlayState}>
-        <GlobalSearchOverlay
-          open={globalSearchOpen}
-          onClose={() => setGlobalSearchOpen(false)}
-          onSelect={handleGlobalSearchSelect}
-        />
-
-        <IngredientShoppingDialog
-          open={homeShoppingDialogOpen}
-          closeOverlay={() => {
-            if (!createShoppingMutation.isPending) {
-              setHomeShoppingDialogOpen(false);
-            }
+        <AppGlobalOverlays
+          search={{
+            open: globalSearchOpen,
+            onClose: () => setGlobalSearchOpen(false),
+            onSelect: handleGlobalSearchSelect,
           }}
-          ingredients={ingredients}
-          foods={foods}
-          shoppingForm={homeShoppingForm}
-          setShoppingForm={setHomeShoppingForm}
-          submitShopping={submitHomeShopping}
-          isCreatingShopping={createShoppingMutation.isPending}
+          shopping={{
+            open: homeShoppingDialogOpen,
+            closeOverlay: () => {
+              if (!createShoppingMutation.isPending) setHomeShoppingDialogOpen(false);
+            },
+            ingredients,
+            foods,
+            shoppingForm: homeShoppingForm,
+            setShoppingForm: setHomeShoppingForm,
+            submitShopping: submitHomeShopping,
+            isCreatingShopping: createShoppingMutation.isPending,
+          }}
         />
 
         <Suspense fallback={null}>
