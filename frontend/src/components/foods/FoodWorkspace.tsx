@@ -53,6 +53,7 @@ import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodWorkspaceDetailOverlay } from './FoodWorkspaceDetailOverlay';
+import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
@@ -1912,53 +1913,52 @@ export function FoodWorkspace(props: Props) {
         resolveAssetUrl={resolveFoodAssetUrl}
       />
 
-      <FoodPlanDialog
-        isOpen={isPlanDialogOpen}
-        selectedPlanFood={selectedPlanFood}
-        foods={props.foods}
-        recipes={props.recipes}
-        planFoodSearch={planFoodSearch}
-        planForm={planForm}
-        todayDate={todayDate}
-        isUpdatingPlan={props.isUpdatingPlan}
-        onClose={closePlanDialog}
-        onSubmit={submitPlanItem}
-        onClearPlanFoodSelection={clearPlanFoodSelection}
-        onPlanFoodSearchChange={setPlanFoodSearch}
-        onSelectPlanFood={(food) => {
-          setPlanForm((current) => ({ ...current, foodId: food.id, mealType: getDefaultMealType(food) }));
-          setPlanFoodSearch(food.name);
+      <FoodWorkspacePlanOverlays
+        planDialog={{
+          isOpen: isPlanDialogOpen,
+          selectedPlanFood,
+          foods: props.foods,
+          recipes: props.recipes,
+          planFoodSearch,
+          planForm,
+          todayDate,
+          isUpdatingPlan: props.isUpdatingPlan,
+          onClose: closePlanDialog,
+          onSubmit: submitPlanItem,
+          onClearPlanFoodSelection: clearPlanFoodSelection,
+          onPlanFoodSearchChange: setPlanFoodSearch,
+          onSelectPlanFood: (food) => {
+            setPlanForm((current) => ({ ...current, foodId: food.id, mealType: getDefaultMealType(food) }));
+            setPlanFoodSearch(food.name);
+          },
+          onPlanDateChange: (value) => setPlanForm({ ...planForm, planDate: value }),
+          onMealTypeChange: (value) => setPlanForm({ ...planForm, mealType: value }),
+          onPlanNoteChange: (value) => setPlanForm({ ...planForm, note: value }),
+          resolveFoodAssetUrl,
+          getFoodCover,
+          getFoodCoverAsset,
+          getDefaultMealType,
+          getPlanDateParts: getFoodPlanDateParts,
+          normalizeFoodType,
         }}
-        onPlanDateChange={(value) => setPlanForm({ ...planForm, planDate: value })}
-        onMealTypeChange={(value) => setPlanForm({ ...planForm, mealType: value })}
-        onPlanNoteChange={(value) => setPlanForm({ ...planForm, note: value })}
-        resolveFoodAssetUrl={resolveFoodAssetUrl}
-        getFoodCover={getFoodCover}
-        getFoodCoverAsset={getFoodCoverAsset}
-        getDefaultMealType={getDefaultMealType}
-        getPlanDateParts={getFoodPlanDateParts}
-        normalizeFoodType={normalizeFoodType}
+        planDetail={activePlanDetailItem ? {
+          item: activePlanDetailItem,
+          food: activePlanDetailFood,
+          recipes: props.recipes,
+          form: planDetailForm,
+          isEditing: isPlanDetailEditing,
+          isUpdatingPlan: props.isUpdatingPlan,
+          isCompleting: Boolean(props.isCompletingPlan || props.isQuickAdding),
+          onClose: closePlanDetail,
+          onChangeForm: setPlanDetailForm,
+          onEditingChange: setIsPlanDetailEditing,
+          onResetEdit: resetPlanDetailForm,
+          onSubmit: submitPlanDetail,
+          completePlanItem: (target) => void completePlanItem(activePlanDetailItem, target),
+          deletePlanItem: () => void deletePlanDetail(activePlanDetailItem),
+          resolveAssetUrl: resolveFoodAssetUrl,
+        } : null}
       />
-
-      {activePlanDetailItem && (
-        <FoodPlanDetailWithCandidates
-          item={activePlanDetailItem}
-          food={activePlanDetailFood}
-          recipes={props.recipes}
-          form={planDetailForm}
-          isEditing={isPlanDetailEditing}
-          isUpdatingPlan={props.isUpdatingPlan}
-          isCompleting={Boolean(props.isCompletingPlan || props.isQuickAdding)}
-          onClose={closePlanDetail}
-          onChangeForm={setPlanDetailForm}
-          onEditingChange={setIsPlanDetailEditing}
-          onResetEdit={resetPlanDetailForm}
-          onSubmit={submitPlanDetail}
-          onComplete={(target) => void completePlanItem(activePlanDetailItem, target)}
-          onDelete={() => void deletePlanDetail(activePlanDetailItem)}
-          resolveAssetUrl={resolveFoodAssetUrl}
-        />
-      )}
 
       <MealEnrichmentModal
         open={Boolean(planMealEnrichment)}
