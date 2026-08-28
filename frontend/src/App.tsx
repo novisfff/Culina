@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client';
-import { isApiError } from './api/request';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell } from './app/AppShell';
@@ -85,6 +84,7 @@ import {
   type ShoppingDialogFormState,
 } from './components/ingredients/ingredientWorkspaceForms';
 import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
+import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -127,38 +127,6 @@ function getIsPhoneViewport() {
     return false;
   }
   return window.matchMedia(PHONE_VIEWPORT_QUERY).matches;
-}
-
-/** Prefer structured 409/422 detail.message over ApiError.detail which may be "[object Object]". */
-function messageFromApiError(reason: unknown, fallback: string): string {
-  if (isApiError(reason)) {
-    const payload = reason.payload;
-    if (payload && typeof payload === 'object' && 'detail' in payload) {
-      const detail = (payload as { detail?: unknown }).detail;
-      if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
-        const message = (detail as { message?: unknown }).message;
-        if (typeof message === 'string' && message.trim()) {
-          return message;
-        }
-      }
-      if (typeof detail === 'string' && detail.trim()) {
-        return detail;
-      }
-    }
-    if (reason.detail && reason.detail !== '[object Object]') {
-      return reason.detail;
-    }
-    return fallback;
-  }
-  if (reason instanceof Error && reason.message) {
-    return reason.message;
-  }
-  return fallback;
-}
-
-function queryErrorMessage(error: unknown, fallback: string): string | null {
-  if (!error) return null;
-  return messageFromApiError(error, fallback);
 }
 
 function useIsPhoneViewport() {
