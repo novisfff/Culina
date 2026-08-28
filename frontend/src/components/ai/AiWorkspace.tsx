@@ -44,6 +44,7 @@ import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWorkspaceRoute } from './AiWorkspaceRoute';
 import { AiComposerView } from './views/AiComposerView';
 import { AiDebugHost } from './views/AiDebugHost';
+import { AiQualityHost } from './views/AiQualityHost';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1730,13 +1731,13 @@ export function AiWorkspace({
           </div>
           </AiComposerView>
         </section>
-        {isQualityModalOpen && (
+        <AiQualityHost open={isQualityModalOpen}>
           <AiQualityDiagnosticsModal
             metrics={aiQualityMetricsQuery.data}
             isLoading={aiQualityMetricsQuery.isLoading || aiQualityMetricsQuery.isFetching} isError={aiQualityMetricsQuery.isError}
             onRetry={() => void aiQualityMetricsQuery.refetch()} onClose={() => setIsQualityModalOpen(false)}
           />
-        )}
+        </AiQualityHost>
       </div>
       <AiDebugHost open={Boolean(debugRunId)}>
         <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
