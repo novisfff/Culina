@@ -10,6 +10,10 @@
 
 **Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
+## 实施状态（2026-08-28）
+
+4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown vendor 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。route-owned CSS 实验因首帧/cascade 回归已回滚，待真实 route lazy boundary 完成后重做。未完成项继续保留为 `[ ]`，不以兼容 wrapper 代替完成。
+
 ## Global Constraints
 
 - 不修改后端 AI runtime、API schema、草稿/审批协议、导航 union 或产品交互语义；AI workspace 只做前端边界重组。
