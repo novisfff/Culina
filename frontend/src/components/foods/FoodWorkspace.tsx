@@ -52,6 +52,7 @@ import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
+import { FoodWorkspaceDetailOverlay } from './FoodWorkspaceDetailOverlay';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
@@ -1893,60 +1894,23 @@ export function FoodWorkspace(props: Props) {
         );
       })()}
 
-      {detailFood && (() => {
-        const usage = getMealUsage(detailFood, props.mealLogs);
-        const expiry = describeExpiry(detailFood);
-        const normalizedType = normalizeFoodType(detailFood);
-        const status = getFoodStatus(detailFood, usage, expiry, props.recipes);
-        const factRows = getFoodFactRows(detailFood, usage, expiry);
-        const history = getFoodMealHistory(detailFood, props.mealLogs);
-        const relation = buildFoodRelationViewModelFromRecipeCards(detailFood, recipeCards, props.mealLogs);
-        const linkedRecipeCard = relation.linkedRecipeCard;
-        const recipe = linkedRecipeCard?.recipe ?? (detailFood.recipe_id ? props.recipes.find((item) => item.id === detailFood.recipe_id) ?? null : null);
-        const coverAsset = getFoodCoverAsset(detailFood, props.recipes);
-        const cover = coverAsset?.url;
-        const detailMealOptions = detailFood.suitable_meal_types.length > 0
-          ? MEAL_OPTIONS.filter((meal) => detailFood.suitable_meal_types.includes(meal.value))
-          : MEAL_OPTIONS;
-
-        return (
-          <FoodDetailDrawer
-            food={detailFood}
-            audienceText={getFoodAudienceText(detailFood, props.mealLogs)}
-            cover={cover}
-            coverAsset={coverAsset}
-            detailMealOptions={detailMealOptions}
-            expiry={expiry}
-            factRows={factRows}
-            history={history}
-            inventoryConfirmation={isReadyLikeFood(detailFood) ? getFoodInventoryConfirmation(detailFood, todayDate) : null}
-            isOutsideFood={isOutsideFood(detailFood)}
-            isQuickAdding={props.isQuickAdding}
-            isReadyLikeFood={isReadyLikeFood(detailFood)}
-            normalizedType={normalizedType}
-            recipe={recipe}
-            relation={relation}
-            status={status}
-            usage={usage}
-            getDefaultMealType={getDefaultMealType}
-            getPrimaryFoodActionLabel={getPrimaryFoodActionLabel}
-            getRepurchaseLabel={getRepurchaseLabel}
-            getSceneTags={getFoodSceneTags}
-            getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
-            onClose={closeDetail}
-            onEdit={handleOpenEdit}
-            onEditRecipe={handleOpenRecipeEditorDirectly}
-            onOpenPlanDialog={openPlanDialog}
-            onStartCook={() => {
-              // Route through the same date/meal/servings dialog as Discover primary cook.
-              openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
-            }}
-            onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
-            resolveAssetUrl={resolveFoodAssetUrl}
-            overlayRootClassName="food-workspace-overlay-root"
-          />
-        );
-      })()}
+      <FoodWorkspaceDetailOverlay
+        food={detailFood}
+        recipes={props.recipes}
+        mealLogs={props.mealLogs}
+        recipeCards={recipeCards}
+        todayDate={todayDate}
+        isQuickAdding={props.isQuickAdding}
+        onClose={closeDetail}
+        onEdit={handleOpenEdit}
+        onEditRecipe={handleOpenRecipeEditorDirectly}
+        onOpenPlanDialog={openPlanDialog}
+        onStartCook={() => {
+          if (detailFood) openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
+        }}
+        onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
+        resolveAssetUrl={resolveFoodAssetUrl}
+      />
 
       <FoodPlanDialog
         isOpen={isPlanDialogOpen}
