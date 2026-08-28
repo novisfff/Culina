@@ -175,12 +175,8 @@ export { FOOD_CREATE_TYPE_OPTIONS, type FoodGovernanceIssue } from './FoodWorksp
 export { buildFoodPayloadFromForm, type FoodFormState } from './FoodWorkspaceModel';
 export { getSuggestedMealTypeForHour } from './FoodWorkspaceModel';
 
-export type TodayFoodRecommendation = {
-  food: Food;
-  mealType: MealType;
-  score: number;
-  reasons: string[];
-};
+export type { TodayFoodRecommendation } from './FoodRecommendationsModel';
+export { buildTodayFoodRecommendations } from './FoodRecommendationsModel';
 
 type FoodWorkspaceNavigationRequest = NonNullable<Props['navigationRequest']>;
 
@@ -326,6 +322,8 @@ const MOBILE_DEFAULT_FOOD_SCENES = [
   { key: 'light', title: '周末轻食', fallbackIndex: 3 },
 ];
 
+/* buildTodayFoodRecommendations moved to FoodRecommendationsModel. */
+/*
 export function buildTodayFoodRecommendations(
   foods: Food[],
   mealLogs: MealLog[],
@@ -447,6 +445,7 @@ export function buildTodayFoodRecommendations(
 
   return diverse;
 }
+*/
 
 
 
