@@ -14,7 +14,7 @@ import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { buildHomeShoppingController } from './app/useAppHomeController';
-import { createInventoryOperationController } from './app/useAppInventoryOperations';
+import { useAppInventoryOperations } from './app/useAppInventoryOperations';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppGlobalOverlays } from './app/AppGlobalOverlays';
@@ -546,7 +546,7 @@ function App() {
     setOperationHistoryConflict(null);
   }
 
-  const inventoryOperationController = createInventoryOperationController({
+  const inventoryOperationController = useAppInventoryOperations({
     getDetail: api.getInventoryOperation,
     setDetail: setOperationDetail,
     setLoading: setOperationDetailLoading,
