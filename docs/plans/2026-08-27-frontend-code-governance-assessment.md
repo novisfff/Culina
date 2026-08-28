@@ -320,5 +320,6 @@ git diff --check
 - `eeb1678d`：Ingredient 库存存储概览卡、图标和插图迁入独立 View，Workspace 仅传递数据与回调。
 - `69e338df`、`0bdd0c34`：AI 与 Food domain CSS 从全局聚合移到各自 lazy route stylesheet，保留 `domain` layer；build 后主 CSS gzip 从约 194.9 KiB 降至约 150.3 KiB，AI/Food route CSS 由独立 chunk 承载。
 - `31f4186e`：将 Food 样式中误放置的跨域 mobile 默认隐藏规则迁移到 compatibility responsive layer；修复后完整 P0 重新通过 52/52。
+- `14b2e023`：Model Usage domain CSS 迁移到 lazy route stylesheet；主 CSS gzip 进一步降至约 138.9 KiB，Model Usage 相关定向 P0 15/15 通过。
 
 本批验证：全量 Vitest 256 个文件 / 1,919 个测试通过；Vite 696 modules、manifest 无 error，bundle 历史超目标继续以 ratchet warning 输出；P0 固定路径 52/52 通过。构建后仍有未收敛的历史预算 gap，route-owned CSS、App/Ingredient/Food 大文件最终目标、连续 viewport 发布证据和 target hard-failure 尚未完成，不能据此勾选 Phase 3/5 最终验收。
