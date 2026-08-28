@@ -1,6 +1,19 @@
 # 前端代码治理体检（2026-08-27）
 
-状态：基线体检，基于最新已提交 `origin/main`，不包含治理实现。
+状态：基线体检及治理实施跟踪；基线数字仍基于 `origin/main`，下方实施记录来自独立 worktree `codex/frontend-code-governance-implementation`。
+
+## 0. 治理实施跟踪（2026-08-28）
+
+已落地并独立提交的阶段性边界包括：Phase 0 度量/manifest/ratchet/fail-closed gates；Phase 1 CSS layer、token、selector ownership、响应式迁移；Phase 2 App query/mutation ownership、router/overlay/controller ports；Phase 3 Ingredient/Food/Eat 与 Inventory reconciliation 的部分 view-model/step 边界；Phase 4 AI selection/migration、run/stream/approval/composer/cancellation 状态模型、workspace shell/overlay hosts、secondary entry 与 manifest 注册。
+
+最新验证证据：
+
+- `npm run frontend:quality`：typecheck、全量 Vitest、style token gate 通过。
+- `npm run frontend:build`：生产构建成功，bundle manifest 未报告 orphan/unregistered/missing entry。
+- `node frontend/scripts/bundle-manifest.mjs --check frontend/dist/.vite/frontend-health-manifest.json`：14 entries。
+- `npm run frontend:e2e:p0`：52/52 通过，覆盖固定移动/平板/桌面路径。
+
+尚未达到最终规格的项目：`api/types.ts` 仍是兼容单体；Eat task body 与 reconciliation Review/Summary 仍保留旧实现；AI controller 尚未完全替换旧 callback 链；route-owned CSS 与 bundle target hard-failure rollout 尚未完成。因此本跟踪记录不把当前阶段标记为最终验收。
 
 ## 1. 范围与基线
 
