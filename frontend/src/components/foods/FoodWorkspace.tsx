@@ -118,6 +118,7 @@ import './food-route.css';
 import { useFoodSceneState, type FoodSceneCardView } from './useFoodSceneState';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './FoodQuickRecordState';
+import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
 import { FoodMobileView } from './FoodMobileView';
@@ -307,8 +308,6 @@ type Props = {
   isUpdatingMeal?: boolean;
   isCreatingShopping?: boolean;
 };
-
-type MobileCookingFilter = 'all' | 'ready' | 'shortage';
 
 const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
   { value: 'all', label: '全部' },
@@ -740,11 +739,16 @@ export function FoodWorkspace(props: Props) {
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   // Recipe cook confirmation still uses FoodQuickMealDialog (no stock fields).
-  const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
-  // Non-Recipe Food card / takeout / dining-out uses compact prefilled MealQuickRecordView.
-  const [quickRecord, setQuickRecord] = useState<FoodQuickRecordState | null>(null);
-  const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
-  const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
+  const {
+    quickMealDialog,
+    setQuickMealDialog,
+    quickRecord,
+    setQuickRecord,
+    isFoodRecipeEditorOpen,
+    setIsFoodRecipeEditorOpen,
+    mobileCookingFilter,
+    setMobileCookingFilter,
+  } = useFoodWorkspaceDialogState();
   const quickMealDateOptions = useMemo(
     () => createMealRecordDateOptions(mealBusinessDate),
     [mealBusinessDate]
