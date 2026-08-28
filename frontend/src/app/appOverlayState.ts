@@ -3,6 +3,7 @@ export type AppOverlayState =
   | { kind: 'global-search'; busy?: boolean }
   | { kind: 'home-dialogs'; dialog: 'shopping' | 'food-plan' | 'quick-meal'; busy?: boolean }
   | { kind: 'inventory-operation-history'; operationId?: string; busy?: boolean }
+  | { kind: 'inventory-maintenance'; busy?: boolean }
   | { kind: 'ingredient-shopping'; ingredientId: string; busy?: boolean };
 
 export type NormalizedOverlayState = AppOverlayState & { canEscapeClose: boolean };

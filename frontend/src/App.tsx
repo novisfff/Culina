@@ -15,6 +15,8 @@ import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
+import { AppOverlayHost } from './app/AppOverlayHost';
+import type { AppOverlayState } from './app/appOverlayState';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
@@ -1176,6 +1178,13 @@ function App() {
       onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
     />
   );
+  const appOverlayState: AppOverlayState = globalSearchOpen
+    ? { kind: 'global-search' }
+    : homeShoppingDialogOpen
+      ? { kind: 'ingredient-shopping', ingredientId: 'home' }
+      : shoppingIntakeState.open || reconciliationState.open || operationHistoryOpen
+        ? { kind: 'inventory-maintenance', busy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending }
+        : { kind: 'none' };
 
   return (
     <AppShell
@@ -1653,6 +1662,7 @@ function App() {
           )
         )}
 
+        <AppOverlayHost state={appOverlayState}>
         <GlobalSearchOverlay
           open={globalSearchOpen}
           onClose={() => setGlobalSearchOpen(false)}
@@ -1898,6 +1908,7 @@ function App() {
           }
         />
 
+        </AppOverlayHost>
       </AppWorkspaceRouter>
     </AppShell>
   );
