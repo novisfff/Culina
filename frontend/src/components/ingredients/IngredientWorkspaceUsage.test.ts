@@ -287,7 +287,9 @@ describe('IngredientWorkspace atomic shopping intake cutover', () => {
     expect(workspaceSource).toContain('openShoppingIntake');
     expect(appSource).toContain('InventoryMaintenanceDialogs');
     expect(appSource).toContain('openShoppingIntake');
-    expect(appSource).toContain('useShoppingIntakeState');
+    expect(appSource).toContain('useShoppingIntakeController');
+    const shoppingControllerSource = readFileSync(resolve(__dirname, '../../features/inventory/useShoppingIntakeController.ts'), 'utf8');
+    expect(shoppingControllerSource).toContain('useShoppingIntakeState');
   });
 });
 
