@@ -48,15 +48,14 @@ afterEach(async () => {
 
 
 describe('CSS migration batch registry', () => {
-  it('loads the six ordered batches with one active batch and canonical viewports', async () => {
+  it('loads the six completed ordered batches with canonical viewports', async () => {
     const result = await readCssMigrationBatches(
       path.resolve(process.cwd(), 'scripts', 'css-migration-batches.json'),
     );
 
     expect(result.batches.map((batch) => batch.id)).toEqual(EXPECTED_BATCH_IDS);
-    expect(result.batches.filter((batch) => batch.status === 'active').map((batch) => batch.id)).toEqual([
-      'compat-retire',
-    ]);
+    expect(result.batches.filter((batch) => batch.status === 'active')).toEqual([]);
+    expect(result.batches.every((batch) => batch.status === 'complete')).toBe(true);
     for (const batch of result.batches) {
       expect(batch.destinations.length).toBeGreaterThan(0);
       expect(batch.owners.length).toBeGreaterThan(0);
@@ -85,6 +84,21 @@ describe('CSS migration batch registry', () => {
 
     await expect(readCssMigrationBatches(file)).rejects.toThrow(
       `registry.batches: expected ordered ids ${EXPECTED_BATCH_IDS.join(',')}`,
+    );
+  });
+
+  it('rejects zero active batches while planned work remains', async () => {
+    const file = await writeRegistry({
+      version: 1,
+      batches: EXPECTED_BATCH_IDS.map((id) => validBatch({
+        id,
+        status: 'planned',
+        sources: [`frontend/src/styles/${id}.css`],
+      })),
+    });
+
+    await expect(readCssMigrationBatches(file)).rejects.toThrow(
+      'registry.active: expected exactly one active batch unless all batches are complete, received 0',
     );
   });
 

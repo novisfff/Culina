@@ -66,7 +66,10 @@ export async function readCssMigrationBatches(filePath) {
     }
   }
   const active = registry.batches.filter((batch) => batch?.status === 'active');
-  if (active.length !== 1) errors.push(`registry.active: expected exactly one active batch, received ${active.length}`);
+  const allComplete = registry.batches.every((batch) => batch?.status === 'complete');
+  if (active.length !== 1 && !(active.length === 0 && allComplete)) {
+    errors.push(`registry.active: expected exactly one active batch unless all batches are complete, received ${active.length}`);
+  }
 
   if (errors.length > 0) throw new Error(errors.sort(compareText).join('\n'));
   return registry;

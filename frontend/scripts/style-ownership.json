@@ -3,7 +3,7 @@
   "owners": [
     { "id": "foundation", "sources": ["frontend/src/styles/00-foundation.css"], "prefixes": [":root", "html", "body"] },
     { "id": "ui-kit", "sources": ["frontend/src/styles/00-ui-kit.css", "frontend/src/styles/legacy-primitives.css"], "prefixes": ["empty-state", "touch-", "ui-"] },
-    { "id": "shell", "sources": ["frontend/src/styles/shell.css", "frontend/src/styles/shell-responsive.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["app-", "sidebar", "mobile-"] },
+    { "id": "shell", "sources": ["frontend/src/styles/shell.css", "frontend/src/styles/shell-responsive.css", "frontend/src/styles/compatibility-responsive.css"], "prefixes": ["app-", "sidebar", "mobile-"] },
     { "id": "home", "sources": ["frontend/src/styles/01-home-dashboard.css", "frontend/src/styles/home-responsive.css"], "prefixes": ["dashboard-", "home-", "mobile-dashboard-", "mobile-home-"] },
     { "id": "eat", "sources": ["frontend/src/styles/12-eat-workspace.css", "frontend/src/styles/eat-responsive.css"], "prefixes": ["eat-"] },
     { "id": "recipe", "sources": ["frontend/src/styles/03-recipe-workspace.css", "frontend/src/styles/recipe-responsive.css"], "prefixes": ["recipe-", "mobile-recipe-"] },
@@ -14,12 +14,12 @@
     { "id": "ai", "sources": ["frontend/src/styles/09-ai-draft-ui.css", "frontend/src/styles/09-ai-workspace.css", "frontend/src/styles/09-global-search.css"], "prefixes": ["ai-", "global-search-"] },
     { "id": "family", "sources": ["frontend/src/styles/02-family-settings.css", "frontend/src/styles/15-family-model-settings.css", "frontend/src/styles/family-responsive.css"], "prefixes": ["family-", "mobile-family-"] },
     { "id": "model-usage", "sources": ["frontend/src/styles/14-model-usage.css"], "prefixes": ["model-usage-"] },
-    { "id": "compatibility", "sources": ["frontend/src/styles/05-workspace-overlays.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["workspace-modal", "workspace-overlay-"] }
+    { "id": "compatibility", "sources": ["frontend/src/styles/05-workspace-overlays.css", "frontend/src/styles/compatibility-responsive.css"], "prefixes": ["workspace-modal", "workspace-overlay-"] }
   ],
   "selectors": [
     { "selector": ":root", "owner": "foundation", "source": "frontend/src/styles/00-foundation.css", "consumers": ["frontend/src/styles"], "sharedWith": [], "dynamic": false, "deleteWhen": "Never while canonical tokens exist", "test": "frontend/scripts/style-contract.test.mjs" },
     { "selector": ".empty-state", "owner": "ui-kit", "source": "frontend/src/styles/00-ui-kit.css", "consumers": ["frontend/src/components"], "sharedWith": [], "dynamic": false, "deleteWhen": "No ui-kit consumer remains", "test": "frontend/scripts/dead-selectors.test.mjs" },
-    { "selector": ".app-shell", "owner": "shell", "source": "frontend/src/styles/07-mobile.css", "consumers": ["frontend/src/app/AppShell.tsx"], "sharedWith": ["compatibility"], "dynamic": false, "deleteWhen": "AppShell is retired", "test": "frontend/src/app/AppShell.test.tsx" },
+    { "selector": ".app-shell", "owner": "shell", "source": "frontend/src/styles/compatibility-responsive.css", "consumers": ["frontend/src/app/AppShell.tsx"], "sharedWith": ["compatibility"], "dynamic": false, "deleteWhen": "AppShell is retired", "test": "frontend/src/app/AppShell.test.tsx" },
     { "selector": ".dashboard-page", "owner": "home", "source": "frontend/src/styles/01-home-dashboard.css", "consumers": ["frontend/src/components/home"], "sharedWith": [], "dynamic": false, "deleteWhen": "Home dashboard route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
     { "selector": ".eat-workspace", "owner": "eat", "source": "frontend/src/styles/12-eat-workspace.css", "consumers": ["frontend/src/features/eat"], "sharedWith": [], "dynamic": false, "deleteWhen": "Eat workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
     { "selector": ".recipe-workspace", "owner": "recipe", "source": "frontend/src/styles/03-recipe-workspace.css", "consumers": ["frontend/src/components/recipes"], "sharedWith": [], "dynamic": false, "deleteWhen": "Recipe workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },

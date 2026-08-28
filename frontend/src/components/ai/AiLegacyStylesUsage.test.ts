@@ -43,7 +43,7 @@ describe('AI legacy style cleanup', () => {
     const entry = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
     const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
     const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
-    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/compatibility-responsive.css'), 'utf8');
 
     expect(entry).toContain("@import './styles/09-ai-draft-ui.css' layer(domain);");
     expect(draftStyles).toContain('.ai-draft-summary-card');

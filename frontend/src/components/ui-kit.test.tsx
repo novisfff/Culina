@@ -111,7 +111,7 @@ describe('WorkspaceOverlayShell', () => {
   it('keeps mobile drawer footer actions hierarchical and compact', () => {
     const foundationStyles = readFileSync(resolve(repoRoot, 'styles/00-foundation.css'), 'utf8');
     const uiKitStyles = readFileSync(resolve(repoRoot, 'styles/00-ui-kit.css'), 'utf8');
-    const mobileStyles = readFileSync(resolve(repoRoot, 'styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'styles/compatibility-responsive.css'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'styles/06-food-workspace.css'), 'utf8');
 
     expect(foundationStyles).not.toContain('.ui-form-actions-row');

@@ -43,7 +43,7 @@
       "expiresAt": "2027-08-27",
       "replacement": "767px, 768-1023px, and 1024px canonical tiers or registered layout exceptions",
       "test": "frontend/scripts/frontend-health-metrics.test.mjs",
-      "consumers": ["frontend/src/styles/07-mobile.css"]
+      "consumers": ["frontend/src/styles/compatibility-responsive.css"]
     },
     {
       "metric": "compatibility-alias",
