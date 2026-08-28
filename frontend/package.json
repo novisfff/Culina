@@ -25,6 +25,7 @@
     "check:governance": "node scripts/check-frontend-governance.mjs",
     "check:release-governance": "node scripts/release-governance-check.mjs",
     "route-transfer-report": "node scripts/route-transfer-report.mjs",
+    "rollback:bundle-entry": "node scripts/rollback-bundle-rollout.mjs",
     "check:css-governance": "node scripts/style-contract.mjs",
     "check:css-layers": "node scripts/css-layer-contract.mjs",
     "report:dead-selectors": "node scripts/dead-selectors.mjs",
