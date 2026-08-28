@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { VersionedInventoryItemRef } from '../../api/types';
+import type { VersionedInventoryItemRef } from '../../api/types/inventory';
 import {
   ActionButton,
   FormActions,

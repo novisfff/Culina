@@ -8,7 +8,7 @@ import type {
   InventoryReconciliationResponse,
   InventoryStatus,
   VersionedObservedBatchRequest,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import { calendarDaysBetweenDateKeys, hoursBetweenInstants } from '../../lib/date';
 import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
 import {

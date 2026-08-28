@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { InventoryOperationResult } from '../../api/types';
+import type { InventoryOperationResult } from '../../api/types/inventory';
 import { ActionButton } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 

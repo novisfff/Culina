@@ -5,7 +5,7 @@ import type {
   IngredientInventoryState,
   ShoppingIntakeResult,
   ShoppingListItem,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import {
   buildShoppingIntakeDraft,
   canAdvanceToReview,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import type { ShoppingIntakeResult } from '../../api/types';
+import type { ShoppingIntakeResult } from '../../api/types/inventory';
 import {
   ActionButton,
   DropdownSelect,

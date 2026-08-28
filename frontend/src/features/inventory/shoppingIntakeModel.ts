@@ -7,7 +7,7 @@ import type {
   ShoppingIntakeItemRequest,
   ShoppingIntakeRequest,
   ShoppingListItem,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import { addCalendarDaysToDateKey } from '../../lib/date';
 import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
