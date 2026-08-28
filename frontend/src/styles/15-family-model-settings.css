@@ -3222,8 +3222,8 @@ input:checked + .family-model-settings-switch-track::after,
   .family-model-settings-workspace *,
   .family-model-settings-mobile-page * {
     scroll-behavior: auto;
-    transition: none !important;
-    transform: none !important;
+    transition: none;
+    transform: none;
   }
 
   .family-model-settings-test-spinner {

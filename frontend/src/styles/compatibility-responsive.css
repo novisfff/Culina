@@ -56,8 +56,7 @@
 
 }
 
-@media (min-width: 560px) and (max-width: 767px) {
-}
+
 
 
 @media (max-width: 767px) {
@@ -460,9 +459,9 @@
     max-height: var(--home-sheet-close-height);
     padding: 0;
     border: 0;
-    border-radius: 15px !important;
-    background: #f7f3f0 !important;
-    color: #74655b !important;
+    border-radius: 15px;
+    background: #f7f3f0;
+    color: #74655b;
     font-size: var(--home-sheet-close-font-size);
     font-weight: 900;
     line-height: 1;
@@ -479,9 +478,9 @@
     max-height: var(--home-sheet-close-height);
     padding: 0;
     border: 0;
-    border-radius: 15px !important;
-    background: #f7f3f0 !important;
-    color: #74655b !important;
+    border-radius: 15px;
+    background: #f7f3f0;
+    color: #74655b;
     font-size: var(--home-sheet-close-font-size);
     font-weight: 900;
     line-height: 1;
@@ -518,7 +517,7 @@
     .destroy-expired-row,
     .ingredients-restock-identity-card
   ) {
-    box-shadow: none !important;
+    box-shadow: none;
   }
 
   .workspace-overlay-root .workspace-drawer > .workspace-overlay-body {
@@ -761,43 +760,43 @@
   }
 
   .workspace-overlay-root .workspace-modal-sheet {
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     touch-action: pan-y;
   }
 
   .workspace-overlay-root .workspace-drawer-sheet {
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     touch-action: pan-y;
   }
 
   .workspace-overlay-root .workspace-modal-sheet > .workspace-overlay-head {
-    flex: 0 0 auto !important;
-    overflow: hidden !important;
+    flex: 0 0 auto;
+    overflow: hidden;
   }
 
   .workspace-overlay-root .workspace-drawer-sheet > .workspace-overlay-head {
-    flex: 0 0 auto !important;
-    overflow: hidden !important;
+    flex: 0 0 auto;
+    overflow: hidden;
   }
 
   .workspace-overlay-root .workspace-modal-sheet > .workspace-overlay-body {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
 
   .workspace-overlay-root .workspace-drawer-sheet > .workspace-overlay-body {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
@@ -809,7 +808,7 @@
     .text-input,
     .compact-input
   ) {
-    font-size: 16px !important;
+    font-size: 16px;
   }
 
 }
@@ -826,25 +825,25 @@
 
   .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row,
   .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row {
-    display: grid !important;
-    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
-    gap: 10px !important;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
     width: 100%;
-    padding: 0 !important;
+    padding: 0;
   }
 
   .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > .ui-form-actions-spacer,
   .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > .ui-form-actions-spacer {
-    display: none !important;
+    display: none;
   }
 
   .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > button,
   .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > button {
     grid-column: span 2;
-    width: 100% !important;
-    min-width: 0 !important;
-    min-height: 52px !important;
-    margin: 0 !important;
+    width: 100%;
+    min-width: 0;
+    min-height: 52px;
+    margin: 0;
   }
 
   .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > button:only-of-type,
@@ -896,26 +895,25 @@
 
 @media (max-width: 767px) {
   .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-content: stretch;
-    gap: 10px !important;
+    gap: 10px;
   }
 
   .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row > button {
-    grid-column: auto !important;
+    grid-column: auto;
   }
 
   .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions:is(.is-standard, .is-editing) .ui-form-actions-row > .ui-form-actions-primary {
-    grid-column: 1 / -1 !important;
+    grid-column: 1 / -1;
   }
 
   .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions.is-recorded .ui-form-actions-row {
-    grid-template-columns: minmax(0, 1.7fr) minmax(112px, 0.8fr) !important;
+    grid-template-columns: minmax(0, 1.7fr) minmax(112px, 0.8fr);
   }
 }
 
-@media (max-width: 767px) {
-}
+
 
 @media (prefers-reduced-motion: reduce) {
   .home-compact-day-toggle-action svg {
@@ -939,10 +937,4 @@
     animation: none;
   }
 }
-
-@media (max-width: 767px) {
-}
-
 /* Food editor body only. The shared mobile sheet remains owned by ui-kit. */
-@media (max-width: 767px) {
-}

@@ -1683,391 +1683,9 @@
   }
 }
 
-@media (min-width: 768px) and (max-width: 1023px) {
-  .model-usage-workspace {
-    gap: var(--space-6);
-  }
 
-  .model-usage-header {
-    grid-template-columns: minmax(0, 1fr);
-  }
 
-  .model-usage-header-controls {
-    justify-content: flex-start;
-  }
 
-  .model-usage-capability-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .model-usage-budget {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-usage-budget-facts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .model-usage-scope-toggle button,
-  .model-usage-period-field input,
-  .model-usage-group-field select,
-  .model-usage-policy-entry,
-  .model-usage-policy-field input,
-  .model-usage-policy-field select {
-    min-height: var(--control-height-touch);
-  }
-}
-
-@media (max-width: 767px) {
-  .app-shell:has(.model-usage-policy-mobile) .mobile-bottom-nav {
-    display: none;
-  }
-
-  .model-usage-workspace {
-    width: min(100%, 480px);
-    margin: 0 auto;
-    gap: var(--space-5);
-    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .model-usage-header,
-  .model-usage-budget,
-  .model-usage-attention,
-  .model-usage-capabilities,
-  .model-usage-breakdown,
-  .model-usage-health {
-    padding: var(--space-5);
-  }
-
-  .model-usage-header-copy h1,
-  .model-usage-section-head h2,
-  .model-usage-mobile-section-head h2 {
-    font-size: var(--text-md);
-  }
-
-  .model-usage-mobile {
-    gap: var(--space-5);
-  }
-
-  .model-usage-mobile-header {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-4);
-    padding: var(--space-4) 0 0;
-  }
-
-  .model-usage-mobile-title-row {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: var(--tap-min) minmax(0, 1fr);
-    align-items: center;
-    gap: var(--space-3);
-  }
-
-  .model-usage-mobile-back {
-    width: var(--tap-min);
-    height: var(--tap-min);
-    padding: 0;
-  }
-
-  .model-usage-mobile-title-row > div {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-1);
-  }
-
-  .model-usage-mobile-title-row p {
-    margin: 0;
-    color: var(--accent-strong);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    line-height: 1.3;
-  }
-
-  .model-usage-mobile-title-row h1 {
-    margin: 0;
-    color: var(--text);
-    font-size: var(--text-xl);
-    font-weight: 700;
-    line-height: 1.25;
-  }
-
-  .model-usage-mobile-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: end;
-  }
-
-  .model-usage-mobile-controls > label {
-    min-width: 0;
-  }
-
-  .model-usage-mobile-controls .model-usage-policy-entry {
-    grid-column: 1 / -1;
-    width: 100%;
-    min-height: var(--control-height-touch);
-  }
-
-  .model-usage-scope-toggle,
-  .model-usage-mobile-controls input {
-    width: 100%;
-  }
-
-  .model-usage-scope-toggle button,
-  .model-usage-mobile-controls input,
-  .model-usage-mobile-breakdown select,
-  .model-usage-policy-field input,
-  .model-usage-policy-field select,
-  .model-usage-policy-toggle,
-  .model-usage-price-confirmation {
-    min-height: var(--control-height-touch);
-  }
-
-  .model-usage-policy-mobile {
-    gap: var(--space-5);
-  }
-
-  .model-usage-policy-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-usage-policy-summary-head {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-4);
-  }
-
-  .model-usage-policy-summary-head strong {
-    font-size: var(--text-lg);
-    text-align: right;
-  }
-
-  .model-usage-policy-summary-facts {
-    gap: var(--space-2);
-    padding: var(--space-3);
-  }
-
-  .model-usage-policy-summary-facts span {
-    padding-inline: var(--space-2);
-  }
-
-  .model-usage-policy-section {
-    padding: var(--space-5);
-  }
-
-  .model-usage-policy-money-input {
-    min-height: var(--control-height-touch);
-  }
-
-  .model-usage-policy-money-input input {
-    min-height: calc(var(--control-height-touch) - 2px);
-  }
-
-  .model-usage-policy-guardrail-expand {
-    grid-template-columns: minmax(0, 1fr) 18px;
-    gap: var(--space-2);
-    padding-right: var(--space-3);
-  }
-
-  .model-usage-policy-guardrail-copy {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .model-usage-policy-guardrail-expand > span:nth-child(2) {
-    grid-column: 1;
-    grid-row: 2;
-    max-width: none;
-    text-align: left;
-  }
-
-  .model-usage-policy-guardrail-expand svg {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-
-  .model-usage-policy-guardrail-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-usage-policy-conflict-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-usage-policy-conflict-actions > button {
-    width: 100%;
-    min-height: var(--control-height-touch);
-  }
-
-  .model-usage-policy-mobile-footer .ui-form-actions-row {
-    display: grid;
-    grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
-    align-items: stretch;
-  }
-
-  .model-usage-policy-mobile-footer .ui-form-actions-spacer {
-    display: none;
-  }
-
-  .model-usage-policy-mobile-footer .ui-form-actions-row > button {
-    width: 100%;
-    min-height: var(--control-height-touch);
-  }
-
-  .model-usage-refresh-error,
-  .model-usage-mobile-partial {
-    margin: 0;
-  }
-
-  .model-usage-mobile-attention {
-    display: grid;
-    gap: var(--space-2);
-    padding: var(--space-4);
-    border: 1px solid var(--warning-line);
-    border-radius: var(--radius-sm);
-    background: var(--warning-soft);
-  }
-
-  .model-usage-mobile-attention strong {
-    color: var(--warning);
-    font-size: var(--text-base);
-    font-weight: 600;
-    line-height: 1.4;
-  }
-
-  .model-usage-mobile-cost-card {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-4);
-    padding: var(--space-5);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .model-usage-mobile-cost-card dl {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-3);
-    margin: 0;
-  }
-
-  .model-usage-mobile-capabilities,
-  .model-usage-mobile-breakdown {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-4);
-  }
-
-  .model-usage-mobile-section-head {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-  }
-
-  .model-usage-mobile-capabilities > ul,
-  .model-usage-mobile-breakdown > ul {
-    display: grid;
-    gap: 0;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-sm);
-    background: var(--surface-2);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .model-usage-mobile-capabilities li,
-  .model-usage-mobile-breakdown li {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid var(--line-soft);
-  }
-
-  .model-usage-mobile-capabilities li:last-child,
-  .model-usage-mobile-breakdown li:last-child {
-    border-bottom: 0;
-  }
-
-  .model-usage-mobile-cap-copy {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-  }
-
-  .model-usage-mobile-cap-copy > div {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-1);
-  }
-
-  .model-usage-mobile-capabilities li strong,
-  .model-usage-mobile-breakdown li strong {
-    min-width: 0;
-    color: var(--text);
-    font-size: var(--text-body);
-    font-weight: 600;
-    line-height: 1.4;
-    overflow-wrap: anywhere;
-  }
-
-  .model-usage-mobile-capabilities li small {
-    color: var(--text-soft);
-    font-size: var(--text-sm);
-    line-height: 1.4;
-  }
-
-  .model-usage-mobile-capabilities li > span,
-  .model-usage-mobile-breakdown li > span {
-    width: max-content;
-    min-width: 5ch;
-    max-width: 52%;
-    justify-self: end;
-    color: var(--text);
-    font-size: var(--text-meta);
-    font-weight: 700;
-    line-height: 1.4;
-    text-align: right;
-    overflow-wrap: anywhere;
-  }
-
-  .model-usage-mobile-breakdown > p {
-    margin: 0;
-    color: var(--text-soft);
-    font-size: var(--text-body);
-    line-height: 1.5;
-  }
-
-  .model-usage-health.is-compact {
-    gap: var(--space-4);
-  }
-
-  .model-usage-health.is-compact .model-usage-health-list li {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2);
-  }
-
-  .model-usage-health.is-compact .model-usage-health-list p,
-  .model-usage-health.is-compact .model-usage-health-list small {
-    grid-column: 1;
-  }
-
-  .mobile-family-model-usage-entry {
-    min-height: var(--control-height-touch);
-  }
-}
 
 .model-usage-request-logs-entry {
   width: 100%;
@@ -2367,52 +1985,7 @@
   color: var(--text);
 }
 
-@media (max-width: 767px) {
-  .model-usage-request-page-header {
-    align-items: start;
-    gap: var(--space-3);
-    padding: var(--space-4);
-  }
 
-  .model-usage-request-filters {
-    gap: var(--space-4);
-    padding: var(--space-4);
-  }
-
-  .model-usage-request-filters-head {
-    display: grid;
-    gap: var(--space-3);
-    padding-bottom: var(--space-3);
-  }
-
-  .model-usage-request-filters-head .model-usage-scope-toggle {
-    width: 100%;
-  }
-
-  .model-usage-request-filters-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-3);
-  }
-
-  .model-usage-request-date-range,
-  .model-usage-request-model-filter,
-  .model-usage-request-provider-filter {
-    grid-column: 1 / -1;
-  }
-
-  .model-usage-request-filter-actions button {
-    flex: 1 1 0;
-    min-height: var(--control-height-touch);
-  }
-
-  .model-usage-request-page-header h1 {
-    font-size: var(--text-xl);
-  }
-
-  .model-usage-request-page-header small {
-    line-height: 1.45;
-  }
-}
 
 .model-usage-request-log-list {
   display: grid;
@@ -2475,22 +2048,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 767px) {
-  .model-usage-request-log {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-2) var(--space-3);
-    padding: var(--space-4);
-  }
 
-  .model-usage-request-log-main,
-  .model-usage-request-log-meters {
-    grid-column: 1 / -1;
-  }
-
-  .model-usage-request-log-cost {
-    grid-column: 1;
-  }
-}
 
 /* Fee breakdown table: align comparable values like a usage ledger. */
 .model-usage-breakdown-table {
@@ -2697,78 +2255,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 767px) {
-  .model-usage-breakdown-table {
-    display: block;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--line-soft);
-  }
 
-  .model-usage-breakdown-table thead {
-    display: none;
-  }
-
-  .model-usage-breakdown-table tbody {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .model-usage-breakdown-table tbody tr {
-    min-width: 0;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2) var(--space-3);
-    padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid var(--line-soft);
-    background: var(--surface);
-  }
-
-  .model-usage-breakdown-table tbody tr:last-child {
-    border-bottom: 0;
-  }
-
-  .model-usage-breakdown-table tbody th {
-    display: block;
-    flex: 1 1 auto;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    font-size: var(--text-body);
-    font-weight: 700;
-    color: var(--text);
-    text-align: left;
-  }
-
-  .model-usage-breakdown-table tbody td.is-numeric {
-    display: block;
-    flex: 0 0 auto;
-    padding: 0;
-    border: 0;
-    font-size: var(--text-base);
-    font-weight: 700;
-    color: var(--accent-strong);
-    text-align: right;
-  }
-
-  .model-usage-breakdown-table tbody td:not(.is-numeric) {
-    display: inline-flex;
-    align-items: center;
-    padding: 0;
-    border: 0;
-    font-size: var(--text-sm);
-  }
-
-  .model-usage-breakdown-table tbody td::before {
-    display: none;
-  }
-
-  .model-usage-breakdown-cost {
-    font-size: var(--text-base);
-    font-weight: 700;
-  }
-}
 
 /* Fee breakdown: compact ledger hierarchy with the filter owned by the list. */
 .model-usage-desktop .model-usage-breakdown-ledger {
@@ -3365,7 +2852,40 @@
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
-  .model-usage-summary {
+.model-usage-workspace {
+    gap: var(--space-6);
+  }
+
+  .model-usage-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-usage-header-controls {
+    justify-content: flex-start;
+  }
+
+  .model-usage-capability-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .model-usage-budget {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-usage-budget-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .model-usage-scope-toggle button,
+  .model-usage-period-field input,
+  .model-usage-group-field select,
+  .model-usage-policy-entry,
+  .model-usage-policy-field input,
+  .model-usage-policy-field select {
+    min-height: var(--control-height-touch);
+  }
+
+.model-usage-summary {
     grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
   }
 
@@ -3380,153 +2900,7 @@
   }
 }
 
-@media (max-width: 767px) {
-  .model-usage-workspace {
-    gap: var(--space-5);
-    padding-bottom: calc(var(--space-9) + 96px + env(safe-area-inset-bottom, 0px));
-  }
 
-  .model-usage-mobile-state {
-    min-height: calc(100dvh - 120px - env(safe-area-inset-bottom, 0px));
-    align-content: center;
-    padding-bottom: var(--space-7);
-  }
-
-  .model-usage-mobile-state > .ui-state-block {
-    width: 100%;
-  }
-
-  .model-usage-mobile-header {
-    padding-top: var(--space-4);
-    gap: var(--space-3);
-  }
-
-  .model-usage-mobile-title-row {
-    grid-template-columns: var(--tap-min) minmax(0, 1fr) auto;
-    align-items: center;
-  }
-
-  .model-usage-mobile-title-row .model-usage-policy-entry {
-    grid-column: 3;
-    grid-row: 1;
-    justify-self: end;
-    min-height: var(--control-height-touch);
-    margin-top: 0;
-    padding-inline: var(--space-3);
-    font-size: var(--text-sm);
-  }
-
-  .model-usage-mobile-controls {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
-    align-items: start;
-    gap: var(--space-3);
-  }
-
-  .model-usage-mobile-controls .model-usage-scope-toggle {
-    display: flex;
-    width: 100%;
-    align-self: end;
-    min-height: var(--control-height-touch);
-    height: var(--control-height-touch);
-    box-sizing: border-box;
-  }
-
-  .model-usage-mobile-controls .model-usage-scope-toggle button {
-    flex: 1 1 0px;
-    width: 50%;
-    min-height: var(--control-height-touch);
-    padding-inline: var(--space-2);
-    text-align: center;
-  }
-
-  .model-usage-mobile-controls .model-usage-period-input-wrapper {
-    width: 100%;
-    min-height: var(--control-height-touch);
-    padding-inline: var(--space-3);
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-
-  .model-usage-mobile-controls .model-usage-period-input-wrapper input {
-    width: 0;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .model-usage-mobile-controls > label {
-    gap: 2px;
-  }
-
-  .model-usage-mobile-controls > label input {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .model-usage-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .model-usage-summary-primary,
-  .model-usage-summary-budget,
-  .model-usage-summary-state {
-    padding: var(--space-5);
-  }
-
-  .model-usage-summary-budget,
-  .model-usage-summary-state {
-    border-top: 1px solid var(--line-soft);
-    border-left: 0;
-  }
-
-  .model-usage-summary-budget dl,
-  .model-usage-alert-facts {
-    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
-    gap: var(--space-4);
-  }
-
-  .model-usage-summary-budget dl > div,
-  .model-usage-alert-facts > div,
-  .model-usage-summary-budget dl > div:first-child,
-  .model-usage-alert-facts > div:first-child {
-    padding: 0;
-    border-left: 0;
-  }
-
-  .model-usage-attention {
-    padding: var(--space-5);
-  }
-
-  .model-usage-attention-head {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-3);
-  }
-
-  .model-usage-empty {
-    align-items: flex-start;
-    padding: var(--space-5);
-  }
-
-  .model-usage-mobile-capabilities > ul,
-  .model-usage-mobile-breakdown > ul {
-    background: var(--surface-warm);
-    box-shadow: none;
-  }
-
-  .model-usage-mobile-breakdown-copy {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-1);
-  }
-
-  .model-usage-mobile-breakdown .model-usage-breakdown-details {
-    display: grid;
-    gap: var(--space-1);
-  }
-
-  .model-usage-health:not(.is-embedded) {
-    padding: var(--space-5);
-  }
-}
 
 @media (max-width: 380px) {
   .model-usage-mobile-title-row {
@@ -3545,36 +2919,7 @@
   }
 }
 
-@media (max-width: 767px) {
-  /* Keep each capability row scannable without turning every status into a tall card. */
-  .model-usage-breakdown-table tbody tr {
-    padding: var(--space-3) var(--space-4);
-  }
 
-  .model-usage-breakdown-table tbody th,
-  .model-usage-breakdown-table tbody td {
-    padding-block: 2px;
-  }
-
-  .model-usage-breakdown-table tbody td:not(.is-numeric) {
-    grid-template-columns: 56px minmax(0, 1fr);
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .model-usage-breakdown-table tbody td:not(.is-numeric) .model-usage-table-status {
-    justify-self: start;
-  }
-
-  .model-usage-breakdown-table tbody th strong {
-    line-height: 1.3;
-  }
-
-  .model-usage-breakdown-table--capability tbody td:nth-of-type(2),
-  .model-usage-breakdown-table--subject tbody td:nth-of-type(2) {
-    margin-top: var(--space-1);
-  }
-}
 
 /* The application shell keeps its own navigation rail on tablets. Reflow by
    the actual content width so the ledger never compresses into unreadable
@@ -4164,7 +3509,662 @@
 }
 
 @media (max-width: 767px) {
-  .model-usage-insights {
+.app-shell:has(.model-usage-policy-mobile) .mobile-bottom-nav {
+    display: none;
+  }
+
+  .model-usage-workspace {
+    width: min(100%, 480px);
+    margin: 0 auto;
+    gap: var(--space-5);
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .model-usage-header,
+  .model-usage-budget,
+  .model-usage-attention,
+  .model-usage-capabilities,
+  .model-usage-breakdown,
+  .model-usage-health {
+    padding: var(--space-5);
+  }
+
+  .model-usage-header-copy h1,
+  .model-usage-section-head h2,
+  .model-usage-mobile-section-head h2 {
+    font-size: var(--text-md);
+  }
+
+  .model-usage-mobile {
+    gap: var(--space-5);
+  }
+
+  .model-usage-mobile-header {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-4) 0 0;
+  }
+
+  .model-usage-mobile-title-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: var(--tap-min) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .model-usage-mobile-back {
+    width: var(--tap-min);
+    height: var(--tap-min);
+    padding: 0;
+  }
+
+  .model-usage-mobile-title-row > div {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .model-usage-mobile-title-row p {
+    margin: 0;
+    color: var(--accent-strong);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .model-usage-mobile-title-row h1 {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .model-usage-mobile-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .model-usage-mobile-controls > label {
+    min-width: 0;
+  }
+
+  .model-usage-mobile-controls .model-usage-policy-entry {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-scope-toggle,
+  .model-usage-mobile-controls input {
+    width: 100%;
+  }
+
+  .model-usage-scope-toggle button,
+  .model-usage-mobile-controls input,
+  .model-usage-mobile-breakdown select,
+  .model-usage-policy-field input,
+  .model-usage-policy-field select,
+  .model-usage-policy-toggle,
+  .model-usage-price-confirmation {
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-policy-mobile {
+    gap: var(--space-5);
+  }
+
+  .model-usage-policy-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-usage-policy-summary-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .model-usage-policy-summary-head strong {
+    font-size: var(--text-lg);
+    text-align: right;
+  }
+
+  .model-usage-policy-summary-facts {
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .model-usage-policy-summary-facts span {
+    padding-inline: var(--space-2);
+  }
+
+  .model-usage-policy-section {
+    padding: var(--space-5);
+  }
+
+  .model-usage-policy-money-input {
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-policy-money-input input {
+    min-height: calc(var(--control-height-touch) - 2px);
+  }
+
+  .model-usage-policy-guardrail-expand {
+    grid-template-columns: minmax(0, 1fr) 18px;
+    gap: var(--space-2);
+    padding-right: var(--space-3);
+  }
+
+  .model-usage-policy-guardrail-copy {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .model-usage-policy-guardrail-expand > span:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+    max-width: none;
+    text-align: left;
+  }
+
+  .model-usage-policy-guardrail-expand svg {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .model-usage-policy-guardrail-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-usage-policy-conflict-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-usage-policy-conflict-actions > button {
+    width: 100%;
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-policy-mobile-footer .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+    align-items: stretch;
+  }
+
+  .model-usage-policy-mobile-footer .ui-form-actions-spacer {
+    display: none;
+  }
+
+  .model-usage-policy-mobile-footer .ui-form-actions-row > button {
+    width: 100%;
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-refresh-error,
+  .model-usage-mobile-partial {
+    margin: 0;
+  }
+
+  .model-usage-mobile-attention {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--warning-line);
+    border-radius: var(--radius-sm);
+    background: var(--warning-soft);
+  }
+
+  .model-usage-mobile-attention strong {
+    color: var(--warning);
+    font-size: var(--text-base);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .model-usage-mobile-cost-card {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .model-usage-mobile-cost-card dl {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+
+  .model-usage-mobile-capabilities,
+  .model-usage-mobile-breakdown {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .model-usage-mobile-section-head {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .model-usage-mobile-capabilities > ul,
+  .model-usage-mobile-breakdown > ul {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .model-usage-mobile-capabilities li,
+  .model-usage-mobile-breakdown li {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .model-usage-mobile-capabilities li:last-child,
+  .model-usage-mobile-breakdown li:last-child {
+    border-bottom: 0;
+  }
+
+  .model-usage-mobile-cap-copy {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .model-usage-mobile-cap-copy > div {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .model-usage-mobile-capabilities li strong,
+  .model-usage-mobile-breakdown li strong {
+    min-width: 0;
+    color: var(--text);
+    font-size: var(--text-body);
+    font-weight: 600;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .model-usage-mobile-capabilities li small {
+    color: var(--text-soft);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+  }
+
+  .model-usage-mobile-capabilities li > span,
+  .model-usage-mobile-breakdown li > span {
+    width: max-content;
+    min-width: 5ch;
+    max-width: 52%;
+    justify-self: end;
+    color: var(--text);
+    font-size: var(--text-meta);
+    font-weight: 700;
+    line-height: 1.4;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .model-usage-mobile-breakdown > p {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: var(--text-body);
+    line-height: 1.5;
+  }
+
+  .model-usage-health.is-compact {
+    gap: var(--space-4);
+  }
+
+  .model-usage-health.is-compact .model-usage-health-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .model-usage-health.is-compact .model-usage-health-list p,
+  .model-usage-health.is-compact .model-usage-health-list small {
+    grid-column: 1;
+  }
+
+  .mobile-family-model-usage-entry {
+    min-height: var(--control-height-touch);
+  }
+
+.model-usage-request-page-header {
+    align-items: start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .model-usage-request-filters {
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+
+  .model-usage-request-filters-head {
+    display: grid;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+  }
+
+  .model-usage-request-filters-head .model-usage-scope-toggle {
+    width: 100%;
+  }
+
+  .model-usage-request-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .model-usage-request-date-range,
+  .model-usage-request-model-filter,
+  .model-usage-request-provider-filter {
+    grid-column: 1 / -1;
+  }
+
+  .model-usage-request-filter-actions button {
+    flex: 1 1 0;
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-request-page-header h1 {
+    font-size: var(--text-xl);
+  }
+
+  .model-usage-request-page-header small {
+    line-height: 1.45;
+  }
+
+.model-usage-request-log {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .model-usage-request-log-main,
+  .model-usage-request-log-meters {
+    grid-column: 1 / -1;
+  }
+
+  .model-usage-request-log-cost {
+    grid-column: 1;
+  }
+
+.model-usage-breakdown-table {
+    display: block;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-soft);
+  }
+
+  .model-usage-breakdown-table thead {
+    display: none;
+  }
+
+  .model-usage-breakdown-table tbody {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .model-usage-breakdown-table tbody tr {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--surface);
+  }
+
+  .model-usage-breakdown-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .model-usage-breakdown-table tbody th {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-body);
+    font-weight: 700;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .model-usage-breakdown-table tbody td.is-numeric {
+    display: block;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-base);
+    font-weight: 700;
+    color: var(--accent-strong);
+    text-align: right;
+  }
+
+  .model-usage-breakdown-table tbody td:not(.is-numeric) {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-sm);
+  }
+
+  .model-usage-breakdown-table tbody td::before {
+    display: none;
+  }
+
+  .model-usage-breakdown-cost {
+    font-size: var(--text-base);
+    font-weight: 700;
+  }
+
+.model-usage-workspace {
+    gap: var(--space-5);
+    padding-bottom: calc(var(--space-9) + 96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .model-usage-mobile-state {
+    min-height: calc(100dvh - 120px - env(safe-area-inset-bottom, 0px));
+    align-content: center;
+    padding-bottom: var(--space-7);
+  }
+
+  .model-usage-mobile-state > .ui-state-block {
+    width: 100%;
+  }
+
+  .model-usage-mobile-header {
+    padding-top: var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .model-usage-mobile-title-row {
+    grid-template-columns: var(--tap-min) minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .model-usage-mobile-title-row .model-usage-policy-entry {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    min-height: var(--control-height-touch);
+    margin-top: 0;
+    padding-inline: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .model-usage-mobile-controls {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+    align-items: start;
+    gap: var(--space-3);
+  }
+
+  .model-usage-mobile-controls .model-usage-scope-toggle {
+    display: flex;
+    width: 100%;
+    align-self: end;
+    min-height: var(--control-height-touch);
+    height: var(--control-height-touch);
+    box-sizing: border-box;
+  }
+
+  .model-usage-mobile-controls .model-usage-scope-toggle button {
+    flex: 1 1 0px;
+    width: 50%;
+    min-height: var(--control-height-touch);
+    padding-inline: var(--space-2);
+    text-align: center;
+  }
+
+  .model-usage-mobile-controls .model-usage-period-input-wrapper {
+    width: 100%;
+    min-height: var(--control-height-touch);
+    padding-inline: var(--space-3);
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .model-usage-mobile-controls .model-usage-period-input-wrapper input {
+    width: 0;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .model-usage-mobile-controls > label {
+    gap: 2px;
+  }
+
+  .model-usage-mobile-controls > label input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .model-usage-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-usage-summary-primary,
+  .model-usage-summary-budget,
+  .model-usage-summary-state {
+    padding: var(--space-5);
+  }
+
+  .model-usage-summary-budget,
+  .model-usage-summary-state {
+    border-top: 1px solid var(--line-soft);
+    border-left: 0;
+  }
+
+  .model-usage-summary-budget dl,
+  .model-usage-alert-facts {
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+    gap: var(--space-4);
+  }
+
+  .model-usage-summary-budget dl > div,
+  .model-usage-alert-facts > div,
+  .model-usage-summary-budget dl > div:first-child,
+  .model-usage-alert-facts > div:first-child {
+    padding: 0;
+    border-left: 0;
+  }
+
+  .model-usage-attention {
+    padding: var(--space-5);
+  }
+
+  .model-usage-attention-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .model-usage-empty {
+    align-items: flex-start;
+    padding: var(--space-5);
+  }
+
+  .model-usage-mobile-capabilities > ul,
+  .model-usage-mobile-breakdown > ul {
+    background: var(--surface-warm);
+    box-shadow: none;
+  }
+
+  .model-usage-mobile-breakdown-copy {
+    min-width: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .model-usage-mobile-breakdown .model-usage-breakdown-details {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .model-usage-health:not(.is-embedded) {
+    padding: var(--space-5);
+  }
+
+/* Keep each capability row scannable without turning every status into a tall card. */
+  .model-usage-breakdown-table tbody tr {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .model-usage-breakdown-table tbody th,
+  .model-usage-breakdown-table tbody td {
+    padding-block: 2px;
+  }
+
+  .model-usage-breakdown-table tbody td:not(.is-numeric) {
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .model-usage-breakdown-table tbody td:not(.is-numeric) .model-usage-table-status {
+    justify-self: start;
+  }
+
+  .model-usage-breakdown-table tbody th strong {
+    line-height: 1.3;
+  }
+
+  .model-usage-breakdown-table--capability tbody td:nth-of-type(2),
+  .model-usage-breakdown-table--subject tbody td:nth-of-type(2) {
+    margin-top: var(--space-1);
+  }
+
+.model-usage-insights {
     gap: var(--space-3);
   }
 

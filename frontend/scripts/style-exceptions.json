@@ -10,7 +10,8 @@
       "expiresAt": "2027-08-27",
       "replacement": "owned cascade layers without important",
       "test": "frontend/scripts/frontend-health-metrics.test.mjs",
-      "consumers": ["frontend/scripts/frontend-health-baseline.json"]
+      "consumers": ["frontend/scripts/frontend-health-baseline.json"],
+      "allowedCount": 648
     },
     {
       "metric": "business-specificity",
@@ -21,7 +22,8 @@
       "expiresAt": "2027-08-27",
       "replacement": "single-owner domain selectors",
       "test": "frontend/scripts/dead-selectors.test.mjs",
-      "consumers": ["frontend/src/styles"]
+      "consumers": ["frontend/src/styles"],
+      "allowedCount": 1368
     },
     {
       "metric": "attribute-selector",
@@ -32,7 +34,8 @@
       "expiresAt": "2027-08-27",
       "replacement": "registered dynamic selectors with domain ownership",
       "test": "frontend/scripts/dead-selectors.test.mjs",
-      "consumers": ["frontend/src/styles"]
+      "consumers": ["frontend/src/styles"],
+      "allowedCount": 150
     },
     {
       "metric": "noncanonical-media",
@@ -43,7 +46,8 @@
       "expiresAt": "2027-08-27",
       "replacement": "767px, 768-1023px, and 1024px canonical tiers or registered layout exceptions",
       "test": "frontend/scripts/frontend-health-metrics.test.mjs",
-      "consumers": ["frontend/src/styles/compatibility-responsive.css"]
+      "consumers": ["frontend/src/styles/compatibility-responsive.css"],
+      "allowedCount": 61
     },
     {
       "metric": "compatibility-alias",

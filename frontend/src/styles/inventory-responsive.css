@@ -3,7 +3,7 @@
 
   .workspace-overlay-root .destroy-expired-modal,
   .workspace-overlay-root .destroy-expired-modal * {
-    transition: none !important;
+    transition: none;
   }
 
   .workspace-overlay-root .destroy-expired-modal > .workspace-overlay-body {
@@ -31,7 +31,7 @@
     -webkit-overflow-scrolling: touch;
   }
   .workspace-overlay-root .inventory-action-modal.workspace-modal {
-    max-height: calc(100dvh - 12px) !important;
+    max-height: calc(100dvh - 12px);
   }
 
   .workspace-overlay-root .inventory-action-modal > .workspace-overlay-head {
@@ -39,11 +39,11 @@
   }
 
   .workspace-overlay-root .inventory-action-modal > .workspace-overlay-body {
-    display: flex !important;
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 0 16px 10px;
-    overflow: hidden !important;
+    overflow: hidden;
   }
 
   .workspace-overlay-root .inventory-action-modal .inventory-action-scroll {

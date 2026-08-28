@@ -2031,7 +2031,7 @@
 .dashboard-food-cover .media-placeholder-label,
 .dashboard-food-cover .media-placeholder-glow,
 .dashboard-food-cover .media-placeholder-spark {
-  display: none !important;
+  display: none;
 }
 
 /* Three-question desktop home */

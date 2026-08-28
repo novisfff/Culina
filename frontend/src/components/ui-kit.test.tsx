@@ -120,7 +120,8 @@ describe('WorkspaceOverlayShell', () => {
     expect(uiKitStyles).toContain('@media (max-width: 900px)');
     expect(uiKitStyles).toContain('.ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary');
     expect(uiKitStyles).toContain('button:nth-of-type(2):nth-last-of-type(2)');
-    expect(mobileStyles).toContain('grid-template-columns: repeat(6, minmax(0, 1fr)) !important;');
+    expect(mobileStyles).toContain('grid-template-columns: repeat(6, minmax(0, 1fr));');
+    expect(mobileStyles).not.toContain('grid-template-columns: repeat(6, minmax(0, 1fr)) !important;');
     expect(mobileStyles).toContain('.ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary');
     expect(mobileStyles).toContain('button:nth-of-type(3):nth-last-of-type(1)');
     expect(foodStyles).toContain('.food-detail-actions-mobile .ui-form-actions-row');

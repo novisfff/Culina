@@ -373,7 +373,7 @@
     min-height: var(--tap-min);
     max-height: var(--tap-min);
     padding: 0;
-    border-radius: 50% !important;
+    border-radius: 50%;
     aspect-ratio: 1;
   }
 

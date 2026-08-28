@@ -992,8 +992,8 @@
   .food-editor-modal .food-editor-usage-panel .food-editor-meal-card,
   .food-editor-modal .food-editor-usage-panel .food-editor-tag-card,
   .food-editor-modal .food-editor-usage-panel .food-editor-favorite-row {
-    grid-column: 1 !important;
-    grid-row: auto !important;
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .food-editor-modal .food-meal-checks {
@@ -1044,7 +1044,7 @@
   }
 
   .food-editor-modal > .workspace-overlay-footer .ui-form-actions-primary {
-    grid-column: 1 / -1 !important;
+    grid-column: 1 / -1;
   }
 
 

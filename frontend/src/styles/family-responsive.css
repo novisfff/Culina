@@ -1,20 +1,20 @@
 /* Family-owned responsive rules migrated from 07-mobile.css. */
 @media (max-width: 767px) {
   .family-settings-overlay-root .ui-form-actions-row {
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 10px !important;
-    width: 100% !important;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
     margin-top: 14px;
   }
 
   .family-settings-overlay-root .ui-form-actions-row button {
-    flex: 1 !important;
-    min-height: 44px !important;
-    border-radius: 14px !important;
-    font-size: 0.9rem !important;
-    font-weight: 800 !important;
+    flex: 1;
+    min-height: 44px;
+    border-radius: 14px;
+    font-size: 0.9rem;
+    font-weight: 800;
   }
 
   .family-settings-overlay-root .form-grid label > span {
@@ -715,7 +715,7 @@
   }
 
   .app-shell:has(.family-activity-mobile-page) .mobile-bottom-nav {
-    display: none !important;
+    display: none;
   }
 
   .family-activity-mobile-page {
@@ -779,14 +779,14 @@
   }
 
   .family-activity-viewer-filters {
-    background: rgba(255, 255, 255, 0.72) !important;
+    background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.6) !important;
-    padding: 12px !important;
-    border-radius: 16px !important;
-    box-shadow: 0 4px 20px rgba(122, 85, 62, 0.04) !important;
-    gap: 10px !important;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    padding: 12px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(122, 85, 62, 0.04);
+    gap: 10px;
   }
 
   .family-activity-viewer-date-presets {
@@ -804,18 +804,18 @@
     min-width: max-content;
     min-height: 34px;
     padding: 0 12px;
-    background: rgba(255, 255, 255, 0.65) !important;
-    border: 1px solid rgba(122, 85, 62, 0.08) !important;
-    color: #6a5b51 !important;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(122, 85, 62, 0.08);
+    color: #6a5b51;
     font-size: 0.8rem;
     border-radius: 999px;
   }
 
   .family-activity-viewer-date-presets button.active {
-    background: #d26b33 !important;
-    border-color: #d26b33 !important;
-    color: #ffffff !important;
-    box-shadow: 0 2px 6px rgba(210, 107, 51, 0.2) !important;
+    background: #d26b33;
+    border-color: #d26b33;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(210, 107, 51, 0.2);
   }
 
   .family-activity-viewer-custom-dates {
@@ -831,19 +831,19 @@
   .family-activity-viewer-custom-dates input {
     min-height: 36px;
     border-radius: 10px;
-    background-color: rgba(255, 255, 255, 0.88) !important;
-    border: 1px solid rgba(122, 85, 62, 0.12) !important;
-    color: #2f251e !important;
+    background-color: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(122, 85, 62, 0.12);
+    color: #2f251e;
   }
 
   .family-activity-viewer-select-grid > button {
     min-height: 36px;
     border-radius: 10px;
     font-size: 0.82rem;
-    background-color: rgba(122, 85, 62, 0.06) !important;
-    border: 1px solid rgba(122, 85, 62, 0.08) !important;
-    color: #5f4c40 !important;
-    font-weight: 800 !important;
+    background-color: rgba(122, 85, 62, 0.06);
+    border: 1px solid rgba(122, 85, 62, 0.08);
+    color: #5f4c40;
+    font-weight: 800;
   }
 
   .family-activity-viewer-row {

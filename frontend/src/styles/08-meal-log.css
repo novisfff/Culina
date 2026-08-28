@@ -1550,9 +1550,9 @@ span.meal-enrichment-add-food.is-disabled {
   min-height: 48px;
   display: inline-flex;
   align-items: center;
-  flex-shrink: 0 !important;
+  flex-shrink: 0;
   gap: 8px;
-  padding: 0 14px 0 12px !important;
+  padding: 0 14px 0 12px;
   border: 1px solid rgba(147, 96, 63, 0.12);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.86);
@@ -1584,11 +1584,11 @@ span.meal-enrichment-add-food.is-disabled {
   height: 28px;
   min-height: 28px;
   font-size: 0.82rem;
-  margin: 0 !important;
-  position: relative !important;
-  left: 0 !important;
-  transform: none !important;
-  flex-shrink: 0 !important;
+  margin: 0;
+  position: relative;
+  left: 0;
+  transform: none;
+  flex-shrink: 0;
 }
 
 .meal-enrichment-member-pills button i {
@@ -2121,7 +2121,7 @@ span.meal-enrichment-add-food.is-disabled {
     min-width: 0;
     min-height: 46px;
     justify-content: start;
-    padding: 0 12px 0 10px !important;
+    padding: 0 12px 0 10px;
     border-radius: 16px;
   }
 

@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -115,6 +115,9 @@ export async function loadStyleExceptions(exceptionsPath, {
     }
     validateDate(entry.introducedAt, `${label}.introducedAt`);
     validateDate(entry.expiresAt, `${label}.expiresAt`);
+    if (entry.allowedCount !== undefined && (!Number.isInteger(entry.allowedCount) || entry.allowedCount < 0)) {
+      throw new Error(`${label}.allowedCount must be a non-negative integer`);
+    }
     if (isExpired(entry.expiresAt, today)) {
       throw new Error(`${label} expired on ${entry.expiresAt}`);
     }
@@ -358,7 +361,30 @@ export async function scanCssTokens({ rootDir, stylesDir, contract, today = new 
 }
 
 
+function parseCliArguments(argv) {
+  const options = { format: 'json', mode: 'report' };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--format') options.format = argv[++index];
+    else if (argument === '--output') options.output = argv[++index];
+    else if (argument.startsWith('--mode=')) options.mode = argument.slice('--mode='.length);
+    else throw new Error(`unknown argument: ${argument}`);
+  }
+  if (!['json', 'markdown'].includes(options.format)) throw new Error(`unsupported format: ${options.format}`);
+  if (!['report', 'ratchet', 'target'].includes(options.mode)) throw new Error(`unsupported mode: ${options.mode}`);
+  return options;
+}
+
+
+function allowedCount(exceptions, metric) {
+  const entry = exceptions.find((candidate) => candidate.metric === metric && Number.isInteger(candidate.allowedCount));
+  if (!entry) throw new Error(`style exception ${metric} requires allowedCount`);
+  return entry.allowedCount;
+}
+
+
 async function runCli() {
+  const options = parseCliArguments(process.argv.slice(2));
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const frontendDir = path.dirname(scriptDir);
   const rootDir = path.dirname(frontendDir);
@@ -395,7 +421,43 @@ async function runCli() {
     classification: 'cascade-layer-contract',
     message,
   }));
-  const violations = [...tokenViolations, ...selectorViolations, ...layerViolations];
+  const { compareCssDebt, scanCssDebt } = await import('./css-ratchet.mjs');
+  const cssDebt = await scanCssDebt({
+    rootDir,
+    stylesDir: path.join(frontendDir, 'src', 'styles'),
+    ownership,
+  });
+  const debtComparison = compareCssDebt(cssDebt, {
+    important: allowedCount(exceptions, 'important'),
+    businessSpecificity: allowedCount(exceptions, 'business-specificity'),
+    attributeSelector: allowedCount(exceptions, 'attribute-selector'),
+    noncanonicalMedia: allowedCount(exceptions, 'noncanonical-media'),
+    mediaTotal: 180,
+  }, exceptions);
+  const cssTargetViolations = [];
+  const cssTargets = [
+    ['legacy-lines', cssDebt.legacyLines, 67_000],
+    ['important', cssDebt.important.length, 650],
+    ['media', cssDebt.mediaTotal, 180],
+    ['token-drift', result.drift.length, 25],
+    ['duplicate-selector', selectorSummary.duplicate, 1_100],
+  ];
+  for (const [metric, current, target] of cssTargets) {
+    if (current > target) cssTargetViolations.push({
+      classification: 'css-phase-one-target', metric, current, target,
+    });
+  }
+  for (const entry of cssDebt.semanticMedia) {
+    if (entry.owner === 'unknown') cssTargetViolations.push({
+      classification: 'semantic-media-missing-owner', ...entry,
+    });
+  }
+  const violations = [
+    ...tokenViolations,
+    ...selectorViolations,
+    ...layerViolations,
+    ...(options.mode === 'report' ? [] : [...debtComparison.violations, ...cssTargetViolations]),
+  ];
   const report = {
     tokens: {
       definitions: result.definitions.length,
@@ -404,15 +466,35 @@ async function runCli() {
       undefinedVariables: result.undefinedVariables.length,
     },
     selectors: selectorSummary,
+    css: {
+      lines: cssDebt.lines,
+      legacyLines: cssDebt.legacyLines,
+      important: cssDebt.important.length,
+      media: cssDebt.mediaTotal,
+      businessSpecificity: cssDebt.businessSpecificity.length,
+      attributeSelectors: cssDebt.attributeSelector.length,
+      noncanonicalMedia: cssDebt.noncanonicalMedia.length,
+      semanticMedia: cssDebt.semanticMedia.length,
+      reductions: debtComparison.reductions,
+      byOwner: debtComparison.byOwner,
+    },
     layers: layerResult.layers,
     exceptions: exceptions.length,
     violations,
   };
-  const formatIndex = process.argv.indexOf('--format');
-  if (formatIndex >= 0 && process.argv[formatIndex + 1] === 'markdown') {
-    process.stdout.write([
+  let output;
+  if (options.format === 'markdown') {
+    output = [
       '# CSS governance report',
       '',
+      `- CSS lines: ${report.css.lines}`,
+      `- legacy CSS lines: ${report.css.legacyLines}`,
+      `- !important: ${report.css.important}`,
+      `- @media: ${report.css.media}`,
+      `- deep business selectors: ${report.css.businessSpecificity}`,
+      `- attribute selectors: ${report.css.attributeSelectors}`,
+      `- noncanonical media: ${report.css.noncanonicalMedia}`,
+      `- semantic media: ${report.css.semanticMedia}`,
       `- token definitions: ${report.tokens.definitions}`,
       `- token references: ${report.tokens.references}`,
       `- token drift: ${report.tokens.drift}`,
@@ -425,10 +507,12 @@ async function runCli() {
       `- active exceptions: ${report.exceptions}`,
       `- violations: ${report.violations.length}`,
       '',
-    ].join('\n'));
+    ].join('\n');
   } else {
-    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    output = `${JSON.stringify(report, null, 2)}\n`;
   }
+  if (options.output) await writeFile(path.resolve(process.cwd(), options.output), output, 'utf8');
+  else process.stdout.write(output);
   if (violations.length > 0) process.exitCode = 1;
 }
 
