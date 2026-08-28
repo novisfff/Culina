@@ -14,6 +14,7 @@ import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
+import { buildHomeShoppingController } from './app/useAppHomeController';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppOverlayState } from './app/appOverlayState';
@@ -594,50 +595,22 @@ function App() {
     showNotice,
   });
 
-  const openHomeIngredientShoppingDialog = useCallback((ingredientId: string) => {
-    const ingredient = ingredients.find((item) => item.id === ingredientId);
-    if (!ingredient) {
-      showNotice({
-        tone: 'warning',
-        title: '食材暂不可用',
-        message: '没有找到对应食材，请刷新后再试。',
-      });
-      return;
-    }
-    setHomeShoppingForm(buildShoppingForm(ingredient, '库存不足'));
-    setHomeShoppingDialogOpen(true);
-  }, [ingredients, showNotice]);
-
-  async function submitHomeShopping(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const resolution = resolveShoppingFormSubmission({
-      form: homeShoppingForm,
-      ingredients,
-      foods,
-    });
-    if (!resolution.ok) {
-      showNotice({
-        tone: 'warning',
-        title: resolution.title,
-        message: resolution.message,
-      });
-      return;
-    }
-    try {
-      await createShoppingMutation.mutateAsync(resolution.payload);
-      setHomeShoppingForm(buildShoppingForm());
-      setHomeShoppingDialogOpen(false);
-    } catch (reason) {
-      showNotice({
-        tone: 'danger',
-        title: '加入采购清单失败',
-        message:
-          reason instanceof Error && reason.message.trim()
-            ? reason.message
-            : '加入采购清单失败',
-      });
-    }
-  }
+  const homeShoppingController = buildHomeShoppingController({
+    ingredients,
+    foods,
+    form: homeShoppingForm,
+    setOpen: setHomeShoppingDialogOpen,
+    setForm: setHomeShoppingForm,
+    createShopping: (payload) => createShoppingMutation.mutateAsync(payload as never),
+  });
+  const openHomeIngredientShoppingDialog = useCallback(
+    (ingredientId: string) => homeShoppingController.openForIngredient(ingredientId, showNotice),
+    [homeShoppingController, showNotice],
+  );
+  const submitHomeShopping = useCallback(
+    (event: FormEvent<HTMLFormElement>) => homeShoppingController.submit(event, showNotice),
+    [homeShoppingController, showNotice],
+  );
 
   function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
     const scope = args?.scope ?? 'suggested';
