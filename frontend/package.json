@@ -20,7 +20,8 @@
     "health:baseline:check": "node scripts/frontend-health-metrics.mjs --check-baseline scripts/frontend-health-baseline.json",
     "build:manifest": "vite build --config vite.config.ts",
     "manifest:check": "node scripts/bundle-manifest.mjs --check dist/.vite/frontend-health-manifest.json",
-    "check:bundle": "node scripts/check-bundle-budgets.mjs",
+    "check:bundle": "node scripts/check-bundle-budgets.mjs --mode=report",
+    "check:governance": "node scripts/check-bundle-budgets.mjs",
     "check:style-tokens": "node scripts/check-style-token-drift.mjs",
     "quality": "npm run typecheck && npm run test && npm run check:style-tokens"
   },

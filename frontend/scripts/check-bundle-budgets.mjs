@@ -1,110 +1,312 @@
-import { gzipSync } from 'node:zlib';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const rootDir = resolve(new URL('..', import.meta.url).pathname);
-const assetsDir = join(rootDir, 'dist', 'assets');
-const imagesDir = join(rootDir, 'dist', 'images');
+import { readHealthBaseline } from './frontend-health-baseline.mjs';
 
-const trackedBundles = [
-  { label: 'main-js', prefix: 'index-', suffix: '.js', gzipBudget: 110 * 1024 },
-  { label: 'main-css', prefix: 'index-', suffix: '.css', gzipBudget: 100 * 1024 },
-  { label: 'ai-workspace', prefix: 'AiWorkspace-', suffix: '.js', gzipBudget: 10.5 * 1024 },
-  { label: 'family-settings', prefix: 'FamilySettings-', suffix: '.js', gzipBudget: 7 * 1024 },
-  { label: 'food-workspace', prefix: 'FoodWorkspace-', suffix: '.js', gzipBudget: 26 * 1024 },
-  { label: 'ingredient-workspace', prefix: 'IngredientWorkspace-', suffix: '.js', gzipBudget: 37 * 1024 },
-];
 
-const publicImageBudget = 1536 * 1024;
-const publicImageExtensions = new Set(['.avif', '.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp']);
-const disallowedPublicFiles = new Set(['.DS_Store']);
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const FRONTEND_ROOT = path.resolve(SCRIPT_DIR, '..');
+const DEFAULT_MANIFEST_PATH = path.join(FRONTEND_ROOT, 'dist', '.vite', 'frontend-health-manifest.json');
+const DEFAULT_BASELINE_PATH = path.join(SCRIPT_DIR, 'frontend-health-baseline.json');
+const DEFAULT_CONFIG_PATH = path.join(SCRIPT_DIR, 'bundle-budgets.json');
+const PUBLIC_IMAGE_BUDGET = 1536 * 1024;
+const PUBLIC_IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp']);
+const DISALLOWED_PUBLIC_FILES = new Set(['.DS_Store']);
+const MODES = new Set(['report', 'ratchet', 'target']);
 
-function formatKilobytes(bytes) {
-  return `${(bytes / 1024).toFixed(2)} kB`;
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function findBundleFile(prefix, suffix, files) {
-  return files.find((file) => file.startsWith(prefix) && file.endsWith(suffix)) ?? null;
+
+function formatKiB(bytes) {
+  return `${(bytes / 1024).toFixed(2)} KiB`;
 }
 
-function getExtension(file) {
-  const dotIndex = file.lastIndexOf('.');
-  return dotIndex === -1 ? '' : file.slice(dotIndex).toLowerCase();
+
+function readJson(file) {
+  return JSON.parse(readFileSync(file, 'utf8'));
 }
 
-function checkPublicAssets(dir, label, violations) {
-  const files = readdirSync(dir).filter((file) => !file.startsWith('.'));
-  const allFiles = readdirSync(dir);
 
-  for (const file of allFiles) {
-    if (disallowedPublicFiles.has(file)) {
-      violations.push(`${label}/${file}: disallowed public file`);
+function assertNonNegativeInteger(value, label) {
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
+}
+
+
+function validateBudgetConfig(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('bundle budgets config must be an object');
+  }
+  if (config.version !== 1 || !config.entries || typeof config.entries !== 'object') {
+    throw new Error('bundle budgets config must contain version 1 and entries');
+  }
+  for (const [entry, budget] of Object.entries(config.entries)) {
+    if (!budget || typeof budget !== 'object') throw new Error(`bundle budget ${entry} must be an object`);
+    for (const metric of ['criticalGzipBudget', 'routeTotalGzipBudget', 'cssBudget', 'phase']) {
+      assertNonNegativeInteger(budget[metric], `bundle budget ${entry}.${metric}`);
+    }
+    if (typeof budget.owner !== 'string' || !budget.owner) {
+      throw new Error(`bundle budget ${entry}.owner must be a non-empty string`);
     }
   }
+  return config;
+}
 
-  for (const file of files) {
-    if (!publicImageExtensions.has(getExtension(file))) {
+
+function validateManifest(manifest) {
+  if (!manifest || manifest.version !== 1 || !manifest.entries || !manifest.assets) {
+    throw new Error('frontend health manifest must contain version 1, entries, and assets');
+  }
+  return manifest;
+}
+
+
+function entryMetrics(entry, manifest) {
+  const cssGzipBytes = [...new Set(entry.css ?? [])].reduce((total, asset) => {
+    const gzipBytes = manifest.assets[asset]?.gzipBytes;
+    if (!Number.isInteger(gzipBytes)) throw new Error(`manifest CSS asset is unresolved: ${asset}`);
+    return total + gzipBytes;
+  }, 0);
+  return {
+    criticalGzipBytes: entry.entryCritical?.gzipBytes,
+    routeTotalGzipBytes: entry.routeTotal?.gzipBytes,
+    cssGzipBytes,
+  };
+}
+
+
+function baselineMetric(bundle, metric) {
+  if (!bundle) return 0;
+  if (metric === 'criticalGzipBytes') return bundle.criticalGzipBytes ?? bundle.gzipBytes ?? 0;
+  return bundle[metric] ?? 0;
+}
+
+
+function diagnostic({ severity, entry, metric, current, allowed, delta, source, targetGap }) {
+  return {
+    severity,
+    entry,
+    metric,
+    current,
+    allowed,
+    delta,
+    source,
+    ...(targetGap ? { targetGap: true } : {}),
+  };
+}
+
+
+function compareEntry({ mode, entry, metrics, budget, baseline, completedPhase }) {
+  const warnings = [];
+  const violations = [];
+  const metricDefinitions = [
+    { key: 'criticalGzipBytes', target: budget.criticalGzipBudget, label: 'entryCritical.gzipBytes' },
+    { key: 'routeTotalGzipBytes', target: budget.routeTotalGzipBudget, label: 'routeTotal.gzipBytes' },
+    { key: 'cssGzipBytes', target: budget.cssBudget, label: 'css.gzipBytes' },
+  ];
+  for (const definition of metricDefinitions) {
+    const current = metrics[definition.key];
+    assertNonNegativeInteger(current, `${entry}.${definition.key}`);
+    const baselineValue = baselineMetric(baseline, definition.key);
+    const delta = current - baselineValue;
+    const source = definition.key === 'criticalGzipBytes' ? 'entryCritical' : definition.key;
+    const targetGap = current > definition.target;
+
+    if (mode === 'report') {
+      if (targetGap) {
+        warnings.push(diagnostic({
+          severity: 'warning', entry, metric: definition.label, current, allowed: definition.target, delta, source, targetGap: true,
+        }));
+      }
       continue;
     }
 
-    const assetPath = join(dir, file);
-    const size = statSync(assetPath).size;
-    console.log(`- ${label}/${file}: ${formatKilobytes(size)}/${formatKilobytes(publicImageBudget)}`);
-
-    if (size > publicImageBudget) {
-      violations.push(
-        `${label}/${file}: ${formatKilobytes(size)} exceeds image budget ${formatKilobytes(publicImageBudget)}`
-      );
-    }
-  }
-}
-
-const assetFiles = readdirSync(assetsDir).filter((file) => !file.startsWith('.'));
-const violations = [];
-const warnings = [];
-
-console.log('Bundle gzip budgets:');
-
-for (const bundle of trackedBundles) {
-  const matchedFile = findBundleFile(bundle.prefix, bundle.suffix, assetFiles);
-  if (!matchedFile) {
-    if (bundle.optional) {
-      console.log(`- ${bundle.label}: (absent; optional after unified Eat navigation)`);
+    if (mode === 'ratchet' || (mode === 'target' && budget.phase > completedPhase)) {
+      if (delta > 512) {
+        violations.push(diagnostic({
+          severity: 'error',
+          entry,
+          metric: definition.key === 'criticalGzipBytes' ? 'bundle.gzipBytes' : definition.label,
+          current,
+          allowed: baselineValue + 512,
+          delta,
+          source,
+        }));
+      } else if (targetGap) {
+        warnings.push(diagnostic({
+          severity: 'warning', entry, metric: definition.label, current, allowed: definition.target, delta, source, targetGap: true,
+        }));
+      }
       continue;
     }
-    violations.push(`${bundle.label}: missing output matching ${bundle.prefix}*${bundle.suffix}`);
-    continue;
+
+    if (targetGap) {
+      violations.push(diagnostic({
+        severity: 'error', entry, metric: definition.label, current, allowed: definition.target, delta, source,
+      }));
+    }
   }
-
-  const assetPath = join(assetsDir, matchedFile);
-  const gzipSize = gzipSync(readFileSync(assetPath)).byteLength;
-
-  console.log(`- ${bundle.label}: ${matchedFile} ${formatKilobytes(gzipSize)}/${formatKilobytes(bundle.gzipBudget)}`);
-
-  if (gzipSize > bundle.gzipBudget) {
-    warnings.push(
-      `${bundle.label}: ${matchedFile} gzip ${formatKilobytes(gzipSize)} exceeds budget ${formatKilobytes(bundle.gzipBudget)}`
-    );
-  }
+  return { warnings, violations };
 }
 
-console.log('\nPublic image budgets:');
-checkPublicAssets(assetsDir, 'assets', violations);
-checkPublicAssets(imagesDir, 'images', violations);
 
-if (warnings.length > 0) {
-  console.warn('\nBundle budget warnings:');
-  for (const warning of warnings) {
-    console.warn(`- ${warning}`);
+function publicAssetViolations(publicAssetDirs) {
+  const violations = [];
+  for (const directory of publicAssetDirs) {
+    if (!existsSync(directory.path)) continue;
+    for (const file of readdirSync(directory.path).sort(compareText)) {
+      const assetPath = path.join(directory.path, file);
+      if (DISALLOWED_PUBLIC_FILES.has(file)) {
+        violations.push({ type: 'public-asset', entry: directory.label, metric: 'disallowed-file', source: file });
+        continue;
+      }
+      if (!PUBLIC_IMAGE_EXTENSIONS.has(path.extname(file).toLowerCase())) continue;
+      const current = statSync(assetPath).size;
+      if (current > PUBLIC_IMAGE_BUDGET) {
+        violations.push({
+          type: 'public-asset',
+          entry: directory.label,
+          metric: 'image.rawBytes',
+          current,
+          allowed: PUBLIC_IMAGE_BUDGET,
+          delta: current - PUBLIC_IMAGE_BUDGET,
+          source: file,
+        });
+      }
+    }
   }
+  return violations;
 }
 
-if (violations.length > 0) {
-  console.error('\nBundle budget check failed:');
-  for (const violation of violations) {
-    console.error(`- ${violation}`);
-  }
-  process.exit(1);
+
+function sortDiagnostics(items) {
+  return items.sort((left, right) => (
+    compareText(left.entry ?? '', right.entry ?? '')
+    || compareText(left.metric ?? '', right.metric ?? '')
+    || compareText(left.source ?? '', right.source ?? '')
+    || compareText(left.type ?? '', right.type ?? '')
+  ));
 }
 
-console.log(warnings.length > 0 ? 'Bundle budget check passed with warnings.' : 'Bundle budget check passed.');
+
+export function parseMode(argv) {
+  const modeArgument = argv.find((argument) => argument.startsWith('--mode='));
+  const mode = modeArgument?.slice('--mode='.length) ?? 'report';
+  if (!MODES.has(mode)) {
+    const error = new Error(`unknown mode: ${mode}`);
+    error.exitCode = 2;
+    throw error;
+  }
+  return mode;
+}
+
+
+export async function runBundleBudgetCheck({
+  mode = 'report',
+  manifestPath = DEFAULT_MANIFEST_PATH,
+  baselinePath = DEFAULT_BASELINE_PATH,
+  configPath = DEFAULT_CONFIG_PATH,
+  completedPhase = 0,
+  publicAssetDirs = [
+    { label: 'assets', path: path.join(FRONTEND_ROOT, 'dist', 'assets') },
+    { label: 'images', path: path.join(FRONTEND_ROOT, 'dist', 'images') },
+  ],
+} = {}) {
+  if (!MODES.has(mode)) throw new Error(`unknown mode: ${mode}`);
+  assertNonNegativeInteger(completedPhase, 'completedPhase');
+  const manifest = validateManifest(readJson(manifestPath));
+  const baseline = await readHealthBaseline(baselinePath);
+  const config = validateBudgetConfig(readJson(configPath));
+  const warnings = [];
+  const violations = [];
+  const manifestErrors = [...(manifest.manifestErrors ?? [])];
+
+  for (const [entry, budget] of Object.entries(config.entries).sort(([left], [right]) => compareText(left, right))) {
+    const manifestEntry = manifest.entries[entry];
+    if (!manifestEntry) {
+      manifestErrors.push({ type: 'missing-entry', entry });
+      continue;
+    }
+    const compared = compareEntry({
+      mode,
+      entry,
+      metrics: entryMetrics(manifestEntry, manifest),
+      budget,
+      baseline: baseline.bundles[entry],
+      completedPhase,
+    });
+    warnings.push(...compared.warnings);
+    violations.push(...compared.violations);
+  }
+  violations.push(...publicAssetViolations(publicAssetDirs));
+
+  const result = {
+    mode,
+    warnings: sortDiagnostics(warnings),
+    violations: sortDiagnostics(violations),
+    manifestErrors: sortDiagnostics(manifestErrors),
+  };
+  result.exitCode = mode === 'report' || (result.violations.length === 0 && result.manifestErrors.length === 0) ? 0 : 1;
+  return result;
+}
+
+
+function formatDiagnostic(item) {
+  const values = [
+    item.entry ? `entry=${item.entry}` : null,
+    item.metric ? `metric=${item.metric}` : null,
+    Number.isInteger(item.current) ? `current=${item.current}` : null,
+    Number.isInteger(item.allowed) ? `allowed=${item.allowed}` : null,
+    Number.isInteger(item.delta) ? `delta=${item.delta}` : null,
+    item.source ? `source=${item.source}` : null,
+    item.targetGap ? 'targetGap=true' : null,
+    item.type ? `type=${item.type}` : null,
+  ].filter(Boolean);
+  return values.join(' ');
+}
+
+
+function parseArguments(argv) {
+  const options = {};
+  for (const argument of argv) {
+    if (argument.startsWith('--mode=')) options.mode = argument.slice('--mode='.length);
+    else if (argument.startsWith('--manifest=')) options.manifestPath = argument.slice('--manifest='.length);
+    else if (argument.startsWith('--baseline=')) options.baselinePath = argument.slice('--baseline='.length);
+    else if (argument.startsWith('--config=')) options.configPath = argument.slice('--config='.length);
+    else if (argument.startsWith('--result=')) options.resultPath = argument.slice('--result='.length);
+    else if (argument.startsWith('--completed-phase=')) options.completedPhase = Number(argument.slice('--completed-phase='.length));
+    else throw new Error(`unknown argument: ${argument}`);
+  }
+  options.mode = parseMode(argv);
+  return options;
+}
+
+
+async function runCli() {
+  const options = parseArguments(process.argv.slice(2));
+  const result = await runBundleBudgetCheck(options);
+  for (const warning of result.warnings) process.stdout.write(`[warning] ${formatDiagnostic(warning)}\n`);
+  for (const manifestError of result.manifestErrors) {
+    const output = options.mode === 'report' ? process.stdout : process.stderr;
+    output.write(`[error] ${formatDiagnostic(manifestError)}\n`);
+  }
+  for (const violation of result.violations) {
+    const output = options.mode === 'report' ? process.stdout : process.stderr;
+    output.write(`[error] ${formatDiagnostic(violation)}\n`);
+  }
+  if (options.resultPath) {
+    writeFileSync(path.resolve(process.cwd(), options.resultPath), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  }
+  process.exitCode = result.exitCode;
+}
+
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCli().catch((error) => {
+    process.stderr.write(`${error.stack ?? error.message}\n`);
+    process.exitCode = error.exitCode ?? 1;
+  });
+}

@@ -84,6 +84,11 @@ function assertBaselineShape(baseline) {
     if (!bundle || !Number.isInteger(bundle.gzipBytes) || bundle.gzipBytes < 0) {
       throw new Error(`frontend health baseline bundle ${entry} must have a non-negative gzipBytes integer`);
     }
+    for (const metric of ['routeTotalGzipBytes', 'cssGzipBytes']) {
+      if (bundle[metric] !== undefined && (!Number.isInteger(bundle[metric]) || bundle[metric] < 0)) {
+        throw new Error(`frontend health baseline bundle ${entry}.${metric} must be a non-negative integer`);
+      }
+    }
   }
   return baseline;
 }
@@ -118,7 +123,11 @@ export function createHealthBaseline(report, { bundles = {} } = {}) {
     },
     bundles: Object.fromEntries(Object.entries(bundles)
       .sort(([left], [right]) => compareText(left, right))
-      .map(([entry, bundle]) => [entry, { gzipBytes: bundle.gzipBytes }])),
+      .map(([entry, bundle]) => [entry, {
+        gzipBytes: bundle.gzipBytes,
+        ...(bundle.routeTotalGzipBytes === undefined ? {} : { routeTotalGzipBytes: bundle.routeTotalGzipBytes }),
+        ...(bundle.cssGzipBytes === undefined ? {} : { cssGzipBytes: bundle.cssGzipBytes }),
+      }])),
   };
   return assertBaselineShape(baseline);
 }

@@ -265,7 +265,7 @@ export function createFrontendHealthManifest({
       imports: [...chunk.imports],
       dynamicImports: [...chunk.dynamicImports],
       initial: summarizeAssets(reachableAssets(chunk, chunks, assets, false), assets),
-      entryCritical: summarizeAssets(directAssets(chunk), assets),
+      entryCritical: summarizeAssets([chunk.fileName], assets),
       routeTotal: summarizeAssets(reachableAssets(chunk, chunks, assets, true), assets),
       shared: [],
     };

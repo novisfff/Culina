@@ -152,6 +152,22 @@ describe('frontend health manifest', () => {
     });
   });
 
+  it('keeps entryCritical JS-only while initial transfer retains direct CSS', () => {
+    const manifest = createFrontendHealthManifest({
+      bundle: completeBundle(),
+      entryConfig: ENTRY_CONFIG,
+      rootDir: ROOT_DIR,
+      commit: COMMIT,
+    });
+
+    expect(manifest.entries.main.entryCritical.assets).toEqual(['opaque-main.js']);
+    expect(manifest.entries.main.initial.assets).toEqual([
+      'main.css',
+      'opaque-main.js',
+      'shared.js',
+    ]);
+  });
+
   it('records raw and gzip bytes with content hash', () => {
     const manifest = createFrontendHealthManifest({
       bundle: completeBundle(),
