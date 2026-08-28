@@ -18,9 +18,9 @@ import {
 import { useIngredientMutations } from './mutations/useIngredientMutations';
 import { useInventoryMutationActions } from './mutations/useInventoryMutations';
 import { useShoppingMutations } from './mutations/useShoppingMutations';
-import { useRecipeMutationActions } from './mutations/useRecipeMutations';
+import { useRecipeMutations } from './mutations/useRecipeMutations';
 import { useFoodPlanMutationActions } from './mutations/useFoodPlanMutations';
-import { useFoodMutationActions } from './mutations/useFoodMutations';
+import { useFoodMutations } from './mutations/useFoodMutations';
 import { useMealMutationActions } from './mutations/useMealMutations';
 
 export function useAppMutationRegistry() {
@@ -135,36 +135,6 @@ export function useAppMutationRegistry() {
       await invalidateAfterInventoryOperation(queryClient);
     },
   });
-  const createRecipeMutation = useMutation({
-    mutationFn: api.createRecipe,
-    onSuccess: async () => {
-      await invalidateAfterRecipeChanged(queryClient);
-    },
-  });
-  const updateRecipeMutation = useMutation({
-    mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.updateRecipe>[1] }) =>
-      api.updateRecipe(recipeId, payload),
-    onSuccess: async () => {
-      await invalidateAfterRecipeChanged(queryClient);
-    },
-  });
-  const deleteRecipeMutation = useMutation({
-    mutationFn: api.deleteRecipe,
-    onSuccess: async () => {
-      await invalidateAfterRecipeDeleted(queryClient);
-    },
-  });
-  const cookRecipeMutation = useMutation({
-    mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.cookRecipe>[1] }) =>
-      api.cookRecipe(recipeId, payload),
-    onSuccess: async () => {
-      await invalidateAfterRecipeCooked(queryClient);
-    },
-  });
-  const previewCookRecipeMutation = useMutation({
-    mutationFn: ({ recipeId, payload }: { recipeId: string; payload: Parameters<typeof api.previewCookRecipe>[1] }) =>
-      api.previewCookRecipe(recipeId, payload),
-  });
   const createFoodPlanItemMutation = useMutation({
     mutationFn: api.createFoodPlanItem,
     onSuccess: async () => {
@@ -201,26 +171,6 @@ export function useAppMutationRegistry() {
     mutationFn: api.deleteFoodScene,
     onSuccess: async () => {
       await invalidateAfterFoodSceneChanged(queryClient);
-    },
-  });
-  const createFoodMutation = useMutation({
-    mutationFn: api.createFood,
-    onSuccess: async () => {
-      await invalidateAfterFoodChanged(queryClient);
-    },
-  });
-  const updateFoodMutation = useMutation({
-    mutationFn: ({ foodId, payload }: { foodId: string; payload: Parameters<typeof api.updateFood>[1] }) =>
-      api.updateFood(foodId, payload),
-    onSuccess: async () => {
-      await invalidateAfterFoodChanged(queryClient);
-    },
-  });
-  const toggleFavoriteMutation = useMutation({
-    mutationFn: ({ foodId, favorite, expectedRowVersion }: { foodId: string; favorite: boolean; expectedRowVersion: number }) =>
-      api.updateFoodFavorite(foodId, favorite, expectedRowVersion),
-    onSuccess: async () => {
-      await invalidateAfterFoodChanged(queryClient);
     },
   });
   const updateMealMutation = useMutation({
@@ -285,20 +235,12 @@ export function useAppMutationRegistry() {
     submitShoppingIntakeMutation,
     submitInventoryReconciliationMutation,
     revertInventoryOperationMutation,
-    createRecipeMutation,
-    updateRecipeMutation,
-    deleteRecipeMutation,
-    cookRecipeMutation,
-    previewCookRecipeMutation,
     createFoodPlanItemMutation,
     updateFoodPlanItemMutation,
     deleteFoodPlanItemMutation,
     createFoodSceneMutation,
     updateFoodSceneMutation,
     deleteFoodSceneMutation,
-    createFoodMutation,
-    updateFoodMutation,
-    toggleFavoriteMutation,
     updateMealMutation,
     recordMealMutation,
     updateMealCompositionMutation,
@@ -313,13 +255,17 @@ export function useAppMutations() {
   const registry = useAppMutationRegistry();
   const ingredient = useIngredientMutations();
   const shopping = useShoppingMutations();
+  const recipe = useRecipeMutations();
+  const food = useFoodMutations();
   return {
     ...ingredient,
     ...useInventoryMutationActions(registry),
     ...shopping,
-    ...useRecipeMutationActions(registry),
+    ...recipe,
+    ...food,
+    ...recipe,
     ...useFoodPlanMutationActions(registry),
-    ...useFoodMutationActions(registry),
+    ...food,
     ...useMealMutationActions(registry),
   };
 }
