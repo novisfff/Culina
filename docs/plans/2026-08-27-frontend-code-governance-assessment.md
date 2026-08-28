@@ -331,3 +331,10 @@ git diff --check
 - 当前继续将 Home dashboard 主样式由全局 `styles.css` 移至 `features/home/home-route.css`，由 Home route 自有入口加载；responsive 与 compatibility 样式仍保持全局，避免跨域默认可见性回归。
 
 本批验证：Home 定向 Vitest 98/98 通过；CSS layer contract 4/4 通过；typecheck 通过；Vite build 704 modules、manifest 无 error、bundle checker 退出 0；主 CSS gzip 约 133.83 KiB，历史 targetGap 继续按 ratchet warning 输出；`git diff --check` 通过。最新完整 P0 启动后在登录恢复、multitab 和部分 768px 导航场景出现可见性/超时失败，未取得完整通过结果；该失败证据不能替代 P0 通过。App/Ingredient/Food 大文件和其余 route CSS 迁移仍未完成。
+
+## 15. Workspace renderer 增量记录（2026-08-29）
+
+- `fe245a5f`：将 Food 计划详情中的候选餐食确认状态、候选查询和完成目标投影迁入 `FoodPlanDetailWithCandidates`，Workspace 保留 route 组合与 action wiring。
+- `b0e6b196`：将 Ingredient 库存摘要卡的状态投影、媒体和库存动作渲染迁入 `IngredientInventoryCard`，Workspace 仅提供数据和回调。
+
+本批定向 typecheck 与 Food/Ingredient 使用契约测试通过；全量 `frontend:quality` 已完成 typecheck 并运行 Vitest，未发现新增编译错误。Food workspace 约 2316 行，Ingredient workspace 约 3175 行，仍高于规格目标，后续必须继续按完整组件边界拆分。
