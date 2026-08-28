@@ -1,6 +1,6 @@
 /** Primitive/shared API contracts. Kept type-only to guarantee zero runtime cost. */
+export type UserRole = 'Owner' | 'Member';
 export type {
-  UserRole,
   FoodType,
   MealType,
   Difficulty,
