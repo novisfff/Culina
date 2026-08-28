@@ -372,6 +372,8 @@ bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构
 
 CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一致或 browser journey 失败都会使该 job 非零，同时保留 artifact 供回滚审阅。逐 entry target 开启和 rollback rehearsal 仍未完成。
 
+在最新提交上重新执行 `npm --prefix frontend run build`、route transfer、budget report 与 `check:release-governance`：build 退出 0，release checker `ok=true`、missing=0、violations=0；target gap 仍仅作为 report/ratchet warning。
+
 - `35f7e0a8`：新增 `route-transfer-report.mjs` 与 4 个测试，从 health manifest 生成按入口的 initial/routeTotal/entryCritical raw/gzip、asset hash、shared/cache 复用报告；新增 `route-transfer-report` npm script。真实构建后已生成本地报告（仅作验证产物，不提交）。
 
 该批 release/transfer 测试 14/14 通过，实际 route transfer report 生成退出 0；六视口浏览器报告、请求计数和回滚演练仍未完成。
