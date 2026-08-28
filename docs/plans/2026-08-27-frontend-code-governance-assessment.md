@@ -285,3 +285,28 @@ Phase 1 在同一独立 worktree 按 shell-foundation、home-family、eat-meal�
 新增 `frontend/e2e/css-governance.spec.mjs` 覆盖临时 fixture 的横向溢出、43px 触控目标与 busy overlay Escape 失败路径，以及 Home、Ingredients、Food、Eat、AI、Family 六个真实路径。测试在 375×812、390×844、430×932、768×1024、1024×768、1440×900 六视口循环，并以 reduced motion 模式运行，6/6 通过；`frontend:e2e:p0` 52/52 通过。Phase 1 focused contract tests 23/23 通过，完整 Vitest 1,852/1,852、build、style-token 与 CSS ratchet 均通过。
 
 本阶段未执行人工截图 diff；CSS 治理 E2E 提供了布局、交互目标和 overlay 语义的自动化证据。`.artifacts`、`frontend/dist`、`frontend/coverage` 仍仅为本地验证产物，不纳入提交。
+
+## 12. Phase 2/3 增量落地记录（2026-08-28）
+
+在同一治理 worktree 中继续完成了 domain type barrel 消费者迁移，并将 Eat task body 与库存盘点步骤从聚合文件真实迁出。相关提交保持按批次独立：
+
+- `6503e070`：Meal 类型消费者迁移。
+- `c797069c`、`43361746`：Model Usage、Search 类型消费者迁移。
+- `d6cc2d6b`、`fd465ac3`、`9bc59724`：Family Model Settings、Family、App 部分消费者迁移。
+- `fa4d975d`、`5fca7c8f`、`5e07244d`、`7e35a643`、`d23bcb51`、`7ce31a79`：Eat 的 Food、Plan、Recipe、Cook、Meal/Meal-create body 迁移及 entry wrapper 接线；`EatTaskBodies.tsx` 从约 1,956 行降至 361 行。
+- `c8bec2f4`、`1d0951aa`：库存盘点 Summary、Review View 真实迁出；Dialog 壳降至 432 行。
+
+本增量实际验证：
+
+```bash
+npm --prefix frontend run typecheck
+npm --prefix frontend run test -- src/features/meals
+npm --prefix frontend run test -- src/features/model-usage src/features/search
+npm --prefix frontend run test -- src/features/family
+npm --prefix frontend run test -- src/app
+npm --prefix frontend run test -- src/features/eat
+npm --prefix frontend run test -- src/features/inventory/InventoryReconciliationDialog.test.tsx src/features/inventory/InventoryReconciliationDialogBehavior.test.tsx
+git diff --check
+```
+
+上述定向测试均通过；未在本增量结束点重复运行全量 build、P0 六视口和完整质量门禁，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
