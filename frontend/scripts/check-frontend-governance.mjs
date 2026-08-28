@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { runBundleBudgetCheck } from './check-bundle-budgets.mjs';
+import { compareHealthToBaseline, readHealthBaseline } from './frontend-health-baseline.mjs';
 import { validateFrontendHealth } from './frontend-health-metrics.mjs';
 
 
@@ -49,6 +50,7 @@ async function readResult(result) {
 
 export async function runFrontendGovernance({
   healthPath,
+  baselinePath,
   manifestPath,
   resultPaths = {},
   mode = 'ratchet',
@@ -69,6 +71,16 @@ export async function runFrontendGovernance({
     const health = await readJson(healthPath);
     const validation = validateFrontendHealth(health);
     if (!validation.valid) throw new Error(validation.errors.join(', '));
+    if (baselinePath && mode !== 'report') {
+      const comparison = compareHealthToBaseline(health, await readHealthBaseline(baselinePath));
+      if (comparison.violations.length > 0) {
+        const first = comparison.violations[0];
+        throw new Error(
+          `health ratchet contains ${comparison.violations.length} violations; `
+          + `first=${first.file}:${first.metric}:delta=${first.delta}`,
+        );
+      }
+    }
   });
   await verify('manifest', async () => validateManifest(await readJson(manifestPath)));
   for (const [name, resultPath] of Object.entries(resultPaths).sort(([left], [right]) => compareText(left, right))) {
@@ -166,6 +178,7 @@ async function runCli() {
   }
   const result = await runFrontendGovernance({
     healthPath: options.healthPath,
+    baselinePath: options.baselinePath,
     manifestPath: options.manifestPath,
     resultPaths: {
       bundle,
