@@ -16,5 +16,4 @@
 @import './styles/11-inventory-maintenance.css' layer(domain);
 @import './styles/12-eat-workspace.css' layer(domain);
 @import './styles/13-meal-composer.css' layer(domain);
-@import './styles/15-family-model-settings.css' layer(domain);
 @import './styles/responsive.css' layer(responsive);

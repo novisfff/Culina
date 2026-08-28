@@ -18,6 +18,7 @@ import { FamilyModelSettingsMobilePage } from './FamilyModelSettingsMobilePage';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
 import { useFamilyModelSettingsQueries } from './useFamilyModelSettingsQueries';
+import './family-model-settings-route.css';
 import { useFamilyModelSettingsState } from './useFamilyModelSettingsState';
 
 export type FamilyModelSettingsWorkspaceProps = {
