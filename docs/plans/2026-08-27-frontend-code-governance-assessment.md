@@ -368,6 +368,10 @@ bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构
 
 缺失任一 viewport、请求数据或 rollback command 时检查非零；`browserRun=false` 即使 build/unit tests 为真也不能通过。CI 接线和真实发布证据仍待完成。
 
+- `5b24f452`：将 release evidence 接入 `.github/workflows/quality-gates.yml` 的独立 `Frontend Release Evidence` job，执行 build/manifest、Chromium、六视口请求证据、route transfer、budget result 和 release checker，并以 `if: always()` 上传全部证据。
+
+CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一致或 browser journey 失败都会使该 job 非零，同时保留 artifact 供回滚审阅。逐 entry target 开启和 rollback rehearsal 仍未完成。
+
 - `35f7e0a8`：新增 `route-transfer-report.mjs` 与 4 个测试，从 health manifest 生成按入口的 initial/routeTotal/entryCritical raw/gzip、asset hash、shared/cache 复用报告；新增 `route-transfer-report` npm script。真实构建后已生成本地报告（仅作验证产物，不提交）。
 
 该批 release/transfer 测试 14/14 通过，实际 route transfer report 生成退出 0；六视口浏览器报告、请求计数和回滚演练仍未完成。

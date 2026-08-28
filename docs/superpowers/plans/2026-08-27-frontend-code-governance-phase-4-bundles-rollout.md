@@ -585,7 +585,7 @@ npm --prefix frontend exec playwright test frontend/e2e --project=chromium --gre
 
 在 staging/本地分别设置 VITE_LEGACY_GLOBAL_STYLES=1、关闭一个 entry target、恢复上一 manifest，确认不删除 localStorage、AI draft、run、cook session 或服务端数据；记录恢复时间和命令。
 
-- [ ] **Step 5: 更新报告并提交**
+- [x] **Step 5: 更新报告并提交**
 
 ~~~bash
 npm --prefix frontend run test -- scripts/release-governance-check.test.mjs
