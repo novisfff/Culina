@@ -85,7 +85,6 @@ import {
   filterIngredientSummariesByCatalogStatus,
   type IngredientSummaryViewModel,
   type IngredientWorkspacePanel,
-  type InventoryStorageOverviewViewModel,
   type ShoppingCardViewModel,
 } from './workspaceModel';
 import {
@@ -96,6 +95,11 @@ import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
 import { IngredientEditorView } from './IngredientEditorView';
 import { IngredientHubPage } from './IngredientHubPage';
+import {
+  IngredientStorageIcon,
+  IngredientStorageIllustration,
+  IngredientStorageOverviewCard,
+} from './IngredientStorageOverviewCard';
 import { IngredientInventoryPanelContextProvider } from './IngredientWorkspacePanels';
 import {
   buildUnifiedInventoryGroups,
@@ -740,120 +744,6 @@ function getBatchTone(alerts: Array<{ tone: 'warning' | 'danger' }>): 'default' 
     return 'warning';
   }
   return 'default';
-}
-
-type InventoryStorageOverviewCardProps = {
-  item: InventoryStorageOverviewViewModel;
-  active: boolean;
-  onSelect: () => void;
-};
-
-function InventoryStorageIcon(props: { storage: string }) {
-  if (props.storage === '冷冻') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3v18" />
-        <path d="m8 5 4 4 4-4" />
-        <path d="m8 19 4-4 4 4" />
-        <path d="M4.2 7.5 19.8 16.5" />
-        <path d="m4.8 12.9 5.5-1.5-1.5-5.5" />
-        <path d="m19.2 11.1-5.5 1.5 1.5 5.5" />
-        <path d="M19.8 7.5 4.2 16.5" />
-        <path d="m15.2 5.9-1.5 5.5 5.5 1.5" />
-        <path d="m8.8 18.1 1.5-5.5-5.5-1.5" />
-      </svg>
-    );
-  }
-  if (props.storage === '常温') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="5" y="5" width="14" height="16" rx="1.8" />
-        <path d="M5 10h14" />
-        <path d="M12 10v11" />
-        <path d="M8.5 14v2" />
-        <path d="M15.5 14v2" />
-        <path d="M9 7.5h6" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="6" y="4" width="12" height="17" rx="2" />
-      <path d="M6 10h12" />
-      <path d="M9 7h6" />
-      <path d="M9 14v3" />
-      <path d="M15 14v3" />
-    </svg>
-  );
-}
-
-function resolveInventoryStorageAsset(storage: string) {
-  if (storage === '冷冻') {
-    return '/assets/asset_storage_freezer_frozen.webp';
-  }
-  if (storage === '常温') {
-    return '/assets/asset_storage_pantry_roomtemp.webp';
-  }
-  return '/assets/asset_storage_fridge_chilled.webp';
-}
-
-function InventoryStorageIllustration(props: { storage: string }) {
-  return (
-    <img
-      src={resolveInventoryStorageAsset(props.storage)}
-      alt=""
-      className="ingredients-inventory-storage-illustration"
-    />
-  );
-}
-
-function InventoryStorageOverviewCard(props: InventoryStorageOverviewCardProps) {
-  const className = [
-    'ingredients-inventory-overview-card',
-    `tone-${props.item.tone}`,
-    `storage-${props.item.key}`,
-    props.active ? 'active' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <button type="button" className={className} onClick={props.onSelect} aria-pressed={props.active}>
-      <span className="ingredients-inventory-overview-illustration">
-        <InventoryStorageIllustration storage={props.item.key} />
-      </span>
-      <div className="ingredients-inventory-overview-card-head">
-        <span className="ingredients-inventory-overview-card-title">
-          <span className="ingredients-inventory-overview-card-icon">
-            <InventoryStorageIcon storage={props.item.key} />
-          </span>
-          {props.item.label}
-          {props.active && <span className="ingredients-inventory-overview-card-focus">当前查看</span>}
-        </span>
-        <span className="ingredients-inventory-overview-card-action" aria-hidden="true">
-          {props.active ? '✓' : '›'}
-        </span>
-      </div>
-      <div className="ingredients-inventory-overview-card-body">
-        <div className="ingredients-inventory-overview-card-metric">
-          <strong>{props.item.ingredientCount}</strong>
-          <span>种食材</span>
-        </div>
-        <div className="ingredients-inventory-overview-card-metric">
-          <strong>{props.item.totalBatches}</strong>
-          <span>库存批次</span>
-        </div>
-        <div className="ingredients-inventory-overview-card-metric">
-          <strong>{props.item.alertCount}</strong>
-          <span>条提醒</span>
-        </div>
-      </div>
-      <p className="ingredients-inventory-overview-card-status">
-        <span aria-hidden="true" />
-        {props.item.statusLabel}
-      </p>
-    </button>
-  );
 }
 
 type ShoppingWorkRowProps = {
@@ -2809,7 +2699,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         buildInventorySummaryLine={buildInventorySummaryLine}
         buildShoppingReason={resolveShoppingReason}
         countDisposableExpiredItems={(summary) => countDisposableExpiredInventoryItems(summary, businessDateKey())}
-        renderStorageIllustration={InventoryStorageIllustration}
+        renderStorageIllustration={IngredientStorageIllustration}
         renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
         isUpdatingShopping={props.isUpdatingShopping}
         isCreatingInventory={props.isCreatingInventory}
@@ -2851,7 +2741,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         focusedInventorySummaries={focusedInventorySummaries}
         inventoryStorageOverview={inventoryStorageOverview}
         inventoryGroups={inventoryGroups}
-        InventoryStorageOverviewCard={InventoryStorageOverviewCard}
+        InventoryStorageOverviewCard={IngredientStorageOverviewCard}
         InventoryIngredientCard={InventoryIngredientCard}
         shoppingOverview={shoppingOverview}
         shoppingFocus={shoppingFocus}
@@ -3017,7 +2907,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
               isCreatingIngredient={props.isCreatingIngredient}
               isUpdatingIngredient={props.isUpdatingIngredient}
               renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-              renderStorageIcon={(storage) => <InventoryStorageIcon storage={storage} />}
+              renderStorageIcon={(storage) => <IngredientStorageIcon storage={storage} />}
               ScrollableChipRail={ScrollableChipRail}
             />
           </WorkspaceModal>
