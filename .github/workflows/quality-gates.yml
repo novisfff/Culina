@@ -275,6 +275,46 @@ jobs:
       - name: Block new style token drift
         run: npm --prefix frontend run check:style-tokens
 
+  frontend-governance:
+    name: Frontend Governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Prepare frontend governance artifacts
+        run: mkdir -p .artifacts
+      - name: Generate frontend health report
+        run: npm --prefix frontend run health:report -- --format json --output "$GITHUB_WORKSPACE/.artifacts/frontend-health.json"
+      - name: Build frontend logical manifest
+        run: npm --prefix frontend run build:manifest
+      - name: Archive frontend logical manifest
+        run: |
+          test -s frontend/dist/.vite/frontend-health-manifest.json
+          cp frontend/dist/.vite/frontend-health-manifest.json .artifacts/frontend-health-manifest.json
+      - name: Enforce frontend governance ratchet
+        run: npm --prefix frontend run check:governance -- --mode=ratchet --health="$GITHUB_WORKSPACE/.artifacts/frontend-health.json" --manifest="$GITHUB_WORKSPACE/.artifacts/frontend-health-manifest.json" --result="$GITHUB_WORKSPACE/.artifacts/frontend-governance-result.json"
+      - name: Upload frontend governance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-governance
+          path: |
+            .artifacts/frontend-health.json
+            .artifacts/frontend-health-manifest.json
+            .artifacts/frontend-governance-result.json
+          if-no-files-found: warn
+          retention-days: 14
+
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
