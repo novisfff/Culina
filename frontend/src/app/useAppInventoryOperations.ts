@@ -1,4 +1,4 @@
-import type { InventoryOperationDetail } from '../api/types';
+import type { InventoryOperationDetail } from '../api/types/inventory';
 
 type Args = {
   getDetail: (operationId: string) => Promise<InventoryOperationDetail>;

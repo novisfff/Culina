@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
-import type { Food, Ingredient } from '../api/types';
+import type { Food } from '../api/types/food';
+import type { Ingredient } from '../api/types/inventory';
 import { buildShoppingForm, type ShoppingDialogFormState } from '../components/ingredients/ingredientWorkspaceForms';
 import { resolveShoppingFormSubmission } from '../components/ingredients/shoppingFormSubmission';
 

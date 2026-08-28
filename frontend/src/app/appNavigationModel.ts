@@ -1,4 +1,4 @@
-import type { MealType } from '../api/types';
+import type { MealType } from '../api/types/meal';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
 export type EatBaseView = 'discover' | 'plan' | 'history';

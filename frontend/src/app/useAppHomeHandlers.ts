@@ -1,5 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { MealType, ShoppingListItem } from '../api/types';
+import type { MealType } from '../api/types/meal';
+import type { ShoppingListItem } from '../api/types/inventory';
 import {
   buildHomeRestockForm,
   type HomeRestockFormState,
