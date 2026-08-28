@@ -33,7 +33,8 @@ describe('CSS cascade layer contract', () => {
     expect(entrypoint).toContain("@import './styles/00-ui-kit.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/legacy-primitives.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/shell.css' layer(shell);");
-    expect(entrypoint).toContain("@import './styles/01-home-dashboard.css' layer(domain);");
+    const homeRouteEntrypoint = await readFrontend('src/features/home/home-route.css');
+    expect(homeRouteEntrypoint).toContain("@import '../../styles/01-home-dashboard.css' layer(domain);");
     expect(entrypoint).toContain("@import './styles/responsive.css' layer(responsive);");
     expect(responsiveEntrypoint).not.toContain("@import './07-mobile.css';");
     expect(responsiveEntrypoint).toContain("@import './compatibility-responsive.css';");
