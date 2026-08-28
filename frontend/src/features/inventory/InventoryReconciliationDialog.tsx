@@ -4,7 +4,7 @@ import type {
   InventoryOperationResult,
   InventoryReconciliationGroup,
   InventoryStatus,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import {
   ActionButton,
   DropdownSelect,
