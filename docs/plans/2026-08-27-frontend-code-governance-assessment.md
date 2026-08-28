@@ -373,3 +373,5 @@ bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构
 该批 release/transfer 测试 14/14 通过，实际 route transfer report 生成退出 0；六视口浏览器报告、请求计数和回滚演练仍未完成。
 
 随后在 frontend 工作目录重新运行 CSS governance Playwright：`npx playwright test e2e/css-governance.spec.mjs --project=phone-375x812 --project=tablet-1180x820 --project=desktop-1440x960 --workers=1`，6/6 通过；每个真实路径循环覆盖 375×812、390×844、430×932、768×1024、1024×768、1440×900，共 6 个固定视口。报告写入本地 `frontend/.artifacts/viewport-report.json`，不纳入提交。该证据覆盖布局、横向溢出、44px 目标、Home→Ingredients→Eat→AI→Family 路径和 overlay 语义，但尚不包含完整 P0、请求计数或回滚演练。
+
+在提交 `355b09b3` 后重新构建 manifest，并运行 `@release-evidence` Playwright（desktop 项目，测试内部循环六固定视口）：1/1 通过；采集到 requestCount=276、uniqueRequestCount=24、cacheReuse=true、longTaskMs=0。随后以同一 manifest commit 运行 `check:release-governance`，结果 `ok=true`、missing=0、violations=0。该证据链仍只覆盖 CSS governance 路径，完整 P0/AI 状态矩阵和 rollback rehearsal 尚未完成。
