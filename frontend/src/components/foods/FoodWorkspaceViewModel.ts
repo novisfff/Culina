@@ -15,3 +15,10 @@ export function buildFoodWorkspaceViewModel(args: { foods: Food[]; recipes: Reci
   });
   return { items, mealLogs: args.mealLogs, countLabel: `显示 ${items.length} / ${args.foods.length} 项食物` };
 }
+
+export function filterFoodWorkspaceItems(
+  foods: Food[], search: string, typeFilter: 'all' | FoodType, mealFilter: 'all' | MealType,
+  lensFilter: FoodWorkspaceLens = 'all', recipes: Recipe[] = [], matchedFoodIds: readonly string[] = [],
+) {
+  return buildFoodWorkspaceViewModel({ foods, recipes, mealLogs: [], search, typeFilter, mealFilter, lensFilter, matchedFoodIds }).items;
+}

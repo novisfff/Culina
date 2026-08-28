@@ -167,7 +167,7 @@ import {
   buildFoodCookingSummaryFromRecipeCards,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
-import { buildFoodWorkspaceViewModel } from './FoodWorkspaceViewModel';
+import { buildFoodWorkspaceViewModel, filterFoodWorkspaceItems } from './FoodWorkspaceViewModel';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -450,27 +450,6 @@ export function buildTodayFoodRecommendations(
 
 
 
-
-export function filterFoodWorkspaceItems(
-  foods: Food[],
-  search: string,
-  typeFilter: 'all' | FoodType,
-  mealFilter: 'all' | MealType,
-  lensFilter: FoodWorkspaceLens = 'all',
-  recipes: Recipe[] = [],
-  matchedFoodIds: readonly string[] = []
-) {
-  return buildFoodWorkspaceViewModel({
-    foods,
-    recipes,
-    mealLogs: [],
-    search,
-    typeFilter,
-    mealFilter,
-    lensFilter,
-    matchedFoodIds,
-  }).items;
-}
 
 export function FoodWorkspace(props: Props) {
   const {

@@ -25,12 +25,12 @@ import {
   FOOD_CREATE_TYPE_OPTIONS,
   buildFoodPayloadFromForm,
   buildTodayFoodRecommendations,
-  filterFoodWorkspaceItems,
   resolveFoodNavigationRequestAction,
   getSuggestedMealTypeForHour,
   type FoodFormState,
 } from './FoodWorkspace';
 import { getMobileDefaultFoodSceneCardMedia, getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
+import { filterFoodWorkspaceItems } from './FoodWorkspaceViewModel';
 import {
   buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
