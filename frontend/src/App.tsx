@@ -58,15 +58,8 @@ import {
 import { storageLocationForScope } from './features/inventory/inventoryReconciliationScope';
 import { useInventoryReconciliationActions } from './features/inventory/useInventoryReconciliationActions';
 import { useInventoryReconciliationState } from './features/inventory/useInventoryReconciliationState';
-import { useShoppingIntakeState } from './features/inventory/useShoppingIntakeState';
 import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
-import {
-  buildFreeTextLinkOptions,
-  linkFreeTextDraft,
-  suggestFreeTextLinkCandidates,
-  type FreeTextLinkCandidate,
-  type FreeTextLinkTarget,
-} from './features/inventory/shoppingIntakeModel';
+import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
@@ -407,7 +400,13 @@ function App() {
     [],
   );
 
-  const shoppingIntakeState = useShoppingIntakeState();
+  const shoppingIntakeState = useShoppingIntakeController({
+    shoppingItems,
+    ingredients,
+    foods,
+    inventoryStates,
+    referenceDate: homeBusinessDateKey,
+  });
   const shoppingIntakeActions = useShoppingIntakeActions({
     state: shoppingIntakeState,
     submitShoppingIntake: (payload) => submitShoppingIntakeMutation.mutateAsync(payload),
@@ -546,49 +545,7 @@ function App() {
     }
   }
 
-  function openShoppingIntake(args?: { selectedItemId?: string }) {
-    shoppingIntakeState.openIntake({
-      shoppingItems,
-      ingredients,
-      foods,
-      inventoryStates,
-      referenceDate: homeBusinessDateKey,
-      selectedItemId: args?.selectedItemId,
-    });
-  }
-
-  function resolveFreeTextLinkTarget(candidate: FreeTextLinkCandidate): FreeTextLinkTarget | null {
-    if (candidate.kind === 'food') {
-      const food = foods.find((item) => item.id === candidate.id);
-      return food ? { kind: 'food', food } : null;
-    }
-    const ingredient = ingredients.find((item) => item.id === candidate.id);
-    if (!ingredient) return null;
-    const state = inventoryStates.find((item) => item.ingredient_id === ingredient.id) ?? null;
-    return tracksIngredientQuantity(ingredient)
-      ? { kind: 'exact_ingredient', ingredient, state }
-      : { kind: 'presence_ingredient', ingredient, state };
-  }
-
-  const freeTextCandidatesByItemId = (() => {
-    const draft = shoppingIntakeState.draft;
-    if (!draft) return {} as Record<string, FreeTextLinkCandidate[]>;
-    const map: Record<string, FreeTextLinkCandidate[]> = {};
-    for (const item of draft.items) {
-      if (item.kind !== 'free_text') continue;
-      map[item.shoppingItemId] = suggestFreeTextLinkCandidates({
-        title: item.title,
-        ingredients,
-        foods,
-      });
-    }
-    return map;
-  })();
-
-  const freeTextLinkOptions = useMemo(
-    () => buildFreeTextLinkOptions({ ingredients, foods }),
-    [ingredients, foods],
-  );
+  const openShoppingIntake = (args?: { selectedItemId?: string }) => shoppingIntakeState.openShoppingIntake(args?.selectedItemId);
 
   const {
     overlayMode: familyOverlayMode,
@@ -1510,8 +1467,8 @@ function App() {
                   conflictState: shoppingIntakeState.conflictState,
                   result: shoppingIntakeState.result,
                   expandedExceptionIds: shoppingIntakeState.expandedExceptionIds,
-                  freeTextCandidatesByItemId,
-                  freeTextLinkOptions,
+                  freeTextCandidatesByItemId: shoppingIntakeState.candidatesByItemId,
+                  freeTextLinkOptions: shoppingIntakeState.linkOptions,
                   onClose: () => {
                     if (shoppingIntakeState.result) {
                       setRecentBannerOverride(shoppingIntakeState.result);
@@ -1525,18 +1482,7 @@ function App() {
                   onToggleItem: shoppingIntakeState.toggleItemSelected,
                   onPatchItem: shoppingIntakeState.patchItem,
                   onCompleteFreeText: shoppingIntakeState.completeFreeText,
-                  onLinkFreeText: (shoppingItemId, candidate) => {
-                    const target = resolveFreeTextLinkTarget(candidate);
-                    if (!target || !shoppingIntakeState.draft) return;
-                    shoppingIntakeState.replaceDraft(
-                      linkFreeTextDraft(
-                        shoppingIntakeState.draft,
-                        shoppingItemId,
-                        target,
-                        shoppingIntakeState.draft.purchaseDate,
-                      ),
-                    );
-                  },
+                  onLinkFreeText: shoppingIntakeState.linkCandidate,
                   onToggleException: shoppingIntakeState.toggleExceptionExpanded,
                   onSubmit: () => {
                     void shoppingIntakeActions.submitDraft();
