@@ -55,7 +55,7 @@ import {
   InventoryOperationBanner,
   selectRecentBannerOperation,
 } from './features/inventory/InventoryOperationBanner';
-import { storageLocationForScope } from './features/inventory/inventoryReconciliationModel';
+import { storageLocationForScope } from './features/inventory/inventoryReconciliationScope';
 import { useInventoryReconciliationActions } from './features/inventory/useInventoryReconciliationActions';
 import { useInventoryReconciliationState } from './features/inventory/useInventoryReconciliationState';
 import { useShoppingIntakeState } from './features/inventory/useShoppingIntakeState';

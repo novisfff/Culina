@@ -15,13 +15,12 @@ import {
   convertQuantityFromDefaultUnit,
   convertQuantityToDefaultUnit,
 } from '../../lib/ingredientUnits';
+import {
+  storageLocationForScope,
+  type InventoryReconciliationScope,
+} from './inventoryReconciliationScope';
 
-export type InventoryReconciliationScope =
-  | 'suggested'
-  | 'refrigerated'
-  | 'frozen'
-  | 'room_temperature'
-  | 'all';
+export { storageLocationForScope, type InventoryReconciliationScope } from './inventoryReconciliationScope';
 
 export type InventoryReconciliationStep = 'review' | 'summary' | 'result';
 
@@ -233,13 +232,6 @@ export function confirmationStatusLabel(status: InventoryConfirmationStatus): st
 
 export function availabilityLevelLabel(level: InventoryAvailabilityLevel): string {
   return AVAILABILITY_LEVEL_LABELS[level];
-}
-
-export function storageLocationForScope(scope: InventoryReconciliationScope): string | null {
-  if (scope === 'suggested' || scope === 'all') {
-    return null;
-  }
-  return SCOPE_STORAGE_LOCATION[scope];
 }
 
 export function isPhysicalBatchExpired(
