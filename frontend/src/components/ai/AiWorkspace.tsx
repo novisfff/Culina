@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { api, isApiError } from '../../api/client';
@@ -50,7 +50,6 @@ import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponse
 import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
-import { AiRunDebugDrawer } from './AiRunDebugDrawer';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWorkspaceRoute } from './AiWorkspaceRoute';
@@ -58,12 +57,9 @@ import { AiComposerView } from './views/AiComposerView';
 import { AiDebugHost } from './views/AiDebugHost';
 import { AiQualityHost } from './views/AiQualityHost';
 import { AiDeleteHost } from './views/AiDeleteHost';
-import { secondaryEntryLoaders } from './entries';
-import { lazy } from 'react';
+import { loadAiDebug } from './entries';
 
-void secondaryEntryLoaders;
-const LazyAiDebugEntry = lazy(secondaryEntryLoaders[3]);
-void LazyAiDebugEntry;
+const LazyAiDebugEntry = lazy(loadAiDebug);
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1641,7 +1637,7 @@ export function AiWorkspace({
         </AiQualityHost>
       </div>
       <AiDebugHost open={Boolean(debugRunId)}>
-        <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
+        <LazyAiDebugEntry runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
       </AiDebugHost>
     </main>
     </AiWorkspaceRoute>
