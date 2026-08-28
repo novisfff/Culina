@@ -85,6 +85,7 @@ import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiConversationMutations } from './useAiConversationMutations';
 import { useAiThinkingState } from './useAiThinkingState';
+import { useAiSidebarState } from './useAiSidebarState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
@@ -98,35 +99,6 @@ type AiWorkspaceProps = {
   onNavigate?: (target: AppNavigationTarget) => void;
 };
 export { ApprovalPanel } from './AiConversationThread';
-const AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH = 1280;
-
-function isTabletAiWorkspaceViewport() {
-  return typeof window !== 'undefined' && window.innerWidth <= AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH;
-}
-
-function readStoredAiSidebarCollapsed() {
-  try {
-    return localStorage.getItem('ai_sidebar_collapsed');
-  } catch {
-    return null;
-  }
-}
-
-function resolveInitialAiSidebarCollapsed() {
-  if (isTabletAiWorkspaceViewport()) return true;
-  const stored = readStoredAiSidebarCollapsed();
-  return stored === 'true';
-}
-
-function storeAiSidebarCollapsedPreference(collapsed: boolean) {
-  if (isTabletAiWorkspaceViewport()) return;
-  try {
-    localStorage.setItem('ai_sidebar_collapsed', String(collapsed));
-  } catch (e) {
-    console.warn(e);
-  }
-}
-
 export function AiWorkspace({
   familyId = '',
   conversations,
@@ -176,11 +148,7 @@ export function AiWorkspace({
     },
     setFeedback: setPlanFeedback,
   });
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(resolveInitialAiSidebarCollapsed);
-  const toggleSidebar = (collapsed: boolean) => {
-    setIsSidebarCollapsed(collapsed);
-    storeAiSidebarCollapsedPreference(collapsed);
-  };
+  const { isSidebarCollapsed, toggleSidebar } = useAiSidebarState();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const desktopVoiceButtonRef = useRef<HTMLButtonElement>(null);
