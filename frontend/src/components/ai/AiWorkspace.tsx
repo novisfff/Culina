@@ -41,6 +41,7 @@ import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './
 import { AiRunDebugDrawer } from './AiRunDebugDrawer';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
+import { AiWorkspaceRoute } from './AiWorkspaceRoute';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1450,6 +1451,7 @@ export function AiWorkspace({
     forceScrollKey: latestUserMessageScrollKey(displayedMessages),
   });
   return (
+    <AiWorkspaceRoute>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       {planFeedback && (
         <div className="ai-plan-feedback" role="status">
@@ -1734,5 +1736,6 @@ export function AiWorkspace({
       </div>
       <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
     </main>
+    </AiWorkspaceRoute>
   );
 }

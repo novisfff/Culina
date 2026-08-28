@@ -7,7 +7,7 @@ export function AiWorkspaceShell(props: {
   notice?: ReactNode;
 }) {
   return (
-    <section className="ai-workspace-shell" aria-busy={props.loading || undefined}>
+    <section className="ai-workspace-route-shell" aria-busy={props.loading || undefined}>
       {props.notice}
       {props.error ? <div className="ai-query-error" role="alert">{props.error}</div> : null}
       {props.children}
