@@ -18,6 +18,7 @@ import {
   type PasswordFormState,
   type ProfileFormState,
 } from './FamilySettingsModals';
+import './family-route.css';
 import { FamilyMobileView } from './FamilyMobileView';
 import { FamilyActivityMobilePage, FamilyActivityModal } from './FamilyActivityViewer';
 import type { FamilyActivityQueryState } from './FamilyActivityViewerModel';
