@@ -18,11 +18,9 @@ import type {
   InventoryItem,
   InventoryOverviewItem,
   InventoryStatus,
-  MealLogCandidate,
   MealType,
   RecordMealPayload,
   RecordMealResponse,
-  RecordMealTarget,
   Recipe,
   ShoppingListItem,
   UpsertIngredientInventoryStateRequest,
@@ -50,7 +48,6 @@ import {
   createMealBusinessDate,
   createMealRecordDateOptions,
   deriveCandidatePresentation,
-  type MealCandidateResolution,
 } from '../../features/meals/MealComposerModel';
 import {
   extractMealRecordErrorCode,
@@ -130,6 +127,9 @@ import {
 } from './useIngredientWorkspaceState';
 import { buildIngredientImagePayload, formatExpiryRuleLabel, formatLowStockRuleLabel } from './ingredientWorkspaceModels';
 import { ScrollableChipRail } from './ScrollableChipRail';
+import {
+  useIngredientFoodStockState,
+} from './useIngredientFoodStockState';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -263,45 +263,6 @@ type IngredientWorkspaceProps = {
   isUpdatingShopping?: boolean;
 };
 
-/** Inventory-only deduct dialog (no meal record). */
-type FoodStockDeductDialogState = {
-  item: InventoryOverviewItem;
-  stockQuantity: string;
-  error: string | null;
-};
-
-/** Optional inventory follow-up after a successful ordinary record. */
-type FoodStockInventoryFollowUpState = {
-  item: InventoryOverviewItem;
-  stockQuantity: string;
-  error: string | null;
-};
-
-type FoodQuickRecordState = {
-  food: Food;
-  item: InventoryOverviewItem;
-  date: string;
-  mealType: MealType;
-  target: RecordMealTarget;
-  selectedCandidateId: string | null;
-  candidateMode: 'none' | 'single' | 'multi';
-  candidates: MealLogCandidate[];
-  candidateResolution: MealCandidateResolution;
-  targetTouchedByUser: boolean;
-  clientRequestId: string;
-  busy: boolean;
-  error: string | null;
-};
-
-type FoodStockAdjustDialogState = {
-  item: InventoryOverviewItem;
-  quantity: string;
-  unit: string;
-  expiryDate: string;
-  purchaseSource: string;
-  error: string | null;
-};
-
 const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10'];
 const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
   { value: 7, label: '7 天' },
@@ -336,13 +297,21 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [transientIngredient, setTransientIngredient] = useState<Ingredient | null>(null);
   const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null);
   // Compact ordinary Food record (Task 15) — independent of inventory.
-  const [quickRecord, setQuickRecord] = useState<FoodQuickRecordState | null>(null);
-  // Optional inventory follow-up after successful record (separate command).
-  const [inventoryFollowUp, setInventoryFollowUp] = useState<FoodStockInventoryFollowUpState | null>(null);
-  // Inventory-only deduct (no meal).
-  const [foodStockDeductDialog, setFoodStockDeductDialog] = useState<FoodStockDeductDialogState | null>(null);
-  const [foodStockAdjustDialog, setFoodStockAdjustDialog] = useState<FoodStockAdjustDialogState | null>(null);
-  const [foodStockSubmitting, setFoodStockSubmitting] = useState<'meal' | 'adjust' | null>(null);
+  const {
+    quickRecord,
+    setQuickRecord,
+    inventoryFollowUp,
+    setInventoryFollowUp,
+    foodStockDeductDialog,
+    setFoodStockDeductDialog,
+    foodStockAdjustDialog,
+    setFoodStockAdjustDialog,
+    foodStockSubmitting,
+    setFoodStockSubmitting,
+    setFoodStockRestockQuantity,
+    setFoodStockRestockExpiryDays,
+    setFoodStockRestockSource,
+  } = useIngredientFoodStockState(todayDate);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
     persistedWorkspaceState.editingIngredientId ?? null
   );
@@ -1110,30 +1079,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setInventorySourceFilter('all');
   }
 
-  function setFoodStockRestockQuantity(quantity: string) {
-    if (!foodStockAdjustDialog) {
-      return;
-    }
-    setFoodStockAdjustDialog({ ...foodStockAdjustDialog, quantity, error: null });
-  }
-
-  function setFoodStockRestockExpiryDays(days: number | null) {
-    if (!foodStockAdjustDialog) {
-      return;
-    }
-    setFoodStockAdjustDialog({
-      ...foodStockAdjustDialog,
-      expiryDate: days === null ? '' : addDateKeyDays(todayDate, days),
-      error: null,
-    });
-  }
-
-  function setFoodStockRestockSource(source: string) {
-    if (!foodStockAdjustDialog) {
-      return;
-    }
-    setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: source, error: null });
-  }
 
   // Load candidates for compact Food record.
   useEffect(() => {
