@@ -371,3 +371,5 @@ bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构
 - `35f7e0a8`：新增 `route-transfer-report.mjs` 与 4 个测试，从 health manifest 生成按入口的 initial/routeTotal/entryCritical raw/gzip、asset hash、shared/cache 复用报告；新增 `route-transfer-report` npm script。真实构建后已生成本地报告（仅作验证产物，不提交）。
 
 该批 release/transfer 测试 14/14 通过，实际 route transfer report 生成退出 0；六视口浏览器报告、请求计数和回滚演练仍未完成。
+
+随后在 frontend 工作目录重新运行 CSS governance Playwright：`npx playwright test e2e/css-governance.spec.mjs --project=phone-375x812 --project=tablet-1180x820 --project=desktop-1440x960 --workers=1`，6/6 通过；每个真实路径循环覆盖 375×812、390×844、430×932、768×1024、1024×768、1440×900，共 6 个固定视口。报告写入本地 `frontend/.artifacts/viewport-report.json`，不纳入提交。该证据覆盖布局、横向溢出、44px 目标、Home→Ingredients→Eat→AI→Family 路径和 overlay 语义，但尚不包含完整 P0、请求计数或回滚演练。
