@@ -92,6 +92,20 @@
       "phase": 5,
       "owner": "ai"
     },
+    "ai-human-input": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 49152,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ai"
+    },
+    "ai-debug": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 49152,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ai"
+    },
     "inventory-operation": {
       "criticalGzipBudget": 24576,
       "routeTotalGzipBudget": 49152,

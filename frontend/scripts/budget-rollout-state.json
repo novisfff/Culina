@@ -3,6 +3,8 @@
   "entries": {
     "ai": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "ai-approval": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "ai-human-input": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "ai-debug": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "eat": { "enabledMode": "ratchet", "owner": "eat", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "meal-log": { "enabledMode": "ratchet", "owner": "meal", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "family-model-settings": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
