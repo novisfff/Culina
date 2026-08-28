@@ -13,6 +13,7 @@ import { useAppHomeViewModel } from './app/useAppHomeViewModel';
 import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
+import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
@@ -114,15 +115,6 @@ const PHONE_VIEWPORT_QUERY = '(max-width: 767px)';
 
 function defaultSidebarCollapsed() {
   return readStringStorage(SIDEBAR_COLLAPSED_KEY, '') === '1';
-}
-
-function resetPageScroll() {
-  window.requestAnimationFrame(() => {
-    const appContent = document.querySelector<HTMLElement>('.app-content');
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-    document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-    appContent?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  });
 }
 
 function getIsPhoneViewport() {
@@ -251,14 +243,12 @@ function App() {
   const queryClient = useQueryClient();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
-  useEffect(() => {
-    resetPageScroll();
-  }, [
-    navigation.state.primaryTab,
-    navigation.state.eat.baseView,
-    navigation.state.eat.task?.kind,
-    navigation.state.family.view,
-  ]);
+  useAppNavigationEffects({
+    primaryTab: navigation.state.primaryTab,
+    eatBaseView: navigation.state.eat.baseView,
+    taskKind: navigation.state.eat.task?.kind,
+    familyView: navigation.state.family.view,
+  });
 
   useEffect(() => {
     writeStringStorage(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
