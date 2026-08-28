@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "exceptions": [
+    {
+      "metric": "important",
+      "selectorOrValue": "historical CSS through B0",
+      "owner": "compatibility",
+      "reason": "Existing important declarations are frozen while rules move to owned cascade layers",
+      "introducedAt": "2026-08-27",
+      "expiresAt": "2027-08-27",
+      "replacement": "owned cascade layers without important",
+      "test": "frontend/scripts/frontend-health-metrics.test.mjs",
+      "consumers": ["frontend/scripts/frontend-health-baseline.json"]
+    },
+    {
+      "metric": "business-specificity",
+      "selectorOrValue": "historical selectors with depth >= 3",
+      "owner": "compatibility",
+      "reason": "Existing deep selectors are frozen pending domain-by-domain ownership migration",
+      "introducedAt": "2026-08-27",
+      "expiresAt": "2027-08-27",
+      "replacement": "single-owner domain selectors",
+      "test": "frontend/scripts/dead-selectors.test.mjs",
+      "consumers": ["frontend/src/styles"]
+    },
+    {
+      "metric": "attribute-selector",
+      "selectorOrValue": "historical attribute and data-state selectors",
+      "owner": "compatibility",
+      "reason": "Dynamic state selectors require runtime evidence before ownership migration",
+      "introducedAt": "2026-08-27",
+      "expiresAt": "2027-08-27",
+      "replacement": "registered dynamic selectors with domain ownership",
+      "test": "frontend/scripts/dead-selectors.test.mjs",
+      "consumers": ["frontend/src/styles"]
+    },
+    {
+      "metric": "noncanonical-media",
+      "selectorOrValue": "historical media queries outside canonical device tiers",
+      "owner": "responsive",
+      "reason": "Layout-specific breakpoints are frozen until responsive rules return to their domain owners",
+      "introducedAt": "2026-08-27",
+      "expiresAt": "2027-08-27",
+      "replacement": "767px, 768-1023px, and 1024px canonical tiers or registered layout exceptions",
+      "test": "frontend/scripts/frontend-health-metrics.test.mjs",
+      "consumers": ["frontend/src/styles/07-mobile.css"]
+    },
+    {
+      "metric": "compatibility-alias",
+      "selectorOrValue": "style-token-contract aliases",
+      "owner": "foundation",
+      "reason": "Legacy custom property names remain visible during controlled CSS migration",
+      "introducedAt": "2026-08-27",
+      "expiresAt": "2027-02-28",
+      "replacement": "canonical tokens from 00-foundation.css",
+      "test": "frontend/scripts/style-contract.test.mjs",
+      "consumers": ["frontend/scripts/style-token-contract.json"]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  loadStyleExceptions,
   loadStyleTokenContract,
   scanCssTokens,
   validateRuntimeVariable,
@@ -236,6 +237,31 @@ describe('canonical style token contract', () => {
     await expect(loadStyleTokenContract(
       path.join(rootDir, 'frontend/scripts/style-token-contract.json'),
     )).resolves.toMatchObject({ version: 1 });
+  });
+
+  it('rejects incomplete, expired, and consumerless style exceptions', async () => {
+    const valid = {
+      metric: 'important',
+      selectorOrValue: '.legacy !important',
+      owner: 'compatibility',
+      reason: 'Historical override awaiting migration',
+      introducedAt: '2026-08-27',
+      expiresAt: FUTURE_EXPIRY,
+      replacement: 'owned cascade layer',
+      test: 'style-contract.test.mjs',
+      consumers: ['src/styles/legacy.css'],
+    };
+    const { rootDir } = await createFixture({
+      'valid.json': `${JSON.stringify({ version: 1, exceptions: [valid] })}\n`,
+      'missing-owner.json': `${JSON.stringify({ version: 1, exceptions: [{ ...valid, owner: '' }] })}\n`,
+      'expired.json': `${JSON.stringify({ version: 1, exceptions: [{ ...valid, expiresAt: '2026-08-27' }] })}\n`,
+      'consumerless.json': `${JSON.stringify({ version: 1, exceptions: [{ ...valid, consumers: [] }] })}\n`,
+    });
+
+    await expect(loadStyleExceptions(path.join(rootDir, 'valid.json'), { today: '2026-08-28' })).resolves.toHaveLength(1);
+    await expect(loadStyleExceptions(path.join(rootDir, 'missing-owner.json'), { today: '2026-08-28' })).rejects.toThrow(/owner/);
+    await expect(loadStyleExceptions(path.join(rootDir, 'expired.json'), { today: '2026-08-28' })).rejects.toThrow(/expired/);
+    await expect(loadStyleExceptions(path.join(rootDir, 'consumerless.json'), { today: '2026-08-28' })).rejects.toThrow(/consumers/);
   });
 });
 

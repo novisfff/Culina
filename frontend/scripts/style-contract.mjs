@@ -10,6 +10,10 @@ const REQUIRED_RUNTIME_FIELDS = Object.freeze([
   'owner', 'source', 'fallback', 'consumers', 'introducedAt', 'expiresAt', 'test',
 ]);
 const SOURCE_EXTENSIONS = new Set(['.css', '.js', '.jsx', '.ts', '.tsx']);
+const REQUIRED_EXCEPTION_FIELDS = Object.freeze([
+  'metric', 'selectorOrValue', 'owner', 'reason', 'introducedAt', 'expiresAt',
+  'replacement', 'test', 'consumers',
+]);
 
 
 function assertObject(value, label) {
@@ -84,6 +88,38 @@ export async function loadStyleTokenContract(contractPath) {
     throw new Error(`invalid style token contract JSON: ${error.message}`);
   }
   return validateContract(contract);
+}
+
+
+export async function loadStyleExceptions(exceptionsPath, {
+  today = new Date().toISOString().slice(0, 10),
+} = {}) {
+  const content = await readFile(exceptionsPath, 'utf8');
+  let registry;
+  try {
+    registry = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`invalid style exceptions JSON: ${error.message}`);
+  }
+  if (!registry || typeof registry !== 'object' || registry.version !== 1) {
+    throw new Error('style exceptions version must be 1');
+  }
+  if (!Array.isArray(registry.exceptions)) {
+    throw new Error('style exceptions must be an array');
+  }
+  registry.exceptions.forEach((entry, index) => {
+    const label = `style exception ${index}`;
+    assertFields(entry, REQUIRED_EXCEPTION_FIELDS, label);
+    if (!Array.isArray(entry.consumers) || entry.consumers.length === 0) {
+      throw new Error(`${label} consumers must be a non-empty array`);
+    }
+    validateDate(entry.introducedAt, `${label}.introducedAt`);
+    validateDate(entry.expiresAt, `${label}.expiresAt`);
+    if (isExpired(entry.expiresAt, today)) {
+      throw new Error(`${label} expired on ${entry.expiresAt}`);
+    }
+  });
+  return registry.exceptions;
 }
 
 
@@ -332,17 +368,57 @@ async function runCli() {
     stylesDir: path.join(frontendDir, 'src', 'styles'),
     contract,
   });
-  const violations = [
+  const tokenViolations = [
     ...result.undefinedVariables,
     ...result.drift.filter((entry) => ['expired-alias', 'expired-runtime', 'definition-drift', 'missing-definition'].includes(entry.classification)),
   ];
-  process.stdout.write(`${JSON.stringify({
-    definitions: result.definitions.length,
-    references: result.references.length,
-    drift: result.drift.length,
-    undefinedVariables: result.undefinedVariables.length,
+  const exceptions = await loadStyleExceptions(path.join(scriptDir, 'style-exceptions.json'));
+  const { createDeadSelectorReport, loadStyleOwnership } = await import('./dead-selectors.mjs');
+  const ownership = await loadStyleOwnership(path.join(scriptDir, 'style-ownership.json'));
+  const selectorReport = await createDeadSelectorReport({ rootDir, frontendDir, ownership });
+  const selectorSummary = Object.fromEntries(
+    ['unused', 'duplicate', 'ownerMissing', 'dynamic'].map((metric) => [metric, selectorReport[metric].length]),
+  );
+  const selectorViolations = Object.entries(selectorSummary)
+    .filter(([metric, count]) => ownership.baseline && count > (ownership.baseline[metric] ?? 0))
+    .map(([metric, count]) => ({
+      classification: 'selector-ratchet-increase',
+      metric,
+      baseline: ownership.baseline[metric] ?? 0,
+      current: count,
+    }));
+  const violations = [...tokenViolations, ...selectorViolations];
+  const report = {
+    tokens: {
+      definitions: result.definitions.length,
+      references: result.references.length,
+      drift: result.drift.length,
+      undefinedVariables: result.undefinedVariables.length,
+    },
+    selectors: selectorSummary,
+    exceptions: exceptions.length,
     violations,
-  }, null, 2)}\n`);
+  };
+  const formatIndex = process.argv.indexOf('--format');
+  if (formatIndex >= 0 && process.argv[formatIndex + 1] === 'markdown') {
+    process.stdout.write([
+      '# CSS governance report',
+      '',
+      `- token definitions: ${report.tokens.definitions}`,
+      `- token references: ${report.tokens.references}`,
+      `- token drift: ${report.tokens.drift}`,
+      `- undefined variables: ${report.tokens.undefinedVariables}`,
+      `- unused selector candidates: ${report.selectors.unused}`,
+      `- duplicate selectors: ${report.selectors.duplicate}`,
+      `- selectors missing owner: ${report.selectors.ownerMissing}`,
+      `- dynamic selectors: ${report.selectors.dynamic}`,
+      `- active exceptions: ${report.exceptions}`,
+      `- violations: ${report.violations.length}`,
+      '',
+    ].join('\n'));
+  } else {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  }
   if (violations.length > 0) process.exitCode = 1;
 }
 

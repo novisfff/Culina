@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "owners": [
+    { "id": "foundation", "sources": ["frontend/src/styles/00-foundation.css"], "prefixes": [":root", "html", "body"] },
+    { "id": "ui-kit", "sources": ["frontend/src/styles/00-ui-kit.css"], "prefixes": ["empty-state", "touch-", "ui-"] },
+    { "id": "shell", "sources": ["frontend/src/styles/00-foundation.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["app-shell", "sidebar", "mobile-topbar"] },
+    { "id": "home", "sources": ["frontend/src/styles/01-home-dashboard.css"], "prefixes": ["dashboard-", "home-"] },
+    { "id": "eat", "sources": ["frontend/src/styles/12-eat-workspace.css"], "prefixes": ["eat-"] },
+    { "id": "recipe", "sources": ["frontend/src/styles/03-recipe-workspace.css"], "prefixes": ["recipe-"] },
+    { "id": "ingredients", "sources": ["frontend/src/styles/04-ingredients-workspace.css"], "prefixes": ["ingredient-", "ingredients-"] },
+    { "id": "inventory", "sources": ["frontend/src/styles/10-inventory-actions.css", "frontend/src/styles/11-inventory-maintenance.css"], "prefixes": ["inventory-"] },
+    { "id": "food", "sources": ["frontend/src/styles/06-food-workspace.css"], "prefixes": ["food-"] },
+    { "id": "meal", "sources": ["frontend/src/styles/08-meal-log.css", "frontend/src/styles/13-meal-composer.css"], "prefixes": ["meal-", "mobile-log-"] },
+    { "id": "ai", "sources": ["frontend/src/styles/09-ai-draft-ui.css", "frontend/src/styles/09-ai-workspace.css", "frontend/src/styles/09-global-search.css"], "prefixes": ["ai-", "global-search-"] },
+    { "id": "family", "sources": ["frontend/src/styles/02-family-settings.css", "frontend/src/styles/15-family-model-settings.css"], "prefixes": ["family-"] },
+    { "id": "model-usage", "sources": ["frontend/src/styles/14-model-usage.css"], "prefixes": ["model-usage-"] },
+    { "id": "compatibility", "sources": ["frontend/src/styles/05-workspace-overlays.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["workspace-modal", "workspace-overlay-"] }
+  ],
+  "selectors": [
+    { "selector": ":root", "owner": "foundation", "source": "frontend/src/styles/00-foundation.css", "consumers": ["frontend/src/styles"], "sharedWith": [], "dynamic": false, "deleteWhen": "Never while canonical tokens exist", "test": "frontend/scripts/style-contract.test.mjs" },
+    { "selector": ".empty-state", "owner": "ui-kit", "source": "frontend/src/styles/00-ui-kit.css", "consumers": ["frontend/src/components"], "sharedWith": [], "dynamic": false, "deleteWhen": "No ui-kit consumer remains", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".app-shell", "owner": "shell", "source": "frontend/src/styles/07-mobile.css", "consumers": ["frontend/src/app/AppShell.tsx"], "sharedWith": ["compatibility"], "dynamic": false, "deleteWhen": "AppShell is retired", "test": "frontend/src/app/AppShell.test.tsx" },
+    { "selector": ".dashboard-page", "owner": "home", "source": "frontend/src/styles/01-home-dashboard.css", "consumers": ["frontend/src/components/home"], "sharedWith": [], "dynamic": false, "deleteWhen": "Home dashboard route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".eat-workspace", "owner": "eat", "source": "frontend/src/styles/12-eat-workspace.css", "consumers": ["frontend/src/features/eat"], "sharedWith": [], "dynamic": false, "deleteWhen": "Eat workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".recipe-workspace", "owner": "recipe", "source": "frontend/src/styles/03-recipe-workspace.css", "consumers": ["frontend/src/components/recipes"], "sharedWith": [], "dynamic": false, "deleteWhen": "Recipe workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".ingredients-inventory-source-chip-group", "owner": "ingredients", "source": "frontend/src/styles/04-ingredients-workspace.css", "consumers": ["frontend/src/components/ingredients"], "sharedWith": [], "dynamic": false, "deleteWhen": "Ingredients inventory source control is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".inventory-action-content", "owner": "inventory", "source": "frontend/src/styles/10-inventory-actions.css", "consumers": ["frontend/src/components/inventory"], "sharedWith": [], "dynamic": false, "deleteWhen": "Inventory actions are retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".food-workspace", "owner": "food", "source": "frontend/src/styles/06-food-workspace.css", "consumers": ["frontend/src/components/foods"], "sharedWith": [], "dynamic": false, "deleteWhen": "Food workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".mobile-log-page", "owner": "meal", "source": "frontend/src/styles/08-meal-log.css", "consumers": ["frontend/src/features/meals"], "sharedWith": [], "dynamic": false, "deleteWhen": "Meal log route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".ai-workspace-shell", "owner": "ai", "source": "frontend/src/styles/09-ai-workspace.css", "consumers": ["frontend/src/components/ai"], "sharedWith": [], "dynamic": false, "deleteWhen": "AI workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".family-workspace", "owner": "family", "source": "frontend/src/styles/02-family-settings.css", "consumers": ["frontend/src/components/family"], "sharedWith": [], "dynamic": false, "deleteWhen": "Family workspace route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".model-usage-workspace", "owner": "model-usage", "source": "frontend/src/styles/14-model-usage.css", "consumers": ["frontend/src/features/model-usage"], "sharedWith": [], "dynamic": false, "deleteWhen": "Model usage route is retired", "test": "frontend/scripts/dead-selectors.test.mjs" },
+    { "selector": ".workspace-modal", "owner": "compatibility", "source": "frontend/src/styles/05-workspace-overlays.css", "consumers": ["frontend/src/components"], "sharedWith": ["home", "food", "ingredients", "recipe"], "dynamic": false, "deleteWhen": "All domain overlays use owned primitives", "test": "frontend/scripts/dead-selectors.test.mjs" }
+  ],
+  "baseline": {
+    "unused": 1068,
+    "duplicate": 693,
+    "ownerMissing": 1098,
+    "dynamic": 15
+  }
+}
