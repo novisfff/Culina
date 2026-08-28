@@ -114,6 +114,7 @@ function parseArguments(argv) {
     manifestPath: path.join(ARTIFACT_ROOT, 'frontend-health-manifest.json'),
     baselinePath: path.join(SCRIPT_DIR, 'frontend-health-baseline.json'),
     configPath: path.join(SCRIPT_DIR, 'bundle-budgets.json'),
+    rolloutPath: path.join(SCRIPT_DIR, 'budget-rollout-state.json'),
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -122,6 +123,7 @@ function parseArguments(argv) {
     else if (argument.startsWith('--manifest=')) options.manifestPath = argument.slice('--manifest='.length);
     else if (argument.startsWith('--baseline=')) options.baselinePath = argument.slice('--baseline='.length);
     else if (argument.startsWith('--config=')) options.configPath = argument.slice('--config='.length);
+    else if (argument.startsWith('--rollout=')) options.rolloutPath = argument.slice('--rollout='.length);
     else if (argument.startsWith('--result=')) options.resultPath = argument.slice('--result='.length);
     else if (argument.startsWith('--coverage=')) options.coveragePath = argument.slice('--coverage='.length);
     else if (argument.startsWith('--completed-phase=')) options.completedPhase = Number(argument.slice('--completed-phase='.length));
@@ -167,6 +169,7 @@ async function runCli() {
       manifestPath: options.manifestPath,
       baselinePath: options.baselinePath,
       configPath: options.configPath,
+      rolloutPath: options.rolloutPath,
       completedPhase: options.completedPhase ?? 0,
     });
   } catch (error) {

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { readHealthBaseline } from './frontend-health-baseline.mjs';
+import { resolveEntryMode, validateBudgetRolloutState } from './budget-rollout-state.mjs';
 
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -210,6 +211,7 @@ export async function runBundleBudgetCheck({
   baselinePath = DEFAULT_BASELINE_PATH,
   configPath = DEFAULT_CONFIG_PATH,
   completedPhase = 0,
+  rolloutPath,
   publicAssetDirs = [
     { label: 'assets', path: path.join(FRONTEND_ROOT, 'dist', 'assets') },
     { label: 'images', path: path.join(FRONTEND_ROOT, 'dist', 'images') },
@@ -220,6 +222,7 @@ export async function runBundleBudgetCheck({
   const manifest = validateManifest(readJson(manifestPath));
   const baseline = await readHealthBaseline(baselinePath);
   const config = validateBudgetConfig(readJson(configPath));
+  const rollout = rolloutPath ? validateBudgetRolloutState(readJson(rolloutPath), config) : null;
   const warnings = [];
   const violations = [];
   const manifestErrors = [...(manifest.manifestErrors ?? [])];
@@ -231,7 +234,7 @@ export async function runBundleBudgetCheck({
       continue;
     }
     const compared = compareEntry({
-      mode,
+      mode: mode === 'report' ? 'report' : (rollout ? resolveEntryMode(rollout.entries[entry]) : mode),
       entry,
       metrics: entryMetrics(manifestEntry, manifest),
       budget,
@@ -276,6 +279,7 @@ function parseArguments(argv) {
     else if (argument.startsWith('--manifest=')) options.manifestPath = argument.slice('--manifest='.length);
     else if (argument.startsWith('--baseline=')) options.baselinePath = argument.slice('--baseline='.length);
     else if (argument.startsWith('--config=')) options.configPath = argument.slice('--config='.length);
+    else if (argument.startsWith('--rollout=')) options.rolloutPath = argument.slice('--rollout='.length);
     else if (argument.startsWith('--result=')) options.resultPath = argument.slice('--result='.length);
     else if (argument.startsWith('--completed-phase=')) options.completedPhase = Number(argument.slice('--completed-phase='.length));
     else throw new Error(`unknown argument: ${argument}`);

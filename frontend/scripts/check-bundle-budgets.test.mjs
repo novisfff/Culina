@@ -79,6 +79,7 @@ async function withBudgetFixture(options, callback) {
         manifest: path.join(directory, 'manifest.json'),
         baseline: path.join(directory, 'baseline.json'),
         config: path.join(directory, 'budgets.json'),
+        rollout: path.join(directory, 'rollout.json'),
         result: path.join(directory, 'result.json'),
       };
       await Promise.all([
@@ -94,13 +95,14 @@ async function withBudgetFixture(options, callback) {
 }
 
 
-function runChecker(paths, mode) {
+function runChecker(paths, mode, { rollout = false } = {}) {
   const result = spawnSync(process.execPath, [
     SCRIPT_PATH,
     `--mode=${mode}`,
     `--manifest=${paths.manifest}`,
     `--baseline=${paths.baseline}`,
     `--config=${paths.config}`,
+    ...(rollout ? [`--rollout=${paths.rollout}`] : []),
     '--completed-phase=0',
     `--result=${paths.result}`,
   ], { encoding: 'utf8' });
@@ -109,6 +111,20 @@ function runChecker(paths, mode) {
     stdout: result.stdout,
     stderr: result.stderr,
   };
+}
+
+async function writeRollout(paths, evidence) {
+  await writeFile(paths.rollout, JSON.stringify({
+    version: 1,
+    entries: {
+      main: {
+        enabledMode: 'target',
+        owner: 'frontend-platform',
+        phase: 0,
+        evidence,
+      },
+    },
+  }), 'utf8');
 }
 
 
@@ -171,6 +187,26 @@ describe('bundle budget modes', () => {
   it('rejects an unknown mode with exit code 2', async () => {
     await withBudgetFixture({}, async (paths) => {
       expect(runChecker(paths, 'unknown')).toMatchObject({ exitCode: 2 });
+    });
+  });
+
+  it('keeps ratchet mode until rollout evidence is complete', async () => {
+    await withBudgetFixture({ criticalGzipBytes: 1000 }, async (paths) => {
+      await writeRollout(paths, {
+        buildCommits: ['a'], viewportCommits: ['b', 'c'], manifestComplete: true, openExceptions: [],
+      });
+      expect(runChecker(paths, 'ratchet', { rollout: true })).toMatchObject({ exitCode: 0 });
+    });
+  });
+
+  it('enables target mode only after two builds and two viewport commits', async () => {
+    await withBudgetFixture({ criticalGzipBytes: 1000 }, async (paths) => {
+      await writeRollout(paths, {
+        buildCommits: ['a', 'b'], viewportCommits: ['c', 'd'], manifestComplete: true, openExceptions: [],
+      });
+      const result = runChecker(paths, 'ratchet', { rollout: true });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('entry=main');
     });
   });
 });
