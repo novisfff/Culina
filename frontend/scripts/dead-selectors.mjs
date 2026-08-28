@@ -95,6 +95,7 @@ async function readCssSelectors(cssFiles, rootDir) {
         const partOffset = block[1].indexOf(selectorPart);
         const atoms = selectorAtoms(selectorPart);
         const hasDynamicAttribute = /\[data-[^\]]+\]/.test(selectorPart);
+        const ruleSelector = selectorPart.trim().replace(/\s+/g, ' ');
         for (const selector of atoms) {
           const atomOffset = selectorPart.indexOf(selector);
           occurrences.push({
@@ -102,6 +103,7 @@ async function readCssSelectors(cssFiles, rootDir) {
             file: normalizeFile(rootDir, file),
             line: lineFor(content, groupStart + partOffset + atomOffset),
             dynamicSyntax: hasDynamicAttribute,
+            ruleSelector,
           });
         }
       }
@@ -207,14 +209,23 @@ export async function scanSelectorUsage({
   for (const [selector, entries] of bySelector) {
     const registryEntry = scopedOwnership(selector, entries[0], ownership);
     const isDynamic = entries.some((entry) => entry.dynamicSyntax) || registryEntry?.dynamic === true;
-    const files = [...new Set(entries.map((entry) => entry.file))].sort();
-    if (files.length > 1) duplicate.push({ selector, files, occurrences: entries.length });
     if (!registryEntry) ownerMissing.push({ ...entries[0], occurrences: entries.length });
     if (isDynamic) {
       dynamic.push({ ...entries[0], owner: registryEntry?.owner ?? null, reason: 'dynamic-or-attribute-selector' });
     } else if (!isStaticallyUsed(selector, evidence)) {
       unused.push({ ...entries[0], owner: registryEntry?.owner ?? null });
     }
+  }
+
+  const duplicateRules = new Map();
+  for (const occurrence of occurrences) {
+    const entries = duplicateRules.get(occurrence.ruleSelector) ?? [];
+    entries.push(occurrence);
+    duplicateRules.set(occurrence.ruleSelector, entries);
+  }
+  for (const [selector, entries] of duplicateRules) {
+    const files = [...new Set(entries.map((entry) => entry.file))].sort();
+    if (files.length > 1) duplicate.push({ selector, files, occurrences: entries.length });
   }
 
   const sortBySelector = (left, right) => left.selector.localeCompare(right.selector);

@@ -2,12 +2,14 @@
 @layer reset, tokens, primitives, shell, domain, responsive, compatibility;
 
 @import './styles/00-foundation.css';
+@import './styles/legacy-primitives.css' layer(primitives);
 @import './styles/00-ui-kit.css' layer(primitives);
 @import './styles/shell.css' layer(shell);
 @import './styles/01-home-dashboard.css' layer(domain);
 @import './styles/02-family-settings.css' layer(domain);
 @import './styles/03-recipe-workspace.css' layer(domain);
 @import './styles/04-ingredients-workspace.css' layer(domain);
+@import './styles/05-workspace-overlays.css' layer(domain);
 @import './styles/06-food-workspace.css' layer(domain);
 @import './styles/09-ai-workspace.css' layer(domain);
 @import './styles/09-ai-draft-ui.css' layer(domain);
@@ -20,4 +22,4 @@
 @import './styles/14-model-usage.css' layer(domain);
 @import './styles/15-family-model-settings.css' layer(domain);
 @import './styles/07-mobile.css' layer(responsive);
-@import './styles/05-workspace-overlays.css' layer(compatibility);
+@import './styles/shell-responsive.css' layer(responsive);

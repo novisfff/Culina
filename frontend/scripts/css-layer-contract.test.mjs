@@ -30,9 +30,11 @@ describe('CSS cascade layer contract', () => {
     const entrypoint = await readFrontend('src/styles.css');
 
     expect(entrypoint).toContain("@import './styles/00-ui-kit.css' layer(primitives);");
+    expect(entrypoint).toContain("@import './styles/legacy-primitives.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/shell.css' layer(shell);");
     expect(entrypoint).toContain("@import './styles/01-home-dashboard.css' layer(domain);");
     expect(entrypoint).toContain("@import './styles/07-mobile.css' layer(responsive);");
+    expect(entrypoint).toContain("@import './styles/shell-responsive.css' layer(responsive);");
   });
 
   it('keeps only reset and tokens in foundation and shell rules in shell.css', async () => {
@@ -46,6 +48,7 @@ describe('CSS cascade layer contract', () => {
     expect(foundation).not.toMatch(/\.app-shell\s*\{/);
     expect(shell).toMatch(/\.app-shell\s*\{/);
     expect(shell).toMatch(/\.app-notification-center\s*\{/);
+    expect(shell).not.toMatch(/\.workspace-modal\s*\{/);
   });
 
   it('rejects duplicate, reordered, and forbidden business layers', () => {

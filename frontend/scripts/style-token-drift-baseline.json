@@ -19,7 +19,7 @@
       "src/styles/07-mobile.css": 10,
       "src/styles/08-meal-log.css": 8,
       "src/styles/09-ai-workspace.css": 2,
-      "src/styles/shell.css": 1
+      "src/styles/legacy-primitives.css": 1
     }
   }
 }
