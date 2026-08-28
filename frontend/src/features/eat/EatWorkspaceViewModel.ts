@@ -9,7 +9,13 @@ import type {
 } from '../../api/types/meal';
 import type { CookLaunchContext, EatTask } from '../../app/appNavigationModel';
 import { getWeekRange } from '../../lib/date';
-import { todayKey } from '../../lib/ui';
+import { relatedSelfMadeFoods } from './eatCookLaunchModel';
+export {
+  relatedSelfMadeFoods,
+  buildCookLaunchContext,
+  isCompletableCookLaunch,
+  buildPlanCookLaunchContext,
+} from './eatCookLaunchModel';
 
 export type QuerySettleStatus = 'idle' | 'pending' | 'success' | 'error';
 
@@ -64,71 +70,6 @@ function loadError(label: string): ResolvedEatTask {
 /** True when a settled query failed and there is no usable entity data to fall back on. */
 function isFailedWithoutData(status: QuerySettleStatus, hasData: boolean): boolean {
   return status === 'error' && !hasData;
-}
-
-/** selfMade foods linked to a recipe; cook/view require exactly one match. */
-export function relatedSelfMadeFoods(foods: Food[], recipeId: string): Food[] {
-  return foods.filter((food) => food.type === 'selfMade' && food.recipe_id === recipeId);
-}
-
-/**
- * Build cook launch context. When foodPlanItemId is provided, always keep plan
- * source even if the full plan item is missing from the week cache.
- *
- * Callers must treat empty planItemBaseUpdatedAt as incomplete OCC and resolve
- * plan detail before submit (see isCompletableCookLaunch).
- */
-export function buildCookLaunchContext(args: {
-  foodPlanItemId?: string;
-  planItem?: FoodPlanItem | null;
-  fallbackDate?: string;
-  fallbackMealType?: MealType;
-  servings?: number;
-}): CookLaunchContext {
-  const fallbackDate = args.fallbackDate ?? todayKey();
-  const fallbackMealType = args.fallbackMealType ?? 'dinner';
-  const servings = args.servings != null && args.servings > 0 ? args.servings : 1;
-  if (args.foodPlanItemId) {
-    return {
-      date: args.planItem?.plan_date ?? fallbackDate,
-      mealType: args.planItem?.meal_type ?? fallbackMealType,
-      servings,
-      source: {
-        kind: 'plan',
-        foodPlanItemId: args.foodPlanItemId,
-        planItemBaseUpdatedAt: args.planItem?.updated_at ?? '',
-      },
-    };
-  }
-  return {
-    date: fallbackDate,
-    mealType: fallbackMealType,
-    servings,
-    source: { kind: 'direct' },
-  };
-}
-
-/** Plan cook is only completable when OCC base is present; direct cook always is. */
-export function isCompletableCookLaunch(launch: CookLaunchContext): boolean {
-  if (launch.source.kind === 'direct') return true;
-  return Boolean(launch.source.planItemBaseUpdatedAt?.trim());
-}
-
-/** Plan Cook context from a loaded plan detail response + recipe servings. */
-export function buildPlanCookLaunchContext(
-  item: Pick<FoodPlanItem, 'id' | 'plan_date' | 'meal_type' | 'updated_at'>,
-  recipe: Pick<Recipe, 'servings'>,
-): CookLaunchContext {
-  return {
-    date: item.plan_date,
-    mealType: item.meal_type,
-    servings: recipe.servings > 0 ? recipe.servings : 1,
-    source: {
-      kind: 'plan',
-      foodPlanItemId: item.id,
-      planItemBaseUpdatedAt: item.updated_at,
-    },
-  };
 }
 
 function resolveRecipeRelation(

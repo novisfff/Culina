@@ -22,8 +22,7 @@ import type { AppOverlayState } from './app/appOverlayState';
 import {
   relatedSelfMadeFoods,
   buildCookLaunchContext,
-  resolveEatTask,
-} from './features/eat/EatWorkspaceViewModel';
+} from './features/eat/eatCookLaunchModel';
 import type {
   InventoryOperationDetail,
   InventoryOperationResult,
@@ -353,33 +352,6 @@ function App() {
       },
     });
   }, [navigation, recipes]);
-
-  const resolvedEatTask = useMemo(
-    () =>
-      resolveEatTask({
-        task: navigation.state.eat.task,
-        recipes,
-        foods,
-        recipesStatus: querySettleStatus(recipesQuery),
-        foodsStatus: querySettleStatus(foodsQuery),
-        planDetail: foodPlanDetail,
-        planDetailStatus: querySettleStatus(foodPlanDetailQuery),
-        mealLogs,
-        mealLogsStatus: querySettleStatus(mealLogsQuery),
-        mealLogsFetching: mealLogsQuery.isFetching,
-      }),
-    [
-      foodPlanDetail,
-      foodPlanDetailQuery,
-      foods,
-      foodsQuery,
-      mealLogs,
-      mealLogsQuery,
-      navigation.state.eat.task,
-      recipes,
-      recipesQuery,
-    ],
-  );
 
   useEffect(() => {
     if (!authLoading && !isWorkspaceBootLoading) {
@@ -1109,7 +1081,18 @@ function App() {
           <Suspense fallback={<WorkspaceLoadingFallback />}>
             <EatWorkspace
               navigation={navigation}
-              resolvedTask={resolvedEatTask}
+              taskResolutionArgs={{
+                task: navigation.state.eat.task,
+                recipes,
+                foods,
+                recipesStatus: querySettleStatus(recipesQuery),
+                foodsStatus: querySettleStatus(foodsQuery),
+                planDetail: foodPlanDetail,
+                planDetailStatus: querySettleStatus(foodPlanDetailQuery),
+                mealLogs,
+                mealLogsStatus: querySettleStatus(mealLogsQuery),
+                mealLogsFetching: mealLogsQuery.isFetching,
+              }}
               completionPending={
                 cookRecipeMutation.isPending
                 || recordMealMutation.isPending
@@ -1119,7 +1102,6 @@ function App() {
               }
               cookResumePromptOpen={cookResumePromptOpen}
               taskBodyArgs={{
-                resolvedTask: resolvedEatTask,
                 recipes,
                 foods,
                 ingredients,
@@ -1268,9 +1250,7 @@ function App() {
                   }}
                   isUpdatingMeal={updateMealMutation.isPending}
                   notificationCenter={mobileNotificationCenter}
-                  focusMealLogId={
-                    resolvedEatTask.kind === 'meal' ? resolvedEatTask.mealLog.id : null
-                  }
+                  focusMealLogId={navigation.state.eat.task?.kind === 'meal-detail' ? navigation.state.eat.task.mealLogId : null}
                   updateMealLog={(mealLogId, payload) => updateMealMutation.mutateAsync({ mealLogId, payload })}
                   onBackHome={() => navigation.navigate({ workspace: 'home' })}
                   onBackToEat={() => navigation.navigate({ workspace: 'eat', view: 'discover' })}

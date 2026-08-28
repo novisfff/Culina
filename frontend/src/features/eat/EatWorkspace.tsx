@@ -1,15 +1,18 @@
 import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import { ActionButton, StateBlock } from '../../components/ui-kit';
-import type { ResolvedEatTask } from './EatWorkspaceViewModel';
+import { resolveEatTask, type ResolvedEatTask } from './EatWorkspaceViewModel';
 import { buildEatTaskBodies } from './EatTaskBodies';
+type EatTaskBodyArgs = Parameters<typeof buildEatTaskBodies>[0];
+type EatTaskResolutionArgs = Parameters<typeof resolveEatTask>[0];
 import './eat-route.css';
 import '../meals/meal-route.css';
 import './recipe-route.css';
 
 export type EatWorkspaceProps = {
   navigation: AppNavigationService;
-  resolvedTask: ResolvedEatTask;
+  resolvedTask?: ResolvedEatTask;
+  taskResolutionArgs?: EatTaskResolutionArgs;
   liveMessage?: string;
   completionPending?: boolean;
   cookResumePromptOpen?: boolean;
@@ -23,7 +26,7 @@ export type EatWorkspaceProps = {
   cookTaskContent?: ReactNode;
   mealCreateContent?: ReactNode;
   /** Route-owned adapter inputs; keeps task body construction out of the app shell. */
-  taskBodyArgs?: Parameters<typeof buildEatTaskBodies>[0];
+  taskBodyArgs?: Omit<EatTaskBodyArgs, 'resolvedTask'>;
 };
 
 function returnLabel(view: AppNavigationService['state']['eat']['baseView']): string {
@@ -175,7 +178,7 @@ function RelationErrorTask(props: {
 }
 
 function renderResolvedTask(
-  props: EatWorkspaceProps,
+  props: EatWorkspaceProps & { resolvedTask: ResolvedEatTask },
   options: { headingRef: Ref<HTMLHeadingElement> },
 ): ReactNode {
   const resolved = props.resolvedTask;
@@ -416,7 +419,12 @@ function renderResolvedTask(
  * Does not own domain mutations, recommendations, or query fetching.
  */
 export function EatWorkspace(props: EatWorkspaceProps) {
-  const taskBodies = props.taskBodyArgs ? buildEatTaskBodies(props.taskBodyArgs) : {};
+  const resolvedTask = props.taskResolutionArgs
+    ? resolveEatTask(props.taskResolutionArgs)
+    : props.resolvedTask ?? { kind: 'none' as const };
+  const taskBodies = props.taskBodyArgs
+    ? buildEatTaskBodies({ ...props.taskBodyArgs, resolvedTask })
+    : {};
   const taskContentProps = {
     foodTaskContent: props.foodTaskContent ?? taskBodies.foodTaskContent,
     planTaskContent: props.planTaskContent ?? taskBodies.planTaskContent,
@@ -425,8 +433,8 @@ export function EatWorkspace(props: EatWorkspaceProps) {
     cookTaskContent: props.cookTaskContent ?? taskBodies.cookTaskContent,
     mealCreateContent: props.mealCreateContent ?? taskBodies.mealCreateContent,
   };
-  const resolvedProps = { ...props, ...taskContentProps };
-  if (props.resolvedTask.kind === 'cook') {
+  const resolvedProps: EatWorkspaceProps & { resolvedTask: ResolvedEatTask } = { ...props, resolvedTask, ...taskContentProps };
+  if (resolvedTask.kind === 'cook') {
     return (
       <main className="eat-workspace eat-workspace-cook-mode recipe-workspace recipe-workspace-cook-mode">
         {props.cookResumePromptOpen ? (
