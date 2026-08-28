@@ -41,49 +41,6 @@ import type { Food, FoodPlanItem } from './types/food';
 export type * from './types/meal';
 import type { MealLogCandidate, RecordMealTarget } from './types/meal';
 
-export interface ActivityLog {
-  id: string;
-  family_id: string;
-  actor_id: string;
-  actor_name?: string | null;
-  action: string;
-  entity_type: string;
-  entity_id: string;
-  summary: string;
-  created_at: string;
-}
-
-export interface ActivityLogQuery {
-  start_date?: string;
-  end_date?: string;
-  actor_id?: string;
-  action?: string;
-  entity_type?: string;
-  limit?: number;
-  offset?: number;
-}
-
-export type ActivityHighlightKind =
-  | 'shopping'
-  | 'inventory'
-  | 'meal_plan'
-  | 'meal'
-  | 'family';
-
-export type ActivityHighlight = {
-  id: string;
-  kind: ActivityHighlightKind;
-  summary: string;
-  actor_id: string;
-  actor_name: string;
-  created_at: string;
-};
-
-export type ActivityHighlightsResponse = {
-  items: ActivityHighlight[];
-  week_highlight_count: number;
-};
-
 export type AiConversationVisibility = 'private' | 'family';
 
 export interface AiConversation {
