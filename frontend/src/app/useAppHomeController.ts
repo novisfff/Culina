@@ -1,4 +1,4 @@
-import { useMemo, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import type { Food } from '../api/types/food';
 import type { Ingredient } from '../api/types/inventory';
 import { buildShoppingForm, type ShoppingDialogFormState } from '../features/inventory/shoppingFormModel';
@@ -35,4 +35,11 @@ export function useAppHomeController(args: Args) {
     args.setForm,
     args.createShopping,
   ]);
+}
+
+export function useAppHomeShoppingState(args: Omit<Args, 'form' | 'setOpen' | 'setForm'>) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<ShoppingDialogFormState>(() => buildShoppingForm());
+  const controller = useAppHomeController({ ...args, form, setOpen, setForm });
+  return { open, form, setOpen, setForm, ...controller };
 }

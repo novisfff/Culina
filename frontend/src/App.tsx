@@ -13,7 +13,7 @@ import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
-import { useAppHomeController } from './app/useAppHomeController';
+import { useAppHomeShoppingState } from './app/useAppHomeController';
 import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
@@ -71,7 +71,6 @@ import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
-import { buildShoppingForm, type ShoppingDialogFormState } from './features/inventory/shoppingFormModel';
 import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
@@ -129,8 +128,6 @@ function App() {
   const foodPlanWeekRange = useMemo(() => getWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
   const [hasBooted, setHasBooted] = useState(false);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
-  const [homeShoppingDialogOpen, setHomeShoppingDialogOpen] = useState(false);
-  const [homeShoppingForm, setHomeShoppingForm] = useState<ShoppingDialogFormState>(() => buildShoppingForm());
   const [cookResumePromptOpen, setCookResumePromptOpen] = useState(false);
   const { notice, showNotice, clearNotice } = useNotice();
   const queryClient = useQueryClient();
@@ -453,21 +450,18 @@ function App() {
     showNotice,
   });
 
-  const homeShoppingController = useAppHomeController({
+  const homeShoppingState = useAppHomeShoppingState({
     ingredients,
     foods,
-    form: homeShoppingForm,
-    setOpen: setHomeShoppingDialogOpen,
-    setForm: setHomeShoppingForm,
     createShopping: (payload) => createShoppingMutation.mutateAsync(payload as never),
   });
   const openHomeIngredientShoppingDialog = useCallback(
-    (ingredientId: string) => homeShoppingController.openForIngredient(ingredientId, showNotice),
-    [homeShoppingController, showNotice],
+    (ingredientId: string) => homeShoppingState.openForIngredient(ingredientId, showNotice),
+    [homeShoppingState, showNotice],
   );
   const submitHomeShopping = useCallback(
-    (event: FormEvent<HTMLFormElement>) => homeShoppingController.submit(event, showNotice),
-    [homeShoppingController, showNotice],
+    (event: FormEvent<HTMLFormElement>) => homeShoppingState.submit(event, showNotice),
+    [homeShoppingState, showNotice],
   );
 
   function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
@@ -952,7 +946,7 @@ function App() {
   );
   const appOverlayState: AppOverlayState = globalSearchOpen
     ? { kind: 'global-search' }
-    : homeShoppingDialogOpen
+    : homeShoppingState.open
       ? { kind: 'ingredient-shopping', ingredientId: 'home' }
       : shoppingIntakeState.open || reconciliationState.open || operationHistory.open
         ? { kind: 'inventory-maintenance', busy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending }
@@ -1418,14 +1412,14 @@ function App() {
             onSelect: handleGlobalSearchSelect,
           }}
           shopping={{
-            open: homeShoppingDialogOpen,
+            open: homeShoppingState.open,
             closeOverlay: () => {
-              if (!createShoppingMutation.isPending) setHomeShoppingDialogOpen(false);
+              if (!createShoppingMutation.isPending) homeShoppingState.setOpen(false);
             },
             ingredients,
             foods,
-            shoppingForm: homeShoppingForm,
-            setShoppingForm: setHomeShoppingForm,
+            shoppingForm: homeShoppingState.form,
+            setShoppingForm: homeShoppingState.setForm,
             submitShopping: submitHomeShopping,
             isCreatingShopping: createShoppingMutation.isPending,
           }}
