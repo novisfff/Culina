@@ -365,7 +365,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
   return timeline;
 }
 
-function HumanInputRequestPanel({
+export function HumanInputRequestPanel({
   message,
   request,
   isLatest,
