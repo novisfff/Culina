@@ -1,52 +1,22 @@
-export type { UserRole } from './types/primitives';
-import type { UserRole } from './types/primitives';
+export type * from './types/primitives';
+import type {
+  AiMode,
+  Difficulty,
+  FoodType,
+  ImageGenerationMode,
+  IngredientExpiryMode,
+  InventoryStatus,
+  MealType,
+  MediaEntityType,
+  MediaSource,
+  UserRole,
+} from './types/primitives';
 
 export type * from './types/modelUsage';
 import type { FamilyModelCapability, ModelUsageErrorCode } from './types/modelUsage';
 
-export type FoodType = 'selfMade' | 'takeout' | 'diningOut' | 'readyMade' | 'instant' | 'packaged';
-export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
-export type Difficulty = 'easy' | 'medium' | 'hard';
-export type InventoryStatus = 'fresh' | 'opened' | 'frozen' | 'expiring';
-export type IngredientExpiryMode = 'days' | 'manual_date' | 'none';
-export type AiMode = 'foodQa' | 'inventoryQa' | 'recommendation' | 'recipeDraft';
-export type MediaSource = 'upload' | 'ai';
-export type ImageGenerationMode = 'reference' | 'text';
-export type MediaEntityType = 'user' | 'family' | 'ingredient' | 'food' | 'recipe' | 'recipe_scene' | 'food_scene' | 'meal_log';
-
-export interface IngredientUnitConversion {
-  unit: string;
-  ratio_to_default: number;
-}
-
-export interface MediaAsset {
-  id: string;
-  name: string;
-  url: string;
-  url_expires_at?: string;
-  source: MediaSource;
-  alt: string;
-  generation_mode?: ImageGenerationMode | null;
-  reference_media_id?: string | null;
-  style_key?: string | null;
-  prompt_version?: string | null;
-  variants?: {
-    thumb?: MediaAssetVariant | null;
-    card?: MediaAssetVariant | null;
-    large?: MediaAssetVariant | null;
-  } | null;
-  created_at: string;
-  created_by?: string | null;
-}
-
-export interface MediaAssetVariant {
-  url: string;
-  url_expires_at?: string;
-  width: number;
-  height: number;
-  content_type: string;
-  byte_size: number;
-}
+export type * from './types/media';
+import type { IngredientUnitConversion, MediaAsset } from './types/media';
 
 export interface UserSummary {
   id: string;
