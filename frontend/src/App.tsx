@@ -13,7 +13,7 @@ import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
-import { buildHomeShoppingController } from './app/useAppHomeController';
+import { useAppHomeController } from './app/useAppHomeController';
 import { useAppInventoryOperations } from './app/useAppInventoryOperations';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
@@ -484,7 +484,7 @@ function App() {
     showNotice,
   });
 
-  const homeShoppingController = buildHomeShoppingController({
+  const homeShoppingController = useAppHomeController({
     ingredients,
     foods,
     form: homeShoppingForm,

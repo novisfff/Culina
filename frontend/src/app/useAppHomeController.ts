@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import { useMemo, type FormEvent } from 'react';
 import type { Food } from '../api/types/food';
 import type { Ingredient } from '../api/types/inventory';
 import { buildShoppingForm, type ShoppingDialogFormState } from '../components/ingredients/ingredientWorkspaceForms';
@@ -23,4 +23,16 @@ export function buildHomeShoppingController(args: Args) {
       catch (reason) { showNotice({ tone: 'danger', title: '加入采购清单失败', message: reason instanceof Error && reason.message.trim() ? reason.message : '加入采购清单失败' }); }
     },
   };
+}
+
+/** React boundary for Home's shopping side effects; avoids rebuilding handlers on every render. */
+export function useAppHomeController(args: Args) {
+  return useMemo(() => buildHomeShoppingController(args), [
+    args.ingredients,
+    args.foods,
+    args.form,
+    args.setOpen,
+    args.setForm,
+    args.createShopping,
+  ]);
 }
