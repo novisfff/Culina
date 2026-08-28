@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "coverage:report": "mkdir -p coverage && npm run test:coverage -- --reporter=json --outputFile=coverage/vitest-results.json && node scripts/coverage-topology-report.mjs",
     "e2e:p0": "playwright test --grep @p0",
     "e2e:p0:update": "playwright test --grep @p0 --update-snapshots",
     "smoke": "playwright test e2e/model-usage-governance.spec.mjs",

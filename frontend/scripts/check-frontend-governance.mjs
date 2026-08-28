@@ -111,6 +111,7 @@ function parseArguments(argv) {
     else if (argument.startsWith('--baseline=')) options.baselinePath = argument.slice('--baseline='.length);
     else if (argument.startsWith('--config=')) options.configPath = argument.slice('--config='.length);
     else if (argument.startsWith('--result=')) options.resultPath = argument.slice('--result='.length);
+    else if (argument.startsWith('--coverage=')) options.coveragePath = argument.slice('--coverage='.length);
     else if (argument.startsWith('--completed-phase=')) options.completedPhase = Number(argument.slice('--completed-phase='.length));
     else if (argument === '--fixtures') options.fixturesPath = argv[++index];
     else if (argument.startsWith('--fixtures=')) options.fixturesPath = argument.slice('--fixtures='.length);
@@ -166,7 +167,10 @@ async function runCli() {
   const result = await runFrontendGovernance({
     healthPath: options.healthPath,
     manifestPath: options.manifestPath,
-    resultPaths: { bundle },
+    resultPaths: {
+      bundle,
+      ...(options.coveragePath ? { coverage: options.coveragePath } : {}),
+    },
     mode: options.mode,
   });
   if (options.resultPath) {
