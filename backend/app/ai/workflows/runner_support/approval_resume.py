@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from typing import Any
+
+from fastapi.encoders import jsonable_encoder
 
 from app.ai.workflows.orchestrator.profiles import (
     OrchestratorBudgetConfig,
@@ -16,6 +19,31 @@ class ContinuationResumeError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+def approval_resume_payload_hash(
+    *,
+    decision: Any,
+    draft_version: Any,
+    values: Any,
+    comment: Any,
+) -> str:
+    """Return the stable identity of one approval decision payload."""
+
+    canonical = json.dumps(
+        jsonable_encoder(
+            {
+                "decision": str(decision or ""),
+                "draftVersion": int(draft_version or 0),
+                "values": values if isinstance(values, dict) else {},
+                "comment": str(comment or "").strip(),
+            }
+        ),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def approval_resume_draft_id(decision_result: dict[str, Any]) -> str:

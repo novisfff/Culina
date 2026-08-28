@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.ai.workflows.conversation_access import require_ai_run_access
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.runner_support.human_input_resume import cancelled_human_input_request_parts
+from app.ai.workflows.runner_support.human_input_resume_claim import clear_stream_resume_claim
 from app.ai.workflows.runner_support.run_status import (
     ACTIVE_RUN_STATUSES,
     CANCELLED,
@@ -268,6 +269,7 @@ def cancellation_wins(
 def finalize_run_cancellation(db: Session, *, run: AIAgentRun) -> None:
     run.status = CANCELLED
     run.error = None
+    clear_stream_resume_claim(run)
     request = _cancel_request(
         db,
         family_id=run.family_id,

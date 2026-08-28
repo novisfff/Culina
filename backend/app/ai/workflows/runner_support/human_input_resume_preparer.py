@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.workflows.conversations import require_conversation
+from app.ai.workflows.runner_support.human_input_resume import human_input_resume_payload_hash
+from app.ai.workflows.runner_support.human_input_resume_claim import (
+    STREAM_RESUME_CLAIM_TOKEN_KEY,
+    claim_stream_human_input_resume,
+    current_stream_resume_claim,
+)
 from app.ai.workflows.runner_support.run_status import WAITING_INPUT
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -98,15 +104,31 @@ class HumanInputResumePreparer:
             or str(pending.get("id") or "") != request_id
         ):
             raise AIConflictError("用户补充信息请求已变化，请刷新后重试")
+        run_id = run.id
+        if current_stream_resume_claim(run) is not None:
+            raise AIConflictError("这次补充信息任务正在处理中，请稍后刷新")
+        resume_payload = self.build_resume_payload(
+            request_id=request_id,
+            selected_option_ids=selected_option_ids,
+            text=text,
+            user_id=user_id,
+            family_id=family_id,
+        )
+        if stream:
+            claim = claim_stream_human_input_resume(
+                self.db,
+                run=run,
+                request_id=request_id,
+                user_id=user_id,
+                payload_hash=human_input_resume_payload_hash(selected_option_ids, text),
+            )
+            resume_payload = {
+                **resume_payload,
+                STREAM_RESUME_CLAIM_TOKEN_KEY: claim.token,
+            }
         return PreparedHumanInputResume(
             config=config,
             snapshot=locked_snapshot,
-            run_id=run.id,
-            resume_payload=self.build_resume_payload(
-                request_id=request_id,
-                selected_option_ids=selected_option_ids,
-                text=text,
-                user_id=user_id,
-                family_id=family_id,
-            ),
+            run_id=run_id,
+            resume_payload=resume_payload,
         )

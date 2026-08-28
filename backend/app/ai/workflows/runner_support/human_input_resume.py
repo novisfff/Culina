@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from app.ai.workflows.state import WorkspaceGraphState
@@ -67,6 +69,24 @@ def human_input_response_payload(
         "text": text,
         "summary": answer_summary,
     }
+
+
+def human_input_resume_payload_hash(
+    selected_option_ids: list[str],
+    text: str | None,
+) -> str:
+    """Return the stable identity of one submitted answer."""
+
+    canonical = json.dumps(
+        {
+            "selectedOptionIds": [str(item) for item in selected_option_ids if str(item).strip()],
+            "text": str(text or "").strip(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def human_input_result_artifact(

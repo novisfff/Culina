@@ -12,7 +12,14 @@ from app.ai.workflows.runner_support.human_input_resume import (
     human_input_message_metadata,
     human_input_response_payload,
     human_input_result_artifact,
+    human_input_resume_payload_hash,
     human_input_resume_state_patch,
+)
+from app.ai.workflows.runner_support.human_input_resume_claim import (
+    claim_matches_resume,
+    clear_stream_resume_claim,
+    current_stream_resume_claim,
+    stream_resume_claim_token,
 )
 from app.ai.workflows.runner_support.run_status import WAITING_INPUT
 from app.ai.workflows.state import WorkspaceGraphState
@@ -46,6 +53,7 @@ class HumanInputResumeHandler:
             family_id=state["family_id"],
             run_id=state["run_id"],
         )
+        actor_id = str(resume.get("userId") or state.get("user_id") or "").strip()
         if run.status != WAITING_INPUT or cancellation_wins(
             self.runner.db,
             run=run,
@@ -58,13 +66,26 @@ class HumanInputResumeHandler:
             if str(item).strip()
         ]
         text = str(resume.get("text") or "").strip()
+        claim_token = stream_resume_claim_token(resume)
+        if claim_token is not None:
+            if not claim_matches_resume(
+                run,
+                token=claim_token,
+                request_id=str(pending.get("id") or ""),
+                user_id=actor_id,
+                payload_hash=human_input_resume_payload_hash(selected_option_ids, text),
+            ):
+                raise AIConflictError("这次补充信息任务的恢复资格已变化，请刷新后重试")
+        elif current_stream_resume_claim(run) is not None:
+            # A request-thread synchronous resume must not consume a claim that
+            # was handed to a different stream worker.
+            raise AIConflictError("这次补充信息任务正在处理中，请稍后刷新")
         answer_summary = human_input_answer_summary(pending, selected_option_ids, text)
         response_payload = human_input_response_payload(
             selected_option_ids=selected_option_ids,
             text=text,
             answer_summary=answer_summary,
         )
-        actor_id = str(resume.get("userId") or state.get("user_id") or "").strip()
         if actor_id:
             response_payload = {**response_payload, "actor": actor_id}
         result_artifact = human_input_result_artifact(
@@ -148,6 +169,7 @@ class HumanInputResumeHandler:
     ) -> None:
         conversation = self.runner.db.get(AIConversation, state["conversation_id"])
         run.status = "running"
+        clear_stream_resume_claim(run)
         context_summary = dict(run.context_summary or {})
         context_summary.pop("pendingHumanInput", None)
         context_summary["lastHumanInputResult"] = result_artifact["payload"]

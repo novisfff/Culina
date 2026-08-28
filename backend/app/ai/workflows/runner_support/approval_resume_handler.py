@@ -6,13 +6,22 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi.encoders import jsonable_encoder
 
+from app.ai.errors import AIConflictError
 from app.ai.workflows.runner_support.approval_resume import (
     ContinuationResumeError,
     approval_failed_state_patch,
+    approval_resume_payload_hash,
     approval_resolved_state_patch,
     approval_waiting_state_patch,
     continuation_resume_state,
     continuation_skill_start_event,
+)
+from app.ai.workflows.runner_support.human_input_resume_claim import (
+    STREAM_APPROVAL_RESUME_CLAIM_KIND,
+    claim_matches_stream_resume,
+    clear_stream_resume_claim,
+    current_stream_resume_claim,
+    stream_resume_claim_token,
 )
 from app.ai.workflows.runner_support.run_summary import (
     record_approval_outcome_summary,
@@ -53,6 +62,7 @@ class ApprovalResumeHandler:
         resume: Any,
         run_artifacts: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        self._prepare_resume_claim(state=state, pending=pending, resume=resume)
         recorded_decision = self.runner._pop_fast_approval_decision(state, pending.id)
         if recorded_decision is not None:
             return self.resume_recorded_decision(
@@ -130,6 +140,44 @@ class ApprovalResumeHandler:
             conversation=conversation,
             decision_draft_type=decision_draft_type,
         )
+
+    def _prepare_resume_claim(
+        self,
+        *,
+        state: WorkspaceGraphState,
+        pending: AIApprovalRequest,
+        resume: Any,
+    ) -> None:
+        """Validate the committed stream claim before touching approval state."""
+
+        run = lock_run_for_transition(
+            self.runner.db,
+            family_id=state["family_id"],
+            run_id=state["run_id"],
+        )
+        if cancellation_wins(self.runner.db, run=run, lock_request=False):
+            finalize_run_cancellation(self.runner.db, run=run)
+            raise AIConflictError("运行任务已取消，不能继续提交确认")
+        claim_token = stream_resume_claim_token(resume)
+        if claim_token is not None:
+            actor_id = str(resume.get("userId") or state.get("user_id") or "").strip()
+            if run.status not in {"waiting_approval", "running"} or not claim_matches_stream_resume(
+                run,
+                token=claim_token,
+                kind=STREAM_APPROVAL_RESUME_CLAIM_KIND,
+                request_id=pending.id,
+                user_id=actor_id,
+                payload_hash=approval_resume_payload_hash(
+                    decision=resume.get("decision"),
+                    draft_version=resume.get("draftVersion"),
+                    values=resume.get("values"),
+                    comment=resume.get("comment"),
+                ),
+            ):
+                raise AIConflictError("这次确认任务的恢复资格已变化，请刷新后重试")
+            clear_stream_resume_claim(run)
+        elif current_stream_resume_claim(run) is not None:
+            raise AIConflictError("这次恢复任务正在处理中，请稍后刷新")
 
     def resume_recorded_decision(
         self,

@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIRuntimeFailurePersistenceError, AutoExecutionBlockRequired
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
+from app.ai.workflows.runner_support.human_input_resume_claim import (
+    clear_stream_resume_claim,
+    current_stream_resume_claim,
+)
 from app.ai.workflows.runner_support.run_status import (
     FAILED,
     TERMINAL_RUN_STATUSES,
@@ -67,6 +71,10 @@ class RuntimeFailurePersister:
                 live_ai_stream_cache.clear_run(run_id)
                 return
             if run.status in {*TERMINAL_RUN_STATUSES, WAITING_APPROVAL}:
+                had_stream_claim = current_stream_resume_claim(run) is not None
+                clear_stream_resume_claim(run)
+                if had_stream_claim:
+                    self.db.commit()
                 live_ai_stream_cache.clear_run(run_id)
                 return
             text = "AI 服务暂时不可用，请稍后重试。"
@@ -117,6 +125,7 @@ class RuntimeFailurePersister:
         )
         if run is None:
             raise LookupError("AI Run 不存在，无法持久化自动执行阻断结果")
+        clear_stream_resume_claim(run)
         self._append_runtime_error_event(
             run_id=run_id,
             conversation_id=conversation_id,
@@ -198,6 +207,7 @@ class RuntimeFailurePersister:
         self.db.add(event)
 
     def _mark_run_failed(self, run: AIAgentRun, *, error: str, text: str) -> None:
+        clear_stream_resume_claim(run)
         run.status = FAILED
         run.error = error or text
         run.output_summary = text
