@@ -1,4 +1,4 @@
-import type { Food, FoodPlanItem, Ingredient, Recipe, SearchEntityType, SearchResultItem } from '../../api/types';
+import type { Food, FoodPlanItem, Ingredient, Recipe, SearchEntityType, SearchResultItem } from '../../api/types/search';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS } from '../../lib/ui';
 
 export type GlobalSearchResultTone = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
