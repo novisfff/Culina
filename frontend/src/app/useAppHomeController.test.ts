@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildHomeShoppingController } from './useAppHomeController';
-import { buildShoppingForm } from '../components/ingredients/ingredientWorkspaceForms';
+import { buildShoppingForm } from '../features/inventory/shoppingFormModel';
 
 describe('home controller', () => {
   it('keeps invalid shopping drafts open and reports the validation notice', async () => {

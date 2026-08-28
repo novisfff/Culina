@@ -1,7 +1,7 @@
 import { useMemo, type FormEvent } from 'react';
 import type { Food } from '../api/types/food';
 import type { Ingredient } from '../api/types/inventory';
-import { buildShoppingForm, type ShoppingDialogFormState } from '../components/ingredients/ingredientWorkspaceForms';
+import { buildShoppingForm, type ShoppingDialogFormState } from '../features/inventory/shoppingFormModel';
 import { resolveShoppingFormSubmission } from '../components/ingredients/shoppingFormSubmission';
 
 type Notice = { tone: 'warning' | 'danger' | 'success'; title: string; message: string };

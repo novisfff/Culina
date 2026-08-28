@@ -71,10 +71,7 @@ import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
-import {
-  buildShoppingForm,
-  type ShoppingDialogFormState,
-} from './components/ingredients/ingredientWorkspaceForms';
+import { buildShoppingForm, type ShoppingDialogFormState } from './features/inventory/shoppingFormModel';
 import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
