@@ -81,6 +81,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
   const [preview, setPreview] = useState<FamilyModelSearchReplacementPreviewResult | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [dismissedReplacementId, setDismissedReplacementId] = useState<string | null>(null);
   const embeddingProfiles = useMemo(
     () => props.settings.provider_profiles.filter((profile) => profileSupportsCapability(profile, 'embedding')),
     [props.settings.provider_profiles],
@@ -98,12 +99,8 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
     replacement
       && replacement.status !== 'active'
       && replacement.status !== 'cancelled'
-      && replacement.profile_id !== activeSearchProfileId,
-  );
-  const replacementWasCancelled = Boolean(
-    replacement
-      && replacement.status === 'cancelled'
-      && replacement.profile_id !== activeSearchProfileId,
+      && replacement.profile_id !== activeSearchProfileId
+      && replacement.profile_id !== dismissedReplacementId,
   );
   const rates = props.draft.price_rates.filter((rate) => rate.capability === 'embedding');
   const isInitialReady = !configuredSearchProfileId && embeddingReady(embedding);
@@ -123,13 +120,6 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
           ? '原搜索模型设置仍保留，可以在下方重试；已完成的内容不会重复处理。'
           : '首次搜索配置尚未启用，可以重试，也可以放弃后重新配置模型。',
         tone: 'is-danger',
-      };
-    }
-    if (replacementWasCancelled) {
-      return {
-        title: '搜索索引重建已取消',
-        description: '当前仍继续使用原有搜索索引；如需更换向量模型，可以重新开始重建。',
-        tone: 'is-warning',
       };
     }
     if (activeSearchProfileId) {
@@ -245,13 +235,17 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
 
   async function cancelReplacement() {
     if (!replacement) return;
+    const replacementId = replacement.profile_id;
+    setDismissedReplacementId(replacementId);
+    props.onReplacementProfileIdChange(null);
     try {
-      await props.actions.cancelSearchReplacement(replacement.profile_id, {
+      await props.actions.cancelSearchReplacement(replacementId, {
         base_settings_version_number: props.settings.version_number,
       });
-      props.onReplacementProfileIdChange(null);
     } catch {
       // Preserve the operation state until the server settles it.
+      setDismissedReplacementId(null);
+      props.onReplacementProfileIdChange(replacementId);
     }
   }
 
@@ -269,7 +263,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
         <span>{summary.description}</span>
       </div>
 
-      {replacement && (replacementIsCandidate || replacementWasCancelled) ? (
+      {replacement && replacementIsCandidate ? (
         <section className="family-model-settings-search-progress" aria-live="polite">
           <div>
             <h3>{activeSearchProfileId ? '智能搜索更新进度' : '首次启用智能搜索'}</h3>

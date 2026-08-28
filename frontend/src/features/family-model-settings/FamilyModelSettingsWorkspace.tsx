@@ -75,6 +75,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const historyMarker = `family-model-settings:${props.familyId}`;
   const pendingHistoryExitRef = useRef(false);
   const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
+  const [dismissedReplacementProfileId, setDismissedReplacementProfileId] = useState<string | null>(null);
   const queries = useFamilyModelSettingsQueries({
     familyId: props.familyId,
     role: props.role,
@@ -356,7 +357,9 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     draft,
     prices: queries.prices,
     validation,
-    searchReplacement: queries.searchReplacement,
+    searchReplacement: queries.searchReplacement?.profile_id === dismissedReplacementProfileId
+      ? null
+      : queries.searchReplacement,
     state: state.state,
     actions: mutationState.actions,
     busyAction,
@@ -374,7 +377,14 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     onDiscoverModels: queries.discoverProviderModels,
     onTestCapability: testCapability,
     onValidate: validate,
-    onReplacementProfileIdChange: setReplacementProfileId,
+    onReplacementProfileIdChange: (nextProfileId: string | null) => {
+      if (nextProfileId) {
+        setDismissedReplacementProfileId(null);
+      } else if (replacementProfileId) {
+        setDismissedReplacementProfileId(replacementProfileId);
+      }
+      setReplacementProfileId(nextProfileId);
+    },
   };
 
   return props.isPhoneViewport
