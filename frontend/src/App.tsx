@@ -4,7 +4,7 @@ import { api } from './api/client';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell } from './app/AppShell';
-import { canRenderFamilyAiServices, type AppNavigationTarget, type PrimaryTabKey } from './app/appNavigationModel';
+import { canRenderFamilyAiServices, type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
@@ -24,7 +24,6 @@ import {
   relatedSelfMadeFoods,
   buildCookLaunchContext,
   resolveEatTask,
-  type QuerySettleStatus,
 } from './features/eat/EatWorkspaceViewModel';
 import type {
   InventoryOperationDetail,
@@ -85,6 +84,7 @@ import {
 import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
+import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -115,42 +115,6 @@ const FamilyModelSettingsWorkspace = lazy(() =>
   }))
 );
 
-
-function querySettleStatus(query: {
-  isPending?: boolean;
-  isLoading?: boolean;
-  isError?: boolean;
-  isSuccess?: boolean;
-  fetchStatus?: string;
-  data?: unknown;
-}): QuerySettleStatus {
-  if (query.isError) return 'error';
-  if (query.isSuccess || query.data !== undefined) return 'success';
-  if (query.isPending || query.isLoading) return 'pending';
-  return 'idle';
-}
-
-function primaryTabToTarget(
-  tab: PrimaryTabKey,
-  currentEatBaseView: 'discover' | 'plan' | 'history',
-  alreadyOnEat: boolean,
-): AppNavigationTarget {
-  switch (tab) {
-    case 'home':
-      return { workspace: 'home' };
-    case 'eat':
-      if (alreadyOnEat) {
-        return { workspace: 'eat', view: currentEatBaseView };
-      }
-      return { workspace: 'eat', view: 'discover' };
-    case 'ingredients':
-      return { workspace: 'ingredients' };
-    case 'ai':
-      return { workspace: 'ai' };
-    case 'family':
-      return { workspace: 'family' };
-  }
-}
 
 function WorkspaceLoadingFallback() {
   return (
