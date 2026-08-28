@@ -5,6 +5,13 @@ import { describe, expect, it } from 'vitest';
 describe('Food legacy style cleanup', () => {
   const repoRoot = resolve(__dirname, '../../..');
 
+  it('loads Food domain styles from the lazy route entry', () => {
+    const globalStyles = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
+    const routeStyles = readFileSync(resolve(repoRoot, 'src/components/foods/food-route.css'), 'utf8');
+    expect(globalStyles).not.toContain("@import './styles/06-food-workspace.css' layer(domain);");
+    expect(routeStyles).toContain("@import '../../styles/06-food-workspace.css' layer(domain);");
+  });
+
   it('keeps linked recipe summary styles scoped to the food detail drawer', () => {
     const detailSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodDetailDrawer.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');

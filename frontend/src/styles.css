@@ -10,7 +10,6 @@
 @import './styles/03-recipe-workspace.css' layer(domain);
 @import './styles/04-ingredients-workspace.css' layer(domain);
 @import './styles/05-workspace-overlays.css' layer(domain);
-@import './styles/06-food-workspace.css' layer(domain);
 @import './styles/08-meal-log.css' layer(domain);
 @import './styles/09-global-search.css' layer(domain);
 @import './styles/10-inventory-actions.css' layer(domain);

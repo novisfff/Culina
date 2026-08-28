@@ -1,0 +1,2 @@
+/* Food domain styles are owned by the lazy Food route entry. */
+@import '../../styles/06-food-workspace.css' layer(domain);
