@@ -24,4 +24,7 @@
 @import './styles/07-mobile.css' layer(responsive);
 @import './styles/family-responsive.css' layer(responsive);
 @import './styles/home-responsive.css' layer(responsive);
+@import './styles/recipe-responsive.css' layer(responsive);
+@import './styles/meal-responsive.css' layer(responsive);
+@import './styles/eat-responsive.css' layer(responsive);
 @import './styles/shell-responsive.css' layer(responsive);

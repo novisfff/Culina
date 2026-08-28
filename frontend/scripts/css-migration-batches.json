@@ -37,21 +37,24 @@
     },
     {
       "id": "eat-meal",
-      "status": "active",
+      "status": "complete",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/03-recipe-workspace.css",
+        "frontend/src/styles/recipe-responsive.css",
         "frontend/src/styles/08-meal-log.css",
+        "frontend/src/styles/meal-responsive.css",
         "frontend/src/styles/12-eat-workspace.css",
+        "frontend/src/styles/eat-responsive.css",
         "frontend/src/styles/13-meal-composer.css"
       ],
       "owners": ["recipe", "eat", "meal"],
       "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
-      "rollbackCommit": "pending"
+      "rollbackCommit": "2419432b"
     },
     {
       "id": "ingredient-food-inventory",
-      "status": "planned",
+      "status": "active",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/04-ingredients-workspace.css",
