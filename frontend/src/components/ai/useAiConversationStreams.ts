@@ -1,5 +1,5 @@
-import { useCallback, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { api, isApiError } from '../../api/client';
+import { useCallback, useState } from 'react';
+import { api } from '../../api/client';
 import type {
   AiChatAttachment,
   AiChatResponse,
@@ -10,16 +10,14 @@ import type {
 } from '../../api/types';
 import { isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import type { AiApprovalDecisionSubmit } from './AiConversationThread';
-
-type StreamProgressEvent = {
-  id?: unknown;
-  run_id?: unknown;
-  type: AiRunEvent['type'];
-  internal_code: string;
-  user_message: string;
-  status: AiRunEvent['status'];
-  created_at?: unknown;
-};
+import { useAiHumanInputStream } from './useAiHumanInputStream';
+import {
+  buildStreamProgressEvent,
+  clearActiveStreamRun,
+  handleInaccessibleStreamError,
+  removeRunController,
+  type StreamMutationContext,
+} from './aiStreamSupport';
 
 export type ChatStreamPayload = {
   message: string;
@@ -45,27 +43,6 @@ export type HumanInputStreamPayload = {
   response: { selected_option_ids?: string[]; text?: string };
 };
 
-type StreamMutationContext = {
-  activeStreamRunIdsByConversationKey: Record<string, string>;
-  chatAbortByRunIdRef: MutableRefObject<Record<string, AbortController>>;
-  streamMessageTargetRef: MutableRefObject<Record<string, string>>;
-  streamConversationTargetRef: MutableRefObject<Record<string, string>>;
-  setActiveStreamRunIdsByConversationKey: Dispatch<SetStateAction<Record<string, string>>>;
-  startThinking: (runId: string | null | undefined) => void;
-  stopThinking: (runId: string | null | undefined) => void;
-  ensureStreamingAssistantMessage: (runId: string, conversationKey: string) => void;
-  updateThinkingForProgressEvent: (event: AiRunEvent, fallbackRunId?: string | null) => void;
-  upsertStreamProgressEvent: (event: AiRunEvent) => void;
-  applyStreamPart: (event: { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart }, conversationKey: string) => void;
-  applyStreamDelta: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }, conversationKey: string) => void;
-  applyChatResponse: (response: AiChatResponse, conversationKey: string, runId: string) => void;
-  streamFailureMessage: (error: unknown) => string;
-  markStreamingAssistantStopped: (runId: string | null, text?: string) => void;
-  clearInaccessibleConversation: (conversationId: string) => void;
-  refreshAfterApprovalSettled: () => Promise<void>;
-  isApprovalDecisionSettledPart: (part: AiMessagePart, approvalId: string) => boolean;
-};
-
 export type AiConversationStreams = {
   startChat: (payload: ChatStreamPayload) => Promise<AiChatResponse>;
   startApproval: (payload: ApprovalStreamPayload) => Promise<void>;
@@ -75,55 +52,9 @@ export type AiConversationStreams = {
   submittingHumanInputByRequestId: Record<string, { messageId: string; conversationId: string; runId: string | null }>;
 };
 
-function buildStreamProgressEvent(event: StreamProgressEvent, fallbackRunId: string | null | undefined, idPrefix: string): AiRunEvent {
-  const eventRunId = typeof event.run_id === 'string' && event.run_id !== 'pending'
-    ? event.run_id
-    : fallbackRunId ?? 'pending';
-  return {
-    id: typeof event.id === 'string' ? event.id : `${idPrefix}-${event.internal_code}-${Date.now()}`,
-    run_id: eventRunId,
-    type: event.type,
-    internal_code: event.internal_code,
-    user_message: event.user_message,
-    status: event.status,
-    created_at: typeof event.created_at === 'string' ? event.created_at : new Date().toISOString(),
-  };
-}
-
-function removeRunController(ref: MutableRefObject<Record<string, AbortController>>, runId: string) {
-  const { [runId]: _removed, ...remainingControllers } = ref.current;
-  ref.current = remainingControllers;
-}
-
-function clearActiveStreamRun(
-  setActiveStreamRunIdsByConversationKey: Dispatch<SetStateAction<Record<string, string>>>,
-  conversationKey: string,
-  runId: string,
-) {
-  setActiveStreamRunIdsByConversationKey((current) => {
-    if (current[conversationKey] !== runId) return current;
-    const next = { ...current };
-    delete next[conversationKey];
-    return next;
-  });
-}
-
-function handleInaccessibleStreamError(
-  context: Pick<StreamMutationContext, 'clearInaccessibleConversation'>,
-  error: unknown,
-  conversationId: string | null | undefined,
-) {
-  if (!conversationId || !isApiError(error) || error.status !== 404) return false;
-  context.clearInaccessibleConversation(conversationId);
-  return true;
-}
-
 export function useAiConversationStreams(context: StreamMutationContext): AiConversationStreams {
   const [submittingApprovalIds, setSubmittingApprovalIds] = useState<Set<string>>(() => new Set());
-  const [submittingHumanInputRequestIds, setSubmittingHumanInputRequestIds] = useState<Set<string>>(() => new Set());
-  const [submittingHumanInputByRequestId, setSubmittingHumanInputByRequestId] = useState<
-    Record<string, { messageId: string; conversationId: string; runId: string | null }>
-  >({});
+  const humanInput = useAiHumanInputStream(context);
 
   const startChat = useCallback(async (payload: ChatStreamPayload) => {
     const controller = new AbortController();
@@ -288,87 +219,12 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
     }
   }, [context]);
 
-  const startHumanInput = useCallback(async (payload: HumanInputStreamPayload) => {
-    const controller = new AbortController();
-    const conversationKey = payload.message.conversation_id;
-    const runId = payload.message.run_id;
-    const requestId = payload.request.id;
-
-    setSubmittingHumanInputRequestIds((current) => {
-      const next = new Set(current);
-      next.add(requestId);
-      return next;
-    });
-    setSubmittingHumanInputByRequestId((current) => ({
-      ...current,
-      [requestId]: {
-        messageId: payload.message.id,
-        conversationId: conversationKey,
-        runId: runId ?? null,
-      },
-    }));
-
-    if (runId) {
-      context.chatAbortByRunIdRef.current = { ...context.chatAbortByRunIdRef.current, [runId]: controller };
-      context.streamMessageTargetRef.current = { ...context.streamMessageTargetRef.current, [runId]: payload.message.id };
-      context.setActiveStreamRunIdsByConversationKey((current) => ({ ...current, [conversationKey]: runId }));
-      context.startThinking(runId);
-    }
-
-    try {
-      const response = await api.streamAiHumanInputResponse(payload.message.conversation_id, payload.request.id, payload.response, {
-        signal: controller.signal,
-        onProgress: (event) => {
-          const nextEvent = buildStreamProgressEvent(event, runId, 'human-input-stream');
-          if (!context.streamMessageTargetRef.current[nextEvent.run_id]) {
-            context.ensureStreamingAssistantMessage(nextEvent.run_id, conversationKey);
-          }
-          context.updateThinkingForProgressEvent(nextEvent, runId);
-          context.upsertStreamProgressEvent(nextEvent);
-        },
-        onMessagePart: (event) => context.applyStreamPart(event, conversationKey),
-        onMessageDelta: (event) => context.applyStreamDelta(event, conversationKey),
-      });
-      context.applyChatResponse(response, payload.message.conversation_id, runId ?? response.run.id);
-      return response;
-    } catch (error) {
-      if (isExpectedAiStreamAbort(error, controller.signal)) {
-        await context.refreshAfterApprovalSettled();
-        throw error;
-      }
-      if (!handleInaccessibleStreamError(context, error, conversationKey)) {
-        const message = context.streamFailureMessage(error);
-        context.stopThinking(runId);
-        context.markStreamingAssistantStopped(runId ?? null, `AI 处理失败：${message}`);
-      }
-      throw error;
-    } finally {
-      if (runId) {
-        context.stopThinking(runId);
-        removeRunController(context.chatAbortByRunIdRef, runId);
-        clearActiveStreamRun(context.setActiveStreamRunIdsByConversationKey, conversationKey, runId);
-      }
-      setSubmittingHumanInputRequestIds((current) => {
-        if (!current.has(requestId)) return current;
-        const next = new Set(current);
-        next.delete(requestId);
-        return next;
-      });
-      setSubmittingHumanInputByRequestId((current) => {
-        if (!(requestId in current)) return current;
-        const next = { ...current };
-        delete next[requestId];
-        return next;
-      });
-    }
-  }, [context]);
-
   return {
     startChat,
     startApproval,
-    startHumanInput,
+    startHumanInput: humanInput.startHumanInput,
     submittingApprovalIds,
-    submittingHumanInputRequestIds,
-    submittingHumanInputByRequestId,
+    submittingHumanInputRequestIds: humanInput.submittingRequestIds,
+    submittingHumanInputByRequestId: humanInput.submittingByRequestId,
   };
 }
