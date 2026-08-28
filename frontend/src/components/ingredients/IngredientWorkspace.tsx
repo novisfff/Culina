@@ -62,6 +62,12 @@ import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
 import { IngredientInventoryCard } from './IngredientInventoryCard';
 import { ShoppingHistoryRow as IngredientShoppingHistoryRow } from './ShoppingHistoryRow';
 import { ShoppingWorkRow } from './ShoppingWorkRow';
+import {
+  createClientRequestId,
+  getDefaultFoodStockMealType,
+  isPendingShopping,
+  resolveErrorMessage,
+} from './ingredientWorkspaceHelpers';
 import { IngredientQuickDetailPopover } from './IngredientQuickDetailPopover';
 import { IngredientCatalogCard as ExtractedIngredientCatalogCard } from './IngredientCatalogCard';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
@@ -287,13 +293,6 @@ type FoodQuickRecordState = {
   error: string | null;
 };
 
-function createClientRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 type FoodStockAdjustDialogState = {
   item: InventoryOverviewItem;
   quantity: string;
@@ -310,21 +309,6 @@ const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
   { value: 90, label: '90 天' },
 ];
 const FOOD_STOCK_RESTOCK_SOURCE_PRESETS = ['超市', '便利店', '网购', '盒马'];
-
-function getDefaultFoodStockMealType(hour = new Date().getHours()): MealType {
-  if (hour >= 5 && hour < 10) return 'breakfast';
-  if (hour >= 10 && hour < 15) return 'lunch';
-  if (hour >= 15 && hour < 21) return 'dinner';
-  return 'snack';
-}
-
-function resolveErrorMessage(reason: unknown, fallback: string) {
-  return reason instanceof Error && reason.message.trim() ? reason.message : fallback;
-}
-
-function isPendingShopping(item: ShoppingListItem) {
-  return !item.done;
-}
 
 type IngredientWorkspaceIconName =
   | 'logo'
@@ -601,16 +585,6 @@ const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string 
   { value: 'lowStock', label: '库存不足' },
   { value: 'stable', label: '正常' },
 ];
-
-function getBatchTone(alerts: Array<{ tone: 'warning' | 'danger' }>): 'default' | 'warning' | 'danger' {
-  if (alerts.some((item) => item.tone === 'danger')) {
-    return 'danger';
-  }
-  if (alerts.length > 0) {
-    return 'warning';
-  }
-  return 'default';
-}
 
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const queryClient = useQueryClient();
