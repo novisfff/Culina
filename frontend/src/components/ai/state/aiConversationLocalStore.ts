@@ -1,4 +1,4 @@
-export type LocalConversationMessage = { id: string; [key: string]: unknown };
+export type LocalConversationMessage = { id: string };
 
 export type ConversationComposerScope = {
   text: string;

@@ -31,6 +31,7 @@ import {
   getConversationTitleFromMessages,
   isPendingConversationKey,
 } from './AiConversationHistory';
+import { migratePendingConversation } from './state/aiConversationLocalStore';
 import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
 import { AiMobilePage } from './AiMobilePage';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
@@ -334,16 +335,14 @@ export function AiWorkspace({
         if (!pendingItems) continue;
         const movedItems = pendingItems.map((item) => ({ ...item, conversation_id: migration.conversationId }));
         delete next[migration.pendingKey];
-        next[migration.conversationId] = [
-          ...(next[migration.conversationId] ?? []).filter(
-            (item) => !movedItems.some((moved) =>
-              item.id === moved.id
-              || (moved.run_id && item.run_id === moved.run_id)
-              || (moved.client_message_id && item.client_message_id === moved.client_message_id),
-            ),
-          ),
-          ...movedItems,
-        ];
+        const migrated = migratePendingConversation({
+          localKey: migration.pendingKey,
+          serverKey: migration.conversationId,
+          localMessages: movedItems,
+          serverMessages: next[migration.conversationId] ?? [],
+          composer: { text: '', attachments: [] },
+        });
+        next[migration.conversationId] = migrated.messages as unknown as AiMessage[];
         changed = true;
       }
       return changed ? next : current;
