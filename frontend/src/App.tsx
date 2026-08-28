@@ -15,6 +15,7 @@ import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { useAppHomeShoppingState } from './app/useAppHomeController';
 import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
+import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppGlobalOverlays } from './app/AppGlobalOverlays';
@@ -491,59 +492,20 @@ function App() {
   const closeOperationHistory = operationHistory.closeHistory;
   const loadOperationDetail = operationHistory.loadDetail;
 
-  async function handleRevertInventoryOperation(operationId: string) {
-    operationHistory.setConflict(null);
-    operationHistory.setError(null);
-    try {
-      const result = await revertInventoryOperationMutation.mutateAsync(operationId);
-      setRecentBannerOverride(result);
-      if (shoppingIntakeState.result?.operation_id === operationId) {
-        shoppingIntakeState.setResult({
-          ...shoppingIntakeState.result,
-          ...result,
-          items: shoppingIntakeState.result.items,
-        });
-      }
-      if (reconciliationState.result?.operation_id === operationId) {
-        // reconciliation result is InventoryOperationResult
-        reconciliationState.setResultAndClearDraft({
-          result,
-          familyId: family?.id ?? '',
-          userId: user?.id ?? '',
-        });
-      }
-      if (operationHistory.selectedOperationId === operationId) {
-        try {
-          const detail = await api.getInventoryOperation(operationId);
-          operationHistory.setDetail(detail);
-        } catch {
-          operationHistory.setDetail((current) =>
-            current && current.operation_id === operationId
-              ? {
-                  ...current,
-                  ...result,
-                  actor_display_name: current.actor_display_name,
-                  lines: current.lines,
-                }
-              : current,
-          );
-        }
-      }
-      showNotice({
-        tone: 'success',
-        title: '已撤销本次变更',
-        message: result.summary.description || '库存已恢复到变更前状态。',
-      });
-    } catch (reason) {
-      const message = messageFromApiError(reason, '撤销失败，请稍后重试');
-      if (operationHistory.open) {
-        operationHistory.setConflict(message);
-      } else {
-        showNotice({ tone: 'danger', title: '无法撤销', message });
-      }
-      // Keep dialogs open on conflict/expired.
-    }
-  }
+  const handleRevertInventoryOperation = useAppInventoryRevert({
+    mutate: (operationId) => revertInventoryOperationMutation.mutateAsync(operationId),
+    operationHistory,
+    shoppingResult: shoppingIntakeState.result,
+    setShoppingResult: shoppingIntakeState.setResult,
+    reconciliationResult: reconciliationState.result,
+    setReconciliationResult: (result, familyId, userId) => reconciliationState.setResultAndClearDraft({ result, familyId, userId }),
+    familyId: family?.id ?? '',
+    userId: user?.id ?? '',
+    getDetail: api.getInventoryOperation,
+    setRecentBannerOverride,
+    showNotice,
+    errorMessage: messageFromApiError,
+  });
 
   const openShoppingIntake = (args?: { selectedItemId?: string }) => shoppingIntakeState.openShoppingIntake(args?.selectedItemId);
 
