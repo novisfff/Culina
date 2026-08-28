@@ -22,7 +22,7 @@ function readBackendLiteralValues(typeName: string) {
 }
 
 function readFrontendDraftTypeValues() {
-  const typesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../api/types.ts');
+  const typesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../api/types/ai.ts');
   const source = readFileSync(typesPath, 'utf8');
   const match = source.match(/export type AiTaskDraftType = ([^;]+);/);
   if (!match) {
@@ -32,7 +32,7 @@ function readFrontendDraftTypeValues() {
 }
 
 function readFrontendLiteralValues(typeName: string) {
-  const typesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../api/types.ts');
+  const typesPath = resolve(dirname(fileURLToPath(import.meta.url)), '../api/types/ai.ts');
   const source = readFileSync(typesPath, 'utf8');
   const match = source.match(new RegExp(`export type ${typeName} = ([^;]+);`));
   if (!match) {
