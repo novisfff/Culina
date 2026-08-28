@@ -387,7 +387,15 @@ async function runCli() {
       baseline: ownership.baseline[metric] ?? 0,
       current: count,
     }));
-  const violations = [...tokenViolations, ...selectorViolations];
+  const { assertCssLayerOrder } = await import('./css-layer-contract.mjs');
+  const layerResult = assertCssLayerOrder(
+    await readFile(path.join(frontendDir, 'src', 'styles.css'), 'utf8'),
+  );
+  const layerViolations = layerResult.violations.map((message) => ({
+    classification: 'cascade-layer-contract',
+    message,
+  }));
+  const violations = [...tokenViolations, ...selectorViolations, ...layerViolations];
   const report = {
     tokens: {
       definitions: result.definitions.length,
@@ -396,6 +404,7 @@ async function runCli() {
       undefinedVariables: result.undefinedVariables.length,
     },
     selectors: selectorSummary,
+    layers: layerResult.layers,
     exceptions: exceptions.length,
     violations,
   };
@@ -412,6 +421,7 @@ async function runCli() {
       `- duplicate selectors: ${report.selectors.duplicate}`,
       `- selectors missing owner: ${report.selectors.ownerMissing}`,
       `- dynamic selectors: ${report.selectors.dynamic}`,
+      `- cascade layers: ${report.layers.join(' > ')}`,
       `- active exceptions: ${report.exceptions}`,
       `- violations: ${report.violations.length}`,
       '',

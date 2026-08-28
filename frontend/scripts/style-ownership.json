@@ -3,7 +3,7 @@
   "owners": [
     { "id": "foundation", "sources": ["frontend/src/styles/00-foundation.css"], "prefixes": [":root", "html", "body"] },
     { "id": "ui-kit", "sources": ["frontend/src/styles/00-ui-kit.css"], "prefixes": ["empty-state", "touch-", "ui-"] },
-    { "id": "shell", "sources": ["frontend/src/styles/00-foundation.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["app-shell", "sidebar", "mobile-topbar"] },
+    { "id": "shell", "sources": ["frontend/src/styles/shell.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["app-", "sidebar", "mobile-"] },
     { "id": "home", "sources": ["frontend/src/styles/01-home-dashboard.css"], "prefixes": ["dashboard-", "home-"] },
     { "id": "eat", "sources": ["frontend/src/styles/12-eat-workspace.css"], "prefixes": ["eat-"] },
     { "id": "recipe", "sources": ["frontend/src/styles/03-recipe-workspace.css"], "prefixes": ["recipe-"] },
@@ -35,7 +35,7 @@
   "baseline": {
     "unused": 1068,
     "duplicate": 693,
-    "ownerMissing": 1098,
+    "ownerMissing": 886,
     "dynamic": 15
   }
 }
