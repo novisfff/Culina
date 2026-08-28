@@ -8,6 +8,7 @@ import { ModelUsagePolicyMobilePage } from './ModelUsagePolicyMobilePage';
 import { useModelUsagePolicy } from './useModelUsagePolicy';
 import { useModelUsageQueries } from './useModelUsageQueries';
 import type { ModelUsageWorkspaceActions } from './modelUsageWorkspaceViewModel';
+import './model-usage-route.css';
 
 export interface ModelUsageWorkspaceProps {
   familyId: string;
