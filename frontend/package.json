@@ -15,6 +15,8 @@
     "e2e:p0:update": "playwright test --grep @p0 --update-snapshots",
     "smoke": "playwright test e2e/model-usage-governance.spec.mjs",
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
+    "health:report": "node scripts/frontend-health-metrics.mjs",
+    "health:test": "vitest run scripts/frontend-health-metrics.test.mjs",
     "check:bundle": "node scripts/check-bundle-budgets.mjs",
     "check:style-tokens": "node scripts/check-style-token-drift.mjs",
     "quality": "npm run typecheck && npm run test && npm run check:style-tokens"
