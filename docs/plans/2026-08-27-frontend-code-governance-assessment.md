@@ -330,4 +330,4 @@ git diff --check
 - `25ef12e6`：新增 `AppGlobalOverlays`，将全局搜索和首页食材采购弹层从 `App.tsx` 的 JSX 组合中提取为 typed overlay host；完成 typecheck 与 `src/app` 定向测试。
 - 当前继续将 Home dashboard 主样式由全局 `styles.css` 移至 `features/home/home-route.css`，由 Home route 自有入口加载；responsive 与 compatibility 样式仍保持全局，避免跨域默认可见性回归。
 
-本批验证：Home 定向 Vitest 98/98 通过；typecheck 通过；Vite build 704 modules、manifest 无 error、bundle checker 退出 0；主 CSS gzip 约 133.83 KiB，历史 targetGap 继续按 ratchet warning 输出；`git diff --check` 通过。完整 P0 尚待在最新提交上重新运行，App/Ingredient/Food 大文件和其余 route CSS 迁移仍未完成。
+本批验证：Home 定向 Vitest 98/98 通过；CSS layer contract 4/4 通过；typecheck 通过；Vite build 704 modules、manifest 无 error、bundle checker 退出 0；主 CSS gzip 约 133.83 KiB，历史 targetGap 继续按 ratchet warning 输出；`git diff --check` 通过。最新完整 P0 启动后在登录恢复、multitab 和部分 768px 导航场景出现可见性/超时失败，未取得完整通过结果；该失败证据不能替代 P0 通过。App/Ingredient/Food 大文件和其余 route CSS 迁移仍未完成。
