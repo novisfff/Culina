@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import type { Food, FoodPlanItem, MealLog, MediaAsset, Member, RecordMealResponse, RevertMealRecordResponse, UpdateMealLogPayload } from '../../api/types';
+import type { Food, FoodPlanItem, MealLog, MediaAsset, Member, RecordMealResponse, RevertMealRecordResponse, UpdateMealLogPayload } from '../../api/types/meal';
 import { Avatar, StarRatingInput } from '../../components/ui-kit';
 import { useOverlayFocusLifecycle } from '../../components/ui-kit/useOverlayFocusLifecycle';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';

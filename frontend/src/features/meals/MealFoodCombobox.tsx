@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import type { Food } from '../../api/types';
+import type { Food } from '../../api/types/meal';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { SearchField } from '../../components/ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';

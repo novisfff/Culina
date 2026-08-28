@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { Food, MealType } from '../../api/types';
+import type { Food, MealType } from '../../api/types/meal';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useMealCandidateData } from './useMealCandidateData';
 

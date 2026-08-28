@@ -1,4 +1,4 @@
-import type { Food, MealLogCandidate, MealType, RecordMealTarget } from '../../api/types';
+import type { Food, MealLogCandidate, MealType, RecordMealTarget } from '../../api/types/meal';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {

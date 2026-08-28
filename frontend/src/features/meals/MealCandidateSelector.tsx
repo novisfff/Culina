@@ -1,4 +1,4 @@
-import type { MealLogCandidate, MealType, RecordMealTarget } from '../../api/types';
+import type { MealLogCandidate, MealType, RecordMealTarget } from '../../api/types/meal';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealCover } from './MealCover';
 import type { MealComposerFood } from './MealComposerModel';
