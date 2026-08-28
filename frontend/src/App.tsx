@@ -75,7 +75,6 @@ import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
 import { resolveAssetUrl } from './lib/assets';
-import { readStringStorage, writeStringStorage } from './lib/storage';
 import { HomeDashboard } from './features/home/HomeDashboard';
 import { GlobalSearchOverlay } from './features/search/GlobalSearchOverlay';
 import { IngredientShoppingDialog } from './components/ingredients/IngredientShoppingDialog';
@@ -85,6 +84,7 @@ import {
 } from './components/ingredients/ingredientWorkspaceForms';
 import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
+import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -114,37 +114,6 @@ const FamilyModelSettingsWorkspace = lazy(() =>
     default: module.FamilyModelSettingsWorkspace,
   }))
 );
-
-const SIDEBAR_COLLAPSED_KEY = 'culina-large-shell-sidebar-collapsed-v3';
-const PHONE_VIEWPORT_QUERY = '(max-width: 767px)';
-
-function defaultSidebarCollapsed() {
-  return readStringStorage(SIDEBAR_COLLAPSED_KEY, '') === '1';
-}
-
-function getIsPhoneViewport() {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return false;
-  }
-  return window.matchMedia(PHONE_VIEWPORT_QUERY).matches;
-}
-
-function useIsPhoneViewport() {
-  const [isPhoneViewport, setIsPhoneViewport] = useState(getIsPhoneViewport);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      return undefined;
-    }
-    const mediaQuery = window.matchMedia(PHONE_VIEWPORT_QUERY);
-    const handleChange = () => setIsPhoneViewport(mediaQuery.matches);
-    handleChange();
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
-
-  return isPhoneViewport;
-}
 
 
 function querySettleStatus(query: {
@@ -202,11 +171,10 @@ function App() {
     membership,
     logout,
   } = useAuth();
-  const isPhoneViewport = useIsPhoneViewport();
+  const { isPhoneViewport, sidebarCollapsed, setSidebarCollapsed } = useAppShellLayoutState();
   const navigation = useAppNavigationState();
   const [selectedRecipePlanDate, setSelectedRecipePlanDate] = useState(todayKey());
   const foodPlanWeekRange = useMemo(() => getRecipeWeekRange(selectedRecipePlanDate), [selectedRecipePlanDate]);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(defaultSidebarCollapsed);
   const [hasBooted, setHasBooted] = useState(false);
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
   const [homeShoppingDialogOpen, setHomeShoppingDialogOpen] = useState(false);
@@ -222,10 +190,6 @@ function App() {
     taskKind: navigation.state.eat.task?.kind,
     familyView: navigation.state.family.view,
   });
-
-  useEffect(() => {
-    writeStringStorage(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
-  }, [sidebarCollapsed]);
 
   const {
     familyQuery,
