@@ -25,6 +25,7 @@ import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ApprovalPanel } from './AiApprovalPanel';
 import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
 import { AiMessageImageGrid } from './AiMessageImageGrid';
+import { AiApprovalHost } from './views/AiApprovalHost';
 import { ResultCard } from './AiResultCards';
 import {
   extractRunActivitySkillName,
@@ -828,6 +829,7 @@ export function MessageBubble({
                     ? '请先处理最新的待确认草稿。'
                     : undefined;
               return (
+                <AiApprovalHost open busy={isSubmittingThisApproval}>
                 <ApprovalPanel
                   key={item.key}
                   approval={part.approval}
@@ -839,6 +841,7 @@ export function MessageBubble({
                   canSubmit={canSubmitApproval || !isPendingApproval}
                   submitDisabledReason={submitDisabledReason}
                 />
+                </AiApprovalHost>
               );
             }
             if (part.type === 'human_input_request' && part.request) {
