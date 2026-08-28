@@ -119,6 +119,13 @@
       "cssBudget": 16384,
       "phase": 5,
       "owner": "home"
+    },
+    "search": {
+      "criticalGzipBudget": 16384,
+      "routeTotalGzipBudget": 32768,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "search"
     }
   }
 }

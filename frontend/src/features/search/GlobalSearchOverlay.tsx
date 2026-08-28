@@ -10,6 +10,7 @@ import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/
 import { resolveAssetUrl } from '../../lib/assets';
 import { ModelUsageDegradationNotice, onsiteModelUsageOption } from '../model-usage/ModelUsageDegradationNotice';
 import { buildGlobalSearchResultView, type GlobalSearchResultView } from './globalSearchModel';
+import './search-route.css';
 
 const GLOBAL_SEARCH_SCOPES: SearchEntityType[] = ['ingredient', 'food', 'recipe', 'meal_plan'];
 const GLOBAL_SEARCH_LIMIT = 20;
@@ -20,7 +21,7 @@ export type GlobalSearchSelection = {
   item: SearchResultItem;
 };
 
-type Props = {
+export type GlobalSearchOverlayProps = {
   open: boolean;
   onClose: () => void;
   onSelect: (selection: GlobalSearchSelection) => void;
@@ -75,7 +76,7 @@ function GlobalSearchResultRow(props: {
   );
 }
 
-export function GlobalSearchOverlay(props: Props) {
+export function GlobalSearchOverlay(props: GlobalSearchOverlayProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const searchComposition = useSearchCompositionState();

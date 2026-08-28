@@ -12,6 +12,7 @@
     "family-model-settings": { "source": "src/features/family-model-settings/FamilyModelSettingsWorkspace.tsx", "dynamic": true },
     "model-usage": { "source": "src/features/model-usage/ModelUsageWorkspace.tsx", "dynamic": true },
     "model-usage-requests": { "source": "src/features/model-usage/ModelUsageRequestLogsPage.tsx", "dynamic": true },
+    "search": { "source": "src/features/search/GlobalSearchOverlay.tsx", "dynamic": true },
     "markdown": { "source": "src/components/ai/entries/AiMarkdownEntry.tsx", "dynamic": true },
     "ai-approval": { "source": "src/components/ai/entries/AiApprovalEntry.tsx", "dynamic": true },
     "ai-human-input": { "source": "src/components/ai/entries/AiHumanInputEntry.tsx", "dynamic": true },

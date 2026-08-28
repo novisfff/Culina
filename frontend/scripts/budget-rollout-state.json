@@ -17,6 +17,7 @@
     "main": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "markdown": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "model-usage": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
-    "model-usage-requests": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } }
+    "model-usage-requests": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "search": { "enabledMode": "ratchet", "owner": "search", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } }
   }
 }
