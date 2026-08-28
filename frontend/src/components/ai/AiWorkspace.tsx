@@ -43,6 +43,7 @@ import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWorkspaceRoute } from './AiWorkspaceRoute';
 import { AiComposerView } from './views/AiComposerView';
+import { AiDebugHost } from './views/AiDebugHost';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1737,7 +1738,9 @@ export function AiWorkspace({
           />
         )}
       </div>
-      <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
+      <AiDebugHost open={Boolean(debugRunId)}>
+        <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
+      </AiDebugHost>
     </main>
     </AiWorkspaceRoute>
   );
