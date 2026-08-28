@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import { ActionButton, StateBlock } from '../../components/ui-kit';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
+import './eat-route.css';
 
 export type EatWorkspaceProps = {
   navigation: AppNavigationService;
