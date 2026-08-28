@@ -26,12 +26,11 @@ import {
   buildFoodPayloadFromForm,
   buildTodayFoodRecommendations,
   filterFoodWorkspaceItems,
-  getMobileDefaultFoodSceneCardMedia,
-  getMobileFoodSceneFilterState,
   resolveFoodNavigationRequestAction,
   getSuggestedMealTypeForHour,
   type FoodFormState,
 } from './FoodWorkspace';
+import { getMobileDefaultFoodSceneCardMedia, getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
 import {
   buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
