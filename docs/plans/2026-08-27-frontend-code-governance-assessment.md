@@ -389,3 +389,5 @@ CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一�
 随后重新运行完整 P0：在 `frontend/` 工作目录执行 `npx playwright test --grep @p0`，52/52 通过（39.1s）。这更新了此前 lazy/CSS 提交后的失败记录；release evidence、完整 P0 与 rollback CLI 演练均有真实命令和结果，但 App/Ingredient/Food 大文件、target budget 启用和 legacy CSS 开关仍未完成。
 
 补充运行 `npm --prefix frontend audit --omit=dev --audit-level=high`，production dependency audit 退出 0，报告 `found 0 vulnerabilities`。审计日志仅保留在本地 `.artifacts/frontend-production-audit-20260829.log`，未纳入提交。
+
+随后在当前提交 `fd91ca9163a3b373f62a0b79cd475e3fb9035245` 上重新执行 `npm --prefix frontend run build`，并运行 `npx playwright test e2e/release-governance-evidence.spec.mjs --project=desktop-1440x960 --workers=1`，1/1 通过（11.8s）。使用当前 manifest、budget、六视口、请求/cache/long-task 和 rollback command 运行 `release-governance-check.mjs`，结果 `ok=true`、`missing=[]`、`violations=[]`。该结果仅证明发布证据链完整，不代表 target budget 已达标；所有入口仍保持 ratchet。
