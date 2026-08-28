@@ -5,7 +5,6 @@ import {
   invalidateAfterFoodPlanChanged,
   invalidateAfterFoodPlanCompleted,
   invalidateAfterFoodSceneChanged,
-  invalidateAfterIngredientChanged,
   invalidateAfterInventoryChanged,
   invalidateAfterInventoryOperation,
   invalidateAfterMealCompositionChanged,
@@ -15,11 +14,10 @@ import {
   invalidateAfterRecipeChanged,
   invalidateAfterRecipeCooked,
   invalidateAfterRecipeDeleted,
-  invalidateAfterShoppingChanged,
 } from '../api/cacheInvalidation';
-import { useIngredientMutationActions } from './mutations/useIngredientMutations';
+import { useIngredientMutations } from './mutations/useIngredientMutations';
 import { useInventoryMutationActions } from './mutations/useInventoryMutations';
-import { useShoppingMutationActions } from './mutations/useShoppingMutations';
+import { useShoppingMutations } from './mutations/useShoppingMutations';
 import { useRecipeMutationActions } from './mutations/useRecipeMutations';
 import { useFoodPlanMutationActions } from './mutations/useFoodPlanMutations';
 import { useFoodMutationActions } from './mutations/useFoodMutations';
@@ -28,32 +26,6 @@ import { useMealMutationActions } from './mutations/useMealMutations';
 export function useAppMutationRegistry() {
   const queryClient = useQueryClient();
 
-  const createIngredientMutation = useMutation({
-    mutationFn: api.createIngredient,
-    onSuccess: async () => {
-      await invalidateAfterIngredientChanged(queryClient);
-    },
-  });
-  const updateIngredientMutation = useMutation({
-    mutationFn: ({ ingredientId, payload }: { ingredientId: string; payload: Parameters<typeof api.updateIngredient>[1] }) =>
-      api.updateIngredient(ingredientId, payload),
-    onSuccess: async () => {
-      await invalidateAfterIngredientChanged(queryClient);
-    },
-  });
-  const transitionIngredientTrackingModeMutation = useMutation({
-    mutationFn: ({
-      ingredientId,
-      payload,
-    }: {
-      ingredientId: string;
-      payload: Parameters<typeof api.transitionIngredientTrackingMode>[1];
-    }) => api.transitionIngredientTrackingMode(ingredientId, payload),
-    retry: false,
-    // Intentionally no onSuccess invalidation: the editor dual-write path
-    // (transition + profile update) invalidates only after the full save finishes,
-    // so inventory/state refresh does not land under an open transition dialog.
-  });
   const createInventoryMutation = useMutation({
     mutationFn: api.createInventory,
     onSuccess: async () => {
@@ -161,31 +133,6 @@ export function useAppMutationRegistry() {
     retry: false,
     onSuccess: async () => {
       await invalidateAfterInventoryOperation(queryClient);
-    },
-  });
-  const createShoppingMutation = useMutation({
-    mutationFn: api.createShoppingItem,
-    onSuccess: async () => {
-      await invalidateAfterShoppingChanged(queryClient);
-    },
-  });
-  const updateShoppingMutation = useMutation({
-    mutationFn: ({ itemId, payload }: { itemId: string; payload: Parameters<typeof api.updateShoppingItem>[1] }) =>
-      api.updateShoppingItem(itemId, payload),
-    onSuccess: async () => {
-      await invalidateAfterShoppingChanged(queryClient);
-    },
-  });
-  const deleteShoppingMutation = useMutation({
-    mutationFn: ({
-      itemId,
-      expectedRowVersion,
-    }: {
-      itemId: string;
-      expectedRowVersion: number;
-    }) => api.deleteShoppingItem(itemId, expectedRowVersion),
-    onSuccess: async () => {
-      await invalidateAfterShoppingChanged(queryClient);
     },
   });
   const createRecipeMutation = useMutation({
@@ -326,9 +273,6 @@ export function useAppMutationRegistry() {
   });
 
   return {
-    createIngredientMutation,
-    updateIngredientMutation,
-    transitionIngredientTrackingModeMutation,
     createInventoryMutation,
     consumeInventoryMutation,
     disposeExpiredInventoryMutation,
@@ -341,9 +285,6 @@ export function useAppMutationRegistry() {
     submitShoppingIntakeMutation,
     submitInventoryReconciliationMutation,
     revertInventoryOperationMutation,
-    createShoppingMutation,
-    updateShoppingMutation,
-    deleteShoppingMutation,
     createRecipeMutation,
     updateRecipeMutation,
     deleteRecipeMutation,
@@ -370,10 +311,12 @@ export type AppMutationRegistry = ReturnType<typeof useAppMutationRegistry>;
 
 export function useAppMutations() {
   const registry = useAppMutationRegistry();
+  const ingredient = useIngredientMutations();
+  const shopping = useShoppingMutations();
   return {
-    ...useIngredientMutationActions(registry),
+    ...ingredient,
     ...useInventoryMutationActions(registry),
-    ...useShoppingMutationActions(registry),
+    ...shopping,
     ...useRecipeMutationActions(registry),
     ...useFoodPlanMutationActions(registry),
     ...useFoodMutationActions(registry),
