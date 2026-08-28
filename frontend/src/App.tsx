@@ -4,7 +4,7 @@ import { api } from './api/client';
 import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
 import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell } from './app/AppShell';
-import { canRenderFamilyAiServices, type PrimaryTabKey } from './app/appNavigationModel';
+import { type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
 import { useAppFamilyViewModel } from './app/useAppFamilyViewModel';
@@ -80,6 +80,7 @@ import { resolveShoppingFormSubmission } from './components/ingredients/shopping
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
+import { AppFamilyWorkspace } from './app/AppFamilyWorkspace';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
@@ -107,24 +108,6 @@ const InventoryMaintenanceDialogs = lazy(() =>
     default: module.InventoryMaintenanceDialogs,
   }))
 );
-const FamilySettings = lazy(() =>
-  import('./features/family/FamilySettings').then((module) => ({ default: module.FamilySettings }))
-);
-const ModelUsageWorkspace = lazy(() =>
-  import('./features/model-usage/ModelUsageWorkspace').then((module) => ({
-    default: module.ModelUsageWorkspace,
-  }))
-);
-const ModelUsageRequestLogsPage = lazy(() =>
-  import('./features/model-usage/ModelUsageRequestLogsPage').then((module) => ({ default: module.ModelUsageRequestLogsPage }))
-);
-const FamilyModelSettingsWorkspace = lazy(() =>
-  import('./features/family-model-settings/FamilyModelSettingsWorkspace').then((module) => ({
-    default: module.FamilyModelSettingsWorkspace,
-  }))
-);
-
-
 function WorkspaceLoadingFallback() {
   return (
     <main className="page-stack">
@@ -1450,86 +1433,52 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'family' && (
-          canRenderFamilyAiServices(navigation.state.family.view, isOwner) ? (
-            <Suspense fallback={<WorkspaceLoadingFallback />}>
-              <FamilyModelSettingsWorkspace
-                familyId={family?.id ?? ''}
-                role={membership?.role ?? 'Member'}
-                isPhoneViewport={isPhoneViewport}
-                onBack={() => navigation.navigate({ workspace: 'family', view: 'profile' })}
-              />
-            </Suspense>
-          ) : navigation.state.family.view === 'modelUsageRequests' ? (
-            <Suspense fallback={<WorkspaceLoadingFallback />}>
-              <ModelUsageRequestLogsPage
-                familyId={family?.id ?? ''}
-                role={membership?.role ?? 'Member'}
-                initialPeriod={navigation.state.family.period}
-                isPhoneViewport={isPhoneViewport}
-                onBack={() => navigation.navigate({ workspace: 'family', view: 'modelUsage' })}
-              />
-            </Suspense>
-          ) : navigation.state.family.view === 'modelUsage' ? (
-            <Suspense fallback={<WorkspaceLoadingFallback />}>
-              <ModelUsageWorkspace
-                familyId={family?.id ?? ''}
-                role={membership?.role ?? 'Member'}
-                initialPeriod={navigation.state.family.period}
-                isPhoneViewport={isPhoneViewport}
-                onBack={() => navigation.navigate({ workspace: 'family', view: 'profile' })}
-                onOpenRequestLogs={() => navigation.navigate({ workspace: 'family', view: 'modelUsageRequests' })}
-              />
-            </Suspense>
-          ) : (
-            <Suspense fallback={<WorkspaceLoadingFallback />}>
-              <FamilySettings
-                family={family}
-                isLoading={familyQuery.isLoading}
-                errorMessage={familyQuery.error instanceof Error ? familyQuery.error.message : null}
-                members={members}
-                currentUser={currentUser}
-                membership={membership}
-                isOwner={isOwner}
-                familyHeroImageUrl={familyHeroImageUrl}
-                familyStatCards={familyStatCards}
-                currentUserRecentLogs={currentUserRecentLogs}
-                familyOwnerMember={familyOwnerMember}
-                activityQuery={familyActivityQuery}
-                activityPhase={familyActivityPhase}
-                isPhoneViewport={isPhoneViewport}
-                notificationCenter={mobileNotificationCenter}
-                overlayMode={familyOverlayMode}
-                editingMember={editingMember}
-                inviteForm={inviteForm}
-                profileForm={profileForm}
-                memberEditForm={memberEditForm}
-                passwordForm={passwordForm}
-                familyForm={familyForm}
-                isCreatingMember={isCreatingMember}
-                isUpdatingProfile={isUpdatingProfile}
-                isUpdatingMember={isUpdatingMember}
-                isUpdatingPassword={isUpdatingPassword}
-                isUpdatingFamily={isUpdatingFamily}
-                familyFormError={familyFormError}
-                profileImageControls={profileImageControls}
-                familyImageControls={familyImageControls}
-                resolveAssetUrl={resolveDashboardAssetUrl}
-                onOverlayChange={setFamilyOverlayMode}
-                onNavigate={navigation.navigate}
-                onMemberEdit={openMemberEdit}
-                onInviteFormChange={setInviteForm}
-                onProfileFormChange={setProfileForm}
-                onMemberEditFormChange={setMemberEditForm}
-                onPasswordFormChange={setPasswordForm}
-                onFamilyFormChange={setFamilyForm}
-                onInviteSubmit={submitInvite}
-                onProfileSubmit={submitProfile}
-                onMemberEditSubmit={submitMemberEdit}
-                onPasswordSubmit={submitPassword}
-                onFamilySubmit={submitFamily}
-              />
-            </Suspense>
-          )
+          <AppFamilyWorkspace
+            state={navigation.state}
+            isOwner={isOwner}
+            family={family ?? null}
+            familyQueryError={familyQuery.error}
+            members={members}
+            currentUser={currentUser}
+            membership={membership}
+            familyHeroImageUrl={familyHeroImageUrl}
+            familyStatCards={familyStatCards}
+            currentUserRecentLogs={currentUserRecentLogs}
+            familyOwnerMember={familyOwnerMember}
+            activityQuery={familyActivityQuery}
+            activityPhase={familyActivityPhase}
+            isPhoneViewport={isPhoneViewport}
+            notificationCenter={mobileNotificationCenter}
+            overlayMode={familyOverlayMode}
+            editingMember={editingMember}
+            inviteForm={inviteForm}
+            profileForm={profileForm}
+            memberEditForm={memberEditForm}
+            passwordForm={passwordForm}
+            familyForm={familyForm}
+            isCreatingMember={isCreatingMember}
+            isUpdatingProfile={isUpdatingProfile}
+            isUpdatingMember={isUpdatingMember}
+            isUpdatingPassword={isUpdatingPassword}
+            isUpdatingFamily={isUpdatingFamily}
+            familyFormError={familyFormError}
+            profileImageControls={profileImageControls}
+            familyImageControls={familyImageControls}
+            resolveAssetUrl={resolveDashboardAssetUrl}
+            onOverlayChange={setFamilyOverlayMode}
+            onNavigate={navigation.navigate}
+            onMemberEdit={openMemberEdit}
+            onInviteFormChange={setInviteForm}
+            onProfileFormChange={setProfileForm}
+            onMemberEditFormChange={setMemberEditForm}
+            onPasswordFormChange={setPasswordForm}
+            onFamilyFormChange={setFamilyForm}
+            onInviteSubmit={submitInvite}
+            onProfileSubmit={submitProfile}
+            onMemberEditSubmit={submitMemberEdit}
+            onPasswordSubmit={submitPassword}
+            onFamilySubmit={submitFamily}
+          />
         )}
 
         <AppOverlayHost state={appOverlayState}>
