@@ -19,6 +19,7 @@ import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppHomeDashboardDialogs } from './app/AppHomeDashboardDialogs';
+import { AppInventoryMaintenanceDialogs } from './app/AppInventoryMaintenanceDialogs';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
   relatedSelfMadeFoods,
@@ -85,11 +86,6 @@ const FoodWorkspace = lazy(() =>
 );
 const IngredientWorkspace = lazy(() =>
   import('./components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace }))
-);
-const InventoryMaintenanceDialogs = lazy(() =>
-  import('./features/inventory/InventoryMaintenanceDialogs').then((module) => ({
-    default: module.InventoryMaintenanceDialogs,
-  }))
 );
 function WorkspaceLoadingFallback() {
   return (
@@ -1395,7 +1391,7 @@ function App() {
         </Suspense>
 
         <Suspense fallback={null}>
-        <InventoryMaintenanceDialogs
+        <AppInventoryMaintenanceDialogs
           shoppingIntake={
             shoppingIntakeState.open
               ? {
