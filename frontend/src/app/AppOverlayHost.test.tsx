@@ -5,7 +5,10 @@ import { normalizeOverlayState, type AppOverlayState } from './appOverlayState';
 
 describe('AppOverlayHost overlay contract', () => {
   it('exposes normalized state to the typed overlay renderer', () => {
+    const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
     const hostSource = readFileSync(resolve(__dirname, './AppOverlayHost.tsx'), 'utf8');
+    expect(appSource).not.toContain('<AppGlobalOverlays');
+    expect(hostSource).toContain('AppGlobalOverlays');
     expect(hostSource).toContain('NormalizedOverlayState');
     expect(hostSource).toContain('AppOverlayContent');
   });

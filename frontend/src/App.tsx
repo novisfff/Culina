@@ -18,7 +18,6 @@ import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
-import { AppGlobalOverlays } from './app/AppGlobalOverlays';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
   relatedSelfMadeFoods,
@@ -1304,26 +1303,28 @@ function App() {
           />
         )}
 
-        <AppOverlayHost state={appOverlayState}>
-        <AppGlobalOverlays
-          search={{
-            open: globalSearchOpen,
-            onClose: () => setGlobalSearchOpen(false),
-            onSelect: handleGlobalSearchSelect,
-          }}
-          shopping={{
-            open: homeShoppingState.open,
-            closeOverlay: () => {
-              if (!createShoppingMutation.isPending) homeShoppingState.setOpen(false);
+        <AppOverlayHost
+          state={appOverlayState}
+          global={{
+            search: {
+              open: globalSearchOpen,
+              onClose: () => setGlobalSearchOpen(false),
+              onSelect: handleGlobalSearchSelect,
             },
-            ingredients,
-            foods,
-            shoppingForm: homeShoppingState.form,
-            setShoppingForm: homeShoppingState.setForm,
-            submitShopping: submitHomeShopping,
-            isCreatingShopping: createShoppingMutation.isPending,
+            shopping: {
+              open: homeShoppingState.open,
+              closeOverlay: () => {
+                if (!createShoppingMutation.isPending) homeShoppingState.setOpen(false);
+              },
+              ingredients,
+              foods,
+              shoppingForm: homeShoppingState.form,
+              setShoppingForm: homeShoppingState.setForm,
+              submitShopping: submitHomeShopping,
+              isCreatingShopping: createShoppingMutation.isPending,
+            },
           }}
-        />
+        >
 
         <Suspense fallback={null}>
           <HomeDashboardDialogs
