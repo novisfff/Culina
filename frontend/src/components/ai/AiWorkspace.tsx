@@ -42,6 +42,7 @@ import { AiRunDebugDrawer } from './AiRunDebugDrawer';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWorkspaceRoute } from './AiWorkspaceRoute';
+import { AiComposerView } from './views/AiComposerView';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1653,6 +1654,7 @@ export function AiWorkspace({
               <span>最新回复</span>
             </button>
           ) : null}
+          <AiComposerView disabled={effectiveComposerPaused || isAssistantBusy}>
           <div className="ai-composer-dock">
             {cancellationError ? (
               <p className="ai-composer-pause-note" role="alert" aria-live="assertive">{cancellationError}</p>
@@ -1725,6 +1727,7 @@ export function AiWorkspace({
               </div>
             </form>
           </div>
+          </AiComposerView>
         </section>
         {isQualityModalOpen && (
           <AiQualityDiagnosticsModal
