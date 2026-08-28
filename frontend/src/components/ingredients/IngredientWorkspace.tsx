@@ -53,7 +53,6 @@ import {
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../ui-kit';
-import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
@@ -76,6 +75,12 @@ import {
   buildIngredientPriorityActionGroups,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
+  buildInventorySummaryLine,
+  buildInventoryTotalLabel,
+  buildCatalogCardStatus,
+  buildCatalogExpandedNote,
+  getIngredientAlertTone,
+  resolveShoppingReason,
   countDisposableExpiredInventoryItems,
   filterIngredientSummariesByCatalogStatus,
   type IngredientSummaryViewModel,
@@ -85,7 +90,6 @@ import {
 } from './workspaceModel';
 import {
   defaultIngredientForm,
-  formatNumericString,
   type IngredientCreateFormState,
 } from './ingredientWorkspaceForms';
 import { IngredientDetailView } from './IngredientDetailView';
@@ -328,7 +332,6 @@ function isPendingShopping(item: ShoppingListItem) {
   return !item.done;
 }
 
-type IngredientAlertTone = 'warning' | 'danger';
 type IngredientWorkspaceIconName =
   | 'logo'
   | 'archive'
@@ -729,10 +732,6 @@ function ScrollableChipRail(props: ScrollableChipRailProps) {
   );
 }
 
-function getIngredientAlertTone(summary: IngredientSummaryViewModel): IngredientAlertTone {
-  return summary.alerts.some((item) => item.tone === 'danger') ? 'danger' : 'warning';
-}
-
 function getBatchTone(alerts: Array<{ tone: 'warning' | 'danger' }>): 'default' | 'warning' | 'danger' {
   if (alerts.some((item) => item.tone === 'danger')) {
     return 'danger';
@@ -741,143 +740,6 @@ function getBatchTone(alerts: Array<{ tone: 'warning' | 'danger' }>): 'default' 
     return 'warning';
   }
   return 'default';
-}
-
-function buildInventorySummaryLine(summary: IngredientSummaryViewModel) {
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    const level = summary.inventoryState?.availability_level;
-    if (level === 'sufficient' || level === 'present_unknown') return '有库存';
-    if (level === 'low') return '少量';
-    if (level === 'absent') return '没有库存';
-    return '未确认';
-  }
-  if (summary.quantitySummaries.length === 0) {
-    return '还没有库存';
-  }
-
-  return summary.quantitySummaries
-    .slice(0, 2)
-    .map((item) => item.label)
-    .join(' · ');
-}
-
-function buildInventoryRowDescription(summary: IngredientSummaryViewModel) {
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    return `${summary.primaryStorage} · 库存状态：${buildInventorySummaryLine(summary)}`;
-  }
-  if (summary.inventoryItems.length === 0) {
-    return `${summary.primaryStorage} · 还没有库存，适合先补充第一批常用量。`;
-  }
-  if (summary.quantitySummaries.length === 0) {
-    return `${summary.primaryStorage} · 当前没有可用库存，可处理到期库存或补充新的库存。`;
-  }
-
-  return [
-    buildInventorySummaryLine(summary),
-    summary.primaryStorage,
-    summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
-
-function buildInventoryTotalLabel(summary: IngredientSummaryViewModel) {
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    return buildInventorySummaryLine(summary);
-  }
-  const totalQuantity = getIngredientAvailableQuantityInDefault(summary.ingredient, summary.inventoryItems);
-  if (totalQuantity <= 0) {
-    return `0 ${summary.ingredient.default_unit || '个'}`;
-  }
-  return `${formatNumericString(totalQuantity)} ${summary.ingredient.default_unit || '个'}`;
-}
-
-type CatalogCardStatusTone = 'stable' | 'warning' | 'danger' | 'empty';
-
-function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
-  label: string;
-  tone: CatalogCardStatusTone;
-  stockLine: string;
-  hint: string;
-} {
-  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity === 'expired');
-  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity !== 'expired');
-  const firstWarningAlert = summary.alerts.find((item) => item.tone === 'warning');
-  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
-  const availableLabel = tracksQuantity
-    ? summary.quantitySummaries[0]?.label ?? '还没有库存'
-    : buildInventorySummaryLine(summary);
-  const stockLine = tracksQuantity
-    ? summary.inventoryItems.length > 0
-      ? `库存 ${availableLabel} · ${summary.inventoryItems.length} 批`
-      : `库存 ${availableLabel}`
-    : `库存状态 ${availableLabel} · 只记录有无`;
-
-  if (expiredAlert) {
-    return {
-      label: '已过期',
-      tone: 'danger',
-      stockLine,
-      hint: '优先处理过期库存',
-    };
-  }
-
-  if (expiringAlert) {
-    return {
-      label: '临期',
-      tone: expiringAlert.tone === 'danger' ? 'danger' : 'warning',
-      stockLine,
-      hint: '建议优先安排使用',
-    };
-  }
-
-  if (summary.quantitySummaries.length === 0) {
-    return {
-      label: '还没有可用库存',
-      tone: 'empty',
-      stockLine,
-      hint: summary.inventoryItems.length > 0 ? '可补货或加入采购清单' : '建议先加入库存',
-    };
-  }
-
-  if (firstWarningAlert) {
-    return {
-      label: '库存偏低',
-      tone: 'warning',
-      stockLine,
-      hint: '建议加入采购清单或补货',
-    };
-  }
-
-  return {
-    label: '库存正常',
-    tone: 'stable',
-    stockLine,
-    hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可以记录用量或补货',
-  };
-}
-
-function buildCatalogExpandedNote(summary: IngredientSummaryViewModel) {
-  if (summary.ingredient.notes.trim()) {
-    return summary.ingredient.notes.trim();
-  }
-  if (summary.latestPurchaseDate) {
-    return `最近补货于 ${formatDate(summary.latestPurchaseDate)}，当前主要放在 ${summary.primaryStorage}。`;
-  }
-  if (summary.inventoryItems.length > 0) {
-    return `当前有 ${summary.inventoryItems.length} 批库存，可继续补货或查看详情。`;
-  }
-  return '这项食材还没有库存，先补充一些会更方便。';
-}
-
-function resolveShoppingReason(summary: IngredientSummaryViewModel) {
-  if (summary.alerts.some((item) => item.kind === 'lowStock')) {
-    return '库存偏低，准备补货';
-  }
-  if (summary.alerts.some((item) => item.kind === 'expiry')) {
-    return '备一份新的，替换临期库存';
-  }
-  return '加入近期采购清单';
 }
 
 type InventoryStorageOverviewCardProps = {

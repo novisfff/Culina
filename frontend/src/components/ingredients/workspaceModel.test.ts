@@ -27,6 +27,9 @@ import {
   getIngredientCategoryPreset,
   sortInventorySummariesByExpiry,
   CONFIRMATION_STATUS_LABELS,
+  buildInventorySummaryLine,
+  buildInventoryTotalLabel,
+  buildCatalogCardStatus,
 } from './workspaceModel';
 import { filterMobileCatalogSummaries } from './useIngredientWorkspaceData';
 import { readFileSync } from 'node:fs';
@@ -124,6 +127,37 @@ const inventoryItems: InventoryItem[] = [
     row_version: 1,
   },
 ];
+
+describe('ingredient catalog presentation model', () => {
+  it('builds stable inventory and catalog labels from a summary', () => {
+    const summary = {
+      ingredient: ingredients[0],
+      inventoryItems: [inventoryItems[0]],
+      availableInventoryItems: [inventoryItems[0]],
+      inventoryState: null,
+      alerts: [],
+      quantitySummaries: [{ unit: '个', total: 2, label: '2 个' }],
+      hasMultipleUnits: false,
+      primaryStorage: '冷藏',
+      storageLocations: ['冷藏'],
+      recipeReferences: [],
+      latestPurchaseDate: '2026-03-20',
+      latestUpdatedAt: '2026-03-20T11:00:00Z',
+      confirmationStatus: 'current' as const,
+      confirmationLabel: '刚确认过',
+      confirmationTone: 'current' as const,
+      lastConfirmedAt: '2026-03-20T11:00:00Z',
+    };
+
+    expect(buildInventorySummaryLine(summary)).toBe('2 个');
+    expect(buildInventoryTotalLabel(summary)).toBe('2 个');
+    expect(buildCatalogCardStatus(summary)).toMatchObject({
+      label: '库存正常',
+      tone: 'stable',
+      stockLine: '库存 2 个 · 1 批',
+    });
+  });
+});
 
 const recipes: Recipe[] = [
   {
