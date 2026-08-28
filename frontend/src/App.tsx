@@ -51,6 +51,7 @@ import { useMealRecordResultState } from './features/meals/useMealRecordResultSt
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
+import { refreshHomeInventoryActions } from './features/home/useHomeInventoryRefresh';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
 import {
   InventoryOperationBanner,
@@ -893,37 +894,15 @@ function App() {
   }
 
   async function refreshInventoryActions() {
-    // Await canonical inventory (and shopping) refetch so completion/conflict branches
-    // never compute next-item or surviving groups from stale React Query data.
-    await invalidateAfterInventoryChanged(queryClient);
-    await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
-    const [freshInventory, freshStates, freshIngredients, freshShopping] = await Promise.all([
-      queryClient.fetchQuery({
-        queryKey: queryKeys.inventory,
-        queryFn: () => api.getInventory(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.inventoryStates,
-        queryFn: () => api.listInventoryStates(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.ingredients,
-        queryFn: () => api.getIngredients(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.shoppingList,
-        queryFn: () => api.getShoppingList(),
-      }),
-    ]);
-    return selectHomeEligibleInventoryActionGroups(
-      buildInventoryActionGroups({
-        inventoryItems: freshInventory,
-        inventoryStates: freshStates,
-        ingredients: freshIngredients,
-        shoppingItems: freshShopping,
-        referenceDate: homeBusinessDateKey,
-      }),
-    );
+    return refreshHomeInventoryActions({
+      invalidateChanged: () => invalidateAfterInventoryChanged(queryClient),
+      invalidateShopping: () => queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList }),
+      fetchInventory: () => queryClient.fetchQuery({ queryKey: queryKeys.inventory, queryFn: () => api.getInventory() }),
+      fetchStates: () => queryClient.fetchQuery({ queryKey: queryKeys.inventoryStates, queryFn: () => api.listInventoryStates() }),
+      fetchIngredients: () => queryClient.fetchQuery({ queryKey: queryKeys.ingredients, queryFn: () => api.getIngredients() }),
+      fetchShopping: () => queryClient.fetchQuery({ queryKey: queryKeys.shoppingList, queryFn: () => api.getShoppingList() }),
+      referenceDate: homeBusinessDateKey,
+    });
   }
 
   const {
