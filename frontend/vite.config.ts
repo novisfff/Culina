@@ -1,8 +1,15 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import bundleEntrypoints from './scripts/bundle-entrypoints.json';
+
+// The manifest builder is a Node ESM script so it can be tested independently of Vite.
+import { viteFrontendHealthManifestPlugin } from './scripts/bundle-manifest.mjs';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), viteFrontendHealthManifestPlugin({ entryConfig: bundleEntrypoints })],
+  build: {
+    manifest: true,
+  },
   server: {
     proxy: {
       '/api': {
