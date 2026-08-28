@@ -44,15 +44,19 @@ from app.repos.family_model_settings.resource_operations import (
     retry_claimed_resource_operation,
     suppress_ensure_collection_operations,
 )
-from app.repos.family_model_settings.profiles import get_family_model_settings
+from app.repos.family_model_settings.profiles import (
+    get_family_model_settings,
+    lock_family_model_settings,
+)
 from app.services.family_model_settings.credentials import destroy_eligible_revoked_secrets
 from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
 from app.services.family_model_settings.publishing import (
     apply_validated_family_model_configuration,
 )
-from app.services.family_model_settings.validation import (
-    ValidateDraftCommand,
-    validate_family_model_draft,
+from app.services.family_model_settings.drafts import (
+    _active_runtime_baseline,
+    _independent_validation,
+    _safe_payload_from_raw,
 )
 from app.services.family_model_settings.search_profiles import seed_search_profile_documents
 from app.services.search.vector_store import build_vector_store
@@ -215,7 +219,7 @@ def maintain_family_model_settings(
             )
             .where(
                 FamilyModelSettings.active_config_revision_id.is_(None),
-                FamilyModelConfigDraft.validation_status == "valid",
+                FamilyModelConfigDraft.validation_status.in_(("valid", "invalid")),
             )
             .order_by(FamilyModelConfigDraft.family_id.asc())
         )
@@ -227,29 +231,42 @@ def maintain_family_model_settings(
     )
     for family_id in legacy_family_ids:
         assert policy is not None
-        draft = get_config_draft(db, family_id=family_id)
-        if draft is None:
-            continue
-        actor_user_id = draft.updated_by
-        if actor_user_id is None:
-            continue
-        validation = validate_family_model_draft(
-            db,
-            ValidateDraftCommand(
-                family_id=family_id,
-                actor_user_id=actor_user_id,
-                network_policy=policy,
-                base_draft_version_number=draft.draft_version_number,
-            ),
-        )
-        family_settings = get_family_model_settings(db, family_id=family_id, for_update=True)
+        # Keep the same settings -> draft lock order as the request path. A
+        # legacy valid/invalid draft may contain several cards; apply every
+        # independently valid card and leave only the unresolved cards in the
+        # draft instead of allowing one historical failure to block all of
+        # them.
+        family_settings = lock_family_model_settings(db, family_id=family_id)
         current_draft = get_config_draft(db, family_id=family_id, for_update=True)
         if (
-            not validation.valid
-            or family_settings is None
-            or family_settings.active_config_revision_id is not None
+            family_settings.active_config_revision_id is not None
             or current_draft is None
+            or current_draft.updated_by is None
         ):
+            continue
+        actor_user_id = current_draft.updated_by
+        payload, payload_issues = _safe_payload_from_raw(current_draft.payload_json)
+        baseline_payload, baseline_rows = _active_runtime_baseline(
+            db,
+            settings=family_settings,
+        )
+        validation, issues, successful = _independent_validation(
+            db,
+            family_id=family_id,
+            settings=family_settings,
+            payload=payload,
+            baseline_payload=baseline_payload,
+            baseline_binding_rows=baseline_rows,
+            network_policy=policy,
+            draft_version_number=current_draft.draft_version_number,
+            # Maintenance must never silently acknowledge creation of the
+            # first vector index; that remains an explicit Owner action.
+            confirm_initial_search_index=False,
+        )
+        if validation is None or not successful:
+            all_issues = tuple(dict.fromkeys((*issues, *payload_issues)))
+            current_draft.validation_status = "invalid" if all_issues else current_draft.validation_status
+            current_draft.validation_errors_json = [issue.record() for issue in all_issues]
             continue
         apply_validated_family_model_configuration(
             db,
@@ -260,6 +277,9 @@ def maintain_family_model_settings(
             validation=validation,
             network_policy=policy,
         )
+        all_issues = tuple(dict.fromkeys((*issues, *payload_issues)))
+        current_draft.validation_status = "invalid" if all_issues else "valid"
+        current_draft.validation_errors_json = [issue.record() for issue in all_issues]
         applied += 1
     destroyed = destroy_eligible_revoked_secrets(
         db,

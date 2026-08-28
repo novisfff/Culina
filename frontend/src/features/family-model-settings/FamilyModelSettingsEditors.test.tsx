@@ -12,7 +12,7 @@ import type {
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import { createEmptyFamilyModelDraft, normalizeFamilyModelPriceRates } from './familyModelSettingsModel';
 import { ProviderProfileEditor } from './ProviderProfileEditor';
-import { PublishReview } from './PublishReview';
+import { ConfigurationCheck } from './ConfigurationCheck';
 import { ModelPriceEditor } from './ModelPriceEditor';
 import { SearchProfilePanel } from './SearchProfilePanel';
 
@@ -474,6 +474,114 @@ describe('Family model settings editors', () => {
     expect(screen.getByRole('button', { name: '查看更新范围' })).toBeDisabled();
   });
 
+  it('shows a restored rebuild failure and lets the Owner retry it', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.search_profile_id = 'search-profile-active';
+    const retrySearchReplacement = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SearchProfilePanel
+        settings={{ ...settings, active_search_profile_id: 'search-profile-active' }}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={{
+          profile_id: 'search-profile-failed',
+          status: 'failed',
+          total_documents: 276,
+          indexed_documents: 0,
+          failed_documents: 4,
+          budget_blocked_documents: 0,
+          retryable: true,
+          created_at: '2026-08-19T10:00:00Z',
+          activated_at: null,
+          failure: {
+            code: 'search_embedding_provider_rejected',
+            detail: '嵌入服务拒绝了请求（HTTP 400），现有索引未被替换。',
+            provider_http_status: 400,
+            provider_error_code: 'invalid_dimensions',
+            provider_error_message: 'dimensions unsupported',
+            request_sent: true,
+            execution_certainty: 'confirmed_not_executed',
+          },
+        }}
+        replacementProfileId="search-profile-failed"
+        actions={{
+          retrySearchReplacement,
+          cancelSearchReplacement: vi.fn().mockResolvedValue(undefined),
+        } as unknown as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    expect(screen.getByText('智能搜索准备失败')).toBeVisible();
+    expect(screen.getByText('失败 4 项')).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('嵌入服务拒绝了请求（HTTP 400）');
+    expect(screen.getByRole('alert')).toHaveTextContent('Provider HTTP 400');
+    expect(screen.getByRole('alert')).toHaveTextContent('错误码：invalid_dimensions');
+    expect(screen.getByRole('alert')).toHaveTextContent('dimensions unsupported');
+
+    await user.click(screen.getByRole('button', { name: '重试更新' }));
+    expect(retrySearchReplacement).toHaveBeenCalledWith('search-profile-failed', {
+      base_settings_version_number: settings.version_number,
+    });
+  });
+
+  it('lets the Owner abandon a failed first search setup and return to editing', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.search_profile_id = 'search-profile-initial-failed';
+    const cancelSearchReplacement = vi.fn().mockResolvedValue(undefined);
+    const onReplacementProfileIdChange = vi.fn();
+    render(
+      <SearchProfilePanel
+        settings={{ ...settings, active_search_profile_id: null }}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={{
+          profile_id: 'search-profile-initial-failed',
+          status: 'failed',
+          total_documents: 12,
+          indexed_documents: 0,
+          failed_documents: 1,
+          budget_blocked_documents: 0,
+          retryable: true,
+          created_at: '2026-08-19T10:00:00Z',
+          activated_at: null,
+          failure: {
+            code: 'search_embedding_provider_rejected',
+            detail: '模型名称无效，首次搜索配置未启用。',
+            provider_http_status: null,
+            provider_error_code: null,
+            provider_error_message: null,
+            request_sent: true,
+            execution_certainty: 'confirmed_not_executed',
+          },
+        }}
+        replacementProfileId="search-profile-initial-failed"
+        actions={{
+          retrySearchReplacement: vi.fn().mockResolvedValue(undefined),
+          cancelSearchReplacement,
+        } as unknown as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={onReplacementProfileIdChange}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '放弃并重新配置' }));
+
+    expect(cancelSearchReplacement).toHaveBeenCalledWith('search-profile-initial-failed', {
+      base_settings_version_number: settings.version_number,
+    });
+    expect(onReplacementProfileIdChange).toHaveBeenCalledWith(null);
+  });
+
   it('keeps capability test progress and success feedback inside the button', async () => {
     const user = userEvent.setup();
     const draft = createEmptyFamilyModelDraft();
@@ -800,7 +908,7 @@ describe('Family model settings editors', () => {
       price_checksum: 'price-checksum',
     };
     render(
-      <PublishReview
+      <ConfigurationCheck
         settings={settings}
         serverDraft={{
           base_config_revision_id: null,
@@ -855,7 +963,7 @@ describe('Family model settings editors', () => {
     };
 
     render(
-      <PublishReview
+      <ConfigurationCheck
         settings={settings}
         serverDraft={{
           base_config_revision_id: null,

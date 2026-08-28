@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.enums import FamilyModelSearchProfileStatus
-from app.models.domain import Family, SearchDocument
-from app.models.family_model_settings import FamilyModelSettings, FamilySearchProfile
+from app.models.domain import Family, SearchDocument, SearchIndexJob
+from app.models.family_model_settings import (
+    FamilyModelSettings,
+    FamilySearchProfile,
+    FamilySearchProfileDocument,
+)
 from app.repos.family_model_settings.search_profiles import get_profile_document
+from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.search.embeddings import MeteredEmbeddingResult
 from app.services.search.jobs import (
+    MAX_ATTEMPTS,
+    _activate_profile_if_ready,
+    _mark_profile_job_terminal_missing_output,
+    _mark_unexpected_search_index_job_failure,
     enqueue_document_for_family_profiles,
     process_search_index_job,
 )
@@ -114,6 +125,54 @@ def _seed_profiles(db: Session) -> tuple[FamilySearchProfile, FamilySearchProfil
     return active, candidate, document
 
 
+def _seed_candidate_failure_state(
+    db: Session,
+    *,
+    profile_status: FamilyModelSearchProfileStatus = FamilyModelSearchProfileStatus.PROVISIONING,
+    document_status: str = "indexing",
+    job_status: str = "running",
+    attempt_count: int = MAX_ATTEMPTS - 1,
+) -> tuple[FamilySearchProfile, FamilySearchProfileDocument, SearchIndexJob, SearchIndexJob]:
+    _active, candidate, document = _seed_profiles(db)
+    profile_document = FamilySearchProfileDocument(
+        id="candidate-profile-document",
+        family_id=candidate.family_id,
+        search_profile_id=candidate.id,
+        search_document_id=document.id,
+        content_hash=document.content_hash,
+        status=document_status,
+    )
+    current_job = SearchIndexJob(
+        id="candidate-running-job",
+        family_id=candidate.family_id,
+        search_profile_id=candidate.id,
+        price_version_id=candidate.candidate_price_version_id,
+        user_id="owner-a",
+        status=job_status,
+        entity_type=document.entity_type,
+        entity_id=document.entity_id,
+        target_name=document.title_text,
+        vector_status="pending",
+        attempt_count=attempt_count,
+    )
+    queued_job = SearchIndexJob(
+        id="candidate-queued-job",
+        family_id=candidate.family_id,
+        search_profile_id=candidate.id,
+        price_version_id=candidate.candidate_price_version_id,
+        user_id="owner-a",
+        status="queued",
+        entity_type="recipe",
+        entity_id="recipe-queued",
+        target_name="待处理文档",
+        vector_status="pending",
+    )
+    candidate.status = profile_status
+    db.add_all((profile_document, current_job, queued_job))
+    db.flush()
+    return candidate, profile_document, current_job, queued_job
+
+
 def test_same_document_can_have_active_and_candidate_jobs(model_usage_db: Session) -> None:
     active, candidate, document = _seed_profiles(model_usage_db)
 
@@ -206,3 +265,130 @@ def test_profile_job_writes_only_profile_vector_lifecycle(model_usage_db: Sessio
             "embedding_dimensions": 2,
         }
     ]
+
+
+def test_missing_candidate_price_fails_only_candidate_and_pauses_queued_work(
+    model_usage_db: Session,
+) -> None:
+    active, candidate, document = _seed_profiles(model_usage_db)
+    candidate.candidate_price_version_id = None
+    queued_job = SearchIndexJob(
+        id="candidate-missing-price-job",
+        family_id=candidate.family_id,
+        search_profile_id=candidate.id,
+        user_id="owner-a",
+        status="queued",
+        entity_type="recipe",
+        entity_id="recipe-missing-price",
+        vector_status="pending",
+    )
+    model_usage_db.add(queued_job)
+    model_usage_db.flush()
+
+    with patch(
+        "app.services.family_model_settings.drafts."
+        "restore_active_embedding_after_failed_search_replacement",
+        return_value=True,
+    ) as restore:
+        jobs = enqueue_document_for_family_profiles(
+            model_usage_db,
+            document,
+            user_id="owner-a",
+        )
+
+    assert {job.search_profile_id for job in jobs} == {active.id}
+    assert candidate.status is FamilyModelSearchProfileStatus.FAILED
+    assert queued_job.status == "cancelled"
+    restore.assert_called_once()
+
+
+def test_unexpected_terminal_candidate_failure_restores_active_embedding(
+    model_usage_db: Session,
+) -> None:
+    candidate, _profile_document, current_job, queued_job = _seed_candidate_failure_state(
+        model_usage_db
+    )
+    model_usage_db.commit()
+    factory = sessionmaker(bind=model_usage_db.get_bind(), expire_on_commit=False)
+
+    with patch(
+        "app.services.family_model_settings.drafts."
+        "restore_active_embedding_after_failed_search_replacement",
+        return_value=True,
+    ) as restore:
+        _mark_unexpected_search_index_job_failure(
+            current_job.id,
+            session_factory=factory,
+        )
+
+    model_usage_db.expire_all()
+    assert model_usage_db.get(FamilySearchProfile, candidate.id).status is FamilyModelSearchProfileStatus.FAILED
+    assert model_usage_db.get(SearchIndexJob, current_job.id).attempt_count == MAX_ATTEMPTS
+    assert model_usage_db.get(SearchIndexJob, queued_job.id).status == "cancelled"
+    restore.assert_called_once()
+
+
+def test_terminal_missing_output_fails_candidate_and_restores_active_embedding(
+    model_usage_db: Session,
+) -> None:
+    candidate, profile_document, current_job, queued_job = _seed_candidate_failure_state(
+        model_usage_db,
+        attempt_count=1,
+    )
+    model_usage_db.commit()
+    factory = sessionmaker(bind=model_usage_db.get_bind(), expire_on_commit=False)
+
+    with patch(
+        "app.services.family_model_settings.drafts."
+        "restore_active_embedding_after_failed_search_replacement",
+        return_value=True,
+    ) as restore:
+        _mark_profile_job_terminal_missing_output(
+            current_job.id,
+            session_factory=factory,
+        )
+
+    model_usage_db.expire_all()
+    assert model_usage_db.get(FamilySearchProfile, candidate.id).status is FamilyModelSearchProfileStatus.FAILED
+    assert model_usage_db.get(FamilySearchProfileDocument, profile_document.id).status == "failed"
+    assert model_usage_db.get(SearchIndexJob, current_job.id).status == "failed"
+    assert model_usage_db.get(SearchIndexJob, queued_job.id).status == "cancelled"
+    restore.assert_called_once()
+
+
+def test_activation_failure_fails_candidate_and_restores_active_embedding(
+    model_usage_db: Session,
+) -> None:
+    candidate, profile_document, _current_job, queued_job = _seed_candidate_failure_state(
+        model_usage_db,
+        document_status="indexed",
+        job_status="succeeded",
+        attempt_count=1,
+    )
+    candidate.total_documents = 1
+    candidate.indexed_documents = 1
+    model_usage_db.commit()
+    factory = sessionmaker(bind=model_usage_db.get_bind(), expire_on_commit=False)
+
+    with (
+        patch(
+            "app.services.family_model_settings.search_profiles.activate_ready_search_profile",
+            side_effect=FamilyModelSettingsError("family_search_profile_locked"),
+        ),
+        patch(
+            "app.services.family_model_settings.drafts."
+            "restore_active_embedding_after_failed_search_replacement",
+            return_value=True,
+        ) as restore,
+    ):
+        _activate_profile_if_ready(
+            family_id=candidate.family_id,
+            profile_id=candidate.id,
+            session_factory=factory,
+        )
+
+    model_usage_db.expire_all()
+    assert model_usage_db.get(FamilySearchProfile, candidate.id).status is FamilyModelSearchProfileStatus.FAILED
+    assert model_usage_db.get(FamilySearchProfileDocument, profile_document.id).status == "indexed"
+    assert model_usage_db.get(SearchIndexJob, queued_job.id).status == "cancelled"
+    restore.assert_called_once()

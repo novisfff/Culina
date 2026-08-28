@@ -92,6 +92,8 @@ export const queryKeys = {
   familySearchProfile: (familyId: string) => [...familyModelSettingsRoot(familyId), 'search'] as const,
   familySearchReplacement: (familyId: string, profileId: string) =>
     [...familyModelSettingsRoot(familyId), 'search', 'replacement', profileId] as const,
+  familySearchReplacementCurrent: (familyId: string) =>
+    [...familyModelSettingsRoot(familyId), 'search', 'replacement', 'current'] as const,
   modelUsageOverview: (familyId: string, scope: ModelUsageScope, period: string) =>
     [...modelUsageRoot(familyId), 'overview', scope, period] as const,
   modelUsageBreakdown: (familyId: string, scope: ModelUsageScope, period: string, groupBy: ModelUsageGroupBy) =>

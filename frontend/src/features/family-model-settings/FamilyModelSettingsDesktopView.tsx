@@ -4,7 +4,7 @@ import type { FamilyModelSettingsSurfaceProps } from './familyModelSettingsViewT
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import { ModelPriceEditor } from './ModelPriceEditor';
 import { ProviderProfileEditor } from './ProviderProfileEditor';
-import { PublishReview } from './PublishReview';
+import { ConfigurationCheck } from './ConfigurationCheck';
 import { SearchProfilePanel } from './SearchProfilePanel';
 
 const SECTIONS: ReadonlyArray<{ id: FamilyModelSettingsSection; label: string; description: string }> = [
@@ -73,13 +73,13 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
       <div className="family-model-settings-overview-primary">
         <div className="family-model-settings-overview-primary-copy">
           <div className="family-model-settings-overview-status-row">
-            <span className={`family-model-settings-publication is-${overview.publication.kind}`}>
+            <span className={`family-model-settings-configuration-status is-${overview.configurationStatus.kind}`}>
               <span className="family-model-settings-status-dot" aria-hidden="true" />
-              {overview.publication.label}
+              {overview.configurationStatus.label}
             </span>
           </div>
           <h2 id="family-model-settings-overview-title">{overview.title}</h2>
-          <p>{overview.publication.description}</p>
+          <p>{overview.configurationStatus.description}</p>
         </div>
         <button className="solid-button family-model-settings-primary-cta" type="button" onClick={() => props.onSelectSection(overview.primarySection)}>
           <span>{overview.primaryLabel}</span>
@@ -312,7 +312,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
         ) : null}
         {props.state.section === 'prices' ? <ModelPriceEditor draft={props.draft} busy={busy} onDraftChange={props.onDraftChange} /> : null}
         {props.state.section === 'search' ? <SearchProfilePanel {...props} /> : null}
-        {props.state.section === 'review' ? <PublishReview {...props} /> : null}
+        {props.state.section === 'review' ? <ConfigurationCheck {...props} /> : null}
       </section>
     </main>
   );

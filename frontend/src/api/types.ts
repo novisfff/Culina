@@ -283,11 +283,6 @@ export interface FamilyModelPriceDraftPayload {
   change_note: string;
 }
 
-export interface SaveFamilyModelPricesDraftPayload extends FamilyModelPriceDraftPayload {
-  base_draft_version_number: number;
-  idempotency_key: string;
-}
-
 export interface FamilyModelPricesDraft extends FamilyModelPriceDraftPayload {
   draft_version_number: number;
   updated_at: string | null;
@@ -330,24 +325,6 @@ export interface FamilyModelDraftValidation {
   price_checksum: string | null;
 }
 
-export interface PublishFamilyModelSettingsPayload {
-  base_settings_version_number: number;
-  base_draft_version_number: number;
-  idempotency_key: string;
-  config_checksum: string;
-  price_checksum: string;
-  current_password?: string;
-}
-
-export interface PublishedFamilyModelConfiguration {
-  config_revision_id: string;
-  price_version_id: string;
-  settings_version_number: number;
-  config_checksum: string;
-  price_checksum: string;
-  search_profile_id: string | null;
-}
-
 export interface FamilyModelPriceVersionSummary {
   id: string;
   config_revision_id: string | null;
@@ -367,22 +344,6 @@ export interface FamilyModelPrices {
   current_rates: FamilyModelPriceRateOut[];
   history: FamilyModelPriceVersionSummary[];
   draft: FamilyModelPricesDraft | null;
-}
-
-export interface PublishFamilyModelPricesPayload {
-  base_settings_version_number: number;
-  base_price_version_id: string;
-  idempotency_key: string;
-  confirm_checksum: string;
-  change_note: string;
-  rates: FamilyModelPriceRate[];
-}
-
-export interface PublishedFamilyModelPrices {
-  config_revision_id: string;
-  price_version_id: string;
-  settings_version_number: number;
-  price_checksum: string;
 }
 
 export interface FamilyModelSettings {
@@ -435,6 +396,16 @@ export interface CreateFamilyModelSearchReplacementPayload extends FamilyModelSe
   idempotency_key: string;
 }
 
+export interface FamilyModelSearchReplacementFailure {
+  code: string;
+  detail: string;
+  provider_http_status: number | null;
+  provider_error_code: string | null;
+  provider_error_message: string | null;
+  request_sent: boolean | null;
+  execution_certainty: 'confirmed_executed' | 'confirmed_not_executed' | 'unknown' | null;
+}
+
 export interface FamilyModelSearchReplacement {
   profile_id: string;
   status: 'provisioning' | 'failed' | 'active' | 'cancelled' | 'superseded' | 'retired';
@@ -445,6 +416,7 @@ export interface FamilyModelSearchReplacement {
   retryable: boolean;
   created_at: string;
   activated_at: string | null;
+  failure?: FamilyModelSearchReplacementFailure | null;
 }
 
 export interface FamilyModelSearchReplacementMutationPayload {
@@ -1406,6 +1378,8 @@ export interface SearchIndexJobResponse {
 export type SearchIndexJobErrorCode =
   | 'embedding_output_unavailable_after_provider_success'
   | 'search_embedding_response_invalid'
+  | 'search_embedding_provider_rejected'
+  | 'search_embedding_transport_uncertain'
   | 'search_embedding_superseded_before_dispatch'
   | 'search_embedding_unavailable'
   | 'search_index_failed'

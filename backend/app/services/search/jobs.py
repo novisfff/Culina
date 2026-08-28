@@ -19,7 +19,11 @@ from app.core.enums import (
 from app.core.utils import create_id, utcnow
 from app.db.session import SessionLocal
 from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument, SearchIndexJob
-from app.models.family_model_settings import FamilySearchProfile, FamilySearchProfileDocument
+from app.models.family_model_settings import (
+    FamilyModelSettings,
+    FamilySearchProfile,
+    FamilySearchProfileDocument,
+)
 from app.models.model_usage import ModelUsageEvent, ModelUsageFamilyPolicy, ModelUsageReservation
 from app.services.model_usage.errors import (
     ModelUsageAttemptAlreadyAccounted,
@@ -40,12 +44,17 @@ from app.repos.family_model_settings.profiles import (
 )
 from app.repos.family_model_settings.search_profiles import (
     candidate_price_version_id,
+    get_search_profile,
     list_profiles_accepting_document_updates,
     refresh_profile_progress,
     require_search_profile,
     upsert_profile_document_snapshot,
 )
-from app.services.search.embeddings import EmbeddingClient, EmbeddingUnavailableError, build_embedding_client
+from app.services.search.embeddings import (
+    EmbeddingClient,
+    EmbeddingUnavailableError,
+    build_embedding_client,
+)
 from app.services.search.indexing import (
     delete_search_document,
     upsert_food_search_document,
@@ -203,11 +212,6 @@ def enqueue_document_for_family_profiles(
     active_price_version_id = settings.active_price_version_id
     jobs: list[SearchIndexJob] = []
     for profile in profiles:
-        profile_document = upsert_profile_document_snapshot(
-            db,
-            profile=profile,
-            document=document,
-        )
         is_active_or_initial = (
             profile.id == settings.active_search_profile_id
             or (
@@ -228,11 +232,42 @@ def enqueue_document_for_family_profiles(
             config_revision_id = None
             price_version_id = candidate_price_version_id(db, profile=profile)
             if price_version_id is None:
-                # A partially-created/invalid candidate is never eligible for
-                # a remote send. Task 11 exposes it as failed rather than
-                # guessing a mutable active price.
-                profile.status = FamilyModelSearchProfileStatus.FAILED
-                continue
+                # Re-read the candidate under the project-wide settings ->
+                # profile order before making the terminal transition.  A
+                # concurrently completed candidate price wins on re-check;
+                # otherwise the broken candidate is failed as one unit and
+                # the active Embedding card is restored in the saved draft.
+                profile = require_search_profile(
+                    db,
+                    family_id=document.family_id,
+                    search_profile_id=profile.id,
+                    for_update=True,
+                )
+                price_version_id = candidate_price_version_id(db, profile=profile)
+                if price_version_id is None:
+                    if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
+                        upsert_profile_document_snapshot(
+                            db,
+                            profile=profile,
+                            document=document,
+                        )
+                        _mark_search_candidate_terminal_failure_in_session(
+                            db,
+                            profile=profile,
+                            settings=settings,
+                            now=utcnow(),
+                        )
+                    continue
+        profile_document = upsert_profile_document_snapshot(
+            db,
+            profile=profile,
+            document=document,
+        )
+        if not price_version_id:
+            # Defensive narrowing for type-checkers and malformed historical
+            # rows.  No profile job may be created without an immutable price
+            # snapshot.
+            continue
         jobs.append(
             enqueue_search_profile_document_job(
                 db,
@@ -262,6 +297,7 @@ def retry_failed_search_index_job(db: Session, *, family_id: str, job_id: str) -
     job.vector_status = "pending"
     job.error = None
     job.error_code = None
+    _set_job_failure_diagnostics(job, None)
     job.budget_blocked_period_start = None
     job.budget_blocked_policy_version_id = None
     if job.search_profile_id is not None:
@@ -399,6 +435,7 @@ def _requeue_changed_budget_blocks(db: Session, *, limit: int) -> None:
         job.vector_status = "pending"
         job.error = None
         job.error_code = None
+        _set_job_failure_diagnostics(job, None)
         job.budget_blocked_period_start = None
         job.budget_blocked_policy_version_id = None
         job.locked_at = None
@@ -423,6 +460,7 @@ def recover_interrupted_search_index_jobs(
 ) -> int:
     now = utcnow()
     stale_lock_cutoff = now - JOB_LOCK_STALE_AFTER
+    restoration_targets: set[tuple[str, str]] = set()
     running_filter = SearchIndexJob.status == "running"
     if not include_all_running:
         running_filter = and_(
@@ -452,10 +490,19 @@ def recover_interrupted_search_index_jobs(
             job.completed_at = None
             job.error = None
             job.error_code = None
+            _set_job_failure_diagnostics(job, None)
             job.updated_at = now
             continue
         resolved = _profile_job_document(db, job=job, for_update=True)
         if resolved is None:
+            candidate_failed = _mark_candidate_failure_for_job(
+                db,
+                job=job,
+                settings=None,
+                now=now,
+            )
+            if candidate_failed and job.search_profile_id is not None:
+                restoration_targets.add((job.family_id, job.search_profile_id))
             _finish_job_in_session(job, vector_status="skipped", now=now)
             continue
         profile, profile_document, _document = resolved
@@ -463,16 +510,29 @@ def recover_interrupted_search_index_jobs(
             FamilyModelSearchProfileStatus.PROVISIONING,
             FamilyModelSearchProfileStatus.ACTIVE,
         }:
+            if profile.status is FamilyModelSearchProfileStatus.FAILED:
+                _mark_search_candidate_terminal_failure_in_session(
+                    db,
+                    profile=profile,
+                    settings=None,
+                    now=now,
+                )
+                if profile.base_search_profile_id is not None:
+                    restoration_targets.add((profile.family_id, profile.id))
+                _finish_job_in_session(job, vector_status="skipped", now=now)
+                continue
             _finish_job_in_session(job, vector_status="skipped", now=now)
             continue
         if _attempt_output_is_unrecoverable(db, job=job):
-            _mark_profile_terminal_missing_output_in_session(
+            candidate_failed = _mark_profile_terminal_missing_output_in_session(
                 db,
                 job,
                 profile_document=profile_document,
                 profile=profile,
                 now=now,
             )
+            if candidate_failed and profile.base_search_profile_id is not None:
+                restoration_targets.add((profile.family_id, profile.id))
             continue
         has_pending = (
             profile_document.status == "pending_handoff"
@@ -486,8 +546,33 @@ def recover_interrupted_search_index_jobs(
             job.completed_at = None
             job.error = None
             job.error_code = None
+            _set_job_failure_diagnostics(job, None)
         refresh_profile_progress(db, profile=profile)
     if jobs:
+        db.commit()
+    # The recovery scan locks jobs/profiles first and may cover several
+    # families, so draft restoration is deliberately done after that commit.
+    # Reacquiring settings before the draft preserves the global lock order
+    # and avoids a job/profile -> settings inversion.
+    for family_id, profile_id in sorted(restoration_targets):
+        settings = get_family_model_settings(db, family_id=family_id, for_update=True)
+        profile = (
+            get_search_profile(
+                db,
+                family_id=family_id,
+                search_profile_id=profile_id,
+                for_update=True,
+            )
+            if settings is not None
+            else None
+        )
+        if profile is not None and profile.status is FamilyModelSearchProfileStatus.FAILED:
+            _mark_search_candidate_terminal_failure_in_session(
+                db,
+                profile=profile,
+                settings=settings,
+                now=utcnow(),
+            )
         db.commit()
     return len(jobs)
 
@@ -503,7 +588,20 @@ def claim_pending_search_index_jobs(db: Session, *, limit: int = 4) -> list[str]
     jobs = list(
         db.scalars(
             select(SearchIndexJob)
+            .outerjoin(
+                FamilySearchProfile,
+                FamilySearchProfile.id == SearchIndexJob.search_profile_id,
+            )
             .where(
+                or_(
+                    SearchIndexJob.search_profile_id.is_(None),
+                    FamilySearchProfile.status.in_(
+                        (
+                            FamilyModelSearchProfileStatus.PROVISIONING,
+                            FamilyModelSearchProfileStatus.ACTIVE,
+                        )
+                    ),
+                ),
                 or_(
                     SearchIndexJob.status == "queued",
                     # A failed job whose provider output is already durable
@@ -653,6 +751,34 @@ def _job_has_search_profile(
         ) is not None
 
 
+def _lock_settings_for_profile_job(
+    db: Session,
+    *,
+    job_id: str,
+) -> FamilyModelSettings | None:
+    """Lock family settings before a profile-job failure transition.
+
+    Search jobs are looked up by an opaque id.  Read the immutable family and
+    profile identity first, then acquire the settings row before locking the
+    job/profile rows.  This keeps draft restoration on the same
+    settings -> profile/job -> draft order as model-setting writes while
+    still allowing historical orphan jobs to be marked failed.
+    """
+
+    identity = db.execute(
+        select(SearchIndexJob.family_id, SearchIndexJob.search_profile_id).where(
+            SearchIndexJob.id == job_id
+        )
+    ).one_or_none()
+    if identity is None or identity.search_profile_id is None:
+        return None
+    return get_family_model_settings(
+        db,
+        family_id=identity.family_id,
+        for_update=True,
+    )
+
+
 def _profile_job_document(
     db: Session,
     *,
@@ -661,12 +787,14 @@ def _profile_job_document(
 ) -> tuple[FamilySearchProfile, FamilySearchProfileDocument, SearchDocument] | None:
     if job.search_profile_id is None:
         return None
-    profile = require_search_profile(
+    profile = get_search_profile(
         db,
         family_id=job.family_id,
         search_profile_id=job.search_profile_id,
         for_update=for_update,
     )
+    if profile is None:
+        return None
     statement = (
         select(FamilySearchProfileDocument, SearchDocument)
         .join(
@@ -688,6 +816,33 @@ def _profile_job_document(
         return None
     profile_document, document = row
     return profile, profile_document, document
+
+
+def _mark_candidate_failure_for_job(
+    db: Session,
+    *,
+    job: SearchIndexJob,
+    settings: FamilyModelSettings | None,
+    now: datetime,
+) -> bool:
+    """Fail a candidate even when its profile-document row is missing."""
+
+    if job.search_profile_id is None:
+        return False
+    profile = get_search_profile(
+        db,
+        family_id=job.family_id,
+        search_profile_id=job.search_profile_id,
+        for_update=True,
+    )
+    if profile is None:
+        return False
+    return _mark_search_candidate_terminal_failure_in_session(
+        db,
+        profile=profile,
+        settings=settings,
+        now=now,
+    )
 
 
 def _process_family_search_profile_job(
@@ -753,12 +908,16 @@ def _process_family_search_profile_job(
     except ModelUsageAttemptAlreadyAccounted:
         _mark_profile_job_terminal_missing_output(job_id, session_factory=session_factory)
         return
-    except EmbeddingUnavailableError:
+    except EmbeddingUnavailableError as exc:
+        # The exception carries a bounded provider diagnosis.  Persist it on
+        # the job before returning so an Owner can understand a failed
+        # candidate after the worker process and its in-memory state are gone.
         _mark_profile_job_failure(
             job_id,
             session_factory=session_factory,
-            error="嵌入服务暂时不可用",
-            error_code="search_embedding_unavailable",
+            error=exc.safe_detail,
+            error_code=exc.code,
+            failure=exc,
             profile_status="failed",
             increment_provider_attempt=True,
         )
@@ -832,6 +991,7 @@ def _prepare_profile_embedding_attempt(
     session_factory: Callable[[], Session],
 ) -> PreparedProfileEmbeddingAttempt | None:
     with session_factory() as db:
+        settings = _lock_settings_for_profile_job(db, job_id=job_id)
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None or job.search_profile_id is None:
             return None
@@ -844,6 +1004,12 @@ def _prepare_profile_embedding_attempt(
                 increment_provider_attempt=False,
                 now=utcnow(),
             )
+            _mark_candidate_failure_for_job(
+                db,
+                job=job,
+                settings=settings,
+                now=utcnow(),
+            )
             db.commit()
             return None
         profile, profile_document, document = resolved
@@ -851,7 +1017,27 @@ def _prepare_profile_embedding_attempt(
             FamilyModelSearchProfileStatus.PROVISIONING,
             FamilyModelSearchProfileStatus.ACTIVE,
         }:
-            _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            now = utcnow()
+            if profile.status is FamilyModelSearchProfileStatus.FAILED:
+                # A failed candidate is paused, not consumed.  Explicit retry
+                # restores these jobs to queued so documents that never got a
+                # Provider attempt can continue from where the rebuild stopped.
+                _mark_search_candidate_terminal_failure_in_session(
+                    db,
+                    profile=profile,
+                    settings=settings,
+                    now=now,
+                )
+                job.status = "cancelled"
+                job.vector_status = "pending"
+                job.error = "候选搜索索引建立失败，等待重试"
+                job.error_code = "search_rebuild_paused"
+                _set_job_failure_diagnostics(job, None)
+                job.locked_at = None
+                job.completed_at = now
+                job.updated_at = now
+            else:
+                _finish_job_in_session(job, vector_status="skipped", now=now)
             db.commit()
             return None
         if profile_document.content_hash != document.content_hash:
@@ -883,6 +1069,7 @@ def _prepare_profile_embedding_attempt(
                 job,
                 profile_document=profile_document,
                 profile=profile,
+                settings=settings,
                 now=utcnow(),
             )
             db.commit()
@@ -904,6 +1091,7 @@ def _prepare_profile_embedding_attempt(
                     job,
                     profile_document=profile_document,
                     profile=profile,
+                    settings=settings,
                     now=utcnow(),
                 )
                 db.commit()
@@ -914,6 +1102,7 @@ def _prepare_profile_embedding_attempt(
         job.vector_status = "pending"
         job.error = None
         job.error_code = None
+        _set_job_failure_diagnostics(job, None)
         job.updated_at = utcnow()
         profile_document.status = "indexing"
         profile_document.error_code = None
@@ -1121,8 +1310,10 @@ def _mark_profile_job_failure(
     error_code: str,
     profile_status: str,
     increment_provider_attempt: bool,
+    failure: EmbeddingUnavailableError | None = None,
 ) -> None:
     with session_factory() as db:
+        settings = _lock_settings_for_profile_job(db, job_id=job_id)
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None:
             return
@@ -1132,9 +1323,17 @@ def _mark_profile_job_failure(
                 job,
                 error=error,
                 error_code=error_code,
+                failure=failure,
                 increment_provider_attempt=increment_provider_attempt,
                 now=utcnow(),
             )
+            if (job.attempt_count or 0) >= MAX_ATTEMPTS:
+                _mark_candidate_failure_for_job(
+                    db,
+                    job=job,
+                    settings=settings,
+                    now=utcnow(),
+                )
             db.commit()
             return
         profile, profile_document, _document = resolved
@@ -1146,6 +1345,7 @@ def _mark_profile_job_failure(
             job,
             error=error,
             error_code=error_code,
+            failure=failure,
             increment_provider_attempt=increment_provider_attempt,
             now=utcnow(),
         )
@@ -1153,8 +1353,14 @@ def _mark_profile_job_failure(
             profile.status is FamilyModelSearchProfileStatus.PROVISIONING
             and (job.attempt_count or 0) >= MAX_ATTEMPTS
         ):
-            profile.status = FamilyModelSearchProfileStatus.FAILED
-        refresh_profile_progress(db, profile=profile)
+            _mark_search_candidate_terminal_failure_in_session(
+                db,
+                profile=profile,
+                settings=settings,
+                now=utcnow(),
+            )
+        else:
+            refresh_profile_progress(db, profile=profile)
         db.commit()
 
 
@@ -1166,6 +1372,7 @@ def _mark_unexpected_search_index_job_failure(
     """Make an escaped worker exception durable without risking a duplicate send."""
 
     with session_factory() as db:
+        settings = _lock_settings_for_profile_job(db, job_id=job_id)
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None or job.status == "succeeded":
             return
@@ -1181,6 +1388,13 @@ def _mark_unexpected_search_index_job_failure(
                 increment_provider_attempt=True,
                 now=utcnow(),
             )
+            if (job.attempt_count or 0) >= MAX_ATTEMPTS:
+                _mark_candidate_failure_for_job(
+                    db,
+                    job=job,
+                    settings=settings,
+                    now=utcnow(),
+                )
             db.commit()
             return
 
@@ -1194,12 +1408,14 @@ def _mark_unexpected_search_index_job_failure(
                 vector_status="pending",
                 now=utcnow(),
             )
+            refresh_profile_progress(db, profile=profile)
         elif _attempt_output_is_unrecoverable(db, job=job):
             _mark_profile_terminal_missing_output_in_session(
                 db,
                 job,
                 profile_document=profile_document,
                 profile=profile,
+                settings=settings,
                 now=utcnow(),
             )
         else:
@@ -1214,8 +1430,14 @@ def _mark_unexpected_search_index_job_failure(
                 now=utcnow(),
             )
             if (job.attempt_count or 0) >= MAX_ATTEMPTS:
-                profile.status = FamilyModelSearchProfileStatus.FAILED
-        refresh_profile_progress(db, profile=profile)
+                _mark_search_candidate_terminal_failure_in_session(
+                    db,
+                    profile=profile,
+                    settings=settings,
+                    now=utcnow(),
+                )
+            else:
+                refresh_profile_progress(db, profile=profile)
         db.commit()
 
 
@@ -1255,15 +1477,19 @@ def _mark_profile_terminal_missing_output_in_session(
     *,
     profile_document: FamilySearchProfileDocument,
     profile: FamilySearchProfile,
+    settings: FamilyModelSettings | None = None,
     now: datetime,
-) -> None:
+) -> bool:
     profile_document.status = "failed"
     profile_document.error_code = EMBEDDING_OUTPUT_UNAVAILABLE
     clear_profile_pending_vector(profile_document)
     _mark_terminal_missing_output(job, now=now)
-    if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
-        profile.status = FamilyModelSearchProfileStatus.FAILED
-    refresh_profile_progress(db, profile=profile)
+    return _mark_search_candidate_terminal_failure_in_session(
+        db,
+        profile=profile,
+        settings=settings,
+        now=now,
+    )
 
 
 def _mark_profile_job_terminal_missing_output(
@@ -1272,19 +1498,29 @@ def _mark_profile_job_terminal_missing_output(
     session_factory: Callable[[], Session],
 ) -> None:
     with session_factory() as db:
+        settings = _lock_settings_for_profile_job(db, job_id=job_id)
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None:
             return
         resolved = _profile_job_document(db, job=job, for_update=True)
         if resolved is None:
             _mark_terminal_missing_output(job, now=utcnow())
+            _mark_candidate_failure_for_job(
+                db,
+                job=job,
+                settings=settings,
+                now=utcnow(),
+            )
         else:
             profile, profile_document, _document = resolved
-            profile_document.status = "failed"
-            profile_document.error_code = EMBEDDING_OUTPUT_UNAVAILABLE
-            clear_profile_pending_vector(profile_document)
-            _mark_terminal_missing_output(job, now=utcnow())
-            refresh_profile_progress(db, profile=profile)
+            _mark_profile_terminal_missing_output_in_session(
+                db,
+                job,
+                profile_document=profile_document,
+                profile=profile,
+                settings=settings,
+                now=utcnow(),
+            )
         db.commit()
 
 
@@ -1324,6 +1560,7 @@ def _start_job(
         job.started_at = job.started_at or now
         job.error = None
         job.error_code = None
+        _set_job_failure_diagnostics(job, None)
         job.updated_at = now
         db.commit()
     return True
@@ -1372,12 +1609,14 @@ def _mark_job_failure_in_session(
     error_code: str,
     increment_provider_attempt: bool,
     vector_status: str = "failed",
+    failure: EmbeddingUnavailableError | None = None,
     now: datetime,
 ) -> None:
     job.status = "failed"
     job.vector_status = vector_status
     job.error = error
     job.error_code = error_code
+    _set_job_failure_diagnostics(job, failure)
     if increment_provider_attempt:
         job.attempt_count = (job.attempt_count or 0) + 1
     job.locked_at = None
@@ -1395,11 +1634,102 @@ def _mark_terminal_missing_output(job: SearchIndexJob, *, now: datetime) -> None
     )
 
 
+def _set_job_failure_diagnostics(
+    job: SearchIndexJob,
+    failure: EmbeddingUnavailableError | None,
+) -> None:
+    """Copy only safe embedding diagnostics onto a durable job row."""
+
+    if failure is None:
+        job.provider_http_status = None
+        job.provider_error_code = None
+        job.provider_error_message = None
+        job.request_sent = None
+        job.execution_certainty = None
+        return
+    job.provider_http_status = failure.provider_http_status
+    job.provider_error_code = failure.provider_error_code
+    job.provider_error_message = failure.provider_error_message
+    job.request_sent = failure.request_sent
+    job.execution_certainty = failure.execution_certainty
+
+
+def _mark_search_candidate_terminal_failure_in_session(
+    db: Session,
+    *,
+    profile: FamilySearchProfile,
+    settings: FamilyModelSettings | None,
+    now: datetime,
+) -> bool:
+    """Converge a provisioning candidate after an unrecoverable job failure.
+
+    A candidate is an all-or-nothing replacement: once one document cannot be
+    produced, no remaining queued work should keep running and the draft must
+    point back to the active Embedding identity.  Callers that already hold a
+    job/profile lock may pass ``settings=None`` and restore the draft in a
+    follow-up transaction; callers with the normal settings lock do it here.
+    """
+
+    if profile.status not in {
+        FamilyModelSearchProfileStatus.PROVISIONING,
+        FamilyModelSearchProfileStatus.FAILED,
+    }:
+        refresh_profile_progress(db, profile=profile)
+        return False
+    if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
+        profile.status = FamilyModelSearchProfileStatus.FAILED
+    _pause_queued_profile_jobs(db, profile=profile, now=now)
+    if settings is not None:
+        from app.services.family_model_settings.drafts import (
+            restore_active_embedding_after_failed_search_replacement,
+        )
+
+        restore_active_embedding_after_failed_search_replacement(
+            db,
+            family_id=profile.family_id,
+            failed_search_profile_id=profile.id,
+            settings=settings,
+        )
+    refresh_profile_progress(db, profile=profile)
+    return True
+
+
+def _pause_queued_profile_jobs(
+    db: Session,
+    *,
+    profile: FamilySearchProfile,
+    now: datetime,
+) -> None:
+    """Keep unstarted candidate work recoverable after one terminal failure."""
+
+    queued_jobs = tuple(
+        db.scalars(
+            select(SearchIndexJob)
+            .where(
+                SearchIndexJob.family_id == profile.family_id,
+                SearchIndexJob.search_profile_id == profile.id,
+                SearchIndexJob.status == "queued",
+            )
+            .with_for_update(skip_locked=True)
+        )
+    )
+    for queued_job in queued_jobs:
+        queued_job.status = "cancelled"
+        queued_job.vector_status = "pending"
+        queued_job.error = "候选搜索索引建立失败，等待重试"
+        queued_job.error_code = "search_rebuild_paused"
+        _set_job_failure_diagnostics(queued_job, None)
+        queued_job.locked_at = None
+        queued_job.completed_at = now
+        queued_job.updated_at = now
+
+
 def _finish_job_in_session(job: SearchIndexJob, *, vector_status: str, now: datetime) -> None:
     job.status = "succeeded"
     job.vector_status = vector_status
     job.error = None
     job.error_code = None
+    _set_job_failure_diagnostics(job, None)
     job.locked_at = None
     job.completed_at = now
     job.updated_at = now
@@ -1453,9 +1783,17 @@ def _activate_profile_if_ready(
             )
             if settings.active_search_profile_id == profile.id:
                 return
-            if profile.status is FamilyModelSearchProfileStatus.PROVISIONING:
-                profile.status = FamilyModelSearchProfileStatus.FAILED
-                db.commit()
+            if profile.status in {
+                FamilyModelSearchProfileStatus.PROVISIONING,
+                FamilyModelSearchProfileStatus.FAILED,
+            }:
+                _mark_search_candidate_terminal_failure_in_session(
+                    db,
+                    profile=profile,
+                    settings=settings,
+                    now=utcnow(),
+                )
+            db.commit()
 
 
 def _upsert_entity_search_document(db: Session, *, job: SearchIndexJob) -> SearchDocument | None:

@@ -3,7 +3,7 @@ import { FAMILY_MODEL_REQUIRED_METERS, validateMoneyInput } from './familyModelS
 import { FAMILY_MODEL_CAPABILITY_OPTIONS, profileSupportsCapability } from './familyModelSettingsOptions';
 import type { FamilyModelSettingsSurfaceProps } from './familyModelSettingsViewTypes';
 
-type PublishReviewProps = Pick<FamilyModelSettingsSurfaceProps,
+type ConfigurationCheckProps = Pick<FamilyModelSettingsSurfaceProps,
   | 'settings'
   | 'serverDraft'
   | 'draft'
@@ -48,8 +48,8 @@ function ClockIcon() {
 }
 
 function priceStatusForBinding(
-  binding: PublishReviewProps['draft']['bindings'][number],
-  rates: PublishReviewProps['draft']['price_rates'],
+  binding: ConfigurationCheckProps['draft']['bindings'][number],
+  rates: ConfigurationCheckProps['draft']['price_rates'],
 ): BindingPriceStatus {
   if (!binding.enabled) {
     return { label: '未启用', detail: '启用后计算费用', tone: 'disabled' };
@@ -82,7 +82,7 @@ function priceStatusForBinding(
   return { label: '部分已填写', detail, tone: 'partial' };
 }
 
-export function PublishReview(props: PublishReviewProps) {
+export function ConfigurationCheck(props: ConfigurationCheckProps) {
   const busy = props.busyAction !== null;
   const availableProfiles = useMemo(
     () => props.settings.provider_profiles.filter((profile) => (

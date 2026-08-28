@@ -156,9 +156,15 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   );
 
   useEffect(() => {
-    if (replacementProfileId || !serverDraft?.payload.search_profile_id) return;
+    if (replacementProfileId || queries.currentReplacementQuery.data || !serverDraft?.payload.search_profile_id) return;
     setReplacementProfileId(serverDraft.payload.search_profile_id);
-  }, [replacementProfileId, serverDraft?.payload.search_profile_id]);
+  }, [queries.currentReplacementQuery.data, replacementProfileId, serverDraft?.payload.search_profile_id]);
+
+  useEffect(() => {
+    const currentReplacement = queries.currentReplacementQuery.data;
+    if (!currentReplacement || replacementProfileId === currentReplacement.profile_id) return;
+    setReplacementProfileId(currentReplacement.profile_id);
+  }, [queries.currentReplacementQuery.data, replacementProfileId]);
 
   const completedSearchProfileId = queries.searchReplacement?.status === 'active'
     ? queries.searchReplacement.profile_id

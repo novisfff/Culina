@@ -34,16 +34,28 @@ export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQuerie
     queryFn: familyModelSettingsApi.getPrices,
     enabled,
   });
+  // Resolve the latest candidate on the server so a refresh/reopen can still
+  // surface a failed or provisioning replacement even though the old local
+  // profile id was discarded.
+  const currentReplacementQuery = useQuery({
+    queryKey: queryKeys.familySearchReplacementCurrent(args.familyId),
+    queryFn: () => familyModelSettingsApi.getCurrentSearchReplacement(),
+    enabled,
+    refetchInterval: (query) => query.state.data?.status === 'provisioning' ? 2_000 : false,
+  });
   const replacementQuery = useQuery({
     queryKey: queryKeys.familySearchReplacement(args.familyId, args.replacementProfileId ?? ''),
     queryFn: () => familyModelSettingsApi.getSearchReplacement(args.replacementProfileId as string),
-    enabled: enabled && Boolean(args.replacementProfileId),
+    enabled: enabled
+      && Boolean(args.replacementProfileId)
+      && currentReplacementQuery.data?.profile_id !== args.replacementProfileId,
     refetchInterval: (query) => query.state.data?.status === 'provisioning' ? 2_000 : false,
   });
 
-  const queries = [settingsQuery, draftQuery, pricesQuery, replacementQuery];
+  const queries = [settingsQuery, draftQuery, pricesQuery, currentReplacementQuery, replacementQuery];
   const hasSafeData = Boolean(
-    settingsQuery.data || draftQuery.data || pricesQuery.data || replacementQuery.data,
+    settingsQuery.data || draftQuery.data || pricesQuery.data
+      || currentReplacementQuery.data || replacementQuery.data,
   );
   const stale = hasSafeData && queries.some((query) => query.isError);
   const error = queries.find((query) => query.error)?.error ?? null;
@@ -64,7 +76,9 @@ export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQuerie
     settings: settingsQuery.data ?? null,
     draft: draftQuery.data ?? null,
     prices: pricesQuery.data ?? null,
-    searchReplacement: replacementQuery.data ?? null,
+    // The server-resolved candidate wins over a stale client-held profile id;
+    // this is what lets a failed replacement become visible after refresh.
+    searchReplacement: currentReplacementQuery.data ?? replacementQuery.data ?? null,
     stale,
     error,
     isInitialLoading: enabled && !hasSafeData && queries.some((query) => query.isLoading),
@@ -73,5 +87,6 @@ export function useFamilyModelSettingsQueries(args: UseFamilyModelSettingsQuerie
     draftQuery,
     pricesQuery,
     replacementQuery,
+    currentReplacementQuery,
   };
 }

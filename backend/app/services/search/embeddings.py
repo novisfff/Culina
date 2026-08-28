@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Callable, Protocol
@@ -29,8 +31,176 @@ from app.services.model_usage.types import UsageAttribution
 logger = logging.getLogger(__name__)
 
 
+_SAFE_DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}$")
+_CONFIRMED_PROVIDER_FAILURE_STATUSES = frozenset(
+    {400, 401, 403, 404, 405, 406, 413, 415, 422, 429}
+)
+_DIAGNOSTIC_SECRET_RE = re.compile(
+    r"(?i)(?:bearer\s+|api[_ -]?key\s*[:=]\s*|token\s*[:=]\s*|secret\s*[:=]\s*|password\s*[:=]\s*)[^\s,;]+"
+)
+_DIAGNOSTIC_URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
+_DIAGNOSTIC_REQUEST_RE = re.compile(
+    r'(?i)(?:"?(?:input|prompt|messages|text)"?\s*[:=])'
+    r'(?:\[[^\]]*\]|\{[^}]*\}|"[^"]*"|[^,;]+)'
+)
+_DIAGNOSTIC_SECRET_VALUE_RE = re.compile(
+    r"(?i)^(?:sk|rk|pk|api)[-_][A-Za-z0-9_-]{8,}$"
+)
+
+
+def _safe_diagnostic_code(
+    value: object,
+    *,
+    sensitive_values: Sequence[str] = (),
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not _SAFE_DIAGNOSTIC_CODE_RE.fullmatch(value):
+        return None
+    if _DIAGNOSTIC_SECRET_VALUE_RE.fullmatch(value):
+        return None
+    if any(secret and secret in value for secret in sensitive_values):
+        return None
+    return value
+
+
+def _safe_diagnostic_text(
+    value: object,
+    *,
+    max_length: int = 240,
+    sensitive_values: Sequence[str] = (),
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    # Provider errors are untrusted input.  Normalize controls and redact the
+    # common credential/endpoint forms before retaining a short diagnostic.
+    value = " ".join(value.replace("\r", " ").replace("\n", " ").split())
+    value = _DIAGNOSTIC_SECRET_RE.sub("[redacted]", value)
+    value = _DIAGNOSTIC_URL_RE.sub("[provider-url]", value)
+    value = _DIAGNOSTIC_REQUEST_RE.sub("request=[redacted]", value)
+    for sensitive in sensitive_values:
+        if sensitive:
+            value = value.replace(sensitive, "[request-content]")
+    if not value:
+        return None
+    return value[:max_length]
+
+
+def _provider_error_fields(
+    response: ProviderResponse,
+    *,
+    sensitive_values: Sequence[str] = (),
+) -> tuple[str | None, str | None]:
+    """Extract a tiny allow-listed error tuple from a provider response."""
+
+    try:
+        body = response.json()
+    except Exception:
+        return None, None
+    if not isinstance(body, dict):
+        return None, None
+
+    # OpenAI-compatible providers commonly use ``error: {code, type,
+    # message}``, while a few gateways put the fields at the top level.  Do
+    # not recursively walk arbitrary JSON: that could retain request text.
+    candidates: list[dict[str, object]] = [body]
+    nested = body.get("error")
+    if isinstance(nested, dict):
+        candidates.insert(0, nested)
+    provider_code: str | None = None
+    provider_message: str | None = None
+    for candidate in candidates:
+        if provider_code is None:
+            for key in ("code", "type", "error_code"):
+                provider_code = _safe_diagnostic_code(
+                    candidate.get(key),
+                    sensitive_values=sensitive_values,
+                )
+                if provider_code:
+                    break
+        if provider_message is None:
+            for key in ("message", "detail", "error_message"):
+                provider_message = _safe_diagnostic_text(
+                    candidate.get(key),
+                    sensitive_values=sensitive_values,
+                )
+                if provider_message:
+                    break
+        if provider_code and provider_message:
+            break
+    return provider_code, provider_message
+
+
+def _provider_failure_detail(
+    *,
+    status_code: int,
+    provider_error_code: str | None,
+    provider_error_message: str | None,
+) -> str:
+    detail = f"嵌入服务拒绝了请求（HTTP {status_code}）"
+    if provider_error_code:
+        detail += f"：{provider_error_code}"
+    if provider_error_message:
+        detail += f"，{provider_error_message}"
+    return _safe_diagnostic_text(detail) or "嵌入服务拒绝了请求"
+
+
 class EmbeddingUnavailableError(RuntimeError):
-    pass
+    """A safe, structured signal for an embedding request that did not finish.
+
+    The old implementation collapsed every provider/transport outcome into a
+    bare ``RuntimeError``.  That made a failed search replacement impossible
+    to diagnose and, more importantly, encouraged callers to treat a confirmed
+    provider rejection and an ambiguous network failure as the same thing.
+    Only bounded, redacted values are kept here; provider response bodies,
+    credentials and request text never travel past this boundary.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "search_embedding_unavailable",
+        safe_detail: str | None = None,
+        status_code: int | None = None,
+        provider_error_code: str | None = None,
+        provider_error_message: str | None = None,
+        request_sent: bool | None = None,
+        execution_certainty: str | None = None,
+    ) -> None:
+        self.code = _safe_diagnostic_code(code) or "search_embedding_unavailable"
+        self.status_code = status_code if isinstance(status_code, int) and 100 <= status_code <= 599 else None
+        # ``provider_http_status`` is the name used by the progress API.  Keep
+        # both spellings on the exception so older call sites/tests can use
+        # ``status_code`` without an adapter shim.
+        self.provider_http_status = self.status_code
+        self.provider_error_code = _safe_diagnostic_code(provider_error_code)
+        self.provider_error_message = _safe_diagnostic_text(provider_error_message)
+        self.request_sent = request_sent if isinstance(request_sent, bool) else None
+        self.execution_certainty = (
+            execution_certainty
+            if execution_certainty in {"confirmed_executed", "confirmed_not_executed", "unknown"}
+            else None
+        )
+        self.safe_detail = _safe_diagnostic_text(safe_detail) or _safe_diagnostic_text(message) or "嵌入服务不可用"
+        # A few integrations use the shorter names when serializing a failure.
+        self.provider_message = self.provider_error_message
+        self.request_was_sent = self.request_sent
+        super().__init__(message)
+
+    def diagnostic_record(self) -> dict[str, object]:
+        """Return only the bounded fields safe for persistence/UI projection."""
+
+        return {
+            "code": self.code,
+            "detail": self.safe_detail,
+            "provider_http_status": self.provider_http_status,
+            "provider_error_code": self.provider_error_code,
+            "provider_error_message": self.provider_error_message,
+            "request_sent": self.request_sent,
+            "execution_certainty": self.execution_certainty,
+        }
 
 
 class _KnownNoSendEmbeddingFailure(RuntimeError):
@@ -40,8 +210,16 @@ class _KnownNoSendEmbeddingFailure(RuntimeError):
 
 
 class _ConfirmedEmbeddingProviderFailure(RuntimeError):
-    def __init__(self, *, status_code: int) -> None:
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        provider_error_code: str | None = None,
+        provider_error_message: str | None = None,
+    ) -> None:
         self.status_code = status_code
+        self.provider_error_code = provider_error_code
+        self.provider_error_message = provider_error_message
         super().__init__("embedding provider rejected request")
 
 
@@ -204,9 +382,24 @@ class OpenAICompatibleEmbeddingClient:
             provider_started_at = perf_counter()
             response = self._post_embeddings(texts)
             provider_duration_ms = (perf_counter() - provider_started_at) * 1000
-            body = response.json()
+            try:
+                body = response.json()
+            except Exception as exc:
+                raise EmbeddingUnavailableError(
+                    "embedding response invalid",
+                    code="search_embedding_response_invalid",
+                    safe_detail="嵌入服务返回了无法解析的响应",
+                    request_sent=True,
+                    execution_certainty="unknown",
+                ) from exc
             if not isinstance(body, dict):
-                raise EmbeddingUnavailableError("embedding response invalid")
+                raise EmbeddingUnavailableError(
+                    "embedding response invalid",
+                    code="search_embedding_response_invalid",
+                    safe_detail="嵌入服务返回了无法解析的响应",
+                    request_sent=True,
+                    execution_certainty="unknown",
+                )
             if adapter is not None and permit is not None:
                 settlement_started_at = perf_counter()
                 settlement = attempt.settle(
@@ -236,9 +429,23 @@ class OpenAICompatibleEmbeddingClient:
                     # Preserve the original provider/ledger failure; the
                     # dispatching reservation remains a conservative record.
                     pass
-            if isinstance(exc, (EmbeddingUnavailableError, ModelUsageError)):
+            if isinstance(exc, EmbeddingUnavailableError):
+                if exc.request_sent is None:
+                    exc.request_sent = True
+                    exc.request_was_sent = True
+                    exc.execution_certainty = (
+                        "confirmed_executed" if settlement is not None else "unknown"
+                    )
                 raise
-            raise EmbeddingUnavailableError(str(exc) or "embedding request failed") from exc
+            if isinstance(exc, ModelUsageError):
+                raise
+            raise EmbeddingUnavailableError(
+                "embedding request failed",
+                code="search_embedding_unavailable",
+                safe_detail="嵌入服务请求失败",
+                request_sent=True,
+                execution_certainty="unknown",
+            ) from exc
 
         logger.info(
             "Search embedding request completed",
@@ -270,8 +477,35 @@ class OpenAICompatibleEmbeddingClient:
                 response = client.post(f"{self.api_base}/embeddings", headers=headers, json=payload)
                 response.raise_for_status()
                 return response
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            provider_error_code, provider_error_message = _provider_error_fields(
+                exc.response,  # type: ignore[arg-type]
+                sensitive_values=(*texts, self.api_key, self.api_base),
+            )
+            raise EmbeddingUnavailableError(
+                "embedding provider rejected request",
+                code="search_embedding_provider_rejected",
+                safe_detail=_provider_failure_detail(
+                    status_code=status_code,
+                    provider_error_code=provider_error_code,
+                    provider_error_message=provider_error_message,
+                ),
+                status_code=status_code,
+                provider_error_code=provider_error_code,
+                provider_error_message=provider_error_message,
+                request_sent=True,
+                execution_certainty="confirmed_not_executed"
+                if status_code in _CONFIRMED_PROVIDER_FAILURE_STATUSES
+                else "unknown",
+            ) from exc
         except httpx.HTTPError as exc:  # pragma: no cover - network failure
-            raise EmbeddingUnavailableError(str(exc)) from exc
+            raise EmbeddingUnavailableError(
+                "embedding provider transport unavailable",
+                code="search_embedding_transport_uncertain",
+                request_sent=True,
+                execution_certainty="unknown",
+            ) from exc
 
 
 class FamilyOpenAICompatibleEmbeddingClient:
@@ -376,12 +610,50 @@ class FamilyOpenAICompatibleEmbeddingClient:
                 json=_embedding_payload(self.binding, texts),
             )
             if not 200 <= response.status_code < 300:
-                if response.status_code in {400, 401, 403, 404, 405, 406, 413, 415, 422, 429}:
-                    raise _ConfirmedEmbeddingProviderFailure(status_code=response.status_code)
-                raise EmbeddingUnavailableError("embedding provider response unavailable")
-            body = response.json()
+                provider_error_code, provider_error_message = _provider_error_fields(
+                    response,
+                    sensitive_values=(
+                        *texts,
+                        credential.api_key or "",
+                        self.binding.endpoint.normalized_url,
+                    ),
+                )
+                if response.status_code in _CONFIRMED_PROVIDER_FAILURE_STATUSES:
+                    raise _ConfirmedEmbeddingProviderFailure(
+                        status_code=response.status_code,
+                        provider_error_code=provider_error_code,
+                        provider_error_message=provider_error_message,
+                    )
+                raise EmbeddingUnavailableError(
+                    "embedding provider response unavailable",
+                    code="search_embedding_transport_uncertain",
+                    safe_detail=_provider_failure_detail(
+                        status_code=response.status_code,
+                        provider_error_code=provider_error_code,
+                        provider_error_message=provider_error_message,
+                    ),
+                    status_code=response.status_code,
+                    provider_error_code=provider_error_code,
+                    provider_error_message=provider_error_message,
+                    request_sent=True,
+                    execution_certainty="unknown",
+                )
+            try:
+                body = response.json()
+            except Exception as exc:
+                raise EmbeddingUnavailableError(
+                    "embedding response invalid",
+                    code="search_embedding_response_invalid",
+                    request_sent=True,
+                    execution_certainty="unknown",
+                ) from exc
             if not isinstance(body, dict):
-                raise EmbeddingUnavailableError("embedding response invalid")
+                raise EmbeddingUnavailableError(
+                    "embedding response invalid",
+                    code="search_embedding_response_invalid",
+                    request_sent=True,
+                    execution_certainty="unknown",
+                )
             settlement = attempt.settle(
                 adapter.receipt_from_openai_response(
                     permit,
@@ -400,10 +672,29 @@ class FamilyOpenAICompatibleEmbeddingClient:
             # not reach ProviderTransport, so settle a zero, confirmed-no-send
             # receipt instead of leaving an unnecessary uncertain reservation.
             settlement = attempt.settle(adapter.confirmed_not_executed_receipt(permit))
-            raise EmbeddingUnavailableError("family_model_secret_unavailable") from exc
+            raise EmbeddingUnavailableError(
+                "family_model_secret_unavailable",
+                code="family_model_secret_unavailable",
+                safe_detail="当前嵌入服务的凭据不可用",
+                request_sent=False,
+                execution_certainty="confirmed_not_executed",
+            ) from exc
         except _ConfirmedEmbeddingProviderFailure as exc:
             settlement = attempt.settle(adapter.confirmed_not_executed_receipt(permit))
-            raise EmbeddingUnavailableError("embedding provider rejected request") from exc
+            raise EmbeddingUnavailableError(
+                "embedding provider rejected request",
+                code="search_embedding_provider_rejected",
+                safe_detail=_provider_failure_detail(
+                    status_code=exc.status_code,
+                    provider_error_code=exc.provider_error_code,
+                    provider_error_message=exc.provider_error_message,
+                ),
+                status_code=exc.status_code,
+                provider_error_code=exc.provider_error_code,
+                provider_error_message=exc.provider_error_message,
+                request_sent=True,
+                execution_certainty="confirmed_not_executed",
+            ) from exc
         except Exception as exc:
             if settlement is None:
                 try:
@@ -411,10 +702,31 @@ class FamilyOpenAICompatibleEmbeddingClient:
                 except Exception:
                     pass
             if isinstance(exc, (EmbeddingUnavailableError, ModelUsageError, ModelUsageContractError)):
+                if isinstance(exc, EmbeddingUnavailableError) and exc.request_sent is None:
+                    # A malformed 2xx response or vector payload was reached
+                    # only after the provider call.  A settled usage receipt
+                    # proves execution; otherwise the conservative answer is
+                    # unknown and the reservation has already been guarded.
+                    exc.request_sent = True
+                    exc.request_was_sent = True
+                    exc.execution_certainty = (
+                        "confirmed_executed" if settlement is not None else "unknown"
+                    )
                 raise
             if isinstance(exc, FamilyModelProviderTransportError):
-                raise EmbeddingUnavailableError("embedding provider transport unavailable") from exc
-            raise EmbeddingUnavailableError("embedding request failed") from exc
+                raise EmbeddingUnavailableError(
+                    "embedding provider transport unavailable",
+                    code="search_embedding_transport_uncertain",
+                    safe_detail="嵌入服务连接中断，执行结果暂时无法确认",
+                    request_sent=True,
+                    execution_certainty="unknown",
+                ) from exc
+            raise EmbeddingUnavailableError(
+                "embedding request failed",
+                code="search_embedding_unavailable",
+                request_sent=True,
+                execution_certainty="unknown",
+            ) from exc
         finally:
             credential = None
 

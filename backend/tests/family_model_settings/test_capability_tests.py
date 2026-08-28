@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.models.model_usage import ModelUsageEvent
+from app.models.family_model_settings import FamilyModelConfigDraft
 from app.services.family_model_settings.capability_tests import (
     CAPABILITY_TEST_RUNNERS,
     _http_probe_request,
@@ -312,6 +313,185 @@ def test_owner_can_test_a_complete_saved_configuration_without_a_publish_step(
     assert _usage_event_count(family_model_api) == 1
     assert len(family_model_api.transport.calls) == 1
     assert family_model_api.transport.calls[0][3]["model"] == "draft-only-model"
+
+
+def test_owner_capability_test_ignores_an_unrelated_invalid_draft_binding(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(
+        idempotency_key="capability-test-independent-profile-1"
+    )
+    saved = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json={
+            "bindings": [
+                {
+                    "capability": "llm",
+                    "variant_key": "primary",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "independent-llm-model",
+                    "max_output_tokens": 64,
+                },
+                {
+                    "capability": "embedding",
+                    "variant_key": "search",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "",
+                    "dimensions": 1536,
+                },
+            ],
+            "price_rates": [],
+            "change_note": "能力测试互不影响",
+            "base_draft_version_number": 0,
+            "idempotency_key": "capability-test-independent-draft-1",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["validation_status"] == "invalid"
+
+    with family_model_api.session_factory() as db:
+        subject = ensure_user_subject(db, family_id="family-a", user_id="owner-a")
+        ensure_family_model_usage_defaults(
+            db,
+            family_id="family-a",
+            creator_subject_id=subject.id,
+        )
+        db.commit()
+
+    tested = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/llm/test",
+        json={
+            "variant_key": "primary",
+            "confirm_billable": True,
+            "base_draft_version_number": saved.json()["draft_version_number"],
+            "idempotency_key": "capability-test-independent-run-1",
+        },
+    )
+
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["status"] == "succeeded"
+    assert family_model_api.transport.calls[0][3]["model"] == "independent-llm-model"
+
+
+def test_owner_capability_test_ignores_structurally_corrupt_unrelated_draft_rows(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(
+        idempotency_key="capability-test-structural-profile-1"
+    )
+    saved = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json={
+            "bindings": [
+                {
+                    "capability": "llm",
+                    "variant_key": "primary",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "structural-independent-model",
+                    "max_output_tokens": 64,
+                }
+            ],
+            "price_rates": [],
+            "base_draft_version_number": 0,
+            "idempotency_key": "capability-test-structural-draft-1",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    draft_version = saved.json()["draft_version_number"]
+    with family_model_api.session_factory() as db:
+        draft = db.get(FamilyModelConfigDraft, "family-a")
+        assert draft is not None
+        raw = dict(draft.payload_json)
+        raw["bindings"] = [
+            *raw["bindings"],
+            {"capability": "embedding", "variant_key": "removed-legacy"},
+        ]
+        raw["price_rates"] = [{"not": "a-rate"}]
+        draft.payload_json = raw
+        db.commit()
+
+    with family_model_api.session_factory() as db:
+        subject = ensure_user_subject(db, family_id="family-a", user_id="owner-a")
+        ensure_family_model_usage_defaults(
+            db,
+            family_id="family-a",
+            creator_subject_id=subject.id,
+        )
+        db.commit()
+
+    tested = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/llm/test",
+        json={
+            "variant_key": "primary",
+            "confirm_billable": True,
+            "base_draft_version_number": draft_version,
+            "idempotency_key": "capability-test-structural-run-1",
+        },
+    )
+
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["status"] == "succeeded"
+    assert family_model_api.transport.calls[0][3]["model"] == "structural-independent-model"
+
+
+def test_owner_cannot_test_an_llm_fallback_without_a_primary(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(
+        idempotency_key="capability-test-fallback-without-primary-profile-1"
+    )
+    saved = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json={
+            "bindings": [
+                {
+                    "capability": "llm",
+                    "variant_key": "fallback",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "fallback-only-model",
+                    "max_output_tokens": 64,
+                }
+            ],
+            "price_rates": [
+                {
+                    "capability": "llm",
+                    "variant_key": "fallback",
+                    "meter": meter,
+                    "unit_quantity": "1000",
+                    "unit_price": "0.01",
+                    "source_currency": "CNY",
+                    "fx_to_cny": "1",
+                }
+                for meter in (
+                    "uncached_input_tokens",
+                    "cached_input_tokens",
+                    "output_tokens",
+                )
+            ],
+            "base_draft_version_number": 0,
+            "idempotency_key": "capability-test-fallback-without-primary-draft-1",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["validation_status"] == "invalid"
+
+    tested = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/llm/test",
+        json={
+            "variant_key": "fallback",
+            "confirm_billable": True,
+            "base_draft_version_number": saved.json()["draft_version_number"],
+            "idempotency_key": "capability-test-fallback-without-primary-run-1",
+        },
+    )
+
+    assert tested.status_code == 422, tested.text
+    assert tested.json()["detail"]["code"] == "family_model_llm_fallback_requires_primary"
+    assert family_model_api.transport.calls == []
 
 
 def test_owner_capability_test_uses_one_ledger_event_and_replays_safe_result(
