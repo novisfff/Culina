@@ -6,7 +6,10 @@ const sourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
 
 describe('IngredientWorkspace shared overlay usage', () => {
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
-    const source = readFileSync(sourcePath, 'utf8');
+    const source = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientQuickDetailPopover.tsx'), 'utf8'),
+    ].join('\n');
     const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
 
     expect(source).toContain('rootClassName="ingredient-quick-detail-overlay-root"');
