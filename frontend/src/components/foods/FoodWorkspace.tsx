@@ -50,6 +50,7 @@ import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
+import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
@@ -1630,47 +1631,46 @@ export function FoodWorkspace(props: Props) {
         </div>
       )}
       {surfaceContent}
-      {foodShoppingDialog ? (
-        <FoodShoppingDialog
-          food={props.foods.find((item) => item.id === foodShoppingDialog.draft.foodId) ?? props.foods[0]}
-          draft={foodShoppingDialog.draft}
-          existingItem={foodShoppingDialog.existingItem}
-          busy={isFoodShoppingSubmitting}
-          errorMessage={foodShoppingError}
-          onDraftChange={(draft) => setFoodShoppingDialog((current) => current ? { ...current, draft } : current)}
-          onSubmit={() => void submitFoodShopping()}
-          onClose={() => {
+      <FoodWorkspaceShoppingOverlays
+        food={props.foods.find((item) => item.id === foodShoppingDialog?.draft.foodId) ?? props.foods[0]}
+        foodShopping={foodShoppingDialog ? {
+          open: true,
+          draft: foodShoppingDialog.draft,
+          existingItem: foodShoppingDialog.existingItem,
+          busy: isFoodShoppingSubmitting,
+          errorMessage: foodShoppingError,
+          onDraftChange: (draft) => setFoodShoppingDialog((current) => current ? { ...current, draft } : current),
+          onSubmit: () => void submitFoodShopping(),
+          onClose: () => {
             if (!isFoodShoppingSubmitting) {
               setFoodShoppingDialog(null);
               setFoodShoppingError(null);
             }
-          }}
-        />
-      ) : null}
-
-      {recipeShopping.shoppingDialogCard ? (
-        <RecipeShoppingDialog
-          card={recipeShopping.shoppingDialogCard}
-          ingredients={props.ingredients}
-          drafts={recipeShopping.shoppingDrafts}
-          customForm={recipeShopping.shoppingCustomForm}
-          isIngredientPickerOpen={recipeShopping.isShoppingIngredientPickerOpen}
-          isCreatingShopping={props.isCreatingShopping}
-          unitOptions={SHOPPING_UNIT_OPTIONS}
-          resolveIngredientImageUrl={resolveIngredientImageUrl}
-          onClose={recipeShopping.closeShoppingDialog}
-          onUpdateDraft={recipeShopping.updateShoppingDraft}
-          onAdjustDraftQuantity={recipeShopping.adjustShoppingDraftQuantity}
-          onRemoveDraft={recipeShopping.removeShoppingDraft}
-          onAddRecipeIngredient={recipeShopping.addRecipeIngredientToShoppingDraft}
-          onChangeCustomForm={recipeShopping.setShoppingCustomForm}
-          onSetIngredientPickerOpen={recipeShopping.setIsShoppingIngredientPickerOpen}
-          onSelectIngredientOption={recipeShopping.selectShoppingIngredientOption}
-          onAdjustCustomQuantity={recipeShopping.adjustCustomShoppingQuantity}
-          onAddCustomDraft={recipeShopping.addCustomShoppingDraft}
-          onSubmit={() => void recipeShopping.submitShoppingDrafts()}
-        />
-      ) : null}
+          },
+        } : null}
+        recipeShopping={recipeShopping.shoppingDialogCard ? {
+          open: true,
+          card: recipeShopping.shoppingDialogCard,
+          ingredients: props.ingredients,
+          drafts: recipeShopping.shoppingDrafts,
+          customForm: recipeShopping.shoppingCustomForm,
+          isIngredientPickerOpen: recipeShopping.isShoppingIngredientPickerOpen,
+          isCreatingShopping: props.isCreatingShopping,
+          unitOptions: SHOPPING_UNIT_OPTIONS,
+          resolveIngredientImageUrl,
+          onClose: recipeShopping.closeShoppingDialog,
+          onUpdateDraft: recipeShopping.updateShoppingDraft,
+          onAdjustDraftQuantity: recipeShopping.adjustShoppingDraftQuantity,
+          onRemoveDraft: recipeShopping.removeShoppingDraft,
+          onAddRecipeIngredient: recipeShopping.addRecipeIngredientToShoppingDraft,
+          onChangeCustomForm: recipeShopping.setShoppingCustomForm,
+          onSetIngredientPickerOpen: recipeShopping.setIsShoppingIngredientPickerOpen,
+          onSelectIngredientOption: recipeShopping.selectShoppingIngredientOption,
+          onAdjustCustomQuantity: recipeShopping.adjustCustomShoppingQuantity,
+          onAddCustomDraft: recipeShopping.addCustomShoppingDraft,
+          onSubmit: () => void recipeShopping.submitShoppingDrafts(),
+        } : null}
+      />
 
       {view !== 'list' && !isFoodRecipeEditorOpen && (
         <WorkspaceOverlayFrame
