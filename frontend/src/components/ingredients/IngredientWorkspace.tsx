@@ -108,6 +108,7 @@ import {
   type InventoryEntryFilter,
 } from './inventoryOverviewModel';
 import { useIngredientWorkspaceEffects } from './useIngredientWorkspaceEffects';
+import '../../features/meals/meal-route.css';
 import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
 import { useIngredientActionState } from './useIngredientActionState';

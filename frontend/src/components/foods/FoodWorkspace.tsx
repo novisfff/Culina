@@ -115,6 +115,7 @@ import {
 } from './FoodWorkspaceModel';
 import { useFoodPlanState } from './useFoodPlanState';
 import './food-route.css';
+import '../../features/meals/meal-route.css';
 import { useFoodSceneState, type FoodSceneCardView } from './useFoodSceneState';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './FoodQuickRecordState';

@@ -1,0 +1,3 @@
+/* Meal surfaces are loaded by each lazy route that renders them. */
+@import '../../styles/08-meal-log.css' layer(domain);
+@import '../../styles/13-meal-composer.css' layer(domain);
