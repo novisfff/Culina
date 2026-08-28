@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import type { Food, FoodScene, MediaAsset } from '../../api/types';
+import type { Food, FoodScene, MediaAsset } from '../../api/types/food';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,

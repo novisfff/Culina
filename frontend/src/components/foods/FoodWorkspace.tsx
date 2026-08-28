@@ -26,7 +26,7 @@ import type {
   ShoppingListItem,
   UpdateFoodPayload,
   UpdateMealLogPayload,
-} from '../../api/types';
+} from '../../api/types/food';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';

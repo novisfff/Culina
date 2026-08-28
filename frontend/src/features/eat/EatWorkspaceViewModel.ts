@@ -1,4 +1,4 @@
-import type { Food, FoodPlanItem, MealLog, MealType, Recipe } from '../../api/types';
+import type { Food, FoodPlanItem, MealLog, MealType, Recipe } from '../../api/types/food';
 import type { CookLaunchContext, EatTask } from '../../app/appNavigationModel';
 import { getWeekRange } from '../../lib/date';
 import { todayKey } from '../../lib/ui';

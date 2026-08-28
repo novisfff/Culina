@@ -1,4 +1,4 @@
-import type { Food, MediaAsset, Recipe } from '../../api/types';
+import type { Food, MediaAsset, Recipe } from '../../api/types/food';
 import { resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
 import { getFoodCoverAsset } from '../../lib/ui';
 

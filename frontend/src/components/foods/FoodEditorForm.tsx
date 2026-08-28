@@ -1,5 +1,5 @@
 import type { Dispatch, FormEventHandler, SetStateAction } from 'react';
-import type { FoodType, MealType, Recipe } from '../../api/types';
+import type { FoodType, MealType, Recipe } from '../../api/types/food';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
 import { INVENTORY_STORAGE_PRESETS } from '../ingredients/ingredientWorkspaceForms';
 import { ActionButton, Badge, ImageComposer, StarRatingInput, WorkspaceSubpageHeader, WorkspaceSubpageShell } from '../ui-kit';

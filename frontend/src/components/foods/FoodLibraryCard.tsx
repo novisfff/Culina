@@ -1,5 +1,5 @@
 import { memo, type KeyboardEvent, type RefObject } from 'react';
-import type { Food, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
+import type { Food, MealLog, MealType, MediaAsset, Recipe } from '../../api/types/food';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';

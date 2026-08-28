@@ -5,7 +5,7 @@ import type {
   FoodPlanItem,
   MealLog,
   MealType,
-} from '../../api/types';
+} from '../../api/types/food';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';

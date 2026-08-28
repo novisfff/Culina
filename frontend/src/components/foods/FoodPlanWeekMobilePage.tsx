@@ -1,4 +1,4 @@
-import type { FoodPlanItem } from '../../api/types';
+import type { FoodPlanItem } from '../../api/types/food';
 import { DashboardIcon } from '../../app/shellIcons';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 

@@ -1,4 +1,4 @@
-import type { Food, FoodPayload, FoodPlanItem, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types';
+import type { Food, FoodPayload, FoodPlanItem, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types/food';
 import type { AppNavigationTarget, CookLaunchContext } from '../../app/appNavigationModel';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { formatFoodStockNumber } from '../../lib/foodStockQuantity';

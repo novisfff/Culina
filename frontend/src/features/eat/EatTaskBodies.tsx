@@ -20,7 +20,7 @@ import type {
   ShoppingListItem,
   UpdateFoodPayload,
   UpdateMealLogPayload,
-} from '../../api/types';
+} from '../../api/types/food';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
 import { FoodEditorForm } from '../../components/foods/FoodEditorForm';

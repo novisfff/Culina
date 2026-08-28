@@ -1,5 +1,5 @@
 import type { FormEvent, ReactNode } from 'react';
-import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types';
+import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types/food';
 import { formatDate, formatDateTime, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';

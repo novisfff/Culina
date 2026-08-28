@@ -1,4 +1,4 @@
-import type { FoodType, MealType } from '../../api/types';
+import type { FoodType, MealType } from '../../api/types/food';
 import type { FoodIconName } from './FoodWorkspacePrimitives';
 
 export type FoodWorkspaceLens = 'all' | 'today' | 'selfMade' | 'outside' | 'ready' | 'expiring' | 'favorite' | 'needsInfo';
