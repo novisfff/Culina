@@ -324,3 +324,10 @@ git diff --check
 - `d6966d10`：Family Model Settings domain CSS 迁移到独立 lazy route stylesheet；family-model-settings 定向 Vitest 100/100 通过，build 继续保持 ratchet。
 
 本批验证：全量 Vitest 256 个文件 / 1,919 个测试通过；Vite 696 modules、manifest 无 error，bundle 历史超目标继续以 ratchet warning 输出；P0 固定路径 52/52 通过。构建后仍有未收敛的历史预算 gap，route-owned CSS、App/Ingredient/Food 大文件最终目标、连续 viewport 发布证据和 target hard-failure 尚未完成，不能据此勾选 Phase 3/5 最终验收。
+
+## 14. Phase 3/5 增量记录（2026-08-29）
+
+- `25ef12e6`：新增 `AppGlobalOverlays`，将全局搜索和首页食材采购弹层从 `App.tsx` 的 JSX 组合中提取为 typed overlay host；完成 typecheck 与 `src/app` 定向测试。
+- 当前继续将 Home dashboard 主样式由全局 `styles.css` 移至 `features/home/home-route.css`，由 Home route 自有入口加载；responsive 与 compatibility 样式仍保持全局，避免跨域默认可见性回归。
+
+本批验证：Home 定向 Vitest 98/98 通过；typecheck 通过；Vite build 704 modules、manifest 无 error、bundle checker 退出 0；主 CSS gzip 约 133.83 KiB，历史 targetGap 继续按 ratchet warning 输出；`git diff --check` 通过。完整 P0 尚待在最新提交上重新运行，App/Ingredient/Food 大文件和其余 route CSS 迁移仍未完成。

@@ -28,6 +28,7 @@ import {
 import { FoodQuickMealDialog, type FoodQuickMealDialogState } from '../../components/foods/FoodQuickMealDialog';
 import { MEAL_OPTIONS } from '../../components/foods/FoodWorkspaceOptions';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
+import './home-route.css';
 import {
   normalizeFoodType,
   isReadyLikeFood,
