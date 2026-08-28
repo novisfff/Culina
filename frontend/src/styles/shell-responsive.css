@@ -208,3 +208,204 @@
     box-shadow: var(--brand-button-shadow);
   }
 }
+
+@media (max-width: 767px) {
+  .mobile-notification-center {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .mobile-notification-center .app-notification-trigger {
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #18110d;
+    box-shadow: none;
+  }
+
+  .mobile-notification-center .app-notification-trigger strong {
+    display: none;
+  }
+
+  .mobile-notification-center .app-notification-icon {
+    width: calc(var(--tap-min) - var(--space-2));
+    height: calc(var(--tap-min) - var(--space-2));
+    background: transparent;
+    color: currentColor;
+  }
+
+  .mobile-notification-center .app-notification-icon svg {
+    width: 26px;
+    height: 26px;
+    stroke-width: 2;
+  }
+
+  .mobile-notification-center .app-notification-count {
+    top: 2px;
+    right: 1px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border: 2px solid #fff8f0;
+    background: #de7336;
+    box-shadow: none;
+    font-size: 0.58rem;
+  }
+
+  .mobile-notification-center .app-notification-popover,
+  .mobile-notification-popover {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    right: auto;
+    left: 50%;
+    z-index: var(--z-mobile-notification);
+    width: min(420px, calc(100vw - 32px));
+    grid-template-rows: auto minmax(0, 1fr);
+    max-height: min(456px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 102px));
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    isolation: isolate;
+    transform: translateX(-50%);
+  }
+
+  .mobile-notification-center .app-notification-list,
+  .mobile-notification-popover .app-notification-list {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-notification-center .app-notification-popover-head,
+  .mobile-notification-popover .app-notification-popover-head {
+    align-items: center;
+  }
+
+  .mobile-notification-center .app-notification-summary,
+  .mobile-notification-popover .app-notification-summary {
+    min-width: 0;
+    max-width: 48%;
+    white-space: normal;
+    text-align: right;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-notification-center .app-notification-row,
+  .mobile-notification-popover .app-notification-row {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: var(--space-8) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: calc(var(--control-height-touch) + var(--space-5));
+    overflow: visible;
+    padding: var(--space-5);
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable,
+  .mobile-notification-popover .app-notification-row.is-actionable {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 0;
+  }
+
+  .mobile-notification-center .app-notification-open,
+  .mobile-notification-popover .app-notification-open {
+    grid-template-columns: var(--space-8) minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-5);
+  }
+
+  .mobile-notification-center .app-notification-row-actions,
+  .mobile-notification-popover .app-notification-row-actions {
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+    align-self: center;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable .app-notification-row-actions,
+  .mobile-notification-popover .app-notification-row.is-actionable .app-notification-row-actions {
+    grid-column: 2;
+    grid-row: 1;
+    padding: var(--space-5) var(--space-5) var(--space-5) 0;
+  }
+
+  .mobile-notification-center .app-notification-row-icon,
+  .mobile-notification-popover .app-notification-row-icon {
+    width: var(--space-8);
+    height: var(--space-8);
+    border-radius: var(--radius-xs);
+  }
+
+  .mobile-notification-center .app-notification-row-title,
+  .mobile-notification-popover .app-notification-row-title {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .mobile-notification-center .app-notification-row-copy small,
+  .mobile-notification-popover .app-notification-row-copy small {
+    display: block;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-notification-center .app-notification-row-copy strong,
+  .mobile-notification-popover .app-notification-row-copy strong {
+    min-width: 0;
+    font-size: var(--text-meta);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-notification-center .app-notification-row-title em,
+  .mobile-notification-popover .app-notification-row-title em {
+    max-width: none;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+
+  .mobile-notification-center .app-notification-retry,
+  .mobile-notification-popover .app-notification-retry {
+    flex: 0 0 auto;
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    gap: var(--space-2);
+  }
+
+  .mobile-notification-center .app-notification-retry span,
+  .mobile-notification-popover .app-notification-retry span {
+    width: var(--space-4);
+    height: var(--space-4);
+  }
+
+  .mobile-notification-center .app-notification-clear,
+  .mobile-notification-popover .app-notification-clear {
+    flex: 0 0 var(--tap-min);
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+}

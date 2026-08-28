@@ -79,11 +79,62 @@ function selectorAtoms(selectorText) {
 }
 
 
+function splitSelectorList(selectorGroup) {
+  const selectors = [];
+  let start = 0;
+  let depth = 0;
+  let quote = '';
+  for (let index = 0; index < selectorGroup.length; index += 1) {
+    const char = selectorGroup[index];
+    if (quote) {
+      if (char === '\\') index += 1;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === '(' || char === '[') depth += 1;
+    else if (char === ')' || char === ']') depth = Math.max(0, depth - 1);
+    else if (char === ',' && depth === 0) {
+      selectors.push({ text: selectorGroup.slice(start, index), offset: start });
+      start = index + 1;
+    }
+  }
+  selectors.push({ text: selectorGroup.slice(start), offset: start });
+  return selectors;
+}
+
+
+function atRuleRanges(masked) {
+  const ranges = [];
+  const regex = /@(media|supports|container)\s+([^{}]+)\{/g;
+  for (const match of masked.matchAll(regex)) {
+    const start = (match.index ?? 0) + match[0].length - 1;
+    let depth = 1;
+    let end = masked.length;
+    for (let index = start + 1; index < masked.length; index += 1) {
+      if (masked[index] === '{') depth += 1;
+      else if (masked[index] === '}') depth -= 1;
+      if (depth === 0) {
+        end = index;
+        break;
+      }
+    }
+    ranges.push({
+      start,
+      end,
+      context: `@${match[1]} ${match[2].trim().replace(/\s+/g, ' ')}`,
+    });
+  }
+  return ranges;
+}
+
+
 async function readCssSelectors(cssFiles, rootDir) {
   const occurrences = [];
   for (const file of [...cssFiles].sort()) {
     const content = await readFile(file, 'utf8');
     const masked = maskCssComments(content);
+    const contexts = atRuleRanges(masked);
     const blockRegex = /([^{}]+)\{/g;
     for (const block of masked.matchAll(blockRegex)) {
       const selectorGroup = block[1].trim();
@@ -91,8 +142,12 @@ async function readCssSelectors(cssFiles, rootDir) {
         continue;
       }
       const groupStart = (block.index ?? 0) + block[0].indexOf(block[1]);
-      for (const selectorPart of selectorGroup.split(',')) {
-        const partOffset = block[1].indexOf(selectorPart);
+      const atRuleContext = contexts
+        .filter((context) => groupStart > context.start && groupStart < context.end)
+        .map((context) => context.context)
+        .join(' > ');
+      for (const { text: selectorPart, offset: selectorOffset } of splitSelectorList(block[1])) {
+        const partOffset = selectorOffset;
         const atoms = selectorAtoms(selectorPart);
         const hasDynamicAttribute = /\[data-[^\]]+\]/.test(selectorPart);
         const ruleSelector = selectorPart.trim().replace(/\s+/g, ' ');
@@ -104,6 +159,7 @@ async function readCssSelectors(cssFiles, rootDir) {
             line: lineFor(content, groupStart + partOffset + atomOffset),
             dynamicSyntax: hasDynamicAttribute,
             ruleSelector,
+            atRuleContext,
           });
         }
       }
@@ -164,13 +220,13 @@ function uniqueBySelector(entries) {
 function scopedOwnership(selector, occurrence, ownership) {
   const exact = ownership.get(selector);
   if (exact) return exact;
-  const plainSelector = selector.replace(/^[.#]/, '');
+  const ruleAtoms = selectorAtoms(occurrence.ruleSelector).map((atom) => atom.replace(/^[.#]/, ''));
   const scopes = ownership.scopes ?? [];
   const matches = scopes.filter((scope) => (
     Array.isArray(scope.sources)
     && scope.sources.includes(occurrence.file)
     && Array.isArray(scope.prefixes)
-    && scope.prefixes.some((prefix) => plainSelector.startsWith(prefix))
+    && scope.prefixes.some((prefix) => ruleAtoms.some((atom) => atom.startsWith(prefix)))
   ));
   if (matches.length !== 1) return null;
   return {
@@ -219,13 +275,19 @@ export async function scanSelectorUsage({
 
   const duplicateRules = new Map();
   for (const occurrence of occurrences) {
-    const entries = duplicateRules.get(occurrence.ruleSelector) ?? [];
+    const key = `${occurrence.atRuleContext}\u0000${occurrence.ruleSelector}`;
+    const entries = duplicateRules.get(key) ?? [];
     entries.push(occurrence);
-    duplicateRules.set(occurrence.ruleSelector, entries);
+    duplicateRules.set(key, entries);
   }
-  for (const [selector, entries] of duplicateRules) {
+  for (const entries of duplicateRules.values()) {
     const files = [...new Set(entries.map((entry) => entry.file))].sort();
-    if (files.length > 1) duplicate.push({ selector, files, occurrences: entries.length });
+    if (files.length > 1) duplicate.push({
+      selector: entries[0].ruleSelector,
+      atRuleContext: entries[0].atRuleContext,
+      files,
+      occurrences: entries.length,
+    });
   }
 
   const sortBySelector = (left, right) => left.selector.localeCompare(right.selector);

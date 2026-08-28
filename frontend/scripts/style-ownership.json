@@ -4,7 +4,7 @@
     { "id": "foundation", "sources": ["frontend/src/styles/00-foundation.css"], "prefixes": [":root", "html", "body"] },
     { "id": "ui-kit", "sources": ["frontend/src/styles/00-ui-kit.css", "frontend/src/styles/legacy-primitives.css"], "prefixes": ["empty-state", "touch-", "ui-"] },
     { "id": "shell", "sources": ["frontend/src/styles/shell.css", "frontend/src/styles/shell-responsive.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["app-", "sidebar", "mobile-"] },
-    { "id": "home", "sources": ["frontend/src/styles/01-home-dashboard.css"], "prefixes": ["dashboard-", "home-"] },
+    { "id": "home", "sources": ["frontend/src/styles/01-home-dashboard.css", "frontend/src/styles/home-responsive.css"], "prefixes": ["dashboard-", "home-", "mobile-dashboard-", "mobile-home-"] },
     { "id": "eat", "sources": ["frontend/src/styles/12-eat-workspace.css"], "prefixes": ["eat-"] },
     { "id": "recipe", "sources": ["frontend/src/styles/03-recipe-workspace.css"], "prefixes": ["recipe-"] },
     { "id": "ingredients", "sources": ["frontend/src/styles/04-ingredients-workspace.css"], "prefixes": ["ingredient-", "ingredients-"] },
@@ -12,7 +12,7 @@
     { "id": "food", "sources": ["frontend/src/styles/06-food-workspace.css"], "prefixes": ["food-"] },
     { "id": "meal", "sources": ["frontend/src/styles/08-meal-log.css", "frontend/src/styles/13-meal-composer.css"], "prefixes": ["meal-", "mobile-log-"] },
     { "id": "ai", "sources": ["frontend/src/styles/09-ai-draft-ui.css", "frontend/src/styles/09-ai-workspace.css", "frontend/src/styles/09-global-search.css"], "prefixes": ["ai-", "global-search-"] },
-    { "id": "family", "sources": ["frontend/src/styles/02-family-settings.css", "frontend/src/styles/15-family-model-settings.css"], "prefixes": ["family-"] },
+    { "id": "family", "sources": ["frontend/src/styles/02-family-settings.css", "frontend/src/styles/15-family-model-settings.css", "frontend/src/styles/family-responsive.css"], "prefixes": ["family-", "mobile-family-"] },
     { "id": "model-usage", "sources": ["frontend/src/styles/14-model-usage.css"], "prefixes": ["model-usage-"] },
     { "id": "compatibility", "sources": ["frontend/src/styles/05-workspace-overlays.css", "frontend/src/styles/07-mobile.css"], "prefixes": ["workspace-modal", "workspace-overlay-"] }
   ],
@@ -34,8 +34,8 @@
   ],
   "baseline": {
     "unused": 1068,
-    "duplicate": 342,
-    "ownerMissing": 883,
-    "dynamic": 15
+    "duplicate": 62,
+    "ownerMissing": 447,
+    "dynamic": 17
   }
 }

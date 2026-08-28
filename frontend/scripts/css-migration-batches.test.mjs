@@ -55,7 +55,7 @@ describe('CSS migration batch registry', () => {
 
     expect(result.batches.map((batch) => batch.id)).toEqual(EXPECTED_BATCH_IDS);
     expect(result.batches.filter((batch) => batch.status === 'active').map((batch) => batch.id)).toEqual([
-      'home-family',
+      'eat-meal',
     ]);
     for (const batch of result.batches) {
       expect(batch.destinations.length).toBeGreaterThan(0);

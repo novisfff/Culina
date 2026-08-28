@@ -21,21 +21,23 @@
     },
     {
       "id": "home-family",
-      "status": "active",
+      "status": "complete",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/01-home-dashboard.css",
         "frontend/src/styles/02-family-settings.css",
+        "frontend/src/styles/family-responsive.css",
+        "frontend/src/styles/home-responsive.css",
         "frontend/src/styles/14-model-usage.css",
         "frontend/src/styles/15-family-model-settings.css"
       ],
       "owners": ["home", "family", "model-usage"],
       "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
-      "rollbackCommit": "pending"
+      "rollbackCommit": "34aa927c"
     },
     {
       "id": "eat-meal",
-      "status": "planned",
+      "status": "active",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/03-recipe-workspace.css",

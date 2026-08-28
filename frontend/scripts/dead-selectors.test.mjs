@@ -148,6 +148,54 @@ describe('dead selector report', () => {
     ]);
   });
 
+  it('distinguishes base and responsive rules and propagates a compound rule owner', async () => {
+    const { rootDir, paths } = await createFixture({
+      'src/styles/domain.css': '.home-card { color: red; }',
+      'src/styles/home-responsive.css': `
+        @media (max-width: 767px) {
+          .home-card { color: blue; }
+          .app-shell:has(.home-card) { padding-bottom: 4rem; }
+        }
+      `,
+      'src/components/View.tsx': '<div className="app-shell home-card" />',
+    });
+    const ownership = new Map();
+    ownership.scopes = [{
+      id: 'home',
+      sources: ['src/styles/domain.css', 'src/styles/home-responsive.css'],
+      prefixes: ['home-'],
+    }];
+
+    const result = await scanSelectorUsage({
+      rootDir,
+      cssFiles: [paths['src/styles/domain.css'], paths['src/styles/home-responsive.css']],
+      tsxFiles: [paths['src/components/View.tsx']],
+      e2eFiles: [],
+      ownership,
+    });
+
+    expect(result.duplicate).toEqual([]);
+    expect(result.ownerMissing).toEqual([]);
+  });
+
+  it('does not split commas inside functional pseudo selectors', async () => {
+    const { rootDir, paths } = await createFixture({
+      'src/styles/shared.css': '@media (max-width: 767px) { :is(.food-card, .home-card) { display: grid; } }',
+      'src/styles/home.css': '@media (max-width: 767px) { .home-card { gap: 1rem; } }',
+      'src/components/View.tsx': '<div className="food-card home-card" />',
+    });
+
+    const result = await scanSelectorUsage({
+      rootDir,
+      cssFiles: [paths['src/styles/shared.css'], paths['src/styles/home.css']],
+      tsxFiles: [paths['src/components/View.tsx']],
+      e2eFiles: [],
+      ownership: new Map(),
+    });
+
+    expect(result.duplicate).toEqual([]);
+  });
+
   it('loads ownership and rejects incomplete entries', async () => {
     const valid = ownershipEntry('.card');
     const { paths } = await createFixture({

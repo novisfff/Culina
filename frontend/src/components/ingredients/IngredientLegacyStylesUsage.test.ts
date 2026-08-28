@@ -6,7 +6,7 @@ const workspaceSourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
 const shoppingOverlaySourcePath = resolve(__dirname, 'IngredientShoppingOverlay.tsx');
 const workspacePanelsSourcePath = resolve(__dirname, 'IngredientWorkspacePanels.tsx');
 const ingredientsStylePath = resolve(__dirname, '../../styles/04-ingredients-workspace.css');
-const foundationStylePath = resolve(__dirname, '../../styles/00-foundation.css');
+const sharedPrimitiveStylePath = resolve(__dirname, '../../styles/legacy-primitives.css');
 const overlayStylePath = resolve(__dirname, '../../styles/05-workspace-overlays.css');
 const foodStylePath = resolve(__dirname, '../../styles/06-food-workspace.css');
 
@@ -95,23 +95,23 @@ describe('Ingredient legacy style cleanup', () => {
   it('keeps current ingredient card styles without stale checklist and summary classes', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
-    const foundationStyleSource = readFileSync(foundationStylePath, 'utf8');
+    const primitiveStyleSource = readFileSync(sharedPrimitiveStylePath, 'utf8');
 
     expect(workspaceSource).toContain('ingredient-card-interactive');
     expect(ingredientsStyleSource).toContain('.ingredient-card-interactive');
-    expect(foundationStyleSource).toContain('.ingredient-card-interactive:hover');
+    expect(primitiveStyleSource).toContain('.ingredient-card-interactive:hover');
 
     for (const className of staleChecklistAndSummaryClasses) {
       expect(workspaceSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
-      expect(foundationStyleSource).not.toContain(className);
+      expect(primitiveStyleSource).not.toContain(className);
     }
   });
 
   it('keeps the current catalog toolbar without stale title and metric strip classes', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
-    const foundationStyleSource = readFileSync(foundationStylePath, 'utf8');
+    const primitiveStyleSource = readFileSync(sharedPrimitiveStylePath, 'utf8');
     const overlayStyleSource = readFileSync(overlayStylePath, 'utf8');
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');
 
@@ -122,7 +122,7 @@ describe('Ingredient legacy style cleanup', () => {
     for (const className of staleCatalogToolbarClasses) {
       expect(workspaceSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
-      expect(foundationStyleSource).not.toContain(className);
+      expect(primitiveStyleSource).not.toContain(className);
       expect(overlayStyleSource).not.toContain(className);
       expect(foodStyleSource).not.toContain(className);
     }

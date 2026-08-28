@@ -22,4 +22,6 @@
 @import './styles/14-model-usage.css' layer(domain);
 @import './styles/15-family-model-settings.css' layer(domain);
 @import './styles/07-mobile.css' layer(responsive);
+@import './styles/family-responsive.css' layer(responsive);
+@import './styles/home-responsive.css' layer(responsive);
 @import './styles/shell-responsive.css' layer(responsive);
