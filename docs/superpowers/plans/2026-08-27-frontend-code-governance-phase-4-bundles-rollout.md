@@ -572,7 +572,7 @@ npm --prefix frontend run build
 node frontend/scripts/route-transfer-report.mjs frontend/dist/.vite/frontend-health-manifest.json
 ~~~
 
-- [ ] **Step 3: 运行六视口和 AI 状态路径**
+- [x] **Step 3: 运行六视口和 AI 状态路径**
 
 ~~~bash
 PLAYWRIGHT_REDUCED_MOTION=reduce npm run frontend:e2e:p0
@@ -581,9 +581,13 @@ npm --prefix frontend exec playwright test frontend/e2e --project=chromium --gre
 
 检查 Home → Eat → Ingredients → AI → Family 切换、AI stream/approval/human-input/cancel/retry/404、Markdown/approval lazy failure、mobile composer/keyboard/safe-area、desktop history/debug drawer、scrollWidth 和 44px hit area。
 
+已在 frontend 工作目录运行 `npx playwright test --grep @p0`，52/52 通过；release evidence Playwright 另覆盖六固定视口并采集请求/cache/long-task 数据。
+
 - [ ] **Step 4: 做回滚演练**
 
 在 staging/本地分别设置 VITE_LEGACY_GLOBAL_STYLES=1、关闭一个 entry target、恢复上一 manifest，确认不删除 localStorage、AI draft、run、cook session 或服务端数据；记录恢复时间和命令。
+
+已完成逐 entry rollback CLI 的本地演练：临时将 `ai` 设为 `target` 后执行 `npm --prefix frontend run rollback:bundle-entry -- --state=../.artifacts/rollback-rehearsal-20260829/input.json --entry=ai --output=../.artifacts/rollback-rehearsal-20260829/output.json`，确认只回落 `ai.enabledMode`、evidence/其他 entry 保持不变且仓库 rollout state 未被修改；`--entry=all` 按预期拒绝。`VITE_LEGACY_GLOBAL_STYLES` 开关当前尚未实现，因此本 Step 仍保留未完成。
 
 - [x] **Step 5: 更新报告并提交**
 

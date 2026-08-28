@@ -56,8 +56,9 @@ describe('Food legacy style cleanup', () => {
 
   it('does not hide recipe or shopping action buttons from food mobile rules', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+    const compatibilityStyles = readFileSync(resolve(repoRoot, 'src/styles/compatibility-responsive.css'), 'utf8');
 
-    expect(foodStyles).toContain('.mobile-dashboard-page,\n.mobile-food-page,');
+    expect(compatibilityStyles).toContain(':is(.mobile-food-page, .mobile-recipe-page');
     expect(foodStyles).not.toMatch(/\.recipe-(create-button|discovery-card-hit|plan-add-button|shopping-add-button)[\s\S]{0,500}\.mobile-dashboard-page/);
     expect(foodStyles).not.toMatch(/\.shopping-work-row-primary-action[\s\S]{0,500}\.mobile-dashboard-page/);
   });

@@ -381,3 +381,9 @@ CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一�
 随后在 frontend 工作目录重新运行 CSS governance Playwright：`npx playwright test e2e/css-governance.spec.mjs --project=phone-375x812 --project=tablet-1180x820 --project=desktop-1440x960 --workers=1`，6/6 通过；每个真实路径循环覆盖 375×812、390×844、430×932、768×1024、1024×768、1440×900，共 6 个固定视口。报告写入本地 `frontend/.artifacts/viewport-report.json`，不纳入提交。该证据覆盖布局、横向溢出、44px 目标、Home→Ingredients→Eat→AI→Family 路径和 overlay 语义，但尚不包含完整 P0、请求计数或回滚演练。
 
 在提交 `355b09b3` 后重新构建 manifest，并运行 `@release-evidence` Playwright（desktop 项目，测试内部循环六固定视口）：1/1 通过；采集到 requestCount=276、uniqueRequestCount=24、cacheReuse=true、longTaskMs=0。随后以同一 manifest commit 运行 `check:release-governance`，结果 `ok=true`、missing=0、violations=0。该证据链仍只覆盖 CSS governance 路径，完整 P0/AI 状态矩阵和 rollback rehearsal 尚未完成。
+
+- `67d4ba13`：新增 `rollback:bundle-entry` CLI 与单测，按 logical entry 将 `enabledMode` 安全回落到 `ratchet`，拒绝 `all` 全局 sentinel，并保留目标 entry evidence、其他 entry 和输入对象不变。
+
+在当前 worktree 完成真实 rollback rehearsal：临时复制 rollout state 并将 `ai` 设为 `target`，执行逐 entry rollback 后确认 `sourceUnchanged=true`、`evidencePreserved=true`、`otherEntriesPreserved=true`；随后验证 `--entry=all` 非零拒绝。该演练没有写入正式 rollout state，也未触碰 localStorage、AI draft/run、cook session 或服务端数据。完整 Step 4 仍未勾选，因为仓库尚未实现 `VITE_LEGACY_GLOBAL_STYLES=1` 兼容开关，也未进行上一 manifest 恢复演练。
+
+随后重新运行完整 P0：在 `frontend/` 工作目录执行 `npx playwright test --grep @p0`，52/52 通过（39.1s）。这更新了此前 lazy/CSS 提交后的失败记录；release evidence、完整 P0 与 rollback CLI 演练均有真实命令和结果，但 App/Ingredient/Food 大文件、target budget 启用和 legacy CSS 开关仍未完成。

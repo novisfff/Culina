@@ -3,6 +3,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const workspaceSourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
+const inventoryCardSourcePath = resolve(__dirname, 'IngredientInventoryCard.tsx');
+const shoppingHistorySourcePath = resolve(__dirname, 'ShoppingHistoryRow.tsx');
+const quickDetailSourcePath = resolve(__dirname, 'IngredientQuickDetailPopover.tsx');
 const shoppingOverlaySourcePath = resolve(__dirname, 'IngredientShoppingOverlay.tsx');
 const workspacePanelsSourcePath = resolve(__dirname, 'IngredientWorkspacePanels.tsx');
 const ingredientsStylePath = resolve(__dirname, '../../styles/04-ingredients-workspace.css');
@@ -94,15 +97,17 @@ describe('Ingredient legacy style cleanup', () => {
 
   it('keeps current ingredient card styles without stale checklist and summary classes', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
+    const inventoryCardSource = readFileSync(inventoryCardSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
     const primitiveStyleSource = readFileSync(sharedPrimitiveStylePath, 'utf8');
 
-    expect(workspaceSource).toContain('ingredient-card-interactive');
+    expect(inventoryCardSource).toContain('ingredient-card-interactive');
     expect(ingredientsStyleSource).toContain('.ingredient-card-interactive');
     expect(primitiveStyleSource).toContain('.ingredient-card-interactive:hover');
 
     for (const className of staleChecklistAndSummaryClasses) {
       expect(workspaceSource).not.toContain(className);
+      expect(inventoryCardSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
       expect(primitiveStyleSource).not.toContain(className);
     }
@@ -146,6 +151,7 @@ describe('Ingredient legacy style cleanup', () => {
 
   it('keeps current shopping quantity and storage header styles without stale helpers', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
+    const shoppingHistorySource = readFileSync(shoppingHistorySourcePath, 'utf8');
     const shoppingOverlaySource = readFileSync(shoppingOverlaySourcePath, 'utf8');
     const workspacePanelsSource = readFileSync(workspacePanelsSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
@@ -155,11 +161,12 @@ describe('Ingredient legacy style cleanup', () => {
     expect(shoppingOverlaySource).toContain('ingredients-restock-quantity-row');
     expect(workspacePanelsSource).toContain('ingredients-inventory-mixed-group');
     expect(workspacePanelsSource).toContain('ingredients-inventory-mixed-grid');
-    expect(workspaceSource).toContain('shopping-history-row');
+    expect(shoppingHistorySource).toContain('shopping-history-row');
     expect(ingredientsStyleSource).toContain('.ingredients-restock-quantity-row');
 
     for (const className of staleShoppingAndStorageClasses) {
       expect(workspaceSource).not.toContain(className);
+      expect(shoppingHistorySource).not.toContain(className);
       expect(shoppingOverlaySource).not.toContain(className);
       expect(workspacePanelsSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
@@ -169,19 +176,23 @@ describe('Ingredient legacy style cleanup', () => {
 
   it('keeps current visual card and expand styles without stale visual helpers', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
+    const quickDetailSource = readFileSync(quickDetailSourcePath, 'utf8');
+    const catalogCardSource = readFileSync(resolve(__dirname, 'IngredientCatalogCard.tsx'), 'utf8');
     const workspacePanelsSource = readFileSync(workspacePanelsSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');
 
-    expect(workspaceSource).toContain('ingredient-work-card-more-icon');
-    expect(workspaceSource).toContain('ingredient-quick-detail-popover');
-    expect(workspaceSource).toContain('ingredient-visual-meta');
+    expect(catalogCardSource).toContain('ingredient-work-card-more-icon');
+    expect(quickDetailSource).toContain('ingredient-quick-detail-popover');
+    expect(catalogCardSource).toContain('ingredient-visual-meta');
     expect(workspacePanelsSource).toContain('ingredients-storage-workbench-density-compact');
     expect(ingredientsStyleSource).toContain('.ingredient-quick-detail-popover');
     expect(ingredientsStyleSource).toContain('.ingredients-storage-workbench-density-compact');
 
     for (const className of staleVisualAndExpandClasses) {
       expect(workspaceSource).not.toContain(className);
+      expect(quickDetailSource).not.toContain(className);
+      expect(catalogCardSource).not.toContain(className);
       expect(workspacePanelsSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
       expect(foodStyleSource).not.toContain(className);
