@@ -356,6 +356,10 @@ Ingredient overlay 定向测试 28/28、typecheck 与 `git diff --check` 通过�
 
 该批 App/Inventory 定向测试 123/123、bundle-manifest 8/8 通过；typecheck、build 与 manifest 检查通过。历史 ratchet target gap 继续保留，尚未启用 target hard-failure。
 
+- `841c3869`：为 `ai-human-input` 与 `ai-debug` 补齐 bundle budget 和 rollout state，使 17 个 logical entry 在 entrypoints、budget、rollout 三份配置中完全对齐。
+
+bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构建和 manifest 检查通过。新增 AI 入口当前仍处于 ratchet，未伪造 target 资格。
+
 - `fccda6c6`：将 Eat shell 与 MealLog workspace 从 App 首屏静态闭包改为显式 lazy route；新增 `meal-log` logical entry、预算和 rollout state，并把 `eat` 标记为 dynamic entry。构建后主 JS gzip 从约 267.18 KiB 降至约 258.95 KiB，生成独立 Eat（约 2.01 KiB gzip）与 MealLog（约 8.38 KiB gzip）chunk。
 
 该批 App/Eat/Meal 定向测试 46 文件、364 个测试通过；bundle/manifest/rollout 脚本 20 个测试通过；Vite build 706 modules，manifest 检查通过并包含 17 个 logical entry，0 orphan/unregistered dynamic entry。历史 routeTotal 与主包目标差距仍保持 ratchet warning，未启用 target。
