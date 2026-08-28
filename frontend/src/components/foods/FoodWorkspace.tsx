@@ -51,6 +51,7 @@ import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickM
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
+import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
@@ -1672,80 +1673,52 @@ export function FoodWorkspace(props: Props) {
         } : null}
       />
 
-      {view !== 'list' && !isFoodRecipeEditorOpen && (
-        <WorkspaceOverlayFrame
-          rootClassName="food-workspace-overlay-root"
-          onClose={closeFoodEditorIfAllowed}
-          busy={Boolean(props.isSavingFood)}
-          closeOnBackdrop={!props.isSavingFood}
-        >
-          <WorkspaceModal
-            title={view === 'create' ? '新增食物' : '编辑食物'}
-            description={isSelfMade ? '家常菜的菜谱、用料和日常记录都可以在这里补充。' : '补充来源、价格、评分和到期信息，方便下次继续安排。'}
-            eyebrow="食物信息"
-            className="food-editor-modal"
-            closeLabel="关闭"
-            busy={Boolean(props.isSavingFood)}
-            footerInfo={(
-              <>
-                <strong>已完成 {editorCompletedCount} / {editorCompletionItems.length} 项信息</strong>
-            <span>保存后仍可继续完善</span>
-              </>
-            )}
-            footerActions={(
-              <FormActions
-                primaryLabel={foodEditorSubmitLabel}
-                submittingLabel="保存中…"
-                primaryType="submit"
-                primaryForm={FOOD_EDITOR_FORM_ID}
-                primaryDisabled={!canSubmit}
-                isSubmitting={Boolean(props.isSavingFood)}
-                secondaryLabel={props.isPhoneViewport ? undefined : '取消'}
-                onSecondary={closeFoodEditorIfAllowed}
-              />
-            )}
-            onClose={closeFoodEditorIfAllowed}
-          >
-            <FoodEditorForm
-              embedded
-              availableSceneTagOptions={availableSceneTagOptions}
-              canSubmit={canSubmit}
-              completionItems={editorCompletionItems}
-              completionPercent={editorCompletionPercent}
-              currentRecipe={currentRecipe}
-              editorProfile={editorProfile}
-              editorRecipeCover={editorRecipeCover}
-              editorRecipeMeta={editorRecipeMeta}
-              formId={FOOD_EDITOR_FORM_ID}
-              form={form}
-              imageState={imageComposer.state}
-              isSavingFood={props.isSavingFood}
-              isSceneTagPickerOpen={isSceneTagPickerOpen}
-              isSelfMade={isSelfMade}
-              isUpdatingScene={props.isUpdatingScene}
-              newSceneTagName={newSceneTagName}
-              sceneTags={editorSceneTags}
-              showActions={false}
-              submitLabel={foodEditorSubmitLabel}
-              view={view}
-              onAddSceneTag={addSceneTag}
-              onBack={closeFoodEditorIfAllowed}
-              onCreateAndAddSceneTag={() => void createAndAddSceneTag()}
-              onFormChange={setForm}
-              onGenerateImage={(mode) => void imageComposer.generate(mode)}
-              onEditRecipe={handleOpenRecipeEditor}
-              onRemoveSceneTag={removeSceneTag}
-              onResetImage={imageComposer.reset}
-              onSceneTagPickerToggle={() => setIsSceneTagPickerOpen((current) => !current)}
-              onSubmit={(event) => void handleSubmitFood(event)}
-              onToggleMealType={toggleMealType}
-              onUploadImage={(files) => void imageComposer.upload(files)}
-              resolveAssetUrl={resolveFoodAssetUrl}
-              setNewSceneTagName={setNewSceneTagName}
-            />
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
+      <FoodWorkspaceEditorOverlay
+        open={view !== 'list' && !isFoodRecipeEditorOpen}
+        title={view === 'create' ? '新增食物' : '编辑食物'}
+        description={isSelfMade ? '家常菜的菜谱、用料和日常记录都可以在这里补充。' : '补充来源、价格、评分和到期信息，方便下次继续安排。'}
+        isSavingFood={Boolean(props.isSavingFood)}
+        isPhoneViewport={Boolean(props.isPhoneViewport)}
+        completedCount={editorCompletedCount}
+        onClose={closeFoodEditorIfAllowed}
+        onSubmit={(event) => void handleSubmitFood(event)}
+        editor={{
+          availableSceneTagOptions,
+          canSubmit,
+          completionItems: editorCompletionItems,
+          completionPercent: editorCompletionPercent,
+          currentRecipe,
+          editorProfile,
+          editorRecipeCover,
+          editorRecipeMeta,
+          formId: FOOD_EDITOR_FORM_ID,
+          form,
+          imageState: imageComposer.state,
+          isSavingFood: props.isSavingFood,
+          isSceneTagPickerOpen,
+          isSelfMade,
+          isUpdatingScene: props.isUpdatingScene,
+          newSceneTagName,
+          sceneTags: editorSceneTags,
+          showActions: false,
+          submitLabel: foodEditorSubmitLabel,
+          view: view as 'create' | 'edit',
+          onAddSceneTag: addSceneTag,
+          onBack: closeFoodEditorIfAllowed,
+          onCreateAndAddSceneTag: () => void createAndAddSceneTag(),
+          onFormChange: setForm,
+          onGenerateImage: (mode) => void imageComposer.generate(mode),
+          onEditRecipe: handleOpenRecipeEditor,
+          onRemoveSceneTag: removeSceneTag,
+          onResetImage: imageComposer.reset,
+          onSceneTagPickerToggle: () => setIsSceneTagPickerOpen((current) => !current),
+          onSubmit: (event) => void handleSubmitFood(event),
+          onToggleMealType: toggleMealType,
+          onUploadImage: (files) => void imageComposer.upload(files),
+          resolveAssetUrl: resolveFoodAssetUrl,
+          setNewSceneTagName,
+        }}
+      />
 
       {isFoodRecipeEditorOpen && (
         <FoodRecipeEditorDialog
