@@ -36,8 +36,8 @@ describe('ModelUsageHealth', () => {
     })} />);
 
     expect(screen.getByRole('heading', { name: '需要核对的用量' })).toBeVisible();
-    expect(screen.getByText('2 次调用采用估算用量，费用可能随后调整。')).toBeVisible();
-    expect(screen.getByText('3 次调用尚未定价，暂未计入上方费用。')).toBeVisible();
+    expect(screen.getByText('2 次请求使用估算用量，费用可能随后调整。')).toBeVisible();
+    expect(screen.getByText('3 次请求还没有定价，暂不计入上方费用。')).toBeVisible();
     expect(screen.queryByText(/避免把未知情况伪装成精确数据/)).not.toBeInTheDocument();
   });
 });

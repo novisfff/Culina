@@ -85,7 +85,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
           </div>
 
           <p className="subtle ingredient-detail-desktop-summary">
-            默认单位：<strong>{ingredient.default_unit || '个'}</strong> · 默认存放：<strong>{ingredient.default_storage || '常温'}</strong>
+            默认单位：<strong>{ingredient.default_unit || '个'}</strong> · 默认存放位置：<strong>{ingredient.default_storage || '常温'}</strong>
           </p>
         </div>
 
@@ -99,7 +99,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               <span className="ingredient-detail-button-icon" aria-hidden="true">
                 {props.renderIcon('edit')}
               </span>
-              编辑资料卡
+              编辑食材信息
             </button>
 
             <button
@@ -122,7 +122,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               <span className="ingredient-detail-button-icon" aria-hidden="true">
                 {props.renderIcon('check')}
               </span>
-              快速消费
+              快速记录用量
             </button>
 
             <button
@@ -138,7 +138,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               <span className="ingredient-detail-button-icon" aria-hidden="true">
                 {props.renderIcon('shopping')}
               </span>
-              加入购物清单
+              加入采购清单
             </button>
           </div>
         </div>
@@ -161,7 +161,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
           <div className="ingredient-detail-note-card">
             <span className="ingredient-detail-note-icon" aria-hidden="true">💡</span>
             <p className="ingredient-detail-note-text">
-              {ingredient.notes || '适合日常家常菜搭配与做饭储备，可随时登记批次与扣减。'}
+              {ingredient.notes || '还没有备注。'}
             </p>
           </div>
 
@@ -183,15 +183,15 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
       {selectedIngredient.alerts.length > 0 && (
         <section
           className={`ingredient-detail-alert-banner tone-${alertBannerTone}`}
-          aria-label="库存提醒通知"
+          aria-label="库存提醒"
         >
           <div className="ingredient-detail-alert-banner-head">
             <span className="ingredient-detail-alert-banner-icon" aria-hidden="true">
               {props.renderIcon('bell')}
             </span>
             <div>
-              <h3>当前有 {selectedIngredient.alerts.length} 条需要处理的提醒</h3>
-              <p>及时补充库存或处理过期批次，保持厨房饮食新鲜。</p>
+              <h3>有 {selectedIngredient.alerts.length} 条库存提醒需要处理</h3>
+              <p>及时补货或处理过期库存，减少食材浪费。</p>
             </div>
           </div>
           <div className="ingredient-detail-alert-pills">
@@ -210,8 +210,8 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
         {/* Left Column: Inventory Batches */}
         <section className="card ingredient-detail-section ingredient-detail-section-batches">
           <SectionHeading
-            title="库存批次"
-            description={`当前共有 ${totalBatchesCount} 条批次记录（${activeBatchesCount} 条在用）`}
+            title="库存"
+            description={`共 ${totalBatchesCount} 批库存（${activeBatchesCount} 批可用）`}
           />
           <div className="stack-list">
             {totalBatchesCount > 0 ? (
@@ -245,7 +245,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                                 item.unit
                               ) ?? getInventoryRemainingQuantity(item)
                             )}
-                            {ingredient.default_unit || item.unit}
+                            {' '}{ingredient.default_unit || item.unit}
                           </h3>
                           <Badge className={`badge-tone-${presentation.tone}`}>{presentation.label}</Badge>
                         </div>
@@ -260,33 +260,33 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                     <div className="inventory-card-rich-body">
                       <p>
                         {getInventoryConsumedQuantity(item) > 0
-                          ? `原始入库 ${formatNumericString(
+                          ? `加入库存 ${formatNumericString(
                               convertQuantityToDefaultUnit(ingredient, item.quantity, item.unit) ?? item.quantity
-                            )}${ingredient.default_unit || item.unit}，已消费 ${formatNumericString(
+                            )} ${ingredient.default_unit || item.unit}，已记录用量 ${formatNumericString(
                               convertQuantityToDefaultUnit(
                                 ingredient,
                                 getInventoryConsumedQuantity(item),
                                 item.unit
                               ) ?? getInventoryConsumedQuantity(item)
-                            )}${ingredient.default_unit || item.unit}${
+                            )} ${ingredient.default_unit || item.unit}${
                               item.entered_quantity !== null &&
                               item.entered_quantity !== undefined &&
                               item.entered_unit &&
                               (Math.abs(item.entered_quantity - item.quantity) > 0.0001 ||
                                 item.entered_unit !== item.unit)
-                                ? ` · 登记时 ${formatNumericString(item.entered_quantity)}${item.entered_unit}`
+                                ? ` · 加入时 ${formatNumericString(item.entered_quantity)} ${item.entered_unit}`
                                 : ''
                             }${item.notes ? ` · ${item.notes}` : ''}`
                           : item.notes ||
-                            `原始入库 ${formatNumericString(
+                            `加入库存 ${formatNumericString(
                               convertQuantityToDefaultUnit(ingredient, item.quantity, item.unit) ?? item.quantity
-                            )}${ingredient.default_unit || item.unit}${
+                            )} ${ingredient.default_unit || item.unit}${
                               item.entered_quantity !== null &&
                               item.entered_quantity !== undefined &&
                               item.entered_unit &&
                               (Math.abs(item.entered_quantity - item.quantity) > 0.0001 ||
                                 item.entered_unit !== item.unit)
-                                ? ` · 登记时 ${formatNumericString(item.entered_quantity)}${item.entered_unit}`
+                                ? ` · 加入时 ${formatNumericString(item.entered_quantity)} ${item.entered_unit}`
                                 : ''
                             }`}
                       </p>
@@ -299,7 +299,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                           className="inventory-card-quick-consume-btn"
                           onClick={() => props.openConsumeOverlay(ingredient.id)}
                         >
-                          ⚡️ 记录消费
+                          ⚡️ 记录用量
                         </button>
                       </div>
                     )}
@@ -308,15 +308,15 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               })
             ) : (
               <EmptyState
-                title="暂无在用库存批次"
-                description="登记第一批库存后，可以追踪保质期和日常做菜消耗。"
+                title="还没有库存"
+                description="加入库存后，就能记录保质期和日常用量。"
                 action={
                   <button
                     className="solid-button"
                     type="button"
                     onClick={() => props.openInventoryOverlay(ingredient.id)}
                   >
-                    + 登记首批库存
+                    + 加入库存
                   </button>
                 }
               />
@@ -327,7 +327,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
         {/* Right Column: Rules & Related Recipes */}
         <div className="ingredient-detail-right-column">
           <section className="card ingredient-detail-section">
-            <SectionHeading title="补货默认规则" description="登记新批次时自动带出的预设规则" />
+            <SectionHeading title="补货默认规则" description="补充库存时自动带出的设置" />
             <div className="stack-list">
               <article className="ingredient-related-row">
                 <span className="ingredient-detail-row-icon tone-brown" aria-hidden="true">
@@ -339,10 +339,10 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                 </div>
                 <Badge>
                   {ingredient.default_expiry_mode === 'days'
-                    ? '自动算日期'
+                    ? '自动计算到期日'
                     : ingredient.default_expiry_mode === 'manual_date'
-                      ? '手动带日期'
-                      : '不自动提醒'}
+                      ? '手动填写到期日'
+                      : '不设置到期提醒'}
                 </Badge>
               </article>
 
@@ -358,7 +358,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                   {ingredient.default_low_stock_threshold !== null &&
                   ingredient.default_low_stock_threshold !== undefined
                     ? '已开启提醒'
-                    : '暂未开启'}
+                    : '未开启'}
                 </Badge>
               </article>
 
@@ -373,23 +373,23 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                       ? ingredient.unit_conversions
                           .map(
                             (item) =>
-                              `1 ${item.unit} = ${formatNumericString(item.ratio_to_default)}${ingredient.default_unit}`
+                              `1 ${item.unit} = ${formatNumericString(item.ratio_to_default)} ${ingredient.default_unit}`
                           )
                           .join(' · ')
-                      : `主单位为 ${ingredient.default_unit || '个'}，无需换算。`}
+                      : `默认单位为 ${ingredient.default_unit || '个'}，无需换算。`}
                   </p>
                 </div>
                 <Badge>
                   {ingredient.unit_conversions.length > 0
-                    ? `${ingredient.unit_conversions.length} 个副单位`
-                    : '主单位'}
+                    ? `${ingredient.unit_conversions.length} 个其他单位`
+                    : '默认单位'}
                 </Badge>
               </article>
             </div>
           </section>
 
           <section className="card ingredient-detail-section">
-            <SectionHeading title="关联菜谱" description="已被引用的菜谱列表" />
+            <SectionHeading title="相关菜谱" description="使用这项食材的菜谱" />
             <div className="stack-list">
               {selectedIngredient.recipeReferences.length > 0 ? (
                 selectedIngredient.recipeReferences.map((item) => {
@@ -405,16 +405,16 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
                       />
                       <div className="ingredient-related-recipe-info">
                         <h3>{item.title}</h3>
-                        <p className="subtle">已在菜谱库中引用，做饭智能推荐时自动关联。</p>
+                        <p className="subtle">这份菜谱使用了这项食材，做菜时会自动带出。</p>
                       </div>
-                      <Badge className="badge-recipe">关联 ↗</Badge>
+                      <Badge className="badge-recipe">已使用</Badge>
                     </article>
                   );
                 })
               ) : (
                 <EmptyState
-                  title="暂无菜谱引用"
-                  description="在新建菜谱时添加此食材即可自动形成关联。"
+                  title="还没有相关菜谱"
+                  description="新建菜谱时添加这项食材，就会显示在这里。"
                 />
               )}
             </div>
@@ -423,13 +423,13 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
 
         {/* Full-width Footer Metadata */}
         <section className="card ingredient-detail-section ingredient-detail-section-wide">
-          <SectionHeading title="档案属性" description="系统建档与更新记录" />
+          <SectionHeading title="更多信息" description="添加时间、更新时间和存放位置" />
           <div className="ingredient-metadata">
             <p>
               <span className="ingredient-metadata-icon" aria-hidden="true">
                 {props.renderIcon('calendar')}
               </span>
-              <strong>创建时间：</strong>
+              <strong>添加时间：</strong>
               {formatDateTime(ingredient.created_at)}
             </p>
             <p>
@@ -443,7 +443,7 @@ export function IngredientDetailView(props: IngredientDetailViewProps) {
               <span className="ingredient-metadata-icon" aria-hidden="true">
                 {props.renderIcon('inventory')}
               </span>
-              <strong>涉及存放：</strong>
+              <strong>存放位置：</strong>
               {selectedIngredient.storageLocations.join('、') || ingredient.default_storage || '常温'}
             </p>
           </div>

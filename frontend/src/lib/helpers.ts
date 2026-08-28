@@ -159,7 +159,7 @@ export function buildInventoryAlerts(
       list.push({
         id: `${item.id}-low`,
         title: `${ingredient.name} 库存偏低`,
-        detail: `当前仅剩 ${item.quantity}${item.unit}，建议补货`,
+        detail: `当前仅剩 ${item.quantity} ${item.unit}，建议补货`,
         tone: 'warning' as const
       });
     }

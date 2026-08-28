@@ -11,14 +11,12 @@ export type FamilyModelSettingsSection =
 export type FamilyModelSettingsOverlay =
   | { kind: 'provider'; profileId: string | null }
   | { kind: 'rotate-key'; profileId: string }
-  | { kind: 'publish-confirm' }
   | { kind: 'search-replacement' }
   | null;
 
 export type FamilyModelSettingsBusyAction =
   | 'save'
   | 'validate'
-  | 'publish'
   | 'rotate'
   | 'test'
   | 'rebuild';

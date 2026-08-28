@@ -45,7 +45,7 @@ describe('MediaWithPlaceholder', () => {
     expect(container.querySelector('.media-placeholder-empty-icon')).not.toBeNull();
     expect(container.querySelector('.media-placeholder-glow')).toBeNull();
     expect(container.querySelector('.media-placeholder-spark')).toBeNull();
-    expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('暂无图片');
+    expect(container.querySelector('.media-placeholder-label')?.textContent).toBe('还没有图片');
     expect(container.querySelector('img')).toBeNull();
 
     act(() => root.unmount());

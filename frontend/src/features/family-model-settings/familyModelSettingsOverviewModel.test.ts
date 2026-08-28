@@ -55,9 +55,9 @@ describe('deriveFamilyModelSettingsOverview', () => {
     });
 
     expect(overview.primarySection).toBe('providers');
-    expect(overview.primaryLabel).toBe('连接第一个 AI 服务');
+    expect(overview.primaryLabel).toBe('添加第一个 AI 服务');
     expect(overview.steps.map((step) => step.status)).toEqual(['current', 'upcoming', 'upcoming', 'upcoming']);
-    expect(overview.publication.kind).toBe('unpublished');
+    expect(overview.configurationStatus.kind).toBe('unconfigured');
   });
 
   it('moves from a connected service to capability binding', () => {
@@ -69,7 +69,7 @@ describe('deriveFamilyModelSettingsOverview', () => {
 
     expect(overview.providerCount).toBe(1);
     expect(overview.primarySection).toBe('capabilities');
-    expect(overview.primaryLabel).toBe('绑定需要的能力');
+    expect(overview.primaryLabel).toBe('选择需要的功能');
     expect(overview.steps.map((step) => step.status)).toEqual(['complete', 'current', 'upcoming', 'upcoming']);
   });
 
@@ -113,7 +113,7 @@ describe('deriveFamilyModelSettingsOverview', () => {
     expect(overview.enabledCapabilityCount).toBe(2);
     expect(overview.pricedCapabilityCount).toBe(0);
     expect(overview.primarySection).toBe('review');
-    expect(overview.primaryLabel).toBe('检查配置完善度');
+    expect(overview.primaryLabel).toBe('检查配置是否完整');
     expect(overview.steps[2]?.status).toBe('complete');
   });
 
@@ -150,8 +150,8 @@ describe('deriveFamilyModelSettingsOverview', () => {
 
     expect(overview.pricedCapabilityCount).toBe(1);
     expect(overview.primarySection).toBe('review');
-    expect(overview.primaryLabel).toBe('检查配置完善度');
-    expect(overview.publication.kind).toBe('local_changes');
+    expect(overview.primaryLabel).toBe('检查配置是否完整');
+    expect(overview.configurationStatus.kind).toBe('saving');
   });
 
   it('returns to pricing when a stale rule makes the complete draft invalid', () => {
@@ -198,12 +198,12 @@ describe('deriveFamilyModelSettingsOverview', () => {
 
     const overview = deriveFamilyModelSettingsOverview({ settings: activeSettings, draft, dirty: false });
 
-    expect(overview.publication).toEqual({
-      kind: 'published',
+    expect(overview.configurationStatus).toEqual({
+      kind: 'active',
       label: '配置已生效',
       description: '当前家庭正在使用这份配置，后续修改也会自动保存并生效。',
     });
     expect(overview.title).toBe('家庭 AI 服务已配置');
-    expect(overview.primaryLabel).toBe('查看配置完善度');
+    expect(overview.primaryLabel).toBe('查看配置是否完整');
   });
 });

@@ -8,7 +8,7 @@ const impactToneLabels: Record<AiDraftImpactTone, string> = {
   plan: '确认前说明',
   warning: '需要留意',
   danger: '请确认影响',
-  neutral: '说明',
+  neutral: '补充说明',
 };
 
 export function AiDraftImpactNote(props: {

@@ -10,7 +10,6 @@ import { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
 
 vi.mock('../../api/familyModelSettingsApi', () => ({
   familyModelSettingsApi: {
-    publish: vi.fn(),
     testCapability: vi.fn(),
     saveDraft: vi.fn(),
     validateDraft: vi.fn(),
@@ -18,8 +17,6 @@ vi.mock('../../api/familyModelSettingsApi', () => ({
     patchProviderProfile: vi.fn(),
     rotateProviderProfileKey: vi.fn(),
     checkProviderConnection: vi.fn(),
-    savePricesDraft: vi.fn(),
-    publishPrices: vi.fn(),
     previewSearchReplacement: vi.fn(),
     createSearchReplacement: vi.fn(),
     retrySearchReplacement: vi.fn(),
@@ -67,14 +64,6 @@ function wrapper() {
 describe('useFamilyModelSettingsActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(familyModelSettingsApi.publish).mockResolvedValue({
-      config_revision_id: 'revision-2',
-      price_version_id: 'price-2',
-      settings_version_number: 8,
-      config_checksum: 'a'.repeat(64),
-      price_checksum: 'b'.repeat(64),
-      search_profile_id: null,
-    });
   });
 
   it('only sends the initial search confirmation for an explicit confirmed save', async () => {
@@ -101,76 +90,6 @@ describe('useFamilyModelSettingsActions', () => {
     expect(familyModelSettingsApi.saveDraft).toHaveBeenLastCalledWith(
       expect.objectContaining({ confirm_initial_search_index: true }),
     );
-  });
-
-  it('uses current versions, confirmation checksums and a stable idempotency key for a structurally equal publish retry', async () => {
-    const queryClient = new QueryClient();
-    const { result } = renderHook(
-      () => useFamilyModelSettingsActions({ familyId: 'family-a', settings, draft, queryClient }),
-      { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
-    );
-    const publishInput = {
-      currentPassword: 'owner-password',
-      configChecksum: 'a'.repeat(64),
-      priceChecksum: 'b'.repeat(64),
-    };
-
-    vi.mocked(familyModelSettingsApi.publish).mockRejectedValueOnce(new Error('network'));
-    await expect(result.current.actions.publish(publishInput)).rejects.toThrow('network');
-    const firstPayload = vi.mocked(familyModelSettingsApi.publish).mock.calls[0]?.[0];
-    expect(firstPayload).toEqual(expect.objectContaining({
-      base_settings_version_number: 7,
-      base_draft_version_number: 3,
-      config_checksum: 'a'.repeat(64),
-      price_checksum: 'b'.repeat(64),
-      current_password: 'owner-password',
-      idempotency_key: expect.any(String),
-    }));
-    expect(invalidateAfterFamilyModelSettingsChanged).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await result.current.actions.publish({ ...publishInput });
-    });
-    const retryPayload = vi.mocked(familyModelSettingsApi.publish).mock.calls.at(-1)?.[0];
-    expect(retryPayload?.idempotency_key).toBe(firstPayload?.idempotency_key);
-    expect(invalidateAfterFamilyModelSettingsChanged).toHaveBeenCalledWith(queryClient, 'family-a');
-
-    vi.mocked(familyModelSettingsApi.publish).mockRejectedValueOnce(new Error('network'));
-    await act(async () => {
-      await expect(result.current.actions.publish({
-        currentPassword: 'owner-password',
-        configChecksum: 'c'.repeat(64),
-        priceChecksum: 'b'.repeat(64),
-      })).rejects.toThrow('network');
-    });
-    expect(vi.mocked(familyModelSettingsApi.publish).mock.calls.at(-1)?.[0]?.idempotency_key)
-      .not.toBe(firstPayload?.idempotency_key);
-  });
-
-  it('settles a successful publish while its settings refresh continues in the background', async () => {
-    const queryClient = new QueryClient();
-    let finishRefresh: (() => void) | undefined;
-    vi.mocked(invalidateAfterFamilyModelSettingsChanged).mockImplementationOnce(() => new Promise<void>((resolve) => {
-      finishRefresh = resolve;
-    }));
-    const { result } = renderHook(
-      () => useFamilyModelSettingsActions({ familyId: 'family-a', settings, draft, queryClient }),
-      { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> },
-    );
-
-    const publish = result.current.actions.publish({
-      currentPassword: 'owner-password',
-      configChecksum: 'a'.repeat(64),
-      priceChecksum: 'b'.repeat(64),
-    });
-
-    await waitFor(() => expect(invalidateAfterFamilyModelSettingsChanged).toHaveBeenCalledWith(queryClient, 'family-a'));
-    await waitFor(() => expect(result.current.busyAction).toBeNull());
-
-    finishRefresh?.();
-    await act(async () => {
-      await publish;
-    });
   });
 
   it('settles a successful provider creation while its settings refresh continues in the background', async () => {

@@ -31,7 +31,7 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
     <WorkspaceOverlayFrame onClose={props.onClose}>
       <WorkspaceModal
         title="场景管理"
-        description="场景管理已迁移到食物页。"
+        description="场景已统一在食物页管理。"
         eyebrow="菜谱场景"
         onClose={props.onClose}
         className="recipe-scene-modal"
@@ -106,7 +106,7 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
                   ) : (
                     <>
                       <span className="recipe-scene-generate-visual"><RecipeUiIcon name="sparkle" /></span>
-                      <strong>{props.sceneImageState.isGenerating && props.generatingSceneName === props.sceneDraft.name.trim() ? '后台生成中' : 'AI 生成图片'}</strong>
+                      <strong>{props.sceneImageState.isGenerating && props.generatingSceneName === props.sceneDraft.name.trim() ? '正在生成' : 'AI 生成图片'}</strong>
                       <small>根据描述生成场景配图</small>
                     </>
                   )}
@@ -139,7 +139,7 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
                   </div>
                   <div>
                     <strong>{scene.name}</strong>
-                    <span>{scene.description || `${scene.count} 道菜谱`}</span>
+                    <span>{scene.description || `${scene.count} 个菜谱`}</span>
                   </div>
                   <div className="recipe-scene-row-actions">
                     <button type="button" onClick={() => props.onOpenEditForm(scene)}>
@@ -150,7 +150,7 @@ export function RecipeSceneManagerDialog(props: RecipeSceneManagerDialogProps) {
                 </article>
               ))
             ) : (
-              <p className="subtle">暂无可管理场景。</p>
+              <p className="subtle">还没有可管理的场景。</p>
             )}
             {props.managedScenes.filter((scene) => scene.hidden).map((scene) => (
               <article key={scene.name} className="recipe-scene-row muted">

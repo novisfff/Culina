@@ -65,8 +65,8 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
 
   return (
     <WorkspaceModal
-      title="登记这批库存"
-      description="把这次买回来的这一批快速记下来。"
+      title="加入库存"
+      description="把这次买回的内容加入库存。"
       closeLabel="关闭"
       closeAriaLabel="关闭"
       className="workspace-modal-wide inventory-restock-modal"
@@ -74,7 +74,7 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
       footerActions={
         <FormActions
           className="ingredients-restock-actions"
-          primaryLabel={tracksQuantity ? '补入库存' : '确认已有'}
+          primaryLabel={tracksQuantity ? '加入库存' : '确认有库存'}
           primaryType="submit"
           primaryForm={inventoryFormId}
           primaryDisabled={!props.inventoryForm.ingredientId}
@@ -132,14 +132,14 @@ export function IngredientInventoryOverlay(props: IngredientInventoryOverlayProp
                 loadingMore={ingredientSearch.isFetchingNextPage}
                 hasMore={ingredientSearch.hasMore}
                 loadMoreText="加载更多食材"
-                loadingMoreText="正在加载更多食材..."
+                loadingMoreText="正在加载更多食材…"
                 options={ingredientSearch.ingredients.map((ingredient) => ({
                   id: ingredient.id,
                   label: ingredient.name,
                   description: `${ingredient.category || '食材'} · 默认 ${ingredient.default_unit || '个'}`,
                   image: <MediaWithPlaceholder src={resolveMediaUrl(ingredient.image, 'thumb')} alt="" />,
                 }))}
-                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配的食材'}
+                emptyText={ingredientSearch.isSearching ? '正在搜索…' : '没有找到匹配的食材'}
                 onSearchCompositionStart={ingredientSearch.onCompositionStart}
                 onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextQuery) => {

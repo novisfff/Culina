@@ -92,7 +92,7 @@ describe('useAppHomeViewModel', () => {
     });
     expect(model.homeInventoryActionCount).toBe(1);
     expect(model.availableInventoryCount).toBe(1);
-    expect(model.dashboardStats.find((stat) => stat.label === '需处理食材')?.value).toBe('1');
+    expect(model.dashboardStats.find((stat) => stat.label === '需要处理的食材')?.value).toBe('1');
   });
 
   it('uses the server week count and never converts no-cache errors to zero', () => {
@@ -113,7 +113,7 @@ describe('useAppHomeViewModel', () => {
       },
     }));
     expect(success.sidebarActivityLabel).toBe('本周协作 0 次');
-    expect(failure.sidebarActivityLabel).toBe('本周协作 --');
+    expect(failure.sidebarActivityLabel).toBe('本周协作暂未统计');
   });
 
   it('keeps stale week count when refresh fails after cache is present', () => {

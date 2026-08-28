@@ -84,7 +84,7 @@ export function AiMobileChrome(props: {
             </button>
             <div className="ai-mobile-conversation-list">
               {props.isLoading ? (
-                <p className="subtle">正在加载会话...</p>
+                <p className="subtle">正在加载会话…</p>
               ) : props.conversations.length > 0 ? (
                 groupedConversations.map((group) => (
                   <div key={group.title} className="ai-mobile-history-group">
@@ -144,7 +144,7 @@ export function AiMobileChrome(props: {
         </button>
         <div className="ai-mobile-title">
           <strong>AI 厨房助手</strong>
-          <span><i aria-hidden="true" />在线 · 可随时帮你安排做饭</span>
+          <span><i aria-hidden="true" />AI 助手</span>
         </div>
         <div className="ai-mobile-actions">
           <button className="ai-mobile-history-trigger ai-mobile-auto-execution-trigger" type="button" aria-label="AI 自动执行设置" onClick={props.onOpenAutoExecution}>设置</button>

@@ -38,13 +38,23 @@ from app.models.family_model_settings import (
     FamilyModelConfigRevision,
 )
 from app.models.model_usage import ModelUsagePriceVersion
+from app.repos.family_model_settings.configurations import (
+    get_config_draft,
+    get_config_revision,
+    require_draft_version,
+)
 from app.repos.family_model_settings.idempotency import claim_operation, complete_operation
+from app.repos.family_model_settings.profiles import (
+    get_family_model_settings,
+    lock_family_model_settings,
+)
 from app.repos.model_usage.catalog import next_price_version_number
 from app.services.ai_audio.config import realtime_endpoint_url
 from app.services.family_model_settings.credentials import (
     FamilyModelCredentialCipher,
     operation_request_fingerprint,
 )
+from app.services.family_model_settings.drafts import _safe_payload_from_raw
 from app.services.family_model_settings.errors import (
     FamilyModelDraftInvalid,
     FamilyModelOperationInProgress,
@@ -61,12 +71,12 @@ from app.services.family_model_settings.types import (
     FamilyModelCapability,
     ResolvedCapabilityBinding,
 )
+from app.schemas.family_model_settings import FamilyModelConfigDraftPayload
 from app.services.family_model_settings.validation import (
-    ValidateDraftCommand,
     ValidatedCapabilityBinding,
     ValidatedFamilyPriceRate,
     price_checksum,
-    validate_family_model_draft,
+    validate_family_model_capability,
 )
 from app.services.model_usage.adapters.base import MeteredProviderAdapter
 from app.services.model_usage.errors import ModelUsageBlocked, ModelUsageError
@@ -553,6 +563,75 @@ def _next_test_revision_number(db: Session, *, family_id: str) -> int:
     return int(current or 0) + 1
 
 
+def _active_llm_primary_is_enabled(
+    db: Session,
+    *,
+    family_id: str,
+    config_revision_id: str | None,
+) -> bool:
+    if config_revision_id is None:
+        return False
+    row = db.scalar(
+        select(FamilyModelCapabilityBinding).where(
+            FamilyModelCapabilityBinding.family_id == family_id,
+            FamilyModelCapabilityBinding.config_revision_id == config_revision_id,
+            FamilyModelCapabilityBinding.capability == ModelUsageCapability.LLM,
+            FamilyModelCapabilityBinding.variant_key == "primary",
+            FamilyModelCapabilityBinding.enabled.is_(True),
+        )
+    )
+    return row is not None
+
+
+def _draft_llm_fallback_has_primary(
+    db: Session,
+    *,
+    family_id: str,
+    settings,
+    payload: FamilyModelConfigDraftPayload,
+    network_policy: ProviderNetworkPolicy,
+) -> bool:
+    """Resolve the fallback dependency without letting a bad edit erase a live primary."""
+
+    active_primary = _active_llm_primary_is_enabled(
+        db,
+        family_id=family_id,
+        config_revision_id=settings.active_config_revision_id,
+    )
+    incoming_primary = next(
+        (
+            binding
+            for binding in payload.bindings
+            if binding.capability == "llm" and binding.variant_key == "primary"
+        ),
+        None,
+    )
+    if incoming_primary is None:
+        return active_primary
+    if not incoming_primary.enabled:
+        return False
+    primary_rates = [
+        rate
+        for rate in payload.price_rates
+        if rate.capability == "llm" and rate.variant_key == "primary"
+    ]
+    primary_validation = validate_family_model_capability(
+        db,
+        family_id=family_id,
+        settings=settings,
+        payload=payload.model_copy(
+            update={
+                "bindings": [incoming_primary],
+                "price_rates": primary_rates,
+            }
+        ),
+        capability="llm",
+        network_policy=network_policy,
+        validate_fallback_graph=False,
+    )
+    return primary_validation.valid or active_primary
+
+
 def _materialize_draft_test_binding(
     db: Session,
     command: CapabilityTestCommand,
@@ -560,15 +639,75 @@ def _materialize_draft_test_binding(
     dependencies: CapabilityTestDependencies,
 ) -> ResolvedCapabilityBinding:
     assert command.base_draft_version_number is not None
-    validation = validate_family_model_draft(
-        db,
-        ValidateDraftCommand(
-            family_id=command.family_id,
-            actor_user_id=command.actor_user_id,
-            network_policy=dependencies.network_policy,
-            base_draft_version_number=command.base_draft_version_number,
+    # A capability probe is scoped to one binding.  The old implementation
+    # ran the complete-draft validator here, so an unrelated broken Embedding
+    # (or price row) prevented an otherwise valid LLM/image/audio probe.  Read
+    # the draft under the normal settings -> draft lock order, then validate
+    # only the requested capability/variant without mutating global draft
+    # validation state.
+    settings = lock_family_model_settings(db, family_id=command.family_id)
+    draft = get_config_draft(db, family_id=command.family_id, for_update=True)
+    if draft is None:
+        raise FamilyModelDraftInvalid("family_model_capability_test_binding_incomplete")
+    require_draft_version(draft, command.base_draft_version_number)
+    payload, _payload_issues = _safe_payload_from_raw(draft.payload_json)
+
+    target_binding = next(
+        (
+            binding
+            for binding in payload.bindings
+            if binding.capability == command.capability
+            and binding.variant_key == command.variant_key
         ),
+        None,
     )
+    if (
+        command.capability == "llm"
+        and command.variant_key == "fallback"
+        and target_binding is not None
+        and target_binding.enabled
+        and not _draft_llm_fallback_has_primary(
+            db,
+            family_id=command.family_id,
+            settings=settings,
+            payload=payload,
+            network_policy=dependencies.network_policy,
+        )
+    ):
+        raise FamilyModelDraftInvalid("family_model_llm_fallback_requires_primary")
+
+    target_bindings = tuple(
+        binding
+        for binding in payload.bindings
+        if binding.capability == command.capability
+        and binding.variant_key == command.variant_key
+    )
+    target_rates = tuple(
+        rate
+        for rate in payload.price_rates
+        if rate.capability == command.capability
+        and rate.variant_key == command.variant_key
+    )
+    scoped_payload = payload.model_copy(
+        update={
+            "bindings": list(target_bindings),
+            "price_rates": list(target_rates),
+        }
+    )
+    validation = validate_family_model_capability(
+        db,
+        family_id=command.family_id,
+        settings=settings,
+        payload=scoped_payload,
+        capability=command.capability,
+        network_policy=dependencies.network_policy,
+        draft_version_number=command.base_draft_version_number,
+        validate_fallback_graph=False,
+    )
+    if validation.errors:
+        # Do not expose provider details; the first stable domain code is
+        # enough for the Owner to repair this one card.
+        raise FamilyModelDraftInvalid(validation.errors[0].code)
     binding = next(
         (
             item
@@ -601,13 +740,27 @@ def _materialize_draft_test_binding(
         )
     )
     if revision is None:
+        # The draft may carry a legacy/stale base revision pointer.  Test
+        # snapshots are disposable and must never copy that foreign ID into a
+        # restrictive self-FK; prefer a verified family-owned active revision
+        # and otherwise leave the parent unset.
+        base_revision_id = validation.payload.base_config_revision_id
+        if isinstance(base_revision_id, str):
+            verified_base = get_config_revision(
+                db,
+                family_id=command.family_id,
+                config_revision_id=base_revision_id,
+            )
+            base_revision_id = verified_base.id if verified_base is not None else None
+        else:
+            base_revision_id = None
         revision = FamilyModelConfigRevision(
             id=create_id("family-model-test-revision"),
             family_id=command.family_id,
             version_number=_next_test_revision_number(
                 db, family_id=command.family_id
             ),
-            base_revision_id=validation.payload.base_config_revision_id,
+            base_revision_id=base_revision_id,
             config_checksum=snapshot_checksum,
             status=FamilyModelConfigRevisionStatus.SUPERSEDED,
             search_profile_id=None,
@@ -712,6 +865,21 @@ def run_family_capability_test(
         or command.variant_key not in _ALLOWED_VARIANTS[command.capability]
     ):
         raise FamilyModelDraftInvalid("family_model_capability_variant_invalid")
+
+    if command.base_draft_version_number is None and (
+        command.capability == "llm" and command.variant_key == "fallback"
+    ):
+        # Check the dependency before resolving the fallback itself.  Without
+        # a primary, resolver.resolve_active() would return the generic
+        # "capability disabled" error and the Owner would never learn the
+        # actionable fallback-specific reason.
+        settings = get_family_model_settings(db, family_id=command.family_id)
+        if settings is None or not _active_llm_primary_is_enabled(
+            db,
+            family_id=command.family_id,
+            config_revision_id=(settings.active_config_revision_id if settings else None),
+        ):
+            raise FamilyModelDraftInvalid("family_model_llm_fallback_requires_primary")
 
     resolver = FamilyModelConfigurationResolver(
         db,

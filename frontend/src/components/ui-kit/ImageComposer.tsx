@@ -33,9 +33,9 @@ export function ImageComposer(props: {
       ? 'media-panel form-panel-section image-composer image-composer-workspace-inline'
       : 'span-two media-panel form-panel-section image-composer';
   const showResults = hasReference || hasGenerated || Boolean(props.isGenerating);
-  const aiStatusLabel = hasGenerated ? '已生成' : props.isGenerating ? '后台生成中' : props.errorMessage ? '可重试' : '未生成';
-  const aiPlaceholderTitle = props.isGenerating ? 'AI 主图已排队' : props.errorMessage ? '主图生成失败' : '还没有 AI 主图';
-  const aiPlaceholderNote = props.isGenerating ? '可以先保存，生成完成后会自动更新图片。' : props.errorMessage ? '点击右上角按钮重试即可。' : '可以先上传参考图，或直接基于信息生成。';
+  const aiStatusLabel = hasGenerated ? '已生成' : props.isGenerating ? '正在生成' : props.errorMessage ? '可重试' : '未生成';
+  const aiPlaceholderTitle = props.isGenerating ? '正在生成主图' : props.errorMessage ? '主图生成失败' : '还没有 AI 主图';
+  const aiPlaceholderNote = props.isGenerating ? '生成完成后会自动更新图片，你可以先保存。' : props.errorMessage ? '生成失败，请检查输入后重试。' : '可以先上传参考图，或直接基于信息生成。';
 
   return (
     <ContainerTag className={rootClassName}>
@@ -56,7 +56,7 @@ export function ImageComposer(props: {
                   <strong>AI 主图美化</strong>
                 </div>
                 <p className="image-composer-intro-card-desc">
-                  上传您的日常实拍作为<b>参考图</b>，AI 将自动将其美化为温馨的手绘插画主图。
+                  上传日常实拍作为<b>参考图</b>，AI 会根据参考图生成统一风格的主图。
                 </p>
                 <div className="image-composer-intro-card-tips">
                   <div className="image-composer-intro-tip">
@@ -120,7 +120,7 @@ export function ImageComposer(props: {
                 />
                 <div className="image-composer-result-head">
                   <span>参考图</span>
-                  <small>{props.isGenerating ? '后台生成中' : '点按更换'}</small>
+                    <small>{props.isGenerating ? '正在生成' : '点击更换'}</small>
                 </div>
                 <div className="image-composer-result-media">
                   <MediaWithPlaceholder
@@ -164,7 +164,7 @@ export function ImageComposer(props: {
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M12 3.8 14 9l5.2 2-5.2 2-2 5.2-2-5.2-5.2-2 5.2-2L12 3.8Z" />
           </svg>
-          {props.isGenerating ? '正在生成...' : generateLabel}
+          {props.isGenerating ? '正在生成…' : generateLabel}
         </button>
         {(hasReference || hasGenerated) && (
           <button className="ghost-button" type="button" onClick={props.onReset} disabled={props.isGenerating}>

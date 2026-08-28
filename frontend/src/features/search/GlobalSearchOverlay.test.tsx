@@ -244,7 +244,7 @@ describe('GlobalSearchOverlay', () => {
     expect(document.body.textContent).toContain('菜谱');
     expect(document.body.textContent).toContain('餐食计划');
     expect(document.body.textContent).toContain('晚餐安排');
-    expect(document.body.textContent).toContain('模型排序额度达到限制，本次已改用基础排序。');
+    expect(document.body.textContent).toContain('搜索排序额度达到限制，本次已改用基础排序。');
     expect(document.body.textContent).not.toMatch(/¥|预算比例|家庭已用/);
   });
 

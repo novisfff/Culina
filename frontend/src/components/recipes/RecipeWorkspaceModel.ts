@@ -258,12 +258,12 @@ export function getRecipeDraftGenerationStatusCopy(stage: RecipeDraftGenerationS
     case 'drafting':
       return {
         title: '正在生成菜谱结构',
-        description: '会补全原料、步骤、技巧和标签。',
+        description: '会补全食材、步骤、技巧和标签。',
       };
     case 'imaging':
       return {
         title: '菜谱已生成，正在生成封面',
-        description: '图片失败不会影响文本草稿。',
+        description: '封面生成失败不会影响菜谱内容。',
       };
     case 'done':
       return {
@@ -526,27 +526,27 @@ type CookShortageDisplayInput = Pick<CookRecipeShortage, 'ingredient_name' | 'mi
 
 export function formatCookShortageSummary(item: CookShortageDisplayInput) {
   if (isPresenceShortage(item)) {
-    return `${item.ingredient_name} 需补充`;
+    return `${item.ingredient_name} 需要补充`;
   }
-  return `${item.ingredient_name} ${formatCookQuantity(item.missing_quantity)}${item.unit}`;
+  return `${item.ingredient_name} ${formatCookQuantity(item.missing_quantity)} ${item.unit}`;
 }
 
 export function formatCookShortageDetail(item: CookShortageDisplayInput) {
   if (isPresenceShortage(item)) {
-    return '还没有可用库存记录，本次会先记录缺料提醒，不会扣减这项库存。';
+    return '还没有可用库存，本次会先提醒缺少食材，不会扣减库存。';
   }
-  return `还缺 ${formatCookQuantity(item.missing_quantity)}${item.unit}，本次会先扣减现有库存，缺少部分仅记录提醒。`;
+  return `还缺少 ${formatCookQuantity(item.missing_quantity)} ${item.unit}，本次会先扣减现有库存，缺少部分仅保留提醒。`;
 }
 
 export function formatCookPreviewRequestLabel(item: Pick<CookRecipePreviewItem, 'requested_quantity' | 'unit' | 'quantity_tracking_mode'>) {
-  const requestedLabel = `${formatCookQuantity(item.requested_quantity)}${item.unit}`;
+  const requestedLabel = `${formatCookQuantity(item.requested_quantity)} ${item.unit}`;
   return item.quantity_tracking_mode === 'not_track_quantity'
-    ? `${requestedLabel} · 只判断有无`
+    ? `${requestedLabel} · 只判断是否有库存`
     : requestedLabel;
 }
 
 export function getCookPreviewActionLabel(preview: Array<{ batches: readonly unknown[] }> | null | undefined) {
-  return preview?.some((item) => item.batches.length > 0) ? '确认扣库存' : '确认完成';
+  return preview?.some((item) => item.batches.length > 0) ? '确认并扣减库存' : '确认完成';
 }
 
 export function getCookCompletionMessage(
@@ -556,25 +556,25 @@ export function getCookCompletionMessage(
   const deductedCount = response.consumed_items.filter((item) => item.affected_item_ids.length > 0).length;
   const hasPresenceOnlyItems = response.consumed_items.some((item) => item.quantity_tracking_mode === 'not_track_quantity');
   const shortageCount = response.shortages.length;
-  const shortageSuffix = shortageCount > 0 ? `，还有 ${shortageCount} 项缺料已保留提醒` : '';
+  const shortageSuffix = shortageCount > 0 ? `，还有 ${shortageCount} 项食材不足，已保留提醒` : '';
   const mealLabel = MEAL_TYPE_OPTIONS.find((item) => item.value === options?.mealType)?.label;
   const recipeTitle = options?.recipeTitle?.trim();
   if (recipeTitle && options?.date && mealLabel) {
     const inventoryPart = deductedCount > 0 ? '已更新库存' : '已记录完成';
     const base = `${inventoryPart}，并把${recipeTitle}记到${options.date === todayKey() ? '今天' : options.date}的${mealLabel}。`;
     if (deductedCount > 0 && hasPresenceOnlyItems) {
-      return `${base}只记录有无的食材未扣减数量${shortageSuffix}。`;
+      return `${base}只记录是否有库存的食材不会扣减数量${shortageSuffix}。`;
     }
     return `${base.replace(/。$/, '')}${shortageSuffix}。`;
   }
 
   if (deductedCount > 0 && hasPresenceOnlyItems) {
-    return `已扣减数量库存并生成餐食记录${shortageSuffix}；只记录有无的食材未扣减数量。`;
+    return `已扣减可计量库存并生成餐食记录${shortageSuffix}；只记录是否有库存的食材不会扣减数量。`;
   }
   if (deductedCount > 0) {
     return `已扣减库存并生成餐食记录${shortageSuffix}。`;
   }
-  return `已记录完成并生成餐食记录，本次没有需要扣减的数量库存${shortageSuffix}。`;
+  return `已完成做菜并生成餐食记录，本次没有需要扣减的可计量库存${shortageSuffix}。`;
 }
 
 export function isCompleteCookResult(
@@ -619,8 +619,8 @@ export function getCookFinishStepStatus(args: {
 export function getCookFinishStepStatusLabel(status: CookFinishStepStatus) {
   if (status === 'completed') return '已完成';
   if (status === 'skipped') return '已跳过';
-  if (status === 'attention') return '需留意';
-  return '未处理';
+  if (status === 'attention') return '需要留意';
+  return '待完成';
 }
 
 export function formatShoppingQuantity(value: number) {
@@ -642,8 +642,8 @@ export function formatCookTimerDuration(seconds: number | null | undefined) {
   if (!seconds || seconds <= 0) return '未设置';
   const minutes = Math.floor(seconds / 60);
   const restSeconds = seconds % 60;
-  if (minutes <= 0) return `${restSeconds}秒`;
-  return restSeconds ? `${minutes}分${String(restSeconds).padStart(2, '0')}秒` : `${minutes}分钟`;
+  if (minutes <= 0) return `${restSeconds} 秒`;
+  return restSeconds ? `${minutes} 分 ${String(restSeconds).padStart(2, '0')} 秒` : `${minutes} 分钟`;
 }
 
 export function getRecipeStepTitle(step: Partial<Pick<RecipeStep, 'title'>>, index: number) {
@@ -1027,7 +1027,7 @@ export function buildCookPayload(args: {
   if (args.planItemId && !planBase) {
     // Match backend final contract: plan source requires OCC base. Fail closed in the
     // client instead of POSTing a body that only 422s after the user finishes cooking.
-    throw new Error('计划来源完成请求缺少菜单版本（planItemBaseUpdatedAt），请重新从菜单打开或刷新后重试。');
+    throw new Error('这项餐食计划的信息已更新，请重新打开后再试。');
   }
   const targetMealLogId =
     typeof args.targetMealLogId === 'string' && args.targetMealLogId.trim()
@@ -1038,10 +1038,10 @@ export function buildCookPayload(args: {
       ? args.expectedMealLogRowVersion
       : null;
   if (targetMealLogId && expectedRowVersion == null) {
-    throw new Error('加入已有餐时必须提供 expectedMealLogRowVersion。');
+    throw new Error('要加入已有餐食，请先重新打开这餐后再试。');
   }
   if (expectedRowVersion != null && !targetMealLogId) {
-    throw new Error('expectedMealLogRowVersion 不能脱离 targetMealLogId 使用。');
+    throw new Error('找不到要合并的餐食，请重新打开后再试。');
   }
   return {
     servings: Number(args.servings),
@@ -1178,7 +1178,7 @@ export function buildRecipeIngredientAvailabilityMap(card: RecipeCardViewModel) 
 }
 
 export function buildShoppingDraftSourceLabel(source: RecipeShoppingDraftSource) {
-  return source === 'shortage' ? '缺料' : source === 'existing' ? '已有食材' : '自定义';
+  return source === 'shortage' ? '缺少食材' : source === 'existing' ? '已有食材' : '自定义';
 }
 
 export function buildShoppingRequirementLabel(requirement: RecipeShoppingRequirement) {

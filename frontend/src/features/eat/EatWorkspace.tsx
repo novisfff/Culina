@@ -21,7 +21,7 @@ export type EatWorkspaceProps = {
 };
 
 function returnLabel(view: AppNavigationService['state']['eat']['baseView']): string {
-  if (view === 'history') return '返回吃过的';
+  if (view === 'history') return '返回用餐记录';
   return '返回发现';
 }
 
@@ -217,7 +217,7 @@ function renderResolvedTask(
         <StateBlock
           status="error"
           title={resolved.label}
-          description="内容暂时加载失败，请返回后稍后再试。这不一定表示内容已被删除。"
+          description="内容暂时加载失败，请返回后重试。这不一定表示内容已被删除。"
         />
       </EatTaskShell>
     );
@@ -226,11 +226,11 @@ function renderResolvedTask(
   if (resolved.kind === 'recipe-food-missing' || resolved.kind === 'recipe-food-ambiguous') {
     return (
       <RelationErrorTask
-        title="这份做法与家常菜的关联需要修复"
+        title="这份做法对应的家常菜信息不完整"
         description={
           resolved.kind === 'recipe-food-ambiguous'
-            ? `「${resolved.recipe.title}」关联了多道家常菜，目前不能开始做或写入菜单。`
-            : `「${resolved.recipe.title}」尚未关联唯一家常菜，目前只能查看说明，不能开始做。`
+            ? `「${resolved.recipe.title}」对应了多道家常菜，暂时不能开始做或加入餐食计划。`
+            : `「${resolved.recipe.title}」还没有对应的家常菜，暂时只能查看说明，不能开始做。`
         }
         returnLabel={backLabel}
         headingRef={options.headingRef}
@@ -256,7 +256,7 @@ function renderResolvedTask(
   if (resolved.kind === 'plan-not-found') {
     return (
       <RelationErrorTask
-        title="这个菜单项已经不存在"
+        title="这条餐食安排已不存在"
         description="它可能已被家庭成员删除或更新。"
         returnLabel={backLabel}
         headingRef={options.headingRef}
@@ -307,7 +307,7 @@ function renderResolvedTask(
         <StateBlock
           status="empty"
           title={resolved.food.name}
-          description="家常菜任务内容将由上层装配。"
+          description="暂时无法显示详细内容，请返回后重试。"
         />
       </EatTaskShell>
     );
@@ -324,7 +324,7 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        <StateBlock status="empty" title="做法" description="做法任务内容将由上层装配。" />
+        <StateBlock status="empty" title="做法" description="暂时无法显示详细内容，请返回后重试。" />
       </EatTaskShell>
     );
   }
@@ -335,7 +335,7 @@ function renderResolvedTask(
     }
     return (
       <EatTaskShell
-        title={resolved.item.food_name || '菜单项'}
+        title={resolved.item.food_name || '餐食安排'}
         headingRef={options.headingRef}
         onClose={onClose}
         completionPending={pending}
@@ -343,7 +343,7 @@ function renderResolvedTask(
         <StateBlock
           status="empty"
           title={resolved.item.food_name}
-          description="菜单项任务内容将由上层装配。"
+          description="暂时无法显示详细内容，请返回后重试。"
         />
       </EatTaskShell>
     );
@@ -363,7 +363,7 @@ function renderResolvedTask(
         <StateBlock
           status="empty"
           title={resolved.recipe.title}
-          description="做菜任务内容将由上层装配。"
+          description="暂时无法显示详细内容，请返回后重试。"
         />
       </EatTaskShell>
     );
@@ -380,7 +380,7 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        <StateBlock status="empty" title="记录一餐" description="新建这餐的内容将由上层装配。" />
+        <StateBlock status="empty" title="记录一餐" description="记录表单暂时无法使用，请返回后重试。" />
       </EatTaskShell>
     );
   }
@@ -396,7 +396,7 @@ function renderResolvedTask(
         onClose={onClose}
         completionPending={pending}
       >
-        <StateBlock status="empty" title="这餐详情" description="这餐任务内容将由上层装配。" />
+        <StateBlock status="empty" title="这餐详情" description="暂时无法显示详细内容，请返回后重试。" />
       </EatTaskShell>
     );
   }

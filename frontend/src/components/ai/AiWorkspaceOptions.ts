@@ -7,23 +7,23 @@ export interface AiWelcomeSuggestion {
 export const AI_WELCOME_SUGGESTIONS: AiWelcomeSuggestion[] = [
   {
     title: '🥬 新增食材',
-    desc: '整理新的家庭常用食材档案',
+    desc: '添加新的家庭常用食材',
     prompt: '帮我新增一个食材：秋葵，默认单位按根，常温保存',
   },
   {
-    title: '📦 食材入库',
-    desc: '把刚买回来的食材快速录入库存',
-    prompt: '把今天买的鸡蛋 2 盒和牛奶 3 瓶录入库存',
+    title: '📦 记录购买的食材',
+    desc: '把刚买回来的食材快速加入库存',
+    prompt: '把今天买的鸡蛋 2 盒和牛奶 3 瓶加入库存',
   },
   {
     title: '🗓️ 修改计划',
-    desc: '调整已有菜单计划的日期或内容',
+    desc: '调整已有餐食计划的日期或内容',
     prompt: '把明天晚餐改成番茄炒蛋',
   },
   {
-    title: '🛒 完成购物项',
-    desc: '把已经买到的采购项标记完成',
-    prompt: '把购物清单里的鸡蛋标记为已买',
+    title: '🛒 完成待买内容',
+    desc: '把已经买到的内容标记为已买',
+    prompt: '把采购清单里的鸡蛋标记为已买',
   },
   {
     title: '🍲 修改菜谱',

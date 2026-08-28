@@ -97,7 +97,7 @@ describe('MealComposer', () => {
   it('shows no target control for zero candidates', () => {
     renderComposer({ candidates: [], candidateMode: 'none' });
     expect(screen.queryByText(/记在一起|另记一顿/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/和今晚这顿一起记吗/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/要和这顿晚餐记在一起吗/)).not.toBeInTheDocument();
   });
 
   it('shows one inline confirmation with names and image', () => {
@@ -112,7 +112,7 @@ describe('MealComposer', () => {
       target: { kind: 'existing', meal_log_id: 'meal-1', expected_row_version: 2 },
     });
 
-    expect(screen.getByText('和今晚这顿一起记吗？')).toBeVisible();
+    expect(screen.getByText('要和这顿晚餐记在一起吗？')).toBeVisible();
     expect(screen.getByText('番茄炒蛋、青菜')).toBeVisible();
     expect(screen.getByRole('img', { name: /今晚这顿/ })).toBeVisible();
     expect(screen.getByRole('button', { name: '记在一起' })).toBeVisible();
@@ -185,7 +185,7 @@ describe('MealComposer', () => {
     const list = screen.getByRole('listbox', { name: '候选餐列表' });
     expect(within(list).getAllByRole('option')).toHaveLength(3);
     expect(list.querySelectorAll('.meal-composer-candidate-option-indicator')).toHaveLength(3);
-    expect(within(list).getByRole('option', { name: '另记一顿' })).toHaveTextContent('不合并到已有记录');
+    expect(within(list).getByRole('option', { name: '另记一顿' })).toHaveTextContent('和已有记录分开');
   });
 
   it('shows a food mosaic for a candidate without a meal photo', () => {
@@ -233,7 +233,7 @@ describe('MealComposer', () => {
       target: { kind: 'new' },
     });
 
-    expect(screen.getByText('要和这次加餐记在一起吗？')).toBeVisible();
+    expect(screen.getByText('要和这顿加餐记在一起吗？')).toBeVisible();
     expect(screen.getByRole('button', { name: '另记一顿' })).toBeVisible();
     expect(screen.getByRole('button', { name: '记在一起' })).toBeVisible();
   });
@@ -264,7 +264,7 @@ describe('MealComposer', () => {
       onFoodsChange,
     });
 
-    await user.click(screen.getByRole('option', { name: "按‘酸汤牛肉’记下" }));
+    await user.click(screen.getByRole('option', { name: '按“酸汤牛肉”记下' }));
     expect(screen.getByRole('button', { name: '家里做' })).toBeVisible();
     expect(screen.getByRole('button', { name: '外卖' })).toBeVisible();
     expect(screen.getByRole('button', { name: '外食' })).toBeVisible();
@@ -346,7 +346,7 @@ describe('MealComposer', () => {
       onFoodsChange,
     });
 
-    await user.click(screen.getByRole('option', { name: "按‘酸汤牛肉’记下" }));
+    await user.click(screen.getByRole('option', { name: '按“酸汤牛肉”记下' }));
     expect(screen.getByRole('button', { name: '家里做' })).toBeVisible();
 
     const input = screen.getByRole('searchbox', { name: '搜索食物' });
@@ -421,8 +421,8 @@ describe('MealComposer', () => {
   });
 
   it('shows validation or server errors inline', () => {
-    renderComposer({ error: '至少选择一道食物' });
-    expect(screen.getByRole('alert')).toHaveTextContent('至少选择一道食物');
+    renderComposer({ error: '请至少添加一种食物' });
+    expect(screen.getByRole('alert')).toHaveTextContent('请至少添加一种食物');
   });
 
   it('keeps primary controls at least 44px tall', () => {
@@ -484,7 +484,7 @@ describe('MealComposer', () => {
     expect(screen.getByRole('heading', { name: '添加食物' })).toBeVisible();
     expect(screen.getByText('已选 1 项')).toBeVisible();
     expect(screen.queryByText('吃了什么', { exact: true })).not.toBeInTheDocument();
-    expect(screen.getByText('本餐计划')).toBeVisible();
+    expect(screen.getByText('餐食计划')).toBeVisible();
     expect(screen.getByRole('button', { name: '移除番茄炒蛋' })).toHaveTextContent('×');
     expect(screen.getByText('列表中的计划食物会同时标记为已完成。')).toBeVisible();
   });

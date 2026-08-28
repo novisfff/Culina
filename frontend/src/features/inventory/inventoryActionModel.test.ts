@@ -163,7 +163,7 @@ describe('buildInventoryActionGroups', () => {
       laterBatchCount: 0,
       totalBatchCount: 5,
       title: '番茄需要处理',
-      detail: '3 批已过期，2 批 3 天内到期',
+      detail: '3 项库存已过期，2 项库存将在 3 天内到期',
       primaryAction: 'manage_expiry',
     });
     if (group?.kind === 'expiry') {
@@ -405,7 +405,7 @@ describe('buildInventoryActionGroups', () => {
       unit: '个',
       threshold: 6,
       title: '鸡蛋库存不足',
-      detail: '现有 4 个，补货线 6 个',
+      detail: '当前 4 个，低于提醒值 6 个',
       primaryAction: 'add_shopping',
     });
   });
@@ -685,7 +685,7 @@ describe('buildInventoryActionGroups', () => {
     });
     expect(eggsGroup).toMatchObject({
       title: '鸡蛋库存不足',
-      detail: '现有 4 个，补货线 6 个',
+      detail: '当前 4 个，低于提醒值 6 个',
     });
   });
 
@@ -768,7 +768,7 @@ describe('buildInventoryActionGroups', () => {
       totalBatchCount: 1,
     });
     if (group?.kind === 'expiry') {
-      expect(group.detail).toContain('只记录整体有无');
+      expect(group.detail).toContain('只记录是否有库存');
       expect(group.batches).toHaveLength(1);
       expect(group.batches[0]?.target).toEqual({
         targetKind: 'ingredient_inventory_state',

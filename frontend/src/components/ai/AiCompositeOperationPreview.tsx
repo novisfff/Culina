@@ -24,32 +24,32 @@ function compositeStepActionLabel(value: unknown) {
       return '删除';
     case 'set_status':
     case 'set_done':
-      return '状态变更';
+      return '更新状态';
     case 'set_favorite':
       return '收藏';
     case 'restock':
-      return '入库';
+      return '加入库存';
     case 'consume':
-      return '消耗';
+      return '扣减库存';
     case 'dispose':
-      return '销毁';
+      return '丢弃';
     case 'apply':
       return '应用';
     case 'cook':
       return '做菜';
     default:
-      return typeof value === 'string' && value ? value : '操作';
+      return '其他变更';
   }
 }
 
 function compositeDomainLabel(value: unknown) {
   switch (value) {
     case 'ingredient':
-      return '食材档案';
+      return '食材信息';
     case 'inventory':
       return '库存';
     case 'food':
-      return '食物资料';
+      return '食物信息';
     case 'recipe':
       return '菜谱';
     case 'recipe_cook':
@@ -57,22 +57,22 @@ function compositeDomainLabel(value: unknown) {
     case 'meal_plan':
       return '餐食计划';
     case 'shopping_list':
-      return '购物清单';
+      return '采购清单';
     case 'meal_log':
       return '餐食记录';
     default:
-      return asText(value) || '业务步骤';
+      return '相关内容';
   }
 }
 
 function compositeEntityLabel(value: unknown) {
   switch (value) {
     case 'Ingredient':
-      return '食材档案';
+      return '食材信息';
     case 'InventoryItem':
-      return '库存批次';
+      return '库存';
     case 'Food':
-      return '食物资料';
+      return '食物信息';
     case 'Recipe':
       return '菜谱';
     case 'RecipeCookLog':
@@ -80,11 +80,11 @@ function compositeEntityLabel(value: unknown) {
     case 'FoodPlanItem':
       return '餐食计划';
     case 'ShoppingListItem':
-      return '购物项';
+      return '待买内容';
     case 'MealLog':
       return '餐食记录';
     default:
-      return asText(value) || '业务数据';
+      return '相关内容';
   }
 }
 
@@ -116,11 +116,11 @@ function isDangerousCompositeStep(step: Record<string, unknown>) {
 
 function compositeImpactKind(step: Record<string, unknown>) {
   const impact = getImpact(step);
-  if (impact.creates) return '新增业务数据';
-  if (impact.updates) return '更新业务数据';
-  if (impact.deletes) return '删除业务数据';
-  if (impact.operationCount) return '处理库存或批量操作';
-  return '处理业务数据';
+  if (impact.creates) return '新增内容';
+  if (impact.updates) return '更新内容';
+  if (impact.deletes) return '删除内容';
+  if (impact.operationCount) return '库存变更';
+  return '内容变更';
 }
 
 function compositeStepUserTitle(step: Record<string, unknown>, index: number) {
@@ -137,19 +137,19 @@ function compositeDependencyText(step: Record<string, unknown>) {
   if (dependencyRefs.length > 0) {
     const labels = Array.from(new Set(dependencyRefs.map((item) => asText(item.stepId)).filter(Boolean)));
     return labels.length > 0
-      ? `使用前面步骤创建或更新的结果：${labels.map((_, index) => `上一步结果 ${index + 1}`).join('、')}`
-      : '使用前面步骤创建或更新的结果';
+      ? `沿用前面步骤的结果：${labels.map((_, index) => `前一步结果 ${index + 1}`).join('、')}`
+      : '沿用前面步骤的结果';
   }
-  return `等待前面 ${dependsOn.length} 步完成后执行`;
+  return `等待前面 ${dependsOn.length} 步完成后继续`;
 }
 
 function compositeStepImpactChips(step: Record<string, unknown>) {
   const impact = getImpact(step);
   const chips = [compositeImpactKind(step)];
   const operationCount = asNumber(impact.operationCount, 0);
-  if (operationCount > 0) chips.push(`${operationCount} 个子操作`);
-  if (impact.usesDependencyResult) chips.push('使用前置结果');
-  if (isDangerousCompositeStep(step)) chips.push('需重点核对');
+  if (operationCount > 0) chips.push(`${operationCount} 项变更`);
+  if (impact.usesDependencyResult) chips.push('沿用前一步结果');
+  if (isDangerousCompositeStep(step)) chips.push('需要重点核对');
   return chips;
 }
 
@@ -162,25 +162,25 @@ function compositeSummaryItems(steps: Record<string, unknown>[]) {
   const dangerCount = steps.filter(isDangerousCompositeStep).length;
   return [
     { label: '步骤', value: `${steps.length} 步` },
-    { label: '涉及领域', value: domains.size > 0 ? Array.from(domains).join('、') : '未识别' },
-    { label: '写入影响', value: [`新增 ${creates}`, `更新 ${updates}`, `删除 ${deletes}`, `库存 ${inventoryOperations}`].join(' · ') },
-    { label: '风险步骤', value: dangerCount > 0 ? `${dangerCount} 步需核对` : '无高风险' },
+    { label: '涉及内容', value: domains.size > 0 ? Array.from(domains).join('、') : '相关内容' },
+    { label: '变更概览', value: [`新增 ${creates}`, `更新 ${updates}`, `删除 ${deletes}`, `库存变更 ${inventoryOperations}`].join(' · ') },
+    { label: '需要核对', value: dangerCount > 0 ? `${dangerCount} 步` : '无需特别核对' },
   ];
 }
 
 function compositeRiskText(steps: Record<string, unknown>[]) {
   const dangerCount = steps.filter(isDangerousCompositeStep).length;
   if (dangerCount > 0) {
-    return `包含 ${dangerCount} 个高风险步骤，请重点核对删除、销毁或批量操作。任一步失败时会回滚已完成步骤。`;
+    return `包含 ${dangerCount} 个需要重点核对的步骤，请留意删除、丢弃或一次处理多项内容。中途失败时，已完成的改动会自动撤回。`;
   }
-  return '未检测到删除、销毁或大批量更新步骤。确认后会按顺序执行，任一步失败时回滚已完成步骤。';
+  return '未检测到删除、丢弃或大量更新。确认后会按顺序处理；中途失败时，已完成的改动会自动撤回。';
 }
 
 function compositeResolvedTitle(status: string) {
-  if (status === 'approved') return '复合操作已执行';
-  if (status === 'rejected') return '未执行的复合操作草稿';
-  if (status === 'expired') return '已过期的复合操作草稿';
-  return '待确认复合操作';
+  if (status === 'approved') return '这组变更已完成';
+  if (status === 'rejected') return '这组变更未执行';
+  if (status === 'expired') return '这组待确认变更已过期';
+  return '一组待确认变更';
 }
 
 function compositeResolvedStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -192,9 +192,9 @@ function compositeResolvedStatus(status: string): 'approved' | 'rejected' | 'exp
 
 export function validateCompositeOperationDraftForSubmit(draft: Record<string, unknown>) {
   const steps = getCompositeSteps(draft);
-  if (steps.length === 0) return '复合操作至少需要 1 个步骤';
+  if (steps.length === 0) return '这组变更至少需要 1 步';
   const invalidStep = steps.find((step, index) => !compositeStepUserTitle(step, index).trim() || !(asText(step.actionLabel) || compositeStepActionLabel(step.action)).trim());
-  if (invalidStep) return '每个复合操作步骤都需要用户可读标题和动作标签';
+  if (invalidStep) return '每一步都需要填写标题和操作名称';
   return '';
 }
 
@@ -212,23 +212,22 @@ export function AiCompositeOperationPreview({
   const hasDanger = steps.some(isDangerousCompositeStep);
   const isResolved = status !== 'pending';
   const summaryCopy = readonly
-    ? '保留执行结果摘要，便于回看每一步影响。'
-    : '第一阶段只支持整体确认或拒绝；子步骤暂不单独编辑。';
+    ? '这里保留变更结果，方便回看每一步影响。'
+    : '当前只能整体确认或拒绝这组变更。';
   const executionCopy = readonly
-    ? '这是一份只读的执行摘要。'
-    : '请按顺序核对每一步影响。确认后会按顺序执行已接入的基础业务步骤，任一步失败都会回滚已完成步骤。';
+    ? '这里只展示变更结果，不能再修改。'
+    : '请按顺序核对每一步影响。确认后会依次执行这些变更；中途失败时，已完成的改动会自动撤回。';
   const stepSection = (
     <AiDraftSection
-      title={readonly ? '执行结果' : '执行顺序'}
-      description={steps.length > 0 ? '按下方顺序依次执行，依赖步骤会等待前置结果。' : '当前草稿没有可执行步骤。'}
+      title={readonly ? '变更结果' : '变更顺序'}
+      description={steps.length > 0 ? '会按下方顺序执行；需要前一步结果的内容会在前一步完成后继续。' : '当前没有可执行的步骤。'}
       className="ai-composite-operation-steps-section"
     >
-      <AiDraftImpactNote tone="plan" title="执行说明" className="ai-composite-operation-note">
+      <AiDraftImpactNote tone="plan" title="变更说明" className="ai-composite-operation-note">
         <p>{executionCopy}</p>
       </AiDraftImpactNote>
       <div className="ai-composite-operation-list">
         {steps.length > 0 ? steps.map((step, index) => {
-          const dependencyRefs = getDependencyRefs(step);
           const dependencyText = compositeDependencyText(step);
           const dangerous = isDangerousCompositeStep(step);
           const actionLabel = asText(step.actionLabel) || compositeStepActionLabel(step.action);
@@ -248,38 +247,27 @@ export function AiCompositeOperationPreview({
                   {dependencyText ? <p className="ai-composite-operation-step-dependency">{dependencyText}</p> : null}
                   <div className="ai-composite-operation-step-impact" aria-label="每步影响">
                     {compositeStepImpactChips(step).map((chip) => (
-                      <span className={chip === '需重点核对' ? 'is-danger' : ''} key={chip}>{chip}</span>
+                      <span className={chip === '需要重点核对' ? 'is-danger' : ''} key={chip}>{chip}</span>
                     ))}
                   </div>
                   <details className="ai-composite-operation-technical-details">
-                    <summary>工程详情</summary>
+                    <summary>查看影响范围</summary>
                     <div className="ai-composite-operation-step-meta">
-                      <span>步骤 ID · {asText(step.stepId) || `step-${index + 1}`}</span>
-                      <span>影响对象 · {compositeEntityLabel(step.affectedEntityType)}</span>
-                      {getDependsOn(step).length > 0 ? <span>依赖步骤 · {getDependsOn(step).join('、')}</span> : null}
+                      <span>影响范围 · {compositeEntityLabel(step.affectedEntityType)}</span>
                     </div>
-                    {dependencyRefs.length > 0 ? (
-                      <div className="ai-composite-operation-step-deps" aria-label="依赖引用">
-                        {dependencyRefs.map((item, depIndex) => (
-                          <span key={`${asText(item.stepId)}-${asText(item.path)}-${depIndex}`}>
-                            {asText(item.stepId)} · {asText(item.path)}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
                   </details>
                 </div>
               </div>
               {dangerous ? (
                 <AiDraftImpactNote tone="danger" title="需要重点核对" className="ai-composite-operation-danger-impact">
-                  <p>此步骤包含删除、销毁或批量处理影响，确认后会纳入整体回滚边界。</p>
+                  <p>这一步会删除、丢弃或一次变更多项内容，确认后会一并执行。</p>
                 </AiDraftImpactNote>
               ) : null}
             </AiDraftItemCard>
           );
         }) : (
-          <AiDraftImpactNote tone="warning" title="暂无步骤预览">
-            <p>当前草稿没有可展示的分步影响信息。</p>
+          <AiDraftImpactNote tone="warning" title="还没有步骤预览">
+            <p>当前没有可展示的分步影响信息。</p>
           </AiDraftImpactNote>
         )}
       </div>
@@ -287,7 +275,7 @@ export function AiCompositeOperationPreview({
   );
   const riskSection = (
     <AiDraftSection
-      title="风险与回滚"
+      title="风险提示"
       description={compositeRiskText(steps)}
       className="ai-composite-operation-risk-section"
     >
@@ -297,7 +285,7 @@ export function AiCompositeOperationPreview({
         className={`ai-composite-risk-card${hasDanger ? ' is-danger' : ''}`}
       >
         <p>{compositeRiskText(steps)}</p>
-        <p className="ai-composite-risk-label">{hasDanger ? '危险步骤' : '可整体确认'}</p>
+        <p className="ai-composite-risk-label">{hasDanger ? '需要重点核对' : '可整体确认'}</p>
       </AiDraftImpactNote>
     </AiDraftSection>
   );

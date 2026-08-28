@@ -4,16 +4,10 @@ import { resolveMediaUrl } from '../../lib/assets';
 import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import type { AiResourceKind, AiResourceOption, AiResourceOptionLoader } from './AiApprovalFields';
 import { validateCompositeOperationDraftForSubmit } from './AiCompositeOperationPreview';
-import {
-  inventoryOperationDraftFromRecord,
-  validateInventoryOperationDraftForSubmit,
-} from './aiInventoryOperationDraftModel';
+import { inventoryOperationDraftFromRecord, validateInventoryOperationDraftForSubmit } from './aiInventoryOperationDraftModel';
 import { asDraftArray, asNumber, asText, draftNumberFromInput, draftNumberInputValue, nullableDraftNumberFromInput } from './aiDraftValueUtils';
 import { validateInventoryIntakeDraftForSubmit } from './AiInventoryIntakeApproval';
-import {
-  validateIngredientTrackingTransitionForSubmit,
-  validateMealCompositionCorrectionForSubmit,
-} from './AiSpecializedApprovalEditors';
+import { validateIngredientTrackingTransitionForSubmit, validateMealCompositionCorrectionForSubmit } from './AiSpecializedApprovalEditors';
 import { AiDraftImpactNote } from './draft-ui/AiDraftImpactNote';
 import { AiDraftRenderer } from './draft-ui/AiDraftRenderer';
 import { normalizeAiDraftTagValues } from './draft-ui/AiDraftTagInput';
@@ -37,12 +31,12 @@ const FOOD_TYPE_OPTIONS = [
 ];
 const READY_LIKE_FOOD_TYPES = new Set(['readyMade', 'instant', 'packaged']);
 const INVENTORY_ACTION_OPTIONS = [
-  { value: 'consume', label: '消耗' },
-  { value: 'dispose', label: '销毁' },
+  { value: 'consume', label: '扣减库存' },
+  { value: 'dispose', label: '丢弃' },
 ];
 const SHOPPING_QUANTITY_MODE_OPTIONS = [
   { value: 'track_quantity', label: '记录数量' },
-  { value: 'not_track_quantity', label: '只提醒需要补充' },
+  { value: 'not_track_quantity', label: '只记录是否有库存' },
 ];
 const SHOPPING_DONE_OPTIONS = [
   { value: 'false', label: '待买' },
@@ -63,8 +57,26 @@ function blankRecipeDraft(): AiGeneratedRecipeDraft {
     servings: 2,
     prep_minutes: 20,
     difficulty: 'easy',
-    ingredient_items: [{ ingredient_id: null, ingredient_name: '', quantity: 1, unit: '份', note: '' }],
-    steps: [{ title: '备菜', text: '', icon: 'pan', summary: '', estimated_minutes: 5, tip: '', key_points: [] }],
+    ingredient_items: [
+      {
+        ingredient_id: null,
+        ingredient_name: '',
+        quantity: 1,
+        unit: '份',
+        note: '',
+      },
+    ],
+    steps: [
+      {
+        title: '备菜',
+        text: '',
+        icon: 'pan',
+        summary: '',
+        estimated_minutes: 5,
+        tip: '',
+        key_points: [],
+      },
+    ],
     tips: '',
     scene_tags: [],
     media_ids: [],
@@ -107,8 +119,7 @@ function draftContainsDestructiveAction(value: unknown): boolean {
   const draft = value as Record<string, unknown>;
   if (['delete', 'dispose'].includes(asText(draft.action))) return true;
 
-  return ['operations', 'items', 'stepPreviews', 'steps']
-    .some((key) => asDraftArray(draft[key]).some((item) => draftContainsDestructiveAction(item)));
+  return ['operations', 'items', 'stepPreviews', 'steps'].some((key) => asDraftArray(draft[key]).some((item) => draftContainsDestructiveAction(item)));
 }
 
 function joinTextList(value: unknown) {
@@ -150,35 +161,31 @@ function validateRecipeDraftForSubmit(recipe: AiGeneratedRecipeDraft) {
     return '份量需要大于 0';
   }
   if (!Array.isArray(recipe.ingredient_items) || recipe.ingredient_items.length === 0) {
-    return '菜谱至少需要 1 个食材';
+    return '菜谱至少需要 1 种食材';
   }
   const invalidIngredient = recipe.ingredient_items.find((item) => !item.ingredient_id || !item.ingredient_name.trim());
   if (invalidIngredient) {
-    return '菜谱食材必须从食材库选择；缺失食材请先创建食材档案';
+    return '请选择菜谱中的食材；找不到的食材请先添加';
   }
   const invalidQuantity = recipe.ingredient_items.find((item) => typeof item.quantity !== 'number' || !Number.isFinite(item.quantity) || item.quantity <= 0);
   if (invalidQuantity) {
     return '菜谱食材数量需要大于 0';
   }
   if (!Array.isArray(recipe.steps) || recipe.steps.length === 0) {
-    return '菜谱至少需要 1 个步骤';
+    return '菜谱至少需要 1 步';
   }
   const invalidStep = recipe.steps.find((step) => !step.title.trim() && !step.text.trim());
   if (invalidStep) {
-    return '每个步骤至少需要填写标题或说明';
+    return '每一步至少需要填写标题或说明';
   }
   return '';
 }
 
 function validateRecipeOperationDraftForSubmit(draft: Record<string, unknown>) {
   const action = asText(draft.action);
-  const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload)
-    ? draft.payload as Record<string, unknown>
-    : {};
-  const before = typeof draft.before === 'object' && draft.before !== null && !Array.isArray(draft.before)
-    ? draft.before as Record<string, unknown>
-    : {};
-  if (!['create', 'update', 'delete'].includes(action)) return '菜谱操作类型不正确';
+  const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? (draft.payload as Record<string, unknown>) : {};
+  const before = typeof draft.before === 'object' && draft.before !== null && !Array.isArray(draft.before) ? (draft.before as Record<string, unknown>) : {};
+  if (!['create', 'update', 'delete'].includes(action)) return '这份菜谱变更无法识别，请重新生成后再试';
   if (action === 'delete') return '';
   return validateRecipeDraftForSubmit(recipeDraftFromRecord(payload, before));
 }
@@ -189,23 +196,19 @@ function validateIngredientProfileDraftForSubmit(draft: Record<string, unknown>)
   }
   const operations = asDraftArray(draft.operations);
   if (operations.length > 0) {
-    if (operations.length < 2) return '批量创建食材至少需要 2 项';
-    if (operations.length > 5) return '批量创建食材一次不能超过 5 项';
+    if (operations.length < 2) return '批量添加食材至少需要 2 项';
+    if (operations.length > 5) return '一次最多添加 5 项食材';
     for (const [index, operation] of operations.entries()) {
       if (asText(operation.action) !== 'create') {
-        return `第 ${index + 1} 个食材只能使用新增操作`;
+        return `第 ${index + 1} 项食材需要选择“新增”`;
       }
-      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload)
-        ? operation.payload as Record<string, unknown>
-        : {};
+      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload) ? (operation.payload as Record<string, unknown>) : {};
       const error = validateIngredientProfilePayloadForSubmit(payload);
-      if (error) return `第 ${index + 1} 个食材：${error}`;
+      if (error) return `第 ${index + 1} 项食材：${error}`;
     }
     return '';
   }
-  const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload)
-    ? draft.payload as Record<string, unknown>
-    : draft;
+  const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? (draft.payload as Record<string, unknown>) : draft;
   return validateIngredientProfilePayloadForSubmit(payload);
 }
 
@@ -217,7 +220,7 @@ function validateIngredientProfilePayloadForSubmit(payload: Record<string, unkno
     return '默认单位不能为空';
   }
   if (!asText(payload.default_storage).trim()) {
-    return '默认保存位置不能为空';
+    return '默认存放位置不能为空';
   }
   if (asText(payload.default_expiry_mode, 'none') === 'days') {
     const days = payload.default_expiry_days;
@@ -228,7 +231,7 @@ function validateIngredientProfilePayloadForSubmit(payload: Record<string, unkno
   const threshold = payload.default_low_stock_threshold;
   if (threshold !== null && threshold !== undefined && threshold !== '') {
     if (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold <= 0) {
-      return '低库存阈值需要大于 0；如果不需要提醒，请留空';
+      return '低库存提醒值需要大于 0；如果不需要提醒，请留空';
     }
   }
   const conversions = asDraftArray(payload.unit_conversions);
@@ -238,21 +241,15 @@ function validateIngredientProfilePayloadForSubmit(payload: Record<string, unkno
     return !unit || typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio <= 0;
   });
   if (invalidConversion) {
-    return '单位换算需要填写副单位，并且换算数量必须大于 0';
+    return '请填写其他单位和大于 0 的换算数量';
   }
   return '';
 }
 
 type RecipeCookSchemaVersion = 'recipe_cook_operation.v1' | 'recipe_cook_operation.v2' | 'unknown';
 
-function resolveRecipeCookSchemaVersion(
-  approval: AiApprovalRequest,
-  draft: Record<string, unknown>,
-): RecipeCookSchemaVersion {
-  const candidates = [
-    asText(draft.schemaVersion),
-    asText(approval.draft_schema_version),
-  ];
+function resolveRecipeCookSchemaVersion(approval: AiApprovalRequest, draft: Record<string, unknown>): RecipeCookSchemaVersion {
+  const candidates = [asText(draft.schemaVersion), asText(approval.draft_schema_version)];
   for (const candidate of candidates) {
     if (candidate === 'recipe_cook_operation.v1' || candidate === 'recipe_cook_operation.v2') {
       return candidate;
@@ -265,12 +262,9 @@ function resolveRecipeCookSchemaVersion(
   return 'unknown';
 }
 
-function validateRecipeCookDraftForSubmit(
-  draft: Record<string, unknown>,
-  schemaVersion: RecipeCookSchemaVersion,
-) {
+function validateRecipeCookDraftForSubmit(draft: Record<string, unknown>, schemaVersion: RecipeCookSchemaVersion) {
   if (schemaVersion !== 'recipe_cook_operation.v2') {
-    return '这份旧草稿需要刷新后重新确认';
+    return '这份做菜建议已过期，请刷新后重新确认';
   }
   const servings = draft.servings;
   if (typeof servings !== 'number' || !Number.isFinite(servings) || servings <= 0) {
@@ -281,18 +275,18 @@ function validateRecipeCookDraftForSubmit(
   }
   const mealType = asText(draft.mealType);
   if (!MEAL_TYPE_OPTIONS.some((option) => option.value === mealType)) {
-    return '餐别必须从固定选项中选择';
+    return '请选择早餐、午餐、晚餐或加餐';
   }
   const shortages = asDraftArray(draft.shortages);
   if (shortages.length > 0) {
-    return '当前做菜草稿包含缺料项，不能直接确认执行；请先补齐库存或调整份数后重新生成草稿';
+    return '这份做菜安排还缺食材，暂时不能确认；请先补充库存或调整份数，再重新生成安排';
   }
   const invalidPreviewItem = asDraftArray(draft.previewItems).find((item) => {
     const quantity = item.requested_quantity;
     return typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0 || !asText(item.unit).trim();
   });
   if (invalidPreviewItem) {
-    return '库存扣减预览里的数量和单位需要完整有效';
+    return '请补全库存扣减信息中的数量和单位';
   }
   return '';
 }
@@ -312,7 +306,7 @@ function mealPlanActionLabel(action: string) {
     case 'update':
       return '修改';
     case 'set_status':
-      return '状态变更';
+      return '更新状态';
     case 'delete':
       return '删除';
     default:
@@ -346,18 +340,18 @@ function mealPlanItemRecord(value: Record<string, unknown>) {
 
 function validateMealPlanItemForSubmit(item: Record<string, unknown>) {
   const record = mealPlanItemRecord(item);
-  if (!record.date.trim()) return '每个计划项都需要填写日期';
+  if (!record.date.trim()) return '每项餐食安排都需要填写日期';
   if (!MEAL_TYPE_OPTIONS.some((option) => option.value === record.mealType)) {
-    return '计划项餐别必须从固定选项中选择';
+    return '请选择餐食安排的餐别';
   }
   if (!record.foodId.trim() || !record.title.trim()) {
-    return '计划项食物必须从食物库选择；新食物请先创建食物资料';
+    return '请选择餐食安排中的食物；找不到的食物请先添加';
   }
   const invalidMissing = asDraftArray(item.missingIngredientItems ?? item.missing_ingredient_items).find((ingredient) => {
     const quantity = ingredient.quantity;
     return !asText(ingredient.name).trim() || typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0 || !asText(ingredient.unit).trim();
   });
-  if (invalidMissing) return '缺失食材需要填写名称、数量和单位，数量必须大于 0';
+  if (invalidMissing) return '缺少的食材需要填写名称、数量和单位，数量必须大于 0';
   return '';
 }
 
@@ -366,24 +360,22 @@ function validateMealPlanDraftForSubmit(draft: Record<string, unknown>) {
   if (operations.length > 0) {
     for (const operation of operations) {
       const action = asText(operation.action);
-      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload)
-        ? operation.payload as Record<string, unknown>
-        : {};
+      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload) ? (operation.payload as Record<string, unknown>) : {};
       if (action === 'create' || action === 'update') {
         const itemError = validateMealPlanItemForSubmit(payload);
         if (itemError) return itemError;
       } else if (action === 'set_status') {
         if (!['planned', 'cooked', 'skipped'].includes(asText(payload.status))) {
-          return '计划状态必须从固定选项中选择';
+          return '请选择计划状态';
         }
       } else if (action !== 'delete') {
-        return '未知的餐食计划操作';
+        return '这项餐食计划无法识别，请重新生成';
       }
     }
     return '';
   }
   const items = asDraftArray(draft.items);
-  if (items.length === 0) return '餐食计划至少需要 1 个计划项';
+  if (items.length === 0) return '餐食计划至少需要 1 项安排';
   for (const item of items) {
     const itemError = validateMealPlanItemForSubmit(item);
     if (itemError) return itemError;
@@ -416,18 +408,18 @@ function shoppingListItemRecord(value: Record<string, unknown>) {
 function validateShoppingListItemForSubmit(item: Record<string, unknown>) {
   const record = shoppingListItemRecord(item);
   if (!record.ingredientId.trim() || !record.title.trim()) {
-    return '采购项食材必须从食材库选择；缺失食材请先创建食材档案';
+    return '请选择采购清单中的食材；找不到的食材请先添加';
   }
   if (!SHOPPING_QUANTITY_MODE_OPTIONS.some((option) => option.value === record.quantityMode)) {
-    return '采购数量模式必须从固定选项中选择';
+    return '请选择采购数量的记录方式';
   }
   if (record.quantityMode === 'not_track_quantity') {
-    return record.displayLabel.trim() ? '' : '只提醒需要补充时，采购表达不能为空';
+    return record.displayLabel.trim() ? '' : '请填写需要补充的内容';
   }
   if (typeof record.quantity !== 'number' || !Number.isFinite(record.quantity) || record.quantity <= 0) {
     return '采购数量需要大于 0';
   }
-  if (!record.unit.trim()) return '记录数量时，采购单位不能为空';
+  if (!record.unit.trim()) return '请填写采购单位';
   return '';
 }
 
@@ -436,22 +428,20 @@ function validateShoppingListDraftForSubmit(draft: Record<string, unknown>) {
   if (operations.length > 0) {
     for (const operation of operations) {
       const action = asText(operation.action);
-      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload)
-        ? operation.payload as Record<string, unknown>
-        : {};
+      const payload = typeof operation.payload === 'object' && operation.payload !== null && !Array.isArray(operation.payload) ? (operation.payload as Record<string, unknown>) : {};
       if (action === 'create' || action === 'update') {
         const itemError = validateShoppingListItemForSubmit(payload);
         if (itemError) return itemError;
       } else if (action === 'set_done') {
-        if (typeof payload.done !== 'boolean') return '采购状态必须从固定选项中选择';
+        if (typeof payload.done !== 'boolean') return '请选择采购状态';
       } else if (action !== 'delete') {
-        return '未知的购物清单操作';
+        return '这项采购清单变更无法识别，请重新生成';
       }
     }
     return '';
   }
   const items = asDraftArray(draft.items);
-  if (items.length === 0) return '购物清单至少需要 1 个采购项';
+  if (items.length === 0) return '采购清单至少需要 1 项内容';
   for (const item of items) {
     const itemError = validateShoppingListItemForSubmit(item);
     if (itemError) return itemError;
@@ -482,10 +472,10 @@ function validateFoodProfilePayloadForSubmit(payload: Record<string, unknown>) {
   const record = foodProfileRecord(payload);
   if (!record.name.trim()) return '食物名称不能为空';
   if (!FOOD_TYPE_OPTIONS.some((option) => option.value === record.type)) {
-    return '食物类型必须从固定选项中选择';
+    return '请选择食物类型';
   }
   const invalidMealType = record.suitableMealTypes.find((mealType) => !MEAL_TYPE_OPTIONS.some((option) => option.value === mealType));
-  if (invalidMealType) return '适合餐别必须从固定选项中选择';
+  if (invalidMealType) return '请选择有效的餐别';
   return '';
 }
 
@@ -506,14 +496,10 @@ function normalizeFoodProfilePayload(payload: Record<string, unknown>) {
 function validateFoodProfileDraftForSubmit(draft: Record<string, unknown>) {
   const action = asText(draft.action);
   if (action === 'set_favorite') {
-    const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload)
-      ? draft.payload as Record<string, unknown>
-      : {};
-    return typeof payload.favorite === 'boolean' ? '' : '收藏状态必须从固定选项中选择';
+    const payload = typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? (draft.payload as Record<string, unknown>) : {};
+    return typeof payload.favorite === 'boolean' ? '' : '请选择是否收藏';
   }
-  const payload = action
-    ? (typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? draft.payload as Record<string, unknown> : {})
-    : draft;
+  const payload = action ? (typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? (draft.payload as Record<string, unknown>) : {}) : draft;
   return validateFoodProfilePayloadForSubmit(payload);
 }
 
@@ -538,7 +524,7 @@ function validateMealLogDraftForSubmit(draft: Record<string, unknown>) {
   if (action === 'update_composition') return validateMealCompositionCorrectionForSubmit(draft);
   if (action === 'rate_food') {
     const ratings = asDraftArray((draft.payload as Record<string, unknown> | undefined)?.foodEntryRatings);
-    if (ratings.length === 0) return '餐食评分至少需要 1 个食物项';
+    if (ratings.length === 0) return '餐食评分至少需要 1 项食物';
     const invalidRating = ratings.find((item) => {
       const rating = item.rating;
       return typeof rating !== 'number' || !Number.isFinite(rating) || rating < 1 || rating > 5;
@@ -546,28 +532,26 @@ function validateMealLogDraftForSubmit(draft: Record<string, unknown>) {
     return invalidRating ? '评分需要在 1 到 5 分之间' : '';
   }
   if (action === 'update_details') return '';
-  const record = action === 'create'
-    ? (typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? draft.payload as Record<string, unknown> : {})
-    : draft;
+  const record = action === 'create' ? (typeof draft.payload === 'object' && draft.payload !== null && !Array.isArray(draft.payload) ? (draft.payload as Record<string, unknown>) : {}) : draft;
   if (!asText(record.date).trim()) return '餐食日期不能为空';
   if (!MEAL_TYPE_OPTIONS.some((option) => option.value === asText(record.mealType))) {
-    return '餐别必须从固定选项中选择';
+    return '请选择早餐、午餐、晚餐或加餐';
   }
   const foods = mealLogFoodsFromDraft(record.foods);
-  if (foods.length === 0) return '餐食记录至少需要 1 个食物项';
+  if (foods.length === 0) return '餐食记录至少需要 1 项食物';
   const invalidFood = foods.find((food) => !asText(food.foodId).trim() || !asText(food.name).trim());
-  if (invalidFood) return '餐食记录里的食物必须从食物库选择；新食物请先创建食物资料';
+  if (invalidFood) return '请选择餐食记录中的食物；找不到的食物请先添加';
   const invalidServing = foods.find((food) => typeof food.servings !== 'number' || !Number.isFinite(food.servings) || food.servings <= 0);
-  if (invalidServing) return '每个食物项份数需要大于 0';
+  if (invalidServing) return '每项食物的份数需要大于 0';
   for (const food of foods) {
     if (!food.deductStock) continue;
-    if (!READY_LIKE_FOOD_TYPES.has(food.foodType)) return '只有成品、速食或包装食品支持随餐食记录扣减库存';
-    if (!food.stockUnit) return `${food.name}尚未设置库存单位`;
+    if (!READY_LIKE_FOOD_TYPES.has(food.foodType)) return '只有成品、速食或包装食品可以在记录餐食时扣减库存';
+    if (!food.stockUnit) return `${food.name}未设置库存单位，请先补充。`;
     const parsed = parseFoodStockQuantity(food.stockQuantity, `${food.name}扣减数量`);
     if (parsed.error) return parsed.error;
     const currentQuantity = Number(food.stockCurrentQuantity);
     if (parsed.quantity !== null && Number.isFinite(currentQuantity) && parsed.quantity > currentQuantity) {
-      return `${food.name}当前最多只能扣减 ${food.stockCurrentQuantity}${food.stockUnit}`;
+      return `${food.name}当前最多只能扣减 ${food.stockCurrentQuantity} ${food.stockUnit}`;
     }
   }
   return '';
@@ -587,7 +571,7 @@ export function approvalStatusText(value: unknown) {
     case 'canceled':
       return '已取消';
     default:
-      return typeof value === 'string' ? value : '待确认';
+      return '待确认';
   }
 }
 
@@ -612,13 +596,54 @@ interface AiApprovalFailureSummary {
   hasConflictHint: boolean;
 }
 
+function approvalFailureCopy(value: unknown, fallback: string): string {
+  const text = asText(value).trim();
+  if (!text) return '';
+  // Backend failure payloads may contain operation ids, row versions, or other
+  // implementation details. Keep those out of the user-facing approval card.
+  return /操作\s*(?:ID|id)|ai[_-]op|row[_-]?version|operation[_-]?id|当前业务值|业务值|基线|版本冲突/.test(text) ? fallback : text;
+}
+
+// Approval metadata is generated by several backend workflows and older
+// versions still use internal terms such as “入库” and “购物清单”.  Keep the
+// API contract unchanged, but present one consistent vocabulary in the UI.
+function localizeApprovalCopy(value: unknown): string {
+  let text = asText(value);
+  if (!text) return '';
+  const replacements: Array<[string, string]> = [
+    ['确认应用购物清单变更', '确认应用采购清单变更'],
+    ['确认修改购物清单', '确认修改采购清单'],
+    ['确认添加购物清单', '确认添加采购清单'],
+    ['确认创建购物清单', '确认创建采购清单'],
+    ['入库并完成采购项', '加入库存并完成待买内容'],
+    ['仅完成采购项', '只记录已购买，不加入库存'],
+    ['直接入库', '直接加入库存'],
+    ['确认入库', '确认加入库存'],
+    ['统一入库', '统一加入库存'],
+    ['登记库存', '记录库存'],
+    ['确认库存处理', '确认库存变更'],
+    ['库存处理结果', '库存变更结果'],
+    ['库存处理内容', '库存变更'],
+    ['库存处理', '库存变更'],
+    ['购物清单项目', '采购清单内容'],
+    ['购物清单', '采购清单'],
+    ['采购项', '待买内容'],
+    ['菜单计划', '餐食计划'],
+    ['食物资料', '食物信息'],
+    ['食材档案', '食材信息'],
+  ];
+  for (const [from, to] of replacements) {
+    text = text.split(from).join(to);
+  }
+  return text;
+}
+
 function getApprovalFailureSummary(approval: AiApprovalRequest): AiApprovalFailureSummary | null {
   const value = approval.failure_summary;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const errorMessage = asText(value.errorMessage);
-  const failedOperationIds = Array.isArray(value.failedOperationIds)
-    ? value.failedOperationIds.map((item) => asText(item)).filter(Boolean)
-    : [];
+  const rawErrorMessage = asText(value.errorMessage);
+  const errorMessage = approvalFailureCopy(rawErrorMessage, '这项变更没有保存成功，请核对最新内容后重试。');
+  const failedOperationIds = Array.isArray(value.failedOperationIds) ? value.failedOperationIds.map((item) => asText(item)).filter(Boolean) : [];
   const failedOperationSummaries = Array.isArray(value.failedOperationSummaries)
     ? value.failedOperationSummaries
         .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item))
@@ -634,14 +659,12 @@ function getApprovalFailureSummary(approval: AiApprovalRequest): AiApprovalFailu
                   label: asText((item.currentValue as Record<string, unknown>).label),
                   summary: asText((item.currentValue as Record<string, unknown>).summary),
                   payload:
-                    typeof (item.currentValue as Record<string, unknown>).payload === 'object'
-                    && (item.currentValue as Record<string, unknown>).payload !== null
-                    && !Array.isArray((item.currentValue as Record<string, unknown>).payload)
-                      ? (item.currentValue as Record<string, unknown>).payload as Record<string, unknown>
+                    typeof (item.currentValue as Record<string, unknown>).payload === 'object' && (item.currentValue as Record<string, unknown>).payload !== null && !Array.isArray((item.currentValue as Record<string, unknown>).payload)
+                      ? ((item.currentValue as Record<string, unknown>).payload as Record<string, unknown>)
                       : null,
                 }
               : null,
-          recoveryHint: asText(item.recoveryHint),
+          recoveryHint: approvalFailureCopy(item.recoveryHint, '内容已更新，请按最新内容调整草稿后重试。'),
         }))
     : [];
   if (!errorMessage && failedOperationIds.length === 0 && failedOperationSummaries.length === 0) return null;
@@ -649,16 +672,11 @@ function getApprovalFailureSummary(approval: AiApprovalRequest): AiApprovalFailu
     errorMessage,
     failedOperationIds,
     failedOperationSummaries,
-    hasConflictHint: /版本|冲突|基线/.test(errorMessage),
+    hasConflictHint: /版本|冲突|基线|已变更|已更新/.test(rawErrorMessage),
   };
 }
 
-export type AiApprovalDecisionSubmit = (
-  approval: AiApprovalRequest,
-  decision: 'approved' | 'rejected',
-  values: Record<string, unknown>,
-  comment?: string,
-) => Promise<void> | void;
+export type AiApprovalDecisionSubmit = (approval: AiApprovalRequest, decision: 'approved' | 'rejected', values: Record<string, unknown>, comment?: string) => Promise<void> | void;
 
 export function ApprovalPanel({
   approval,
@@ -718,70 +736,64 @@ export function ApprovalPanel({
   }, [approval]);
 
   const currentApproval = approval;
+  const displayApprovalTitle = localizeApprovalCopy(currentApproval.title);
+  const displayApprovalInstruction = localizeApprovalCopy(currentApproval.instruction) || '请核对下面的内容后再确认。';
+  const displayApproveLabel = localizeApprovalCopy(currentApproval.approve_label);
+  const displayRejectLabel = localizeApprovalCopy(currentApproval.reject_label);
   const pendingButLocked = currentApproval.status === 'pending' && !canSubmit;
   const readonly = currentApproval.status !== 'pending' || pendingButLocked;
   const recipeApproval = isRecipeApproval(currentApproval);
   const failureSummary = getApprovalFailureSummary(currentApproval);
+  const approvalInstruction = approvalFailureCopy(displayApprovalInstruction, '请核对下面的内容后再确认。');
   const draftType = getDraftType(currentApproval, structuredDraft);
-  const recipeCookSchemaVersion = draftType === 'recipe_cook'
-    ? resolveRecipeCookSchemaVersion(currentApproval, structuredDraft)
-    : 'unknown';
-  const recipeCookRequiresRegeneration =
-    draftType === 'recipe_cook'
-    && recipeCookSchemaVersion !== 'recipe_cook_operation.v2';
+  const recipeCookSchemaVersion = draftType === 'recipe_cook' ? resolveRecipeCookSchemaVersion(currentApproval, structuredDraft) : 'unknown';
+  const recipeCookRequiresRegeneration = draftType === 'recipe_cook' && recipeCookSchemaVersion !== 'recipe_cook_operation.v2';
   const usesStructuredDraftEditor = ['recipe', 'recipe_cook', 'meal_plan', 'shopping_list', 'inventory_intake', 'meal_log', 'food_profile', 'ingredient_profile', 'inventory_operation', 'composite_operation'].includes(draftType);
-  const inventoryOperationDraft = useMemo(
-    () => inventoryOperationDraftFromRecord(structuredDraft),
-    [structuredDraft],
+  const inventoryOperationDraft = useMemo(() => inventoryOperationDraftFromRecord(structuredDraft), [structuredDraft]);
+  const isDestructiveConfirmation = !readonly && usesStructuredDraftEditor && draftContainsDestructiveAction(structuredDraft);
+  const staticFoodOptions = useMemo<AiResourceOption[]>(
+    () =>
+      foods.map((food) => ({
+        id: food.id,
+        label: food.name,
+        description: [food.category, foodTypeText(food.type)].filter(Boolean).join(' · '),
+        imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
+        unit: food.stock_unit,
+        foodType: food.type,
+        stockQuantity: food.stock_quantity,
+      })),
+    [foods],
   );
-  const isDestructiveConfirmation = !readonly
-    && usesStructuredDraftEditor
-    && draftContainsDestructiveAction(structuredDraft);
-  const staticFoodOptions = useMemo<AiResourceOption[]>(() => foods.map((food) => ({
-    id: food.id,
-    label: food.name,
-    description: [food.category, foodTypeText(food.type)].filter(Boolean).join(' · '),
-    imageUrl: resolveMediaUrl(food.images?.[0], 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
-    unit: food.stock_unit,
-    foodType: food.type,
-    stockQuantity: food.stock_quantity,
-  })), [foods]);
-  const staticIngredientOptions = useMemo<AiResourceOption[]>(() => ingredients.map((ingredient) => ({
-    id: ingredient.id,
-    label: ingredient.name,
-    description: [ingredient.category, ingredient.default_unit].filter(Boolean).join(' · '),
-    imageUrl: resolveMediaUrl(ingredient.image, 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
-    unit: ingredient.default_unit,
-  })), [ingredients]);
-  const foodOptions = useMemo(
-    () => Array.from(new Map([...staticFoodOptions, ...loadedResourceOptions.food].map((option) => [option.id, option])).values()),
-    [staticFoodOptions, loadedResourceOptions.food],
+  const staticIngredientOptions = useMemo<AiResourceOption[]>(
+    () =>
+      ingredients.map((ingredient) => ({
+        id: ingredient.id,
+        label: ingredient.name,
+        description: [ingredient.category, ingredient.default_unit].filter(Boolean).join(' · '),
+        imageUrl: resolveMediaUrl(ingredient.image, 'thumb') ?? AI_RESOURCE_IMAGE_FALLBACK,
+        unit: ingredient.default_unit,
+      })),
+    [ingredients],
   );
-	  const ingredientOptions = useMemo(
-	    () => Array.from(new Map([...staticIngredientOptions, ...loadedResourceOptions.ingredient].map((option) => [option.id, option])).values()),
-	    [staticIngredientOptions, loadedResourceOptions.ingredient],
-	  );
-	  const foodCategoryOptions = useMemo(() => (
-	    Array.from(new Set([
-	      ...foods.map((food) => food.category).filter(Boolean),
-	      ...FOOD_CATEGORY_PRESETS,
-	    ])).map((category) => ({ value: category, label: category }))
-	  ), [foods]);
-  const loadApprovalResourceOptions = useCallback<AiResourceOptionLoader>(async (kind, params) => {
-    const staticOptions = kind === 'food' ? staticFoodOptions : staticIngredientOptions;
-    const normalizedQuery = normalizeSearchText(params.query);
-    const nextOptions = resourceOptionLoader
-      ? await resourceOptionLoader(kind, params)
-      : staticOptions
-          .filter((option) => !normalizedQuery || normalizeSearchText(`${option.label} ${option.description ?? ''}`).includes(normalizedQuery))
-          .slice(params.offset, params.offset + params.limit);
-    setLoadedResourceOptions((current) => {
-      const merged = new Map(current[kind].map((option) => [option.id, option]));
-      nextOptions.forEach((option) => merged.set(option.id, option));
-      return { ...current, [kind]: Array.from(merged.values()) };
-    });
-    return nextOptions;
-  }, [resourceOptionLoader, staticFoodOptions, staticIngredientOptions]);
+  const foodOptions = useMemo(() => Array.from(new Map([...staticFoodOptions, ...loadedResourceOptions.food].map((option) => [option.id, option])).values()), [staticFoodOptions, loadedResourceOptions.food]);
+  const ingredientOptions = useMemo(() => Array.from(new Map([...staticIngredientOptions, ...loadedResourceOptions.ingredient].map((option) => [option.id, option])).values()), [staticIngredientOptions, loadedResourceOptions.ingredient]);
+  const foodCategoryOptions = useMemo(() => Array.from(new Set([...foods.map((food) => food.category).filter(Boolean), ...FOOD_CATEGORY_PRESETS])).map((category) => ({ value: category, label: category })), [foods]);
+  const loadApprovalResourceOptions = useCallback<AiResourceOptionLoader>(
+    async (kind, params) => {
+      const staticOptions = kind === 'food' ? staticFoodOptions : staticIngredientOptions;
+      const normalizedQuery = normalizeSearchText(params.query);
+      const nextOptions = resourceOptionLoader
+        ? await resourceOptionLoader(kind, params)
+        : staticOptions.filter((option) => !normalizedQuery || normalizeSearchText(`${option.label} ${option.description ?? ''}`).includes(normalizedQuery)).slice(params.offset, params.offset + params.limit);
+      setLoadedResourceOptions((current) => {
+        const merged = new Map(current[kind].map((option) => [option.id, option]));
+        nextOptions.forEach((option) => merged.set(option.id, option));
+        return { ...current, [kind]: Array.from(merged.values()) };
+      });
+      return nextOptions;
+    },
+    [resourceOptionLoader, staticFoodOptions, staticIngredientOptions],
+  );
   const submitDecision = async (decision: 'approved' | 'rejected') => {
     if (isSubmitting) return;
     setError(null);
@@ -854,40 +866,45 @@ export function ApprovalPanel({
       }
       if (draftType === 'shopping_list') {
         const shoppingListError = validateShoppingListDraftForSubmit(structuredDraft);
-	        if (shoppingListError) {
-	          setError(shoppingListError);
-	          return;
-	        }
-	      }
-	      if (draftType === 'inventory_intake') {
-	        const inventoryIntakeError = validateInventoryIntakeDraftForSubmit(structuredDraft);
-	        if (inventoryIntakeError) {
-	          setError(inventoryIntakeError);
-	          return;
-	        }
-	      }
-	      if (draftType === 'food_profile') {
-	        const foodProfileError = validateFoodProfileDraftForSubmit(structuredDraft);
-	        if (foodProfileError) {
-	          setError(foodProfileError);
-	          return;
-	        }
-	        if (asText(structuredDraft.action) && typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)) {
-	          values = { draft: { ...structuredDraft, payload: normalizeFoodProfilePayload(structuredDraft.payload as Record<string, unknown>) } };
-	        } else {
-	          values = { draft: normalizeFoodProfilePayload(structuredDraft) };
-	        }
-	      } else if (draftType === 'recipe_cook') {
-	        values = { draft: buildRecipeCookSubmitDraft(structuredDraft) };
-	      } else {
-	        values = { draft: structuredDraft };
-	      }
-	    } else {
+        if (shoppingListError) {
+          setError(shoppingListError);
+          return;
+        }
+      }
+      if (draftType === 'inventory_intake') {
+        const inventoryIntakeError = validateInventoryIntakeDraftForSubmit(structuredDraft);
+        if (inventoryIntakeError) {
+          setError(inventoryIntakeError);
+          return;
+        }
+      }
+      if (draftType === 'food_profile') {
+        const foodProfileError = validateFoodProfileDraftForSubmit(structuredDraft);
+        if (foodProfileError) {
+          setError(foodProfileError);
+          return;
+        }
+        if (asText(structuredDraft.action) && typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)) {
+          values = {
+            draft: {
+              ...structuredDraft,
+              payload: normalizeFoodProfilePayload(structuredDraft.payload as Record<string, unknown>),
+            },
+          };
+        } else {
+          values = { draft: normalizeFoodProfilePayload(structuredDraft) };
+        }
+      } else if (draftType === 'recipe_cook') {
+        values = { draft: buildRecipeCookSubmitDraft(structuredDraft) };
+      } else {
+        values = { draft: structuredDraft };
+      }
+    } else {
       try {
         const draft = JSON.parse(draftJson) as Record<string, unknown>;
         values = { draft };
       } catch {
-        setError('草稿 JSON 格式不正确');
+        setError('待确认内容格式不正确，请重新生成后再试。');
         return;
       }
     }
@@ -898,7 +915,7 @@ export function ApprovalPanel({
         setIsExpanded(false);
       }, 300);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '提交失败');
+      setError(reason instanceof Error ? reason.message : '保存确认结果失败，请重试');
     } finally {
       setIsSubmitting(false);
     }
@@ -906,10 +923,10 @@ export function ApprovalPanel({
 
   const briefSummary = useMemo(() => {
     if (recipeApproval) {
-      const servings = recipe.servings ? `${recipe.servings}人份` : '';
-      const time = recipe.prep_minutes ? `${recipe.prep_minutes}分钟` : '';
-      const difficulty = recipe.difficulty ? DIFFICULTY_OPTIONS.find(o => o.value === recipe.difficulty)?.label || recipe.difficulty : '';
-      const ingrCount = recipe.ingredient_items?.length ? `${recipe.ingredient_items.length}个食材` : '';
+      const servings = recipe.servings ? `${recipe.servings} 人份` : '';
+      const time = recipe.prep_minutes ? `${recipe.prep_minutes} 分钟` : '';
+      const difficulty = recipe.difficulty ? DIFFICULTY_OPTIONS.find((o) => o.value === recipe.difficulty)?.label || recipe.difficulty : '';
+      const ingrCount = recipe.ingredient_items?.length ? `${recipe.ingredient_items.length} 种食材` : '';
       return [servings, time, difficulty, ingrCount].filter(Boolean).join(' · ');
     }
     if (usesStructuredDraftEditor) {
@@ -918,69 +935,66 @@ export function ApprovalPanel({
         if (operations.length > 0) {
           const labels = operations.map((item) => {
             const action = asText(item.action);
-            return action === 'create' ? '新增' : action === 'update' ? '修改' : action === 'set_status' ? '状态变更' : '删除';
+            return action === 'create' ? '新增' : action === 'update' ? '修改' : action === 'set_status' ? '更新状态' : '删除';
           });
-          return `${operations.length}个计划操作 · ${Array.from(new Set(labels)).join('、')}`;
+          return `${operations.length} 项餐食计划变更 · ${Array.from(new Set(labels)).join('、')}`;
         }
         const items = asDraftArray(structuredDraft.items);
-        if (items.length === 0) return '无计划项';
-        const dates = Array.from(new Set(items.map(item => asText(item.date)).filter(Boolean)));
-        const mealTypes = Array.from(new Set(items.map(item => {
-          const type = asText(item.mealType);
-          return MEAL_TYPE_OPTIONS.find(o => o.value === type)?.label || type;
-        }).filter(Boolean)));
-        const dateStr = dates.length > 1 ? `${dates.length}天` : dates[0] || '';
+        if (items.length === 0) return '还没有餐食安排';
+        const dates = Array.from(new Set(items.map((item) => asText(item.date)).filter(Boolean)));
+        const mealTypes = Array.from(
+          new Set(
+            items
+              .map((item) => {
+                const type = asText(item.mealType);
+                return MEAL_TYPE_OPTIONS.find((o) => o.value === type)?.label || type;
+              })
+              .filter(Boolean),
+          ),
+        );
+        const dateStr = dates.length > 1 ? `${dates.length} 天` : dates[0] || '';
         const mealStr = mealTypes.join('、');
-        return `${items.length}个计划项${dateStr || mealStr ? ` (${[dateStr, mealStr].filter(Boolean).join(' · ')})` : ''}`;
+        return `${items.length} 项餐食安排${dateStr || mealStr ? `（${[dateStr, mealStr].filter(Boolean).join(' · ')}）` : ''}`;
       }
       if (draftType === 'shopping_list') {
         const operations = asDraftArray(structuredDraft.operations);
         if (operations.length > 0) {
           const labels = operations.map((item) => {
             const action = asText(item.action);
-            return action === 'create' ? '新增' : action === 'update' ? '修改' : action === 'set_done' ? '状态变更' : '删除';
+            return action === 'create' ? '新增' : action === 'update' ? '修改' : action === 'set_done' ? '更新状态' : '删除';
           });
-          return `${operations.length}个清单操作 · ${Array.from(new Set(labels)).join('、')}`;
+          return `${operations.length} 项采购清单变更 · ${Array.from(new Set(labels)).join('、')}`;
         }
         const items = asDraftArray(structuredDraft.items);
-        return `${items.length}个采购项`;
+        return `${items.length} 项采购内容`;
       }
       if (draftType === 'inventory_intake') {
         const items = asDraftArray(structuredDraft.items);
         const ignored = asDraftArray(structuredDraft.ignoredItems);
         const executable = items.filter((item) => asText(item.action) !== 'skip');
-        return `${executable.length}项确认入库${ignored.length ? ` · ${ignored.length}项已忽略` : ''}`;
+        return `${executable.length} 项内容将加入库存${ignored.length ? ` · ${ignored.length} 项已忽略` : ''}`;
       }
       if (draftType === 'meal_log') {
         const action = asText(structuredDraft.action);
         if (action) {
-          const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before)
-            ? structuredDraft.before as Record<string, unknown>
-            : {};
-          const actionLabel = action === 'update_details' ? '补充' : action === 'rate_food' ? '评分' : '创建';
+          const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before) ? (structuredDraft.before as Record<string, unknown>) : {};
+          const actionLabel = action === 'update_details' ? '补充' : action === 'rate_food' ? '评分' : '新增';
           return [actionLabel, asText(before.date), mealTypeLabel(before.mealType)].filter(Boolean).join(' · ');
         }
         const date = asText(structuredDraft.date);
         const mealType = asText(structuredDraft.mealType);
-        const mealLabel = MEAL_TYPE_OPTIONS.find(o => o.value === mealType)?.label || mealType;
+        const mealLabel = MEAL_TYPE_OPTIONS.find((o) => o.value === mealType)?.label || mealType;
         const foodsCount = asDraftArray(structuredDraft.foods).length;
-        return `${[date, mealLabel].filter(Boolean).join(' ')} · ${foodsCount}个食物项`;
+        return `${[date, mealLabel].filter(Boolean).join(' ')} · ${foodsCount} 项食物`;
       }
       if (draftType === 'recipe_cook') {
         const mealType = asText(structuredDraft.mealType);
-        const mealLabel = MEAL_TYPE_OPTIONS.find(o => o.value === mealType)?.label || mealType;
+        const mealLabel = MEAL_TYPE_OPTIONS.find((o) => o.value === mealType)?.label || mealType;
         const shortages = asDraftArray(structuredDraft.shortages).length;
-        return [
-          asText(structuredDraft.title),
-          `${asNumber(structuredDraft.servings, 1)}份`,
-          mealLabel,
-          shortages ? `缺料${shortages}项` : '库存可做',
-        ].filter(Boolean).join(' · ');
+        return [asText(structuredDraft.title), `${asNumber(structuredDraft.servings, 1)} 份`, mealLabel, shortages ? `缺少食材 ${shortages} 项` : '库存可做'].filter(Boolean).join(' · ');
       }
       if (draftType === 'food_profile') {
-        const record = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
-          ? structuredDraft.payload as Record<string, unknown>
-          : structuredDraft;
+        const record = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload) ? (structuredDraft.payload as Record<string, unknown>) : structuredDraft;
         const action = asText(structuredDraft.action);
         if (action) {
           const name = asText(record.name) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.name);
@@ -989,14 +1003,12 @@ export function ApprovalPanel({
         }
         const name = asText(structuredDraft.name);
         const type = asText(structuredDraft.type);
-        const typeLabel = FOOD_TYPE_OPTIONS.find(o => o.value === type)?.label || foodTypeText(type);
+        const typeLabel = FOOD_TYPE_OPTIONS.find((o) => o.value === type)?.label || foodTypeText(type);
         const category = asText(structuredDraft.category);
         return [name, typeLabel, category].filter(Boolean).join(' · ');
       }
       if (draftType === 'ingredient_profile') {
-        const record = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
-          ? structuredDraft.payload as Record<string, unknown>
-          : structuredDraft;
+        const record = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload) ? (structuredDraft.payload as Record<string, unknown>) : structuredDraft;
         const action = asText(structuredDraft.action, 'create');
         const name = asText(record.name) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.name);
         const category = asText(record.category) || asText((structuredDraft.before as Record<string, unknown> | undefined)?.category);
@@ -1006,20 +1018,16 @@ export function ApprovalPanel({
       }
       if (draftType === 'recipe') {
         const action = asText(structuredDraft.action);
-        const payload = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload)
-          ? structuredDraft.payload as Record<string, unknown>
-          : {};
-        const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before)
-          ? structuredDraft.before as Record<string, unknown>
-          : {};
+        const payload = typeof structuredDraft.payload === 'object' && structuredDraft.payload !== null && !Array.isArray(structuredDraft.payload) ? (structuredDraft.payload as Record<string, unknown>) : {};
+        const before = typeof structuredDraft.before === 'object' && structuredDraft.before !== null && !Array.isArray(structuredDraft.before) ? (structuredDraft.before as Record<string, unknown>) : {};
         const title = asText(payload.title) || asText(before.title);
-        const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : '创建';
+        const actionLabel = action === 'update' ? '修改' : action === 'delete' ? '删除' : '新增';
         return [actionLabel, title].filter(Boolean).join(' · ');
       }
       if (draftType === 'inventory_operation') {
         const operations = inventoryOperationDraft.operations;
         const labels = operations.map((item) => INVENTORY_ACTION_OPTIONS.find((option) => option.value === item.action)?.label ?? '处理');
-        return `${operations.length}项库存处理 · ${Array.from(new Set(labels)).join('、')}`;
+        return `${operations.length} 项库存变更 · ${Array.from(new Set(labels)).join('、')}`;
       }
     }
     return '';
@@ -1045,18 +1053,15 @@ export function ApprovalPanel({
       >
         <div className="ai-approval-head-copy">
           <div className="ai-approval-title-row">
-            <h3>{currentApproval.title}</h3>
+            <h3>{displayApprovalTitle}</h3>
             {briefSummaryParts.length > 0 && (
               <div className={`ai-approval-brief-badges${isIngredientProfileBrief ? ' draft-ingredient-profile' : ''}`}>
-                {briefSummaryParts.map((summaryPart, index) => ({ summaryPart, index }))
+                {briefSummaryParts
+                  .map((summaryPart, index) => ({ summaryPart, index }))
                   .filter(({ summaryPart }) => summaryPart)
                   .map(({ summaryPart, index }) => (
                     <span
-                      className={[
-                        'ai-approval-brief-badge',
-                        isIngredientProfileBrief ? 'ingredient-profile-part' : '',
-                        isIngredientProfileBrief ? ingredientProfileBriefPartClasses[index] : '',
-                      ].filter(Boolean).join(' ')}
+                      className={['ai-approval-brief-badge', isIngredientProfileBrief ? 'ingredient-profile-part' : '', isIngredientProfileBrief ? ingredientProfileBriefPartClasses[index] : ''].filter(Boolean).join(' ')}
                       key={`${summaryPart}-${index}`}
                     >
                       {summaryPart}
@@ -1065,23 +1070,12 @@ export function ApprovalPanel({
               </div>
             )}
           </div>
-          <p>{currentApproval.instruction}</p>
+          <p>{approvalInstruction}</p>
         </div>
         <div className="ai-approval-head-actions">
-          <span className={`ai-approval-status status-${currentApproval.status}`}>
-            {readonly ? approvalStatusText(currentApproval.status) : '待确认'}
-          </span>
+          <span className={`ai-approval-status status-${currentApproval.status}`}>{readonly ? approvalStatusText(currentApproval.status) : '待确认'}</span>
           <span className={`ai-approval-toggle-icon ${isExpanded ? 'is-expanded' : ''}`}>
-            <svg
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </span>
@@ -1090,54 +1084,29 @@ export function ApprovalPanel({
       <div className="ai-approval-body-wrapper">
         <div className="ai-approval-body-content">
           {failureSummary && (
-            <AiDraftImpactNote tone="danger" title="上次写入失败">
+            <AiDraftImpactNote tone="danger" title="上次保存失败">
               <section className="ai-approval-failure-summary" aria-label="上次失败详情">
                 <div className="ai-approval-failure-head">
-                  <strong>
-                    {failureSummary.failedOperationSummaries.length > 0
-                      ? `上次写入失败，以下 ${failureSummary.failedOperationSummaries.length} 项需要重新确认`
-                      : '上次写入失败，请先核对后再重试'}
-                  </strong>
-                  {failureSummary.failedOperationIds.length > 0 && (
-                    <span className="ai-approval-failure-badge">{failureSummary.failedOperationIds.length} 项失败</span>
-                  )}
+                  <strong>{failureSummary.failedOperationSummaries.length > 0 ? `上次保存失败，以下 ${failureSummary.failedOperationSummaries.length} 项需要重新确认` : '上次保存失败，请先核对后再重试'}</strong>
+                  {failureSummary.failedOperationIds.length > 0 && <span className="ai-approval-failure-badge">{failureSummary.failedOperationIds.length} 项失败</span>}
                 </div>
-                {failureSummary.errorMessage && (
-                  <p className="ai-approval-failure-copy">{failureSummary.errorMessage}</p>
-                )}
-                {failureSummary.hasConflictHint && (
-                  <p className="ai-approval-failure-copy">
-                    检测到版本或基线冲突，建议先核对当前业务值，再决定直接重试还是修改草稿。
-                  </p>
-                )}
+                {failureSummary.errorMessage && <p className="ai-approval-failure-copy">{failureSummary.errorMessage}</p>}
+                {failureSummary.hasConflictHint && <p className="ai-approval-failure-copy">检测到内容已被更新，建议先核对最新内容，再决定重试还是修改草稿。</p>}
                 {failureSummary.failedOperationSummaries.length > 0 && (
                   <ul className="ai-approval-failure-list">
                     {failureSummary.failedOperationSummaries.map((item, index) => (
-                      <li
-                        className="ai-approval-failure-item"
-                        key={item.operationId || `${item.summary}-${item.targetId}-${index}`}
-                      >
+                      <li className="ai-approval-failure-item" key={item.operationId || `${item.summary}-${item.targetId}-${index}`}>
                         <div className="ai-approval-failure-item-main">
-                          <strong>{item.summary || '未识别操作'}</strong>
-                          {(item.targetId || item.action) && (
-                            <span>
-                              {[item.action && `动作 ${item.action}`, item.targetId && `目标 ${item.targetId}`].filter(Boolean).join(' · ')}
-                            </span>
-                          )}
+                          <strong>{item.summary || '这项变更'}</strong>
                         </div>
-                        {item.operationId && (
-                          <span className="ai-approval-failure-opid">操作 ID · {item.operationId}</span>
-                        )}
                         {item.currentValue && (
                           <div className="ai-approval-failure-current">
-                            <strong>当前业务值</strong>
-                            <span>{item.currentValue.label || '当前对象'}</span>
+                            <strong>最新内容</strong>
+                            <span>{item.currentValue.label || '当前内容'}</span>
                             {item.currentValue.summary && <p>{item.currentValue.summary}</p>}
                           </div>
                         )}
-                        {item.recoveryHint && (
-                          <p className="ai-approval-failure-recovery">{item.recoveryHint}</p>
-                        )}
+                        {item.recoveryHint && <p className="ai-approval-failure-recovery">{item.recoveryHint}</p>}
                       </li>
                     ))}
                   </ul>
@@ -1166,7 +1135,7 @@ export function ApprovalPanel({
           ) : (
             <div className="ai-recipe-editor">
               <label>
-                草稿内容
+                待确认内容
                 <textarea className="text-input" rows={12} value={draftJson} disabled={readonly} onChange={(event) => setDraftJson(event.target.value)} />
               </label>
             </div>
@@ -1175,24 +1144,19 @@ export function ApprovalPanel({
             <span>确认备注</span>
             <input className="text-input" value={comment} disabled={readonly} placeholder="可选，补充本次确认说明" onChange={(event) => setComment(event.target.value)} />
           </label>
-          {pendingButLocked && submitDisabledReason && (
-            <p className="ai-approval-submit-hint">
-              {submitDisabledReason}
+          {pendingButLocked && submitDisabledReason && <p className="ai-approval-submit-hint">{submitDisabledReason}</p>}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
             </p>
           )}
-          {error && <p className="form-error" role="alert">{error}</p>}
           {!readonly && (
             <div className="ai-approval-actions">
               <button className="ghost-button" type="button" disabled={isSubmitting} onClick={() => submitDecision('rejected')}>
-                {currentApproval.reject_label}
+                {displayRejectLabel}
               </button>
-              <button
-                className={`solid-button${isDestructiveConfirmation ? ' danger-button' : ''}`}
-                type="button"
-                disabled={isSubmitting || recipeCookRequiresRegeneration}
-                onClick={() => submitDecision('approved')}
-              >
-                {isSubmitting ? '提交中...' : currentApproval.approve_label}
+              <button className={`solid-button${isDestructiveConfirmation ? ' danger-button' : ''}`} type="button" disabled={isSubmitting || recipeCookRequiresRegeneration} onClick={() => submitDecision('approved')}>
+                {isSubmitting ? '正在提交…' : displayApproveLabel}
               </button>
             </div>
           )}

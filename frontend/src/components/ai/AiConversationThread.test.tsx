@@ -434,7 +434,7 @@ describe('MessageBubble human input rendering', () => {
       />,
     );
 
-    expect(rendered.container.textContent).toContain('任务已取消，未提交回答');
+    expect(rendered.container.textContent).toContain('这次处理已取消，回答未提交');
     expect(rendered.container.textContent).not.toContain('回答已提交');
     expect(rendered.container.querySelector('.ai-human-input-answer-summary')).toBeNull();
     expect(
@@ -756,7 +756,7 @@ describe('MessageBubble run activity rendering', () => {
     const messageBody = rendered.container.querySelector('.ai-message-body') as HTMLElement;
     const textBlocks = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-text-block'));
     const activities = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-run-activity'));
-    const approvalTitle = Array.from(messageBody.querySelectorAll('h3')).find((title) => title.textContent === '确认更新食材档案') as HTMLElement;
+    const approvalTitle = Array.from(messageBody.querySelectorAll('h3')).find((title) => title.textContent === '确认更新食材信息') as HTMLElement;
     const approvalPanel = approvalTitle.closest('.ai-approval-panel') as HTMLElement;
     expect(textBlocks).toHaveLength(2);
     expect(activities).toHaveLength(2);
@@ -831,7 +831,7 @@ describe('MessageBubble run activity rendering', () => {
     );
     await flushAsync();
     let activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['调用脚本「lint_recipe_draft」', '调用「可用库存」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['自动处理已完成', '已完成：调用「可用库存」']);
     expect(rendered.container.textContent).not.toContain('执行完成');
 
     await rendered.rerender(renderMessage(
@@ -840,7 +840,7 @@ describe('MessageBubble run activity rendering', () => {
     ));
     await flushAsync();
     activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['调用脚本「lint_recipe_draft」', '调用「可用库存」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['自动处理已完成', '已完成：调用「可用库存」']);
     expect(rendered.container.textContent).not.toContain('执行完成');
     rendered.unmount();
   });
@@ -889,7 +889,7 @@ describe('MessageBubble run activity rendering', () => {
     );
     await flushAsync();
     const activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['调用「食物资料」', '调用「食物资料」', '调用「食物资料」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['已完成：调用「食物资料」', '已完成：调用「食物资料」', '已完成：调用「食物资料」']);
     rendered.unmount();
   });
 
@@ -973,7 +973,7 @@ describe('MessageBubble run activity rendering', () => {
     );
     await flushAsync();
     const activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
-    expect(activityRows.map((row) => row.textContent)).toEqual(['生成「菜谱确认表单」', '生成「菜谱确认表单」']);
+    expect(activityRows.map((row) => row.textContent)).toEqual(['已生成「菜谱确认表单」', '已生成「菜谱确认表单」']);
     rendered.unmount();
   });
 });
@@ -1006,11 +1006,11 @@ describe('MessageBubble approval gating', () => {
     );
     await flushAsync();
     expect(rendered.container.textContent).toContain('确认创建餐食计划');
-    expect(rendered.container.textContent).toContain('确认创建购物清单');
-    expect(rendered.container.textContent).toContain('确认入口正在准备，稍后即可确认。');
+    expect(rendered.container.textContent).toContain('确认创建采购清单');
+    expect(rendered.container.textContent).toContain('确认功能暂时不可用，请稍后再试。');
     expect(rendered.container.textContent).not.toContain('AI 还在整理后续草稿');
     expect(rendered.container.textContent).not.toContain('这个草稿还不能确认，请稍后再试。');
-    expect(rendered.container.textContent).toContain('请先处理上一个草稿，再确认这一项。');
+    expect(rendered.container.textContent).toContain('请先完成上一个草稿的确认，再处理这一项。');
     expect(rendered.container.querySelectorAll('.ai-approval-actions .solid-button')).toHaveLength(0);
     rendered.unmount();
   });
@@ -1042,7 +1042,7 @@ describe('MessageBubble approval gating', () => {
       />,
     );
     await flushAsync();
-    expect(rendered.container.textContent).toContain('请先处理上一个草稿，再确认这一项。');
+    expect(rendered.container.textContent).toContain('请先完成上一个草稿的确认，再处理这一项。');
     const submitButtons = rendered.container.querySelectorAll<HTMLButtonElement>('.ai-approval-actions .solid-button');
     expect(submitButtons).toHaveLength(1);
     await act(async () => {
@@ -1080,7 +1080,7 @@ describe('MessageBubble approval gating', () => {
     );
     await flushAsync();
 
-    expect(rendered.container.textContent).toContain('确认入口正在准备，稍后即可确认。');
+    expect(rendered.container.textContent).toContain('确认功能暂时不可用，请稍后再试。');
     expect(rendered.container.querySelector('.ai-approval-actions .solid-button')).toBeNull();
 
     await rendered.rerender(
@@ -1136,7 +1136,7 @@ describe('MessageBubble approval gating', () => {
     });
     await flushAsync();
 
-    expect(rendered.container.textContent).toContain('提交中...');
+    expect(rendered.container.textContent).toContain('正在提交…');
     expect(rendered.container.textContent).not.toContain('确认入口正在准备，稍后即可确认。');
     expect(decideSpy).toHaveBeenCalledTimes(1);
     rendered.unmount();

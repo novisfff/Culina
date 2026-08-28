@@ -137,31 +137,31 @@ describe('familyModelSettingsModel', () => {
   it.each([
     [
       'family_model_settings_not_configured',
-      '当前家庭还没有可用的模型配置。请先启用能力，并补全 Provider 服务和模型名称。',
+      '当前家庭还没有可用的模型配置。请先启用功能，并补全模型服务和模型名称。',
     ],
     [
       'family_model_capability_disabled',
-      '当前配置未启用此能力。请先在能力配置中启用并补全信息。',
+      '当前配置未启用此功能。请先在“功能设置”中启用并补全信息。',
     ],
     [
       'family_model_provider_disabled',
-      '当前配置绑定的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
+      '当前配置使用的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
     ],
     [
       'family_model_secret_unavailable',
-      '当前服务的 API Key 不可用。请修改 Key 后重试。',
+      '当前服务的 API 密钥不可用。请修改密钥后重试。',
     ],
     [
       'family_model_operation_in_progress',
-      '上一次能力测试仍在处理中。请稍候刷新结果，不要重复发起可能计费的请求。',
+      '上一次功能测试仍在处理中。请稍候刷新结果，不要重复发起可能计费的请求。',
     ],
     [
       'family_model_capability_test_ledger_failed',
-      '暂时无法创建模型用量记录，因此没有调用模型。请稍后重试。',
+      '暂时无法创建模型用量记录，因此没有请求模型。请稍后重试。',
     ],
     [
       'family_model_capability_test_binding_incomplete',
-      '当前能力信息不完整。请先启用能力，并补全 Provider 服务和模型名称后再测试。',
+      '当前功能信息不完整。请先启用功能，并补全模型服务和模型名称后再测试。',
     ],
     [
       'family_model_capability_test_transport_failed',
@@ -173,7 +173,7 @@ describe('familyModelSettingsModel', () => {
     ],
     [
       'family_model_endpoint_protocol_mismatch',
-      '地址协议与 Provider 类型不匹配。普通 API 请使用 HTTP(S)，实时服务请使用 WS(S)。',
+      '地址协议与模型服务类型不匹配。普通 API 请使用 HTTP(S)，实时服务请使用 WS(S)。',
     ],
     [
       'family_model_endpoint_dns_resolution_failed',
@@ -193,7 +193,7 @@ describe('familyModelSettingsModel', () => {
     ],
     [
       'family_model_provider_protocol_unsupported',
-      '当前 Provider 类型不支持这个地址协议或认证方式。请检查服务类型、地址和认证方式。',
+      '当前模型服务不支持这种地址或验证方式。请检查服务类型、地址和验证方式。',
     ],
   ])('maps %s to an actionable safe message', (code, expectedMessage) => {
     expect(safeFamilyModelSettingsError({ payload: { detail: { code } } })).toBe(expectedMessage);

@@ -54,7 +54,7 @@ export function IngredientRestockIdentitySection(props: {
             className="ingredients-restock-identity-switch"
             onClick={props.onSwitch}
           >
-            换一个食材
+            更换食材
           </ActionButton>
         ) : null}
       </div>
@@ -96,11 +96,11 @@ export function IngredientRestockQuantitySection(props: {
           <p className="subtle">
             {props.ingredient
               ? props.selectedUnit?.unit === props.ingredient.default_unit
-                ? '默认按主单位直接记库存'
+                ? '按默认单位记录库存'
                 : props.normalizedQuantity !== null
-                  ? `将记为 ${formatNumericString(props.normalizedQuantity)}${props.ingredient.default_unit} 库存`
-                  : '切换单位后会自动折算到主单位'
-              : '先选食材，再切换这次录入单位。'}
+                  ? `折算后为 ${formatNumericString(props.normalizedQuantity)} ${props.ingredient.default_unit}`
+                  : '切换单位后会自动换算为默认单位'
+              : '先选择食材，再选择本次使用的单位。'}
           </p>
         </section>
       </div>
@@ -116,11 +116,11 @@ export function IngredientRestockPurchaseSection(props: {
   return (
     <section className="ingredients-restock-field-group">
       <div className="ingredients-restock-field-head">
-        <span>购买时间</span>
-        <p className="subtle">默认今天，需要时再改。</p>
+        <span>购买日期</span>
+        <p className="subtle">默认使用今天；如果不是今天，再选择日期。</p>
       </div>
       <OptionChipGroup
-        ariaLabel="购买时间"
+        ariaLabel="购买日期"
         value={props.purchaseDatePreset}
         options={[
           { value: 'today', label: '今天' },
@@ -159,8 +159,8 @@ export function IngredientRestockStorageSection(props: {
         <p className="subtle">按这次实际放的位置点一下。</p>
       </div>
       <ComboboxField
-        ariaLabel="保存位置"
-        placeholder="选择或输入保存位置"
+        ariaLabel="存放位置"
+        placeholder="选择或输入存放位置"
         value={props.storageLocation}
         options={INVENTORY_STORAGE_PRESETS.map((storage) => ({ value: storage, label: storage }))}
         allowCustom
@@ -183,13 +183,13 @@ export function IngredientRestockExpirySection(props: {
     <section className="ingredients-restock-field-group">
       <div className="ingredients-restock-field-head">
         <span>到期信息</span>
-        <p className="subtle">确认这批食材怎么跟踪到期。</p>
+        <p className="subtle">设置这份库存的到期提醒。</p>
       </div>
       <OptionChipGroup
         ariaLabel="到期信息"
         value={props.expiryInputMode}
         options={[
-          { value: 'none', label: '不记录' },
+          { value: 'none', label: '不设置到期日' },
           { value: 'days', label: '几天后到期' },
           { value: 'manual_date', label: '包装到期日' },
         ]}
@@ -229,7 +229,7 @@ export function IngredientRestockExpirySection(props: {
           <div className="ingredients-restock-result-card">
             <span>预计到期日</span>
             <strong>{props.expiryDate ? formatDate(props.expiryDate) : '先选天数'}</strong>
-            <p>{props.expiryDate ? `${props.purchaseDate} 购入` : '拖动后会自动换算日期'}</p>
+            <p>{props.expiryDate ? `${props.purchaseDate} 购入` : '拖动后会自动计算到期日'}</p>
           </div>
         </div>
       ) : props.expiryInputMode === 'manual_date' ? (
@@ -244,7 +244,7 @@ export function IngredientRestockExpirySection(props: {
           />
         </label>
       ) : (
-        <p className="ingredients-restock-field-note">这批不跟踪到期提醒。</p>
+        <p className="ingredients-restock-field-note">这份库存不设置到期日。</p>
       )}
     </section>
   );
@@ -275,10 +275,10 @@ export function IngredientRestockAdvancedSection(props: {
       {props.open ? (
         <div className="ingredients-modal-advanced-fields">
           <div className="ingredients-restock-status-custom-field">
-            <span>状态</span>
+            <span>库存状态</span>
             <DropdownSelect
-              ariaLabel="选择状态"
-              placeholder="选择状态"
+              ariaLabel="选择库存状态"
+              placeholder="选择库存状态"
               value={props.status}
               options={statusOptions}
               onChange={(val) => props.onChange({ status: val as InventoryStatus, statusDirty: true })}

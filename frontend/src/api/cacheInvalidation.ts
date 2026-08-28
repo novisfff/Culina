@@ -63,6 +63,7 @@ export async function invalidateAfterFamilySearchReplacementChanged(
 ) {
   await invalidateMany(queryClient, [
     queryKeys.familySearchProfile(familyId),
+    queryKeys.familySearchReplacementCurrent(familyId),
     queryKeys.familyModelSettings(familyId),
     queryKeys.searchRoot,
     queryKeys.aiStatus(familyId),

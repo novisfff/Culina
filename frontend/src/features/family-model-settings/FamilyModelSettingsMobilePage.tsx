@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import { ModelPriceEditor } from './ModelPriceEditor';
 import { ProviderProfileEditor } from './ProviderProfileEditor';
-import { PublishReview } from './PublishReview';
+import { ConfigurationCheck } from './ConfigurationCheck';
 import { SearchProfilePanel } from './SearchProfilePanel';
 import type { FamilyModelSettingsSection } from './useFamilyModelSettingsState';
 import type { FamilyModelSettingsSurfaceProps } from './familyModelSettingsViewTypes';
@@ -12,11 +12,11 @@ const MOBILE_TASKS: ReadonlyArray<{
   label: string;
   description: string;
 }> = [
-  { id: 'providers', label: 'Provider 服务', description: '管理连接方式、服务范围与凭据。' },
-  { id: 'capabilities', label: '能力配置', description: '选择需要启用的七类模型能力。' },
-  { id: 'prices', label: '模型价格', description: '可选设置，未填写的项目按 0 计算。' },
-  { id: 'search', label: '搜索索引', description: '查看或安全地替换家庭搜索索引。' },
-  { id: 'review', label: '配置检查', description: '查看服务、能力和价格的完善度。' },
+  { id: 'providers', label: '模型服务', description: '管理连接方式、服务范围与密钥。' },
+  { id: 'capabilities', label: '功能设置', description: '选择需要启用的七类 AI 功能。' },
+  { id: 'prices', label: '模型价格', description: '可选设置；未填写的价格按 0 元计入费用。' },
+  { id: 'search', label: '智能搜索', description: '查看或安全地更换家庭搜索设置。' },
+  { id: 'review', label: '配置检查', description: '查看服务、功能和价格是否完整。' },
 ];
 
 function getMobileTaskIcon(id: string): ReactNode {
@@ -74,21 +74,21 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
     <>
       <section className="family-model-settings-mobile-summary" aria-labelledby="family-model-settings-mobile-summary-title">
         <div className="family-model-settings-mobile-summary-top">
-          <span className={`family-model-settings-publication is-${props.overview.publication.kind}`}>
+          <span className={`family-model-settings-configuration-status is-${props.overview.configurationStatus.kind}`}>
             <span className="family-model-settings-status-dot" aria-hidden="true" />
-            {props.overview.publication.label}
+            {props.overview.configurationStatus.label}
           </span>
         </div>
         <h1 id="family-model-settings-mobile-summary-title">{props.overview.title}</h1>
-        <p className="family-model-settings-mobile-summary-desc">{props.overview.publication.description}</p>
+        <p className="family-model-settings-mobile-summary-desc">{props.overview.configurationStatus.description}</p>
         <div className="family-model-settings-mobile-metrics">
           <div className="family-model-settings-mobile-stat">
             <strong>{props.overview.providerCount}</strong>
-            <span>服务档案</span>
+            <span>模型服务</span>
           </div>
           <div className="family-model-settings-mobile-stat">
             <strong>{props.overview.enabledCapabilityCount}</strong>
-            <span>已选能力</span>
+            <span>已选功能</span>
           </div>
           <div className="family-model-settings-mobile-stat">
             <strong>{props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount}</strong>
@@ -96,7 +96,7 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
           </div>
         </div>
         <p className="family-model-settings-overview-summary visually-hidden">
-          {props.overview.providerCount} 个服务 · {props.overview.enabledCapabilityCount} 类能力 · {props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount} 类已填写价格
+          {props.overview.providerCount} 个服务 · {props.overview.enabledCapabilityCount} 类功能 · {props.overview.pricedCapabilityCount}/{props.overview.enabledCapabilityCount} 类已填写价格
         </p>
       </section>
       <nav className="family-model-settings-mobile-task-list" aria-label="家庭 AI 服务任务">
@@ -112,12 +112,12 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
                 ? 'next'
                 : 'pending';
           const statusLabel = optional
-            ? '按需'
+            ? '可选'
             : isComplete
               ? '已完成'
               : isNext
                 ? '下一步'
-                : '待完成';
+                : '未完成';
 
           return (
             <button
@@ -184,7 +184,7 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
     case 'search':
       return <SearchProfilePanel {...props} />;
     case 'review':
-      return <PublishReview {...props} />;
+      return <ConfigurationCheck {...props} />;
     case 'overview':
       return <MobileOverview {...props} />;
     default: {
@@ -219,7 +219,7 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
   const isOverview = props.state.section === 'overview';
 
   return (
-    <main className="family-model-settings-mobile-page" aria-label="手机家庭 AI 服务" aria-busy={busy || undefined}>
+    <main className="family-model-settings-mobile-page" aria-label="家庭 AI 服务" aria-busy={busy || undefined}>
       <header className="family-model-settings-mobile-header">
         <button
           className="family-model-settings-mobile-back"
@@ -237,7 +237,7 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
         <span className="family-model-settings-mobile-header-spacer" aria-hidden="true" />
       </header>
       <div className="family-model-settings-mobile-scroll">
-        {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
+        {props.stale ? <p className="family-model-settings-stale" role="status">暂时无法刷新，以下显示最近一次成功加载的设置。</p> : null}
         {props.errorMessage ? (
           <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
         ) : props.state.section !== 'overview' ? (

@@ -10,15 +10,12 @@ import type {
   CreateFamilyModelSearchReplacementPayload,
   FamilyModelCapability,
   FamilyModelConfigDraft,
-  FamilyModelPriceRate,
   FamilyModelProviderConnectionCheckPayload,
   FamilyModelProviderProfileCreate,
   FamilyModelProviderProfilePatch,
   FamilyModelSearchReplacementBasePayload,
   FamilyModelSearchReplacementMutationPayload,
   FamilyModelSettings,
-  PublishFamilyModelPricesPayload,
-  SaveFamilyModelPricesDraftPayload,
 } from '../../api/types';
 import {
   toSaveDraftPayload,
@@ -26,12 +23,6 @@ import {
   safeFamilyModelSettingsError,
 } from './familyModelSettingsModel';
 import type { FamilyModelSettingsBusyAction } from './useFamilyModelSettingsState';
-
-type PublishInput = {
-  currentPassword?: string;
-  configChecksum: string;
-  priceChecksum: string;
-};
 
 type CreateSearchInput = Omit<CreateFamilyModelSearchReplacementPayload, 'idempotency_key'>;
 
@@ -112,7 +103,7 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
 
   const requireContext = useCallback(() => {
     if (!args.familyId || !args.settings || !args.draft) {
-      throw new Error('家庭模型设置尚未加载完成。');
+      throw new Error('家庭模型设置还没有加载完成，请稍后再试。');
     }
     return { familyId: args.familyId, settings: args.settings, draft: args.draft };
   }, [args.draft, args.familyId, args.settings]);
@@ -178,22 +169,6 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     }));
   }, [requireContext, run]);
 
-  const publish = useCallback(async (input: PublishInput, baseDraftVersionNumber?: number) => {
-    const context = requireContext();
-    return run('publish', async () => {
-      const result = await idempotentRequest('publish', input, (key) => familyModelSettingsApi.publish({
-        base_settings_version_number: context.settings.version_number,
-        base_draft_version_number: baseDraftVersionNumber ?? context.draft.draft_version_number,
-        idempotency_key: key,
-        config_checksum: input.configChecksum,
-        price_checksum: input.priceChecksum,
-        current_password: input.currentPassword,
-      }));
-      refreshSettingsInBackground();
-      return result;
-    });
-  }, [idempotentRequest, refreshSettingsInBackground, requireContext, run]);
-
   const createProviderProfile = useCallback(async (input: FamilyModelProviderProfileCreate) => {
     requireContext();
     return run('save', async () => {
@@ -245,30 +220,6 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
       familyModelSettingsApi.checkProviderConnection(profileId, { ...input, idempotency_key: key })
     )));
   }, [idempotentRequest, requireContext, run]);
-
-  const savePricesDraft = useCallback(async (input: Omit<SaveFamilyModelPricesDraftPayload, 'idempotency_key'>) => {
-    requireContext();
-    return run('save', async () => {
-      const result = await idempotentRequest('save-prices-draft', input, (key) => familyModelSettingsApi.savePricesDraft({
-        ...input,
-        idempotency_key: key,
-      }));
-      refreshSettingsInBackground();
-      return result;
-    });
-  }, [idempotentRequest, refreshSettingsInBackground, requireContext, run]);
-
-  const publishPrices = useCallback(async (input: Omit<PublishFamilyModelPricesPayload, 'idempotency_key'>) => {
-    requireContext();
-    return run('publish', async () => {
-      const result = await idempotentRequest('publish-prices', input, (key) => familyModelSettingsApi.publishPrices({
-        ...input,
-        idempotency_key: key,
-      }));
-      refreshSettingsInBackground();
-      return result;
-    });
-  }, [idempotentRequest, refreshSettingsInBackground, requireContext, run]);
 
   const testCapability = useCallback(async (
     capability: FamilyModelCapability,
@@ -347,13 +298,10 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     actions: {
       saveDraft,
       validateDraft,
-      publish,
       createProviderProfile,
       patchProviderProfile,
       rotateProviderProfileKey,
       checkProviderConnection,
-      savePricesDraft,
-      publishPrices,
       testCapability,
       previewSearchReplacement,
       createSearchReplacement,
@@ -362,5 +310,3 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     },
   };
 }
-
-export type FamilyModelPriceRateInput = FamilyModelPriceRate;

@@ -3,7 +3,12 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { familyModelSettingsApi } from '../../api/familyModelSettingsApi';
-import type { FamilyModelConfigDraft, FamilyModelPrices, FamilyModelSettings } from '../../api/types';
+import type {
+  FamilyModelConfigDraft,
+  FamilyModelPrices,
+  FamilyModelSearchReplacement,
+  FamilyModelSettings,
+} from '../../api/types';
 import { useFamilyModelSettingsQueries } from './useFamilyModelSettingsQueries';
 
 vi.mock('../../api/familyModelSettingsApi', () => ({
@@ -11,6 +16,7 @@ vi.mock('../../api/familyModelSettingsApi', () => ({
     getSettings: vi.fn(),
     getDraft: vi.fn(),
     getPrices: vi.fn(),
+    getCurrentSearchReplacement: vi.fn(),
     getSearchReplacement: vi.fn(),
     discoverProviderModels: vi.fn(),
   },
@@ -61,6 +67,8 @@ describe('useFamilyModelSettingsQueries', () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockReset();
     vi.mocked(familyModelSettingsApi.getDraft).mockReset();
     vi.mocked(familyModelSettingsApi.getPrices).mockReset();
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockReset();
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(null);
     vi.mocked(familyModelSettingsApi.getSearchReplacement).mockReset();
     vi.mocked(familyModelSettingsApi.discoverProviderModels).mockReset();
   });
@@ -82,6 +90,7 @@ describe('useFamilyModelSettingsQueries', () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue(settings('family-a'));
     vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft('family-a'));
     vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices());
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(null);
     const { result } = renderHook(
       () => useFamilyModelSettingsQueries({ familyId: 'family-a', role: 'Owner' }),
       { wrapper: wrapper() },
@@ -95,6 +104,43 @@ describe('useFamilyModelSettingsQueries', () => {
 
     await waitFor(() => expect(result.current.stale).toBe(true));
     expect(result.current.settings?.version_number).toBe(1);
+  });
+
+  it('restores a failed search replacement after refresh without a client-held profile id', async () => {
+    const failedReplacement: FamilyModelSearchReplacement = {
+      profile_id: 'search-profile-failed',
+      status: 'failed',
+      total_documents: 276,
+      indexed_documents: 0,
+      failed_documents: 4,
+      budget_blocked_documents: 0,
+      retryable: true,
+      created_at: '2026-08-19T10:00:00Z',
+      activated_at: null,
+      failure: {
+        code: 'search_embedding_provider_rejected',
+        detail: '嵌入服务拒绝了请求（HTTP 400），现有索引未被替换。',
+        provider_http_status: 400,
+        provider_error_code: 'invalid_dimensions',
+        provider_error_message: 'dimensions unsupported',
+        request_sent: true,
+        execution_certainty: 'confirmed_not_executed',
+      },
+    };
+    vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue(settings('family-a'));
+    vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft('family-a'));
+    vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices());
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(failedReplacement);
+
+    const { result } = renderHook(
+      () => useFamilyModelSettingsQueries({ familyId: 'family-a', role: 'Owner' }),
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() => expect(result.current.searchReplacement?.status).toBe('failed'));
+    expect(result.current.searchReplacement?.failed_documents).toBe(4);
+    expect(familyModelSettingsApi.getCurrentSearchReplacement).toHaveBeenCalledTimes(1);
+    expect(familyModelSettingsApi.getSearchReplacement).not.toHaveBeenCalled();
   });
 
   it('does not use one family draft as placeholder data for another family', async () => {
@@ -132,6 +178,7 @@ describe('useFamilyModelSettingsQueries', () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue(settings('family-a'));
     vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft('family-a'));
     vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices());
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(null);
     vi.mocked(familyModelSettingsApi.discoverProviderModels).mockResolvedValue({
       status: 'reachable',
       detail: null,
@@ -163,6 +210,7 @@ describe('useFamilyModelSettingsQueries', () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockImplementation(async () => settings('family-a'));
     vi.mocked(familyModelSettingsApi.getDraft).mockImplementation(async () => draft('family-a'));
     vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices());
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(null);
     vi.mocked(familyModelSettingsApi.discoverProviderModels)
       .mockResolvedValueOnce({
         status: 'reachable',

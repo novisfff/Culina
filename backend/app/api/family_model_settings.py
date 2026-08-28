@@ -89,11 +89,6 @@ from app.services.family_model_settings.errors import (
     FamilyModelSettingsVersionConflict,
 )
 from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
-from app.services.family_model_settings.publishing import (
-    PublishConfigurationCommand,
-    PublishedFamilyModelConfiguration,
-    publish_family_model_configuration,
-)
 from app.services.family_model_settings.prices import (
     FamilyPriceDraftSnapshot,
     PublishFamilyPriceVersionCommand,
@@ -111,6 +106,7 @@ from app.services.family_model_settings.search_profiles import (
     SearchReplacementProgress,
     cancel_search_replacement,
     create_search_replacement,
+    current_search_replacement_progress,
     preview_search_replacement,
     retry_search_replacement,
     search_replacement_progress,
@@ -207,12 +203,6 @@ def _validation_out(result: DraftValidationResult) -> FamilyModelDraftValidation
         config_checksum=result.config_checksum,
         price_checksum=result.price_checksum,
     )
-
-
-def _published_out(
-    result: PublishedFamilyModelConfiguration,
-) -> PublishedFamilyModelConfigurationOut:
-    return PublishedFamilyModelConfigurationOut.model_validate(result.response_record())
 
 
 def _price_draft_out(snapshot: FamilyPriceDraftSnapshot) -> FamilyModelPricesDraftOut:
@@ -439,46 +429,19 @@ def validate_draft_view(
     "/publish",
     response_model=PublishedFamilyModelConfigurationOut,
     response_model_exclude_none=True,
+    include_in_schema=False,
 )
 def publish_settings_view(
     payload: PublishFamilyModelSettingsRequest,
     auth: tuple = Depends(require_owner),
-    db: Session = Depends(get_db),
-    cipher: FamilyModelCredentialCipher = Depends(get_family_model_credential_cipher),
-    network_policy: ProviderNetworkPolicy = Depends(get_family_model_network_policy),
 ) -> PublishedFamilyModelConfigurationOut:
-    user, membership = auth
-    try:
-        settings = get_family_model_settings(db, family_id=membership.family_id)
-        if settings is None:
-            raise FamilyModelSettingsError("family_model_settings_not_found")
-        if settings.active_config_revision_id is None:
-            if payload.current_password is None:
-                raise FamilyModelOwnerReauthenticationFailed()
-            verify_owner_password(
-                db,
-                family_id=membership.family_id,
-                actor_user_id=user.id,
-                current_password=payload.current_password.get_secret_value(),
-            )
-        result = publish_family_model_configuration(
-            db,
-            PublishConfigurationCommand(
-                family_id=membership.family_id,
-                actor_user_id=user.id,
-                base_settings_version_number=payload.base_settings_version_number,
-                base_draft_version_number=payload.base_draft_version_number,
-                idempotency_key=payload.idempotency_key,
-                confirm_config_checksum=payload.config_checksum,
-                confirm_price_checksum=payload.price_checksum,
-                network_policy=network_policy,
-            ),
-            cipher=cipher,
-        )
-        commit_session(db)
-        return _published_out(result)
-    except FamilyModelSettingsError as exc:
-        raise _domain_error(exc) from exc
+    # Configuration is applied by the capability-scoped draft save path.  This
+    # compatibility endpoint used to run the retired all-or-nothing publish
+    # transaction (and, on a first setup, prompt for a password).  Keeping the
+    # route as a hidden, deterministic rejection prevents stale clients from
+    # reintroducing that global confirmation flow without mutating any state.
+    del payload, auth
+    raise _domain_error(FamilyModelConfigurationAlreadyPublished())
 
 
 @router.get(
@@ -864,6 +827,28 @@ def create_search_replacement_view(
         )
         commit_session(db)
         return _search_replacement_out(result.progress)
+    except FamilyModelSettingsError as exc:
+        raise _domain_error(exc) from exc
+
+
+@router.get(
+    "/search/replacements/current",
+    response_model=SearchReplacementOut | None,
+    response_model_exclude_none=True,
+)
+def get_current_search_replacement_view(
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> SearchReplacementOut | None:
+    """Resolve the family's latest replacement after a page refresh."""
+
+    _, membership = auth
+    try:
+        progress = current_search_replacement_progress(
+            db,
+            family_id=membership.family_id,
+        )
+        return _search_replacement_out(progress) if progress is not None else None
     except FamilyModelSettingsError as exc:
         raise _domain_error(exc) from exc
 

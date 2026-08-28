@@ -237,7 +237,7 @@ export function buildRecipeCards(
     const linkedFood = foods.find((food) => food.recipe_id === recipe.id) ?? null;
     const ingredientPreview = recipe.ingredient_items
       .slice(0, 4)
-      .map((item) => `${item.ingredient_name}${formatQuantity(item.quantity)}${item.unit}`);
+      .map((item) => `${item.ingredient_name} ${formatQuantity(item.quantity)} ${item.unit}`);
 
     return {
       recipe,
@@ -245,7 +245,7 @@ export function buildRecipeCards(
       coverAsset: recipe.images[0],
       availability,
       availabilityLabel:
-        availability === 'ready' ? '可直接做' : availability === 'partial' ? `缺 ${shortages.length} 项` : '库存不足',
+        availability === 'ready' ? '可直接做' : availability === 'partial' ? `缺少 ${shortages.length} 项` : '库存不足',
       availabilityDetail:
         availability === 'ready'
           ? '现有库存可以覆盖主要用料'

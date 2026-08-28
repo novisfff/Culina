@@ -38,15 +38,21 @@ const DEBUG_TABS: Array<{ key: DebugTab; label: string }> = [
 
 const STATUS_LABELS: Record<string, string> = {
   running: '运行中',
+  queued: '排队中',
+  pending: '等待处理',
+  in_progress: '处理中',
   completed: '完成',
   failed: '失败',
   waiting: '等待',
   cancelled: '已取消',
   skipped: '已跳过',
+  timeout: '已超时',
+  partial: '部分完成',
+  partially_completed: '部分完成',
 };
 
 function statusLabel(status: string) {
-  return STATUS_LABELS[status] ?? status;
+  return STATUS_LABELS[status] ?? '状态未知';
 }
 
 function formatJson(value: unknown) {
@@ -59,51 +65,71 @@ function formatJson(value: unknown) {
 }
 
 const TRACE_SPAN_TYPE_LABELS: Record<string, string> = {
-  run: '整次运行',
-  graph_node: '编排入口',
-  orchestrator_round: '编排轮次',
-  approval_followup: '人工确认后续响应',
-  draft_publish: '确认草稿',
-  skill_execution: 'Skill 执行',
-  tool_call: '工具调用',
-  script_call: '脚本调用',
-  provider_round: '模型轮次',
-  provider_attempt: '模型尝试',
+  run: '整次处理',
+  graph_node: '处理入口',
+  orchestrator_round: '决策步骤',
+  approval_followup: '确认后的处理',
+  draft_publish: '生成确认内容',
+  skill_execution: '能力处理',
+  tool_call: '工具处理',
+  script_call: '自动处理',
+  provider_round: '模型处理阶段',
+  provider_attempt: '模型重试',
+  skill_injection: '准备功能',
 };
 
 const SUMMARY_KEY_LABELS: Record<string, string> = {
   status: '状态',
-  agentRounds: '已完成轮次',
-  injectedSkills: '注入 Skill',
-  initialInjectedSkills: '初始 Skill',
-  historicalArtifactCount: '历史产物',
-  runArtifactCount: '运行产物',
-  conversationMessageCount: '对话消息',
-  pendingApprovalId: '等待确认',
-  terminalStatus: '终态',
-  approvalId: '确认',
-  decision: '决策',
+  agentRounds: '处理轮次',
+  injectedSkills: '使用的功能',
+  initialInjectedSkills: '初始功能',
+  historicalArtifactCount: '历史结果',
+  runArtifactCount: '本次结果',
+  conversationMessageCount: '对话条数',
+  pendingApprovalId: '待确认内容',
+  terminalStatus: '最终状态',
+  approvalId: '确认记录',
+  decision: '处理决定',
   model: '模型',
-  draftCount: '草稿',
-  cardCount: '结果卡',
-  toolCallCount: '工具调用',
-  readTools: '读取工具',
-  draftType: '草稿类型',
-  schemaVersion: 'Schema',
-  tool: '工具',
-  alreadyInjected: '已注入',
-  availableTools: '可用工具',
+  draftCount: '待确认草稿',
+  cardCount: '结果卡片',
+  toolCallCount: '工具处理数',
+  readTools: '读取操作',
+  draftType: '内容类型',
+  schemaVersion: '数据格式',
+  tool: '处理方式',
+  alreadyInjected: '已准备',
+  availableTools: '可用处理方式',
   requested: '请求',
   added: '新增',
-  messageId: '消息',
-  inputKeys: '输入字段',
-  outputKeys: '输出字段',
-  sideEffect: '副作用',
-  permission: '权限',
-  requiresConfirmation: '需确认',
-  functionName: '函数',
-  scriptPath: '脚本',
-  timeoutSeconds: '超时',
+  messageId: '消息记录',
+  inputKeys: '涉及输入',
+  outputKeys: '产生输出',
+  sideEffect: '影响范围',
+  permission: '访问范围',
+  requiresConfirmation: '需要确认',
+  functionName: '处理名称',
+  scriptPath: '处理步骤',
+  timeoutSeconds: '最长等待',
+};
+
+const EXCHANGE_MODE_LABELS: Record<string, string> = {
+  tools: '操作模式',
+  chat: '对话模式',
+  completion: '回复模式',
+};
+
+const SUMMARY_VALUE_LABELS: Record<string, Record<string, string>> = {
+  sideEffect: { read: '只读取', write: '会保存', update: '会更新', delete: '会删除' },
+  permission: { member: '家庭成员', owner: '家庭主理人', admin: '家庭管理员' },
+  draftType: {
+    recipe: '菜谱',
+    meal_log: '餐食记录',
+    meal_plan: '餐食计划',
+    shopping_list: '采购清单',
+    ingredient: '食材信息',
+    food: '食物信息',
+  },
 };
 
 const TOOL_SPAN_TYPES = new Set(['tool_call', 'script_call', 'skill_execution', 'skill_injection']);
@@ -123,7 +149,7 @@ function formatTokenCount(value: number | null | undefined) {
 }
 
 function formatCost(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return '未配置';
+  if (value === null || value === undefined || !Number.isFinite(value)) return '未记录';
   return `$${value.toFixed(value < 0.01 ? 6 : 4)}`;
 }
 
@@ -192,7 +218,7 @@ function summarizeUsage(exchanges: AiRunLLMExchange[]): TokenUsageSummary {
 function TokenUsageChips({ summary, compact = false }: { summary: TokenUsageSummary; compact?: boolean }) {
   const cacheLabel = summary.cachedTokens > 0 ? `缓存 ${formatTokenCount(summary.cachedTokens)}` : '缓存未命中';
   return (
-    <div className={`ai-debug-token-chips${compact ? ' is-compact' : ''}`} aria-label="Token 用量">
+    <div className={`ai-debug-token-chips${compact ? ' is-compact' : ''}`} aria-label="文本用量">
       <span>输入 {summary.hasUsage ? formatTokenCount(summary.inputTokens) : '未记录'}</span>
       <span>输出 {summary.hasUsage ? formatTokenCount(summary.outputTokens) : '未记录'}</span>
       <span>总计 {summary.hasUsage ? formatTokenCount(summary.totalTokens) : '未记录'}</span>
@@ -208,33 +234,33 @@ function roundLabel(span: AiRunTraceTreeNode) {
 
 function traceStepTitle(span: AiRunTraceTreeNode) {
   const round = roundLabel(span);
-  if (span.spanType === 'run') return '整次运行';
-  if (span.spanType === 'graph_node') return `${round ? `${round} ` : ''}${span.name === 'orchestrator' ? '编排入口' : span.name}`;
+  if (span.spanType === 'run') return '整次处理';
+  if (span.spanType === 'graph_node') return `${round ? `${round} ` : ''}${span.name === 'orchestrator' ? '处理入口' : span.name}`;
   if (span.spanType === 'orchestrator_round') return `${round ? `${round} ` : ''}AI 决策`;
   if (span.spanType === 'approval_followup') return '确认后的回复';
-  if (span.spanType === 'draft_publish') return '生成确认草稿';
-  if (span.spanType === 'tool_call') return `工具调用：${span.name}`;
-  if (span.spanType === 'script_call') return `脚本调用：${span.name}`;
-  return `${TRACE_SPAN_TYPE_LABELS[span.spanType] ?? span.spanType}：${span.name}`;
+  if (span.spanType === 'draft_publish') return '生成确认内容';
+  if (span.spanType === 'tool_call') return `工具处理：${span.name}`;
+  if (span.spanType === 'script_call') return `自动处理：${span.name}`;
+  return `${TRACE_SPAN_TYPE_LABELS[span.spanType] ?? '处理步骤'}：${span.name}`;
 }
 
 function spanMeta(span: AiRunTraceTreeNode) {
-  const typeLabel = TRACE_SPAN_TYPE_LABELS[span.spanType] ?? span.spanType;
   return [
-    typeLabel,
     roundLabel(span),
-    span.attemptIndex !== null && span.attemptIndex !== undefined ? `第 ${span.attemptIndex} 次尝试` : null,
+    span.attemptIndex !== null && span.attemptIndex !== undefined ? `第 ${span.attemptIndex} 次` : null,
     formatDuration(span.durationMs),
   ].filter(Boolean).join(' · ');
 }
 
 function spanDisplayName(span: AiRunTraceTreeNode | undefined) {
   if (!span) return '未关联步骤';
-  return `${TRACE_SPAN_TYPE_LABELS[span.spanType] ?? span.spanType} · ${traceStepTitle(span)}`;
+  return traceStepTitle(span);
 }
 
 function formatSummaryValue(value: unknown, key?: string): string {
   if (key === 'status' || key === 'terminalStatus') return statusLabel(String(value));
+  if (key && /(?:Id|ID|_id)$/.test(key)) return value ? '已关联' : '无';
+  if (key && typeof value === 'string' && SUMMARY_VALUE_LABELS[key]?.[value]) return SUMMARY_VALUE_LABELS[key][value];
   if (typeof value === 'boolean') return value ? '是' : '否';
   if (typeof value === 'number') return String(value);
   if (typeof value === 'string') return value.trim() || '空';
@@ -250,7 +276,7 @@ function formatSummaryValue(value: unknown, key?: string): string {
 
 function summaryItems(summary: Record<string, unknown>) {
   return Object.entries(summary)
-    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .filter(([key, value]) => key in SUMMARY_KEY_LABELS && value !== undefined && value !== null && value !== '')
     .slice(0, 6)
     .map(([key, value]) => ({
       key,
@@ -264,17 +290,18 @@ function buildExchangeDisplayInfo(
   index: number,
   span?: AiRunTraceTreeNode,
 ): ExchangeDisplayInfo {
-  const providerLabel = `模型轮次 ${exchange.providerRound} · 尝试 ${exchange.attemptIndex}`;
-  const runtimeLabel = `${exchange.mode} · ${exchange.model} · ${formatDuration(exchange.durationMs)}`;
+  const providerLabel = `第 ${exchange.providerRound} 轮处理 · 第 ${exchange.attemptIndex} 次`;
+  const modeLabel = EXCHANGE_MODE_LABELS[exchange.mode] ?? '处理模式';
+  const runtimeLabel = `${modeLabel} · ${exchange.model} · ${formatDuration(exchange.durationMs)}`;
   const spanLabel = spanDisplayName(span);
   const totalTokens = exchange.totalTokens ?? ((exchange.inputTokens ?? 0) + (exchange.outputTokens ?? 0));
-  const tokenLabel = exchange.totalTokens !== null && exchange.totalTokens !== undefined ? ` · Token ${formatTokenCount(totalTokens)}` : '';
+  const tokenLabel = exchange.totalTokens !== null && exchange.totalTokens !== undefined ? ` · 用量 ${formatTokenCount(totalTokens)}` : '';
   return {
-    title: `模型调用 ${index + 1}`,
+    title: `模型处理 ${index + 1}`,
     providerLabel,
     runtimeLabel,
     spanLabel,
-    compactLabel: `模型 ${index + 1} · ${providerLabel}${tokenLabel} · ${statusLabel(exchange.status)}`,
+    compactLabel: `模型处理 ${index + 1} · ${providerLabel}${tokenLabel} · ${statusLabel(exchange.status)}`,
   };
 }
 
@@ -353,14 +380,14 @@ function ToolSpanSummary({ node }: { node: AiRunTraceTreeNode }) {
   const permission = formatSummaryValue(node.inputSummary['permission']);
   const status = formatSummaryValue(node.outputSummary['status'] ?? node.status, 'status');
   return (
-    <div className="ai-debug-tool-run" aria-label={`${traceStepTitle(node)} 工具信息`}>
-      <span>{node.spanType === 'script_call' ? '脚本' : node.spanType === 'skill_injection' ? 'Skill' : '工具'}: {node.name}</span>
-      {inputKeys.length > 0 ? <span>输入字段: {inputKeys.slice(0, 6).join('、')}{inputKeys.length > 6 ? ` +${inputKeys.length - 6}` : ''}</span> : null}
-      {outputKeys.length > 0 ? <span>输出字段: {outputKeys.slice(0, 6).join('、')}{outputKeys.length > 6 ? ` +${outputKeys.length - 6}` : ''}</span> : null}
-      <span>状态: {status}</span>
-      {node.inputSummary['sideEffect'] ? <span>副作用: {sideEffect}</span> : null}
-      {node.inputSummary['permission'] ? <span>权限: {permission}</span> : null}
-      {node.inputSummary['requiresConfirmation'] !== undefined ? <span>需确认: {formatSummaryValue(node.inputSummary['requiresConfirmation'])}</span> : null}
+    <div className="ai-debug-tool-run" aria-label={`${traceStepTitle(node)} 自动处理信息`}>
+      <span>{node.spanType === 'script_call' ? '自动处理' : node.spanType === 'skill_injection' ? '功能' : '工具处理'}：{node.name}</span>
+      {inputKeys.length > 0 ? <span>涉及输入：{inputKeys.slice(0, 6).join('、')}{inputKeys.length > 6 ? ` +${inputKeys.length - 6}` : ''}</span> : null}
+      {outputKeys.length > 0 ? <span>产生输出：{outputKeys.slice(0, 6).join('、')}{outputKeys.length > 6 ? ` +${outputKeys.length - 6}` : ''}</span> : null}
+      <span>状态：{status}</span>
+      {node.inputSummary['sideEffect'] ? <span>额外影响：{sideEffect}</span> : null}
+      {node.inputSummary['permission'] ? <span>权限：{permission}</span> : null}
+      {node.inputSummary['requiresConfirmation'] !== undefined ? <span>需要确认：{formatSummaryValue(node.inputSummary['requiresConfirmation'])}</span> : null}
     </div>
   );
 }
@@ -372,11 +399,11 @@ function TraceOverview({ spans, exchanges }: { spans: AiRunTraceTreeNode[]; exch
   const tokenSummary = summarizeUsage(exchanges);
   const runDuration = spans.find((span) => span.spanType === 'run')?.durationMs ?? spans.reduce((total, span) => Math.max(total, span.durationMs), 0);
   return (
-    <div className="ai-debug-overview-panel" aria-label="流程概览">
+    <div className="ai-debug-overview-panel" aria-label="处理流程概览">
       <div className="ai-debug-overview">
-        <span>步骤 {spans.length}</span>
-        <span>模型调用 {exchanges.length}</span>
-        <span>工具/脚本 {toolCount}</span>
+        <span>处理步骤 {spans.length}</span>
+        <span>模型处理 {exchanges.length}</span>
+        <span>工具处理 {toolCount}</span>
         <span>总耗时 {formatDuration(runDuration)}</span>
         <span>等待 {waitingCount}</span>
         <span className={failedCount > 0 ? 'is-danger' : undefined}>异常 {failedCount}</span>
@@ -388,15 +415,15 @@ function TraceOverview({ spans, exchanges }: { spans: AiRunTraceTreeNode[]; exch
 
 function ModelTraceSummaryState({ loading, error }: { loading: boolean; error: unknown }) {
   if (loading) {
-    return <div className="ai-debug-lazy-panel">正在加载模型调用摘要...</div>;
+    return <div className="ai-debug-lazy-panel">正在加载模型处理摘要…</div>;
   }
   if (!error) return null;
   const isPermissionDenied = isApiError(error) && error.status === 403;
   return (
     <div className="ai-debug-lazy-panel is-error">
       <div>
-        <strong>{isPermissionDenied ? '当前账号无权查看模型调用摘要' : '模型调用摘要加载失败'}</strong>
-        <span>{isPermissionDenied ? '模型调用 trace 仅限 Owner 查看。' : error instanceof Error ? error.message : '请稍后重试。'}</span>
+        <strong>{isPermissionDenied ? '当前账号无权查看模型处理摘要' : '模型处理摘要加载失败'}</strong>
+        <span>{isPermissionDenied ? '模型处理详情仅限家庭主理人查看。' : error instanceof Error ? error.message : '请稍后重试。'}</span>
       </div>
     </div>
   );
@@ -419,10 +446,10 @@ function TraceNode({
   const nodeExchanges = collectNodeExchanges(node, exchangesBySpanId);
   const nodeUsage = summarizeUsage(nodeExchanges);
   const tokenLabel = node.spanType === 'run'
-    ? '本次 Token'
+    ? '本次用量'
     : linkedExchanges.length > 0
-      ? '本步骤 Token'
-      : '下级 Token';
+      ? '本步骤用量'
+      : '下级用量';
   return (
     <li className={`ai-debug-span is-${node.status}`} style={{ '--ai-debug-depth': depth } as CSSProperties}>
       <div className="ai-debug-span-main">
@@ -434,7 +461,7 @@ function TraceNode({
         <em>{statusLabel(node.status)}</em>
       </div>
       {nodeExchanges.length > 0 ? (
-        <div className="ai-debug-node-token-row" aria-label={`${traceStepTitle(node)} Token 用量`}>
+        <div className="ai-debug-node-token-row" aria-label={`${traceStepTitle(node)} 文本用量`}>
           <strong>{tokenLabel}</strong>
           <TokenUsageChips summary={nodeUsage} compact />
         </div>
@@ -450,17 +477,17 @@ function TraceNode({
           {isToolSpan(node) ? <ToolSpanSummary node={node} /> : null}
           <TraceSummary inputSummary={node.inputSummary} outputSummary={node.outputSummary} />
           <div className="ai-debug-span-json">
-            <JsonBlock title="原始触发摘要" value={node.inputSummary} />
-            <JsonBlock title="原始结果摘要" value={node.outputSummary} />
+            <JsonBlock title="触发信息" value={node.inputSummary} />
+            <JsonBlock title="结果信息" value={node.outputSummary} />
           </div>
         </div>
       ) : null}
       {linkedExchanges.length > 0 ? (
-        <div className="ai-debug-inline-exchanges" aria-label="流程内模型调用">
+        <div className="ai-debug-inline-exchanges" aria-label="相关模型处理">
           {linkedExchanges.map((exchange) => (
             <details key={exchange.id} className={`ai-debug-inline-exchange is-${exchange.status}`}>
               <summary>
-                <span>{exchangeDisplayById.get(exchange.id)?.compactLabel ?? `模型调用 · ${statusLabel(exchange.status)}`}</span>
+                <span>{exchangeDisplayById.get(exchange.id)?.compactLabel ?? `模型处理 · ${statusLabel(exchange.status)}`}</span>
                 <em>展开明细</em>
               </summary>
               <ExchangeCard
@@ -522,7 +549,7 @@ function LazyExchangeJsonBlock({
   if (!open) {
     content = '展开后加载。';
   } else if (detailQuery.isLoading) {
-    content = '正在加载...';
+    content = '正在加载…';
   } else if (detailQuery.error) {
     content = detailQuery.error instanceof Error ? detailQuery.error.message : '加载失败，请稍后重试。';
   } else {
@@ -551,9 +578,9 @@ function ExchangeCard({ runId, exchange, display }: { runId: string; exchange: A
           <span>{display.providerLabel}</span>
           <span>{display.spanLabel}</span>
           <span>
-            request {exchange.requestBytes} bytes{exchange.requestTruncated ? ' · truncated' : ''}
+            请求 {exchange.requestBytes} 字节{exchange.requestTruncated ? ' · 已截断' : ''}
             {' · '}
-            response {exchange.responseBytes} bytes{exchange.responseTruncated ? ' · truncated' : ''}
+            响应 {exchange.responseBytes} 字节{exchange.responseTruncated ? ' · 已截断' : ''}
           </span>
         </div>
         <em>{statusLabel(exchange.status)}</em>
@@ -566,37 +593,37 @@ function ExchangeCard({ runId, exchange, display }: { runId: string; exchange: A
         </p>
       ) : null}
       <div className="ai-debug-exchange-tool-summary">
-        <span>请求可用工具 {requestToolCount}</span>
-        <span>模型返回调用 {responseToolCallCount}</span>
+        <span>可用处理方式 {requestToolCount}</span>
+        <span>AI 生成的操作 {responseToolCallCount}</span>
         {responseToolNames.length > 0 ? <strong>{responseToolNames.slice(0, 4).join('、')}{responseToolNames.length > 4 ? ` +${responseToolNames.length - 4}` : ''}</strong> : null}
       </div>
       <div className="ai-debug-tool-grid">
-        <ToolSummaryList title="请求暴露工具" names={requestToolNames} count={requestToolCount} emptyLabel="本轮没有暴露工具定义。" />
-        <ToolSummaryList title="模型返回 tool calls" names={responseToolNames} count={responseToolCallCount} emptyLabel="模型本轮没有返回 tool call。" />
+        <ToolSummaryList title="可用处理方式" names={requestToolNames} count={requestToolCount} emptyLabel="本轮没有可用处理方式。" />
+        <ToolSummaryList title="AI 生成的操作" names={responseToolNames} count={responseToolCallCount} emptyLabel="本轮没有生成操作。" />
       </div>
       <div className="ai-debug-json-grid">
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求消息原文" selectValue={(detail) => detail.requestMessages} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求工具原文" selectValue={(detail) => detail.requestTools} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求参数原文" selectValue={(detail) => detail.requestOptions} />
-        <JsonBlock title="请求存储摘要" value={{
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求消息" selectValue={(detail) => detail.requestMessages} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="可用处理方式详情" selectValue={(detail) => detail.requestTools} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="请求设置详情" selectValue={(detail) => detail.requestOptions} />
+        <JsonBlock title="请求内容概览" value={{
           originalDigest: exchange.requestOriginalDigest,
           originalBytes: exchange.requestOriginalBytes,
           storedDigest: exchange.requestDigest,
           storedBytes: exchange.requestBytes,
           truncated: exchange.requestTruncated,
         }} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应消息原文" selectValue={(detail) => detail.responseMessage} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应文本原文" selectValue={(detail) => detail.responseText} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应工具调用原文" selectValue={(detail) => detail.responseToolCalls} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="Token 原始数据" selectValue={(detail) => detail.tokenUsage} />
-        <JsonBlock title="响应存储摘要" value={{
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应消息详情" selectValue={(detail) => detail.responseMessage} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="响应文本详情" selectValue={(detail) => detail.responseText} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="AI 生成的操作详情" selectValue={(detail) => detail.responseToolCalls} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="文本用量详情" selectValue={(detail) => detail.tokenUsage} />
+        <JsonBlock title="回复内容概览" value={{
           originalDigest: exchange.responseOriginalDigest,
           originalBytes: exchange.responseOriginalBytes,
           storedDigest: exchange.responseDigest,
           storedBytes: exchange.responseBytes,
           truncated: exchange.responseTruncated,
         }} />
-        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="流式片段原文" selectValue={(detail) => detail.streamChunks} />
+        <LazyExchangeJsonBlock runId={runId} exchangeId={exchange.id} title="分段响应详情" selectValue={(detail) => detail.streamChunks} />
       </div>
     </article>
   );
@@ -667,16 +694,16 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
   return (
     <WorkspaceOverlayFrame rootClassName="ai-debug-drawer-root" onClose={onClose}>
       <WorkspaceDrawer
-        title="运行调试"
-        eyebrow="AI Trace"
-        description={runId}
+        title="处理详情"
+        eyebrow="AI 处理记录"
+        description="查看本次 AI 处理过程和结果。"
         closeLabel="关闭"
-        closeAriaLabel="关闭运行调试"
+        closeAriaLabel="关闭处理详情"
         className="ai-debug-drawer"
         onClose={onClose}
       >
         <div className="ai-debug-toolbar">
-          <div className="ai-debug-tabs" role="tablist" aria-label="运行调试视图">
+          <div className="ai-debug-tabs" role="tablist" aria-label="处理详情视图">
             {DEBUG_TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -691,15 +718,15 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
             ))}
           </div>
           <button className="ghost-button ai-debug-export" type="button" disabled={isLoading || Boolean(error)} onClick={() => downloadTraceJson(runId, tracePayload)}>
-            导出 JSON
+            导出处理记录
           </button>
         </div>
         {isLoading ? (
-          <div className="ai-debug-state">正在加载调试信息...</div>
+          <div className="ai-debug-state">正在加载处理详情…</div>
         ) : error ? (
           <div className="ai-debug-state is-error">
-            <strong>{isPermissionDenied ? '当前账号无权查看完整调试信息' : '调试信息加载失败'}</strong>
-            <span>{isPermissionDenied ? '完整 LLM exchange 仅限 Owner 查看。' : error instanceof Error ? error.message : '请稍后重试。'}</span>
+            <strong>{isPermissionDenied ? '当前账号无权查看完整处理详情' : '处理详情加载失败'}</strong>
+            <span>{isPermissionDenied ? '完整 AI 处理记录仅限家庭主理人查看。' : error instanceof Error ? error.message : '请稍后重试。'}</span>
           </div>
         ) : activeTab === 'timeline' ? (
           traceQuery.data?.tree.length ? (
@@ -713,26 +740,26 @@ export function AiRunDebugDrawer({ runId, open, onClose }: AiRunDebugDrawerProps
               </ol>
             </div>
           ) : (
-            <div className="ai-debug-state">暂无 trace span。</div>
+            <div className="ai-debug-state">还没有处理步骤。</div>
           )
         ) : (
           <div className="ai-debug-errors">
             {failedSpans.length === 0 && failedExchanges.length === 0 ? (
-              <div className="ai-debug-state">没有失败 span 或 exchange。</div>
+              <div className="ai-debug-state">没有发现异常。</div>
             ) : null}
             {failedSpans.map((span) => (
               <article key={span.id} className="ai-debug-error-card">
                 <strong>{span.name}</strong>
-                <span>{span.spanType} · {statusLabel(span.status)} · {span.durationMs}ms</span>
+                <span>{TRACE_SPAN_TYPE_LABELS[span.spanType] ?? '处理步骤'} · {statusLabel(span.status)} · {span.durationMs}ms</span>
                 {span.errorCode ? <code>{span.errorCode}</code> : null}
                 {span.errorMessage ? <p>{span.errorMessage}</p> : null}
               </article>
             ))}
             {failedExchanges.map((exchange) => (
               <article key={exchange.id} className="ai-debug-error-card">
-                <strong>{exchangeDisplayById.get(exchange.id)?.title ?? '模型调用'}</strong>
-                <span>{exchange.mode} · {exchange.model} · {exchange.durationMs}ms</span>
-                <span>{exchangeDisplayById.get(exchange.id)?.providerLabel ?? `模型轮次 ${exchange.providerRound} · 尝试 ${exchange.attemptIndex}`}</span>
+                <strong>{exchangeDisplayById.get(exchange.id)?.title ?? '模型处理'}</strong>
+                <span>{EXCHANGE_MODE_LABELS[exchange.mode] ?? '处理模式'} · {exchange.model} · {exchange.durationMs}ms</span>
+                <span>{exchangeDisplayById.get(exchange.id)?.providerLabel ?? `第 ${exchange.providerRound} 轮处理 · 第 ${exchange.attemptIndex} 次`}</span>
                 {exchange.errorCode ? <code>{exchange.errorCode}</code> : null}
                 {exchange.errorMessage ? <p>{exchange.errorMessage}</p> : null}
               </article>

@@ -78,7 +78,7 @@ export function AiRecipeDraftEditorFields(props: {
             />
           </label>
           <label className="ai-resource-field">
-            <span>时间（分钟）</span>
+            <span>准备时间（分钟）</span>
             <input
               className="text-input"
               type="number"
@@ -101,7 +101,7 @@ export function AiRecipeDraftEditorFields(props: {
 
       <AiDraftSection
         title={props.ingredientSectionTitle ?? '食材'}
-        description={`${props.recipe.ingredient_items.length} 种食材，必须绑定到家庭食材库。`}
+        description={`共 ${props.recipe.ingredient_items.length} 种食材，请选择对应的家庭食材。`}
         action={props.readonly ? null : (
           <button
             className="ghost-button ai-draft-add-button"
@@ -121,7 +121,7 @@ export function AiRecipeDraftEditorFields(props: {
             <AiDraftItemCard
               key={`${item.ingredient_name}-${index}`}
               title={item.ingredient_name || `食材 ${index + 1}`}
-              summary={`食材 ${index + 1} · ${item.ingredient_id ? '已绑定食材库' : '待绑定食材库'}`}
+              summary={`食材 ${index + 1} · ${item.ingredient_id ? '已选择食材' : '待选择食材'}`}
               tone={item.ingredient_id ? 'neutral' : 'warning'}
               className={`ai-recipe-ingredient-card${item.ingredient_id ? '' : ' is-unbound'}`}
               footer={!props.readonly && props.recipe.ingredient_items.length > 1 ? (
@@ -133,13 +133,13 @@ export function AiRecipeDraftEditorFields(props: {
                     ingredient_items: props.recipe.ingredient_items.filter((_, itemIndex) => itemIndex !== index),
                   })}
                 >
-                  删除食材
+                  移除食材
                 </button>
               ) : undefined}
             >
               <AiSearchableResourceSelect
                 kind="ingredient"
-                label="绑定食材"
+                label="选择食材"
                 value={item.ingredient_id ?? ''}
                 selectedLabel={item.ingredient_name}
                 placeholder="从食材库选择"
@@ -154,7 +154,7 @@ export function AiRecipeDraftEditorFields(props: {
               />
               {!item.ingredient_id ? (
                 <p className="ai-recipe-binding-warning">
-                  未绑定到食材库。请先选择已有食材；如果家里还没有这个食材，应先生成食材档案草稿。
+                  还没选择食材。请先从家庭食材中选择；如果还没有，可以先添加食材。
                 </p>
               ) : null}
               {usesPresenceQuantity ? (
@@ -185,7 +185,7 @@ export function AiRecipeDraftEditorFields(props: {
                 </div>
               )}
               <label className="ai-resource-field">
-                <span>处理备注</span>
+                <span>准备说明</span>
                 <input
                   className="text-input"
                   value={item.note}
@@ -219,7 +219,7 @@ export function AiRecipeDraftEditorFields(props: {
           <AiDraftItemCard
             key={`${step.title}-${index}`}
             title={`步骤 ${index + 1}`}
-            summary={step.summary || step.text || '待补充操作说明'}
+            summary={step.summary || step.text || '未填写步骤说明'}
             className="ai-recipe-step-card"
             footer={!props.readonly && props.recipe.steps.length > 1 ? (
               <button
@@ -230,7 +230,7 @@ export function AiRecipeDraftEditorFields(props: {
                   steps: props.recipe.steps.filter((_, stepIndex) => stepIndex !== index),
                 })}
               >
-                删除步骤
+                移除步骤
               </button>
             ) : undefined}
           >
@@ -246,7 +246,7 @@ export function AiRecipeDraftEditorFields(props: {
             </label>
             <div className="ai-confirmation-grid ai-confirmation-grid-three">
               <label className="ai-resource-field">
-                <span>摘要</span>
+                <span>简要说明</span>
                 <input
                   className="text-input"
                   value={step.summary ?? ''}
@@ -283,7 +283,7 @@ export function AiRecipeDraftEditorFields(props: {
                 rows={3}
                 value={step.text}
                 disabled={props.readonly}
-                placeholder="详细说明操作方法"
+                placeholder="写清处理方式、火候和时间"
                 onChange={(event) => updateStep(index, { text: event.target.value })}
               />
             </label>

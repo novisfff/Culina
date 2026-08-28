@@ -562,7 +562,7 @@ export function IngredientQuantityPicker({
     <section className="ai-meal-plan-ingredients">
       <div className="ai-meal-plan-ingredients-head">
         <span>{label}</span>
-        <small>{items.length > 0 ? `${items.length} 种` : '可选填'}</small>
+        <small>{items.length > 0 ? `${items.length} 种` : '选填'}</small>
       </div>
       <div className="ai-meal-plan-ingredient-list">
         {items.map((item, index) => (
@@ -600,8 +600,8 @@ export function IngredientQuantityPicker({
                 </div>
               </label>
               {!disabled && (
-                <button className="ai-ingredient-remove-button" type="button" aria-label={`删除${item.name}`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>
-                  删除
+                <button className="ai-ingredient-remove-button" type="button" aria-label={`移除${item.name}`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))}>
+                  移除
                 </button>
               )}
             </div>

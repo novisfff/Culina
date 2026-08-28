@@ -21,15 +21,15 @@ function recordFrom(value: unknown) {
 function actionLabel(action: string) {
   if (action === 'update') return '修改';
   if (action === 'delete') return '删除';
-  if (action === 'create') return '创建';
+  if (action === 'create') return '新增';
   return '待确认';
 }
 
 function resolvedOperationTitle(status: string, label: string) {
   if (status === 'approved') return `${label}菜谱已确认`;
-  if (status === 'rejected') return '未写入的菜谱草稿';
-  if (status === 'expired') return '已过期的菜谱草稿';
-  return '已处理的菜谱草稿';
+  if (status === 'rejected') return '这份菜谱没有保存';
+  if (status === 'expired') return '这份菜谱建议已过期';
+  return '这份菜谱建议已处理';
 }
 
 function resolvedOperationStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -42,7 +42,7 @@ function resolvedOperationStatus(status: string): 'approved' | 'rejected' | 'exp
 function recipeCompareText(recipe: { title: string; servings: number | ''; difficulty: string }) {
   return [
     recipe.title,
-    `${asNumber(recipe.servings)}人份`,
+    `${asNumber(recipe.servings)} 人份`,
     recipeDifficultyLabel(recipe.difficulty),
   ].filter(Boolean).join(' · ');
 }
@@ -118,11 +118,11 @@ export function AiRecipeOperationDraftView(props: {
       />
       <AiDraftImpactNote tone="plan" title="确认后">
         {action === 'delete'
-          ? '将删除这道菜谱，并按现有规则处理同步食物和媒体绑定。'
-          : '将写入菜谱资料，并同步关联的家常菜食物资料。'}
+          ? '将删除这份菜谱，并按现有规则处理关联食物和相关图片。'
+          : '确认后会保存菜谱信息，并更新关联的家常菜信息。'}
       </AiDraftImpactNote>
       {action === 'update' ? (
-        <AiDraftImpactNote tone="plan" title="当前与调整后" className="ai-recipe-operation-compare">
+        <AiDraftImpactNote tone="plan" title="原内容与调整后" className="ai-recipe-operation-compare">
           <p>当前：{recipeCompareText(beforeRecipe)}</p>
           <p>调整后：{recipeCompareText(recipe)}</p>
         </AiDraftImpactNote>
@@ -130,11 +130,11 @@ export function AiRecipeOperationDraftView(props: {
       {action === 'delete' ? (
         <AiDraftSection title="删除确认">
           <AiDraftImpactNote tone="danger" title="删除影响" className="ai-recipe-danger-impact">
-            <p>被删菜谱：{recipe.title || asText(before.title) || '当前菜谱'}</p>
-            <p>同步食物：{asNumber(deleteImpact.linkedFoodCount, 0)} 个</p>
+            <p>要删除的菜谱：{recipe.title || asText(before.title) || '当前菜谱'}</p>
+            <p>关联食物：{asNumber(deleteImpact.linkedFoodCount, 0)} 项</p>
             <p>关联计划：{asNumber(deleteImpact.planItemCount, 0)} 条</p>
-            <p>历史烹饪：{asNumber(deleteImpact.cookLogCount, 0)} 条</p>
-            <p>媒体绑定：{asNumber(deleteImpact.mediaCount, mediaCount)} 个</p>
+            <p>做菜记录：{asNumber(deleteImpact.cookLogCount, 0)} 条</p>
+            <p>相关图片：{asNumber(deleteImpact.mediaCount, mediaCount)} 张</p>
           </AiDraftImpactNote>
           <label className="ai-resource-field ai-confirmation-copy-field">
             <span>删除原因</span>

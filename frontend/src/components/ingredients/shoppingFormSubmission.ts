@@ -40,15 +40,15 @@ export function resolveShoppingFormSubmission(args: {
   if (args.form.targetType === 'ingredient' && !selectedIngredient) {
     return {
       ok: false,
-      title: '先选择采购对象',
-      message: '请从食材档案中选择采购对象，或改用其他采购。',
+      title: '先选择采购内容',
+      message: '请从食材列表中选择要采购的内容，或改用其他采购。',
     };
   }
   if (args.form.targetType === 'food' && !selectedFood) {
     return {
       ok: false,
-      title: '先选择采购对象',
-      message: '请从成品速食档案中选择采购对象，或改用其他采购。',
+      title: '先选择采购内容',
+      message: '请从成品速食列表中选择要采购的内容，或改用其他采购。',
     };
   }
 

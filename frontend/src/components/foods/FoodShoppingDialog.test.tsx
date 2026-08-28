@@ -55,7 +55,7 @@ describe('FoodShoppingDialog', () => {
     });
 
     expect(container.textContent).toContain('盒装牛奶');
-    expect(container.textContent).toContain('当前库存 0盒');
+    expect(container.textContent).toContain('当前库存 0 盒');
     expect(container.textContent).toContain('单位：盒');
     expect(container.querySelector('[aria-label="更换采购对象"]')).toBeNull();
     expect(container.querySelector('[name="food-shopping-unit"]')).toBeNull();

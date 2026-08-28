@@ -229,7 +229,7 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
     inventoryAlerts: [],
     dashboardStats: [
       { label: '在库食材', value: '4', unit: '种', detail: '库存充足', icon: 'leaf', tone: 'green' },
-      { label: '需处理食材', value: '3', unit: '种', detail: '过期、临期或待补货', icon: 'bell', tone: 'coral' },
+      { label: '需要处理的食材', value: '3', unit: '种', detail: '过期、临期或需要补货', icon: 'bell', tone: 'coral' },
       { label: '待采购', value: '0', unit: '项', detail: '清单已完成', icon: 'cart', tone: 'yellow' },
       { label: '本周已安排', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
     ],
@@ -244,7 +244,7 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
     hasMoreHomeActions: false,
     compactPlanDays: [],
     selectedDashboardPlanDay: undefined,
-    selectedPlanSummary: '今天 · 7月6日 · 0 项计划',
+    selectedPlanSummary: '今天 · 7月6日 · 0 项餐食安排',
     homeHighlights: emptyHighlights(),
     isQuickAdding: false,
     isCreatingFoodPlanItem: false,
@@ -285,9 +285,9 @@ function renderMobile(props: Partial<HomeMobileDashboardProps> = {}) {
 }
 
 describe('HomeMobileDashboard action center', () => {
-  it('renders the same first three prepared groups under 今天必须处理什么', () => {
+  it('renders the same first three prepared groups under 今天需要处理什么', () => {
     const view = renderMobile();
-    expect(view.textContent).toContain('今天必须处理什么');
+    expect(view.textContent).toContain('今天需要处理什么');
     expect(view.textContent).not.toContain('今日待办');
     const rows = view.querySelectorAll('[data-testid="home-action-group"]');
     expect(rows).toHaveLength(3);
@@ -306,6 +306,8 @@ describe('HomeMobileDashboard action center', () => {
     expect(tomatoRows).toHaveLength(1);
     expect(view.textContent).not.toContain('采购待办');
     expect(view.textContent).not.toContain('已完成餐食');
+    expect(view.querySelector('.home-required-actions')?.classList.contains('is-single-action')).toBe(true);
+    expect(view.textContent).toContain('处理完这一项后，今天暂时没有其他需要处理的事。');
   });
 
   it('shows the shared empty state when required actions are empty', () => {
@@ -313,8 +315,8 @@ describe('HomeMobileDashboard action center', () => {
       requiredActions: [],
       hasMoreHomeActions: false,
     });
-    expect(view.textContent).toContain('今天没有必须处理的事项');
-    expect(view.textContent).toContain('库存和采购清单都在可控范围内。');
+    expect(view.textContent).toContain('今天没有需要处理的事项');
+    expect(view.textContent).toContain('目前没有需要处理的库存或采购内容。');
   });
 
   it('uses one strong primary action per row with 44px-class targets', () => {
@@ -401,7 +403,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
       onQuickStartFood,
     });
 
-    act(() => buttonByText(view, '加入计划').click());
+    act(() => buttonByText(view, '加入餐食计划').click());
 
     expect(onHomePlanAddDialogOpen).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'food-0' }),
@@ -465,8 +467,8 @@ describe('HomeMobileDashboard three-question mobile', () => {
     const toggle = view.querySelector<HTMLButtonElement>('button[aria-label="展开当天安排"]');
     expect(toggle?.getAttribute('aria-expanded')).toBe('false');
     expect(toggle?.textContent).toContain('今天 · 6日');
-    expect(toggle?.textContent).toContain('当日还没有安排菜单');
-    expect(view.textContent).toContain('当日还没有安排菜单');
+    expect(toggle?.textContent).toContain('当日还没有安排餐食');
+    expect(view.textContent).toContain('当日还没有安排餐食');
     expect(view.textContent).not.toContain('待安排');
     expect(view.textContent).not.toContain('当天暂无安排');
     expect(detail?.hidden).toBe(true);
@@ -477,7 +479,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(view.querySelector('[data-testid="home-day-empty"]')).not.toBeNull();
     expect(view.querySelectorAll('[data-testid="home-day-empty"] button[aria-label$="安排餐食"]')).toHaveLength(4);
     expect(view.textContent).not.toContain('未安排');
-    expect(buttonByText(view, '完整周菜单')).toBeTruthy();
+    expect(buttonByText(view, '整周餐食计划')).toBeTruthy();
     expect(view.textContent).toContain('7月6日 - 7月12日');
   });
 
@@ -510,7 +512,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
 
     const emptyState = weeklyMenu?.querySelector('[data-testid="home-day-empty"]');
     expect(emptyState).not.toBeNull();
-    expect(emptyState?.textContent).toContain('当日还没有安排菜单');
+    expect(emptyState?.textContent).toContain('当日还没有安排餐食');
     expect(emptyState?.querySelector<HTMLImageElement>('.home-compact-week-empty-art')?.getAttribute('src')).toBe(
       '/assets/home-week-plan-empty.webp',
     );
@@ -705,16 +707,16 @@ describe('HomeMobileDashboard three-question mobile', () => {
     );
   });
 
-  it('uses 本周协作 -- for no-cache failure and Q2 shopping copy 项待采购', () => {
+  it('uses 本周协作暂未统计 for no-cache failure and Q2 shopping copy 项待采购', () => {
     const view = renderMobile({
-      sidebarActivityLabel: '本周协作 --',
+      sidebarActivityLabel: '本周协作暂未统计',
       requiredActions: [{ kind: 'shopping', pendingCount: 5 }],
       homeHighlights: emptyHighlights({
         phase: 'error',
-        weekCountLabel: '本周协作 --',
+        weekCountLabel: '本周协作暂未统计',
       }),
     });
-    expect(view.textContent).toContain('本周协作 --');
+    expect(view.textContent).toContain('本周协作暂未统计');
     expect(view.textContent).toContain('5 项待采购');
     expect(view.textContent).not.toContain('5 项采购可入库');
   });

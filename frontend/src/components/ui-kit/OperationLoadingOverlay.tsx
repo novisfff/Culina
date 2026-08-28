@@ -19,7 +19,7 @@ export function OperationLoadingOverlay(props: OperationLoadingOverlayProps) {
     >
       <span className="ui-operation-loading-spinner" aria-hidden="true" />
       <strong>{props.title}</strong>
-      <p>{props.description ?? '请稍候，完成前请不要重复操作。'}</p>
+      <p>{props.description ?? '请稍候，完成前不要重复点击。'}</p>
     </div>
   );
 }

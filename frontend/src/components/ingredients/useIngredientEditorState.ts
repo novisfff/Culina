@@ -284,7 +284,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
       args.showNotice({
         tone: 'warning',
         title: '还不能保存食材',
-        message: '请先填写默认保质期天数，方便以后补库存时自动带出到期建议。',
+        message: '请先填写默认保质期天数，方便加入库存时自动带出到期建议。',
       });
       return;
     }
@@ -401,7 +401,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
       return;
     }
     if (!args.transitionIngredientTrackingMode) {
-      setTrackingTransitionError('当前版本暂不支持切换数量记录方式，请刷新后重试。');
+      setTrackingTransitionError('页面信息已过期，暂时不能切换库存数量记录方式，请刷新后重试。');
       return;
     }
     if (trackingTransitionBusy || args.isUpdatingIngredient) {
@@ -516,11 +516,11 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
         }
         args.showNotice({
           tone: 'success',
-          title: '已切换数量记录方式',
+          title: '已切换库存数量记录方式',
           message:
             targetMode === 'not_track_quantity'
-              ? '之后会按家庭级有无状态维护这道食材。'
-              : '之后会按精确库存批次维护这道食材。',
+              ? '之后只记录家里是否有这项食材。'
+              : '之后按每次补充记录具体数量。',
         });
       } catch (profileReason) {
         // Mode/inventory already switched. Keep the editor open with the transitioned
@@ -552,10 +552,10 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
         }
         args.showNotice({
           tone: 'warning',
-          title: '数量记录方式已切换，资料未全部保存',
+          title: '库存数量记录方式已切换，信息未全部保存',
           message: args.resolveErrorMessage(
             profileReason,
-            '跟踪方式已生效，但名称等资料保存失败。请直接再点保存，不会重复切换跟踪方式。'
+            '库存数量记录方式已生效，但名称等信息保存失败。请再次保存即可，库存方式不会重复切换。'
           ),
         });
       }
@@ -571,7 +571,7 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
         }));
       }
       setTrackingTransitionError(
-        args.resolveErrorMessage(reason, '切换数量记录方式失败，请刷新后重试。')
+        args.resolveErrorMessage(reason, '切换库存数量记录方式失败，请刷新后重试。')
       );
     } finally {
       setTrackingTransitionBusy(false);
@@ -621,27 +621,27 @@ export function useIngredientEditorState(args: UseIngredientEditorStateArgs) {
     !trackingTransitionBusy;
   const createSummaryItems = [
     { label: '名称', value: trimmedIngredientName || '未填写食材名称' },
-    { label: '分类', value: trimmedIngredientCategory || '未设置分类' },
-    { label: '数量记录', value: tracksQuantity ? '记录数量' : '只记录有无' },
-    { label: '默认位置', value: trimmedIngredientStorage || '未设置位置' },
+    { label: '分类', value: trimmedIngredientCategory || '未填写分类' },
+    { label: '库存数量', value: tracksQuantity ? '记录具体数量' : '只记录是否有库存' },
+    { label: '默认存放位置', value: trimmedIngredientStorage || '未填写存放位置' },
     {
       label: '默认保质期',
       value:
         args.ingredientForm.defaultExpiryMode === 'days'
           ? ingredientDefaultExpiryDays
             ? `买后 ${ingredientDefaultExpiryDays} 天`
-            : '待设置天数'
+            : '未填写天数'
           : args.ingredientForm.defaultExpiryMode === 'manual_date'
-            ? '录入包装日期'
-            : '不跟踪到期',
+            ? '填写包装到期日'
+            : '不设置到期日',
     },
     {
       label: '图片',
       value: ingredientHasGeneratedImage
         ? 'AI 主图已就绪'
         : ingredientHasReferenceImage
-          ? '已上传参考图，待生成主图'
-          : '暂未生成主图',
+          ? '已上传参考图，主图尚未生成'
+            : '还没有生成主图',
     },
   ];
   const createChecklistItems = [

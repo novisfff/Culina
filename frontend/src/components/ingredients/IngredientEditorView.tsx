@@ -184,14 +184,14 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               ← {props.isEditingIngredient ? '返回食材详情' : props.activePanelBackLabel}
             </button>
             <p className="eyebrow">{props.isEditingIngredient ? '编辑食材' : '新增食材'}</p>
-            <h2>{props.isEditingIngredient ? '编辑食材资料卡' : '新增食材资料卡'}</h2>
+            <h2>{props.isEditingIngredient ? '编辑食材信息' : '新增食材信息'}</h2>
             <p className="subtle">
               {props.isEditingIngredient
-                ? '调整名称、分类、图片和备注后，可以直接保存这张资料卡。'
-                : '填写基础信息、图片和备注后，就能继续登记第一批库存。'}
+                ? '调整名称、分类、图片和备注后，可以直接保存食材信息。'
+                : '填写基础信息、图片和备注后，就能继续加入库存。'}
             </p>
           </div>
-          <Badge className="ingredients-create-page-badge">{props.isEditingIngredient ? '资料卡编辑' : '资料卡子页'}</Badge>
+          <Badge className="ingredients-create-page-badge">{props.isEditingIngredient ? '编辑食材' : '新增食材'}</Badge>
         </header>
       )}
       <form className="ingredients-create-layout" onSubmit={props.onSubmit}>
@@ -212,17 +212,17 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                 <div className="ingredients-quantity-tracking-card">
                   <div className="ingredients-restock-field-head">
                     <div>
-                      <span>数量记录方式</span>
-                      <p className="subtle">调料等常备品可只记录有无。</p>
+                      <span>库存数量</span>
+                      <p className="subtle">调料等常备品可以只记录是否有库存，不必填写数量。</p>
                     </div>
                   </div>
                   <OptionChipGroup
-                    ariaLabel="数量记录方式"
+                    ariaLabel="库存数量记录方式"
                     size="large"
                     className="ingredients-quantity-tracking-options"
                     options={[
-                      { value: 'track_quantity', label: '记录数量' },
-                      { value: 'not_track_quantity', label: '只记录有无' },
+                      { value: 'track_quantity', label: '记录具体数量' },
+                      { value: 'not_track_quantity', label: '只记录是否有库存' },
                     ]}
                     value={props.ingredientForm.quantityTrackingMode}
                     onChange={(value) =>
@@ -334,7 +334,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                           props.ingredientForm.unitConversions.map((entry) => (
                             <div key={entry.id} className="ingredients-unit-conversion-row">
                               <label>
-                                <span>副单位</span>
+                                <span>其他单位</span>
                                 <input
                                   className="text-input"
                                   placeholder="例如 袋"
@@ -350,7 +350,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                                 />
                               </label>
                               <label>
-                                <span>换算值</span>
+                                <span>换算比例</span>
                                 <input
                                   className="text-input"
                                   type="number"
@@ -372,8 +372,8 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                                 <span>预览</span>
                                 <strong>
                                   {normalizeIngredientUnit(entry.unit)
-                                    ? `1 ${normalizeIngredientUnit(entry.unit)} = ${entry.ratioToDefault.trim() || '?'} ${props.trimmedIngredientUnit || '主单位'}`
-                                    : `1 副单位 = ${entry.ratioToDefault.trim() || '?'} ${props.trimmedIngredientUnit || '主单位'}`}
+                                    ? `1 ${normalizeIngredientUnit(entry.unit)} = ${entry.ratioToDefault.trim() || '?'} ${props.trimmedIngredientUnit || '默认单位'}`
+                                    : `1 其他单位 = ${entry.ratioToDefault.trim() || '?'} ${props.trimmedIngredientUnit || '默认单位'}`}
                                 </strong>
                               </div>
                               <ActionButton
@@ -388,14 +388,14 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                                   })
                                 }
                               >
-                                删除
+                                移除
                               </ActionButton>
                             </div>
                           ))
                         ) : (
                           <div className="ingredients-create-rule-note ingredients-unit-conversion-empty">
-                            <span>先按主单位建档就够用</span>
-                            <p>只有像“袋、盒、个”需要换成主单位时，再补充这里的高级设置。</p>
+                            <span>先用默认单位就够了</span>
+                            <p>需要把“袋、盒、个”等包装单位换算成默认单位时，再在这里设置。</p>
                           </div>
                         )}
                         <ActionButton
@@ -410,7 +410,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                             })
                           }
                         >
-                          添加副单位
+                          添加其他单位
                         </ActionButton>
                       </div>
                     )}
@@ -420,11 +420,11 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                   <div className="ingredients-restock-field-head">
                     <div>
                       <span>默认存放位置</span>
-                      <p className="subtle">以后补库存时会先带出这里的建议位置。</p>
+                      <p className="subtle">加入库存时会预填这里的建议位置。</p>
                     </div>
                   </div>
                   <OptionChipGroup
-                    ariaLabel="默认保存位置"
+                    ariaLabel="默认存放位置"
                     value={props.ingredientUsesCustomStorage ? '__custom__' : props.ingredientForm.defaultStorage}
                     options={[
                       ...INVENTORY_STORAGE_PRESETS.map((storage) => ({ value: storage, label: storage })),
@@ -460,13 +460,13 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               <div className="ingredients-restock-field-group ingredients-create-expiry-rule-card">
                 <div className="ingredients-restock-field-head">
                   <span>默认保质期规则</span>
-                  <p className="subtle">把长期规则留在资料卡里，补库存时就不用每次重想。</p>
+                  <p className="subtle">把常用规则保存下来，加入库存时不用重复填写。</p>
                 </div>
                 <OptionChipGroup
                   ariaLabel="默认保质期规则"
                   className="ingredients-rule-option-group"
                   options={[
-                    { value: 'none', label: '不跟踪到期' },
+                    { value: 'none', label: '不设置到期日' },
                     { value: 'days', label: '买后几天' },
                     { value: 'manual_date', label: '包装到期日' },
                   ]}
@@ -485,8 +485,8 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                   <span>默认低库存提醒</span>
                   <p className="subtle">
                     {props.ingredientForm.quantityTrackingMode === 'not_track_quantity'
-                      ? '只记录有无的食材不做数量阈值提醒。'
-                      : '按食材总量提醒，值越小越接近“快没了”。'}
+                      ? '只记录是否有库存的食材不会触发数量提醒。'
+                      : '库存总量低于设定值时，会提醒你补货。'}
                   </p>
                 </div>
                 {props.ingredientForm.quantityTrackingMode === 'not_track_quantity' ? (
@@ -513,7 +513,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                 )}
                 {props.ingredientForm.quantityTrackingMode !== 'not_track_quantity' && props.ingredientLowStockEnabled ? (
                   <TouchStepperField
-                    label="提醒阈值"
+                    label="低库存提醒值"
                     value={props.ingredientLowStockValue}
                     min={props.ingredientLowStockStep}
                     step={props.ingredientLowStockStep}
@@ -522,8 +522,8 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     customInputLabel="自定义提醒值"
                     inputMin={props.ingredientLowStockStep}
                     inputStep={props.ingredientLowStockStep}
-                    formatValue={(value) => `${formatNumericString(value)}${props.ingredientForm.defaultUnit || '个'}`}
-                    helper="库存汇总少于这个值时，档案和提醒区会提示你补货。"
+                    formatValue={(value) => `${formatNumericString(value)} ${props.ingredientForm.defaultUnit || '个'}`}
+                    helper="库存汇总少于这个值时，食材库和提醒区会提示你补货。"
                     onChange={(value) =>
                       props.setIngredientForm({
                         ...props.ingredientForm,
@@ -534,35 +534,35 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                 ) : props.ingredientForm.quantityTrackingMode !== 'not_track_quantity' ? (
                   <div className="ingredients-create-rule-note ingredients-create-lowstock-note">
                     <span>提醒状态</span>
-                    <p>当前不做低库存提醒；需要时点一下就能开启，平时不用额外维护。</p>
+                    <p>当前未开启低库存提醒；需要时选择“设置提醒”即可。</p>
                   </div>
                 ) : null}
               </div>
               {props.ingredientForm.defaultExpiryMode === 'days' ? (
                 <TouchRangeField
-                  label="默认几天到期"
+                  label="买后几天到期"
                   value={props.ingredientDefaultExpiryRangeValue}
                   min={1}
                   max={30}
                   step={1}
                   marks={EXPIRY_DAY_MARKS}
-                  helper="以后补库存时会先带出这个天数。"
+                  helper="加入库存时会预填这个天数。"
                   formatValue={(value) => `${value} 天`}
                   onChange={(value) => props.setIngredientForm({ ...props.ingredientForm, defaultExpiryDays: String(value) })}
                 />
               ) : (
                 <div className="ingredients-create-rule-note ingredients-create-expiry-note">
-                  <span>到期录入方式</span>
+                  <span>到期日填写方式</span>
                   <p>
                     {props.ingredientForm.defaultExpiryMode === 'manual_date'
-                      ? '以后补库存时会直接让你填写包装上的具体日期。'
-                      : '以后补库存默认不要求到期信息，也不会自动做临期提醒。'}
+                      ? '加入库存时会直接填写包装上的到期日。'
+                      : '加入库存时默认不填写到期日，也不会自动提醒临期。'}
                   </p>
                 </div>
               )}
               <div className="ingredients-create-rule-note ingredients-create-default-note">
-                <span>补库存时自动带出</span>
-                <p>这些默认值会在以后登记新批次时预填，你仍然可以按这次买回来的实际情况修改。</p>
+                <span>加入库存时自动带出</span>
+                <p>这些默认值会在以后加入新库存时预填，你仍然可以按这次买回来的实际情况修改。</p>
               </div>
             </div>
           </section>
@@ -604,10 +604,10 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
           <section className="form-panel-section ingredients-create-side-panel ingredients-create-action-rail">
             <div className="ingredients-create-rail-head">
               <div className="ingredients-create-rail-copy">
-                <p className="eyebrow">录入摘要</p>
-                <h3>{props.isEditingIngredient ? '准备保存这次修改' : '准备保存这张资料卡'}</h3>
+                <p className="eyebrow">信息摘要</p>
+                <h3>{props.isEditingIngredient ? '准备保存这次修改' : '准备保存食材信息'}</h3>
                 <p className="subtle">
-                  {props.isEditingIngredient ? '保存后会回到详情页，也可以顺手继续登记新批次。' : '填完后直接保存，或继续进入首批库存登记。'}
+                  {props.isEditingIngredient ? '保存后会回到详情页，也可以继续加入新的库存。' : '填写完成后可直接保存，也可以继续加入库存。'}
                 </p>
               </div>
             </div>
@@ -621,7 +621,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               ) : (
                 <div className="ingredients-create-preview-placeholder">
                   {props.renderIcon('image')}
-                  <span>未配图</span>
+                                <span>还没有图片</span>
                 </div>
               )}
             </div>
@@ -636,7 +636,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
             </div>
 
             <div className="ingredients-create-progress">
-              <p className="ingredients-create-progress-title">完成度</p>
+              <p className="ingredients-create-progress-title">填写进度</p>
               <div className="ingredients-create-progress-list">
                 {props.createChecklistItems.map((item) => (
                   <div
@@ -659,20 +659,20 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
             <div className="ingredients-create-footer ingredients-create-footer-rail">
               <button className="solid-button" type="submit" disabled={!props.createCanSubmit}>
                 {props.isCreatingIngredient || props.isUpdatingIngredient
-                  ? '保存中...'
+                  ? '保存中…'
                   : props.isEditingIngredient
-                      ? '保存修改并登记库存'
-                      : '保存并登记库存'}
+                      ? '保存修改并加入库存'
+                      : '保存并加入库存'}
               </button>
               <button className="ghost-button" type="button" disabled={!props.createCanSubmit} onClick={props.onSaveWithoutRestock}>
                 {props.isCreatingIngredient || props.isUpdatingIngredient
-                  ? '保存中...'
+                  ? '保存中…'
                   : props.isEditingIngredient
                       ? '仅保存修改'
-                      : '仅保存资料卡'}
+                      : '仅保存信息'}
               </button>
               <button className="ingredients-create-link-button" type="button" onClick={props.onBack}>
-                {props.isEditingIngredient ? '返回详情' : '返回档案'}
+                {props.isEditingIngredient ? '返回详情' : '返回食材库'}
               </button>
             </div>
           </section>
@@ -696,12 +696,12 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
       }}
     >
       <WorkspaceModal
-        eyebrow="数量记录方式"
-        title={toPresence ? '切换为只记录有无' : '切换为记录数量'}
+        eyebrow="库存数量"
+        title={toPresence ? '切换为只记录库存状态' : '切换为记录具体数量'}
         description={
           toPresence
-            ? '切换后会按家庭级有无状态维护这道食材。历史精确批次会保留，但不再参与当前库存。'
-            : '切换后会按精确库存批次维护这道食材。请明确确认当前没有库存，或登记真实初始数量。'
+            ? '切换后只记录家里是否有这项食材。历史库存会保留，但不再计入当前库存。'
+            : '切换后按每次补充记录具体数量。请确认家里目前没有库存，或填写实际库存。'
         }
         closeLabel="取消"
         className="ingredients-tracking-transition-modal"
@@ -710,7 +710,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
         }}
         footerActions={
           <FormActions
-            primaryLabel={transitionBusy ? '切换中...' : '确认切换'}
+            primaryLabel={transitionBusy ? '切换中…' : '确认切换'}
             secondaryLabel="取消"
             isSubmitting={transitionBusy}
             onPrimary={() => props.onConfirmTrackingTransition?.()}
@@ -724,15 +724,15 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               <div className="ingredients-restock-field-group">
                 <div className="ingredients-restock-field-head">
                   <span>当前家里情况</span>
-                  <p className="subtle">只有你明确点选后，才会记为人工确认。</p>
+                  <p className="subtle">选择一个状态后，才会记录为已确认。</p>
                 </div>
                 <OptionChipGroup
-                  ariaLabel="有无状态"
+                  ariaLabel="库存状态"
                   options={[
-                    { value: 'present_unknown', label: '还在' },
+                    { value: 'present_unknown', label: '有库存' },
                     { value: 'low', label: '少量' },
                     { value: 'sufficient', label: '充足' },
-                    { value: 'absent', label: '没有了' },
+                    { value: 'absent', label: '没有库存' },
                   ]}
                   value={presence.availability_level}
                   onChange={(value) =>
@@ -812,7 +812,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
               ) : (
                 <div className="ingredients-create-rule-note">
                   <span>没有库存</span>
-                  <p>确认后会清空家庭级位置和日期，并保留历史精确批次作为证据。</p>
+                  <p>确认后会清空当前记录的存放位置和日期，历史库存仍会保留。</p>
                 </div>
               )}
             </>
@@ -822,14 +822,14 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
             <>
               <div className="ingredients-restock-field-group">
                 <div className="ingredients-restock-field-head">
-                  <span>初始库存处理</span>
-                  <p className="subtle">不会把旧的占位数量 1 当成真实库存。</p>
+                  <span>切换后的库存状态</span>
+                  <p className="subtle">请确认当前是否有库存，再选择对应的状态。</p>
                 </div>
                 <OptionChipGroup
-                  ariaLabel="初始库存处理"
+                  ariaLabel="切换后的库存状态"
                   options={[
-                    { value: 'absent', label: '当前没有' },
-                    { value: 'stock', label: '登记真实库存' },
+                    { value: 'absent', label: '当前没有库存' },
+                    { value: 'stock', label: '加入实际库存' },
                   ]}
                   value={exact.confirm_absent ? 'absent' : 'stock'}
                   onChange={(value) =>
@@ -867,7 +867,7 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     />
                   </label>
                   <label>
-                    <span>状态</span>
+                    <span>库存状态</span>
                     <select
                       className="text-input"
                       value={exact.inventory_status || 'fresh'}
@@ -928,8 +928,8 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                 </div>
               ) : (
                 <div className="ingredients-create-rule-note">
-                  <span>明确没有库存</span>
-                  <p>不会创建新的精确批次，原有无状态会清空并退出当前读取。</p>
+                  <span>确认没有库存</span>
+                  <p>确认没有库存后，不会新增库存；当前库存状态会清空。</p>
                 </div>
               )}
             </>

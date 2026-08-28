@@ -842,10 +842,10 @@ export function summarizePurchaseQuantity(args: {
 
 export function formatPurchaseQuantitySummary(summary: PurchaseQuantitySummary): string | null {
   if (summary.kind === 'partial') {
-    return `入库 ${formatQuantityString(summary.actual)} ${summary.unit}，还差 ${formatQuantityString(summary.remaining)} ${summary.unit}`;
+    return `加入库存 ${formatQuantityString(summary.actual)} ${summary.unit}，还差 ${formatQuantityString(summary.remaining)} ${summary.unit}`;
   }
   if (summary.kind === 'over') {
-    return `按实际 ${formatQuantityString(summary.actual)} ${summary.unit} 全部入库（计划 ${formatQuantityString(summary.planned)} ${summary.unit}）`;
+    return `按实际 ${formatQuantityString(summary.actual)} ${summary.unit} 全部加入库存（计划 ${formatQuantityString(summary.planned)} ${summary.unit}）`;
   }
   if (summary.kind === 'zero') {
     return '数量为 0，将视为本次未买到';
@@ -865,7 +865,7 @@ export function validateShoppingIntakeDraft(draft: ShoppingIntakeDraft): Shoppin
       shoppingItemId: '',
       field: 'items',
       code: 'empty_operation',
-      message: '请先勾选本次买到的项目。',
+      message: '请先勾选本次买到的内容。',
     });
     return errors;
   }
@@ -877,7 +877,7 @@ export function validateShoppingIntakeDraft(draft: ShoppingIntakeDraft): Shoppin
           shoppingItemId: item.shoppingItemId,
           field: 'resolution',
           code: 'invalid_target',
-          message: `「${item.title}」是自由文本，请先关联库存或标记为仅完成。`,
+          message: `「${item.title}」是其他采购，请先选择对应库存，或只记录购买结果。`,
         });
       }
       continue;

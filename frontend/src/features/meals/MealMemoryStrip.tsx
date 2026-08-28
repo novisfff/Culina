@@ -43,7 +43,7 @@ export function MealMemoryStrip(props: MealMemoryStripProps) {
     return (
       <section className={rootClass} aria-label="家庭记忆" data-memory-status="error">
         <div className="meal-memory-error">
-          <span>家庭记忆暂时加载失败</span>
+          <span>家庭记忆加载失败</span>
           <button
             type="button"
             className="meal-memory-retry"
@@ -81,7 +81,7 @@ export function MealMemoryStrip(props: MealMemoryStripProps) {
                   sizes={buildMediaSizes('card')}
                   alt={cover?.alt || item.food.name}
                   showLabel={false}
-                  emptyLabel="暂无封面"
+                  emptyLabel="还没有图片"
                 />
               </span>
               <span className="meal-memory-card-copy">

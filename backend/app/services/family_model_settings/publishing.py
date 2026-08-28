@@ -187,10 +187,17 @@ def _create_initial_search_profile_if_required(
         ),
         None,
     )
-    if binding is None:
+    if (
+        binding is None
+        or binding.profile is None
+        or binding.profile_version is None
+    ):
+        # A trusted baseline binding can survive an old/partially migrated
+        # snapshot without provider objects attached. It must not trigger an
+        # assertion (or a duplicate search profile) while an unrelated card
+        # is being applied. A newly validated Embedding binding always carries
+        # both objects and therefore still provisions normally.
         return None
-    assert binding.profile is not None
-    assert binding.profile_version is not None
     dimensions = binding.options.get("dimensions")
     if not isinstance(dimensions, int):
         raise FamilyModelDraftInvalid("family_model_embedding_dimensions_required")
@@ -443,6 +450,75 @@ def apply_validated_family_model_configuration(
         if settings.active_config_revision_id is not None
         else None
     )
+    if current_revision is None or current_revision.status != FamilyModelConfigRevisionStatus.PUBLISHED:
+        # The settings pointer is denormalized and may still reference a
+        # superseded row left by the former unified-confirmation flow. Use the
+        # latest published family snapshot as the runtime/lineage baseline.
+        current_revision = db.scalar(
+            select(FamilyModelConfigRevision)
+            .where(
+                FamilyModelConfigRevision.family_id == family_id,
+                FamilyModelConfigRevision.status == FamilyModelConfigRevisionStatus.PUBLISHED,
+            )
+            .order_by(
+                FamilyModelConfigRevision.version_number.desc(),
+                FamilyModelConfigRevision.id.desc(),
+            )
+            .limit(1)
+        )
+    # Denormalized active pointers can be stale in databases upgraded from the
+    # original unified-confirmation flow.  Only use family-owned rows as
+    # lineage parents; a bad pointer must never become a new revision FK.
+    requested_base_revision_id = validation.payload.base_config_revision_id
+    base_revision = (
+        get_config_revision(
+            db,
+            family_id=family_id,
+            config_revision_id=requested_base_revision_id,
+        )
+        if isinstance(requested_base_revision_id, str)
+        else None
+    )
+    if base_revision is not None and base_revision.status != FamilyModelConfigRevisionStatus.PUBLISHED:
+        base_revision = current_revision
+    base_revision_id = base_revision.id if base_revision is not None else (
+        current_revision.id if current_revision is not None else None
+    )
+    base_price_version_id: str | None = None
+    revision_for_price = base_revision or current_revision
+    if isinstance(settings.active_price_version_id, str) and revision_for_price is not None:
+        active_price = db.scalar(
+            select(ModelUsagePriceVersion)
+            .where(
+                ModelUsagePriceVersion.family_id == family_id,
+                ModelUsagePriceVersion.id == settings.active_price_version_id,
+                ModelUsagePriceVersion.config_revision_id == revision_for_price.id,
+                ModelUsagePriceVersion.purpose == FamilyModelPricePurpose.ACTIVE,
+                ModelUsagePriceVersion.status == "published",
+                ModelUsagePriceVersion.search_profile_id.is_(None),
+            )
+        )
+        if active_price is not None:
+            base_price_version_id = active_price.id
+    if base_price_version_id is None:
+        if revision_for_price is not None:
+            fallback_price = db.scalar(
+                select(ModelUsagePriceVersion)
+                .where(
+                    ModelUsagePriceVersion.family_id == family_id,
+                    ModelUsagePriceVersion.config_revision_id == revision_for_price.id,
+                    ModelUsagePriceVersion.purpose == FamilyModelPricePurpose.ACTIVE,
+                    ModelUsagePriceVersion.status == "published",
+                    ModelUsagePriceVersion.search_profile_id.is_(None),
+                )
+                .order_by(
+                    ModelUsagePriceVersion.version_number.desc(),
+                    ModelUsagePriceVersion.effective_from.desc(),
+                    ModelUsagePriceVersion.id.desc(),
+                )
+                .limit(1)
+            )
+            base_price_version_id = fallback_price.id if fallback_price is not None else None
     revision = db.scalar(
         select(FamilyModelConfigRevision).where(
             FamilyModelConfigRevision.family_id == family_id,
@@ -468,7 +544,7 @@ def apply_validated_family_model_configuration(
             db,
             command=command,
             validation=validation,
-            base_revision_id=settings.active_config_revision_id,
+            base_revision_id=base_revision_id,
             search_profile=retained_search or initial_search,
         )
         _insert_capability_bindings(db, revision=revision, bindings=validation.bindings)
@@ -489,7 +565,7 @@ def apply_validated_family_model_configuration(
             db,
             command=command,
             revision=revision,
-            base_price_version_id=settings.active_price_version_id,
+            base_price_version_id=base_price_version_id,
             validation=validation,
         )
 

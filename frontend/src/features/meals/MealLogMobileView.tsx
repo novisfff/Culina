@@ -130,7 +130,7 @@ type Props = {
 
 export function MealLogMobileView(props: Props) {
   return (
-    <main className="mobile-log-page" aria-label="手机吃过的页面">
+    <main className="mobile-log-page" aria-label="用餐记录">
       <div className="mobile-log-topbar">
         <div className="mobile-log-brand">
           <strong>Culina</strong>
@@ -146,8 +146,8 @@ export function MealLogMobileView(props: Props) {
 
       <header className="mobile-log-hero">
         <div className="mobile-log-hero-copy">
-          <h1>吃过的</h1>
-          <p>回看家里吃过什么，需要时再补充照片、评价和家人反馈。</p>
+          <h1>用餐记录</h1>
+          <p>回看家里吃过什么，需要时再补充照片、评分和家人反馈。</p>
         </div>
         <button
           className="mobile-log-primary-cta"
@@ -170,7 +170,7 @@ export function MealLogMobileView(props: Props) {
         </span>
         <input
           value={props.searchQuery}
-          placeholder="搜索菜品或备注"
+          placeholder="搜索食物或备注"
           onChange={(event) => props.onSearchChange(event.target.value)}
         />
       </label>

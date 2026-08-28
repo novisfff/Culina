@@ -106,7 +106,7 @@ function buildFamilyImagePayload(form: FamilyFormState): AiRenderPayload {
     title: form.name.trim() || '家庭厨房',
     category: form.location.trim(),
     notes: [
-      form.imagePrompt.trim() ? `Owner 希望家庭图呈现：${form.imagePrompt.trim()}` : '',
+      form.imagePrompt.trim() ? `家庭主理人希望家庭头像呈现：${form.imagePrompt.trim()}` : '',
       form.motto.trim() ? `家庭口号：${form.motto.trim()}` : '',
     ].filter(Boolean).join('；'),
   };
@@ -246,7 +246,7 @@ export function useFamilySettingsState(input: {
       });
       closeOverlay();
     } catch (reason) {
-      input.showNotice({ tone: 'danger', title: '保存个人资料失败', message: reason instanceof Error ? reason.message : '保存个人资料失败' });
+      input.showNotice({ tone: 'danger', title: '保存个人信息失败', message: reason instanceof Error ? reason.message : '保存个人信息失败' });
     }
   }
 

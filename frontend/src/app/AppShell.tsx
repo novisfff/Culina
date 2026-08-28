@@ -57,7 +57,7 @@ function notificationSummary(attentionCount: number, activeCount: number, totalC
   if (attentionCount > 0) return `${attentionCount} 项需要处理`;
   if (activeCount > 0) return `${activeCount} 项进行中`;
   if (totalCount > 0) return `${totalCount} 项最近动态`;
-  return '暂无通知';
+  return '还没有通知';
 }
 
 function notificationSummaryTone(attentionCount: number, activeCount: number) {
@@ -155,8 +155,8 @@ function OrientationLockScreen() {
         </span>
         <div className="app-orientation-copy">
           <p>请竖屏使用 Culina</p>
-          <strong>手机端需要竖屏查看</strong>
-          <span>旋转手机后，就能继续记录和查看。</span>
+          <strong>竖屏查看效果更好</strong>
+          <span>将设备转为竖屏后，就能继续记录和查看。</span>
         </div>
       </div>
     </section>
@@ -260,7 +260,7 @@ export function AppNotificationCenter(props: {
         </span>
       </div>
       {props.isLoading ? (
-        <p className="app-notification-empty">正在读取通知...</p>
+        <p className="app-notification-empty">正在加载通知…</p>
       ) : hasItems ? (
         <div className="app-notification-list">
           {groups.map((group) => (
@@ -323,10 +323,10 @@ export function AppNotificationCenter(props: {
                             }}
                             disabled={isRetrying}
                             aria-label={`重试${item.title}`}
-                            title={isRetrying ? '提交中' : '重试'}
+                            title={isRetrying ? '重试中' : '重试'}
                           >
                             <span aria-hidden="true"><DashboardIcon name="refresh" /></span>
-                            {isRetrying ? '提交中' : '重试'}
+                            {isRetrying ? '重试中' : '重试'}
                           </button>
                         )}
                         <button
@@ -523,7 +523,7 @@ export function AppShell({
               </div>
             </div>
 
-            <nav className="sidebar-nav" aria-label="大屏主导航">
+            <nav className="sidebar-nav" aria-label="侧边导航">
               {PRIMARY_NAV_ITEMS.map((item) => (
                 <button
                   key={item.key}
@@ -573,7 +573,7 @@ export function AppShell({
         </aside>
 
         <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
-          <nav className="tabbar" aria-label="顶部主导航">
+          <nav className="tabbar" aria-label="顶部导航">
             <div className="tabbar-inner">
               <div className="tabbar-scroll">
                 {PRIMARY_NAV_ITEMS.map((item) => (
@@ -594,7 +594,7 @@ export function AppShell({
         </div>
       </div>
       {activeTab !== 'ai' && (
-        <nav className="mobile-bottom-nav" aria-label="手机主导航">
+        <nav className="mobile-bottom-nav" aria-label="底部导航">
           {MOBILE_PRIMARY_NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.key;
             const isAiTab = item.key === 'ai';

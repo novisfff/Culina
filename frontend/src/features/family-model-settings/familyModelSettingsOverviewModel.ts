@@ -14,8 +14,8 @@ export type FamilyModelSetupStep = {
   status: FamilyModelSetupStepStatus;
 };
 
-export type FamilyModelPublication = {
-  kind: 'unpublished' | 'local_changes' | 'published';
+export type FamilyModelConfigurationStatus = {
+  kind: 'unconfigured' | 'saving' | 'active';
   label: string;
   description: string;
 };
@@ -25,7 +25,7 @@ export type FamilyModelSettingsOverview = {
   providerCount: number;
   enabledCapabilityCount: number;
   pricedCapabilityCount: number;
-  publication: FamilyModelPublication;
+  configurationStatus: FamilyModelConfigurationStatus;
   steps: FamilyModelSetupStep[];
   primarySection: FamilyModelSettingsSection;
   primaryLabel: string;
@@ -38,10 +38,10 @@ export type DeriveFamilyModelSettingsOverviewInput = {
 };
 
 const STEP_CONTENT: Array<Pick<FamilyModelSetupStep, 'id' | 'number' | 'label' | 'description'>> = [
-  { id: 'providers', number: 1, label: '连接服务', description: '保存服务地址与凭据' },
-  { id: 'capabilities', number: 2, label: '绑定能力', description: '选择每类任务使用的模型' },
-  { id: 'prices', number: 3, label: '设置价格（可选）', description: '未填写的计费项按 0 计算' },
-  { id: 'review', number: 4, label: '配置检查', description: '查看配置完善度与提醒' },
+  { id: 'providers', number: 1, label: '添加模型服务', description: '保存服务地址与密钥' },
+  { id: 'capabilities', number: 2, label: '选择功能', description: '选择每类功能使用的模型' },
+  { id: 'prices', number: 3, label: '设置价格（可选）', description: '未填写的计费项按 0 元计入费用' },
+  { id: 'review', number: 4, label: '配置检查', description: '检查配置是否完整，并查看提醒' },
 ];
 
 function enabledCapabilitySet(draft: FamilyModelSettingsDraft): Set<FamilyModelCapability> {
@@ -71,24 +71,29 @@ function pricedCapabilityCount(draft: FamilyModelSettingsDraft, enabled: Set<Fam
   return count;
 }
 
-function publicationFor(settings: FamilyModelSettings, dirty: boolean): FamilyModelPublication {
-  const hasPublishedRevision = Boolean(settings.active_config_revision_id && settings.active_price_version_id);
-  if (!hasPublishedRevision) {
+function configurationStatusFor(
+  settings: FamilyModelSettings,
+  dirty: boolean,
+): FamilyModelConfigurationStatus {
+  const hasActiveConfiguration = Boolean(
+    settings.active_config_revision_id && settings.active_price_version_id,
+  );
+  if (!hasActiveConfiguration) {
     return {
-      kind: dirty ? 'local_changes' : 'unpublished',
-      label: dirty ? '正在保存' : '等待配置',
-      description: dirty ? '修改会自动保存；信息完整后立即生效。' : '连接服务并绑定需要的能力后即可使用。',
+      kind: dirty ? 'saving' : 'unconfigured',
+      label: dirty ? '正在保存' : '未配置',
+      description: dirty ? '修改会自动保存；信息完整后立即生效。' : '添加模型服务并选择需要的功能后即可使用。',
     };
   }
   if (dirty) {
     return {
-      kind: 'local_changes',
+      kind: 'saving',
       label: '正在保存',
       description: '修改会自动保存；保存完成后立即切换到新配置。',
     };
   }
   return {
-    kind: 'published',
+    kind: 'active',
     label: '配置已生效',
     description: '当前家庭正在使用这份配置，后续修改也会自动保存并生效。',
   };
@@ -117,18 +122,18 @@ export function deriveFamilyModelSettingsOverview(
     && validateFamilyModelPriceRates(input.draft.bindings, input.draft.price_rates).valid;
 
   let primarySection: FamilyModelSettingsSection = 'providers';
-  let primaryLabel = providerCount > 0 ? '启用可用的 AI 服务' : '连接第一个 AI 服务';
+  let primaryLabel = providerCount > 0 ? '启用可用的 AI 服务' : '添加第一个 AI 服务';
   if (usableProviderCount > 0 && !capabilitiesReady) {
     primarySection = 'capabilities';
-    primaryLabel = '绑定需要的能力';
+    primaryLabel = '选择需要的功能';
   } else if (usableProviderCount > 0 && !pricingReady) {
     primarySection = 'prices';
     primaryLabel = '设置模型价格（可选）';
   } else if (usableProviderCount > 0 && pricingReady) {
     primarySection = 'review';
     primaryLabel = input.settings.active_config_revision_id && input.settings.active_price_version_id && !input.dirty
-      ? '查看配置完善度'
-      : '检查配置完善度';
+      ? '查看配置是否完整'
+      : '检查配置是否完整';
   }
 
   const completed = {
@@ -143,11 +148,11 @@ export function deriveFamilyModelSettingsOverview(
       ? '家庭 AI 服务已配置'
       : providerCount > 0
         ? '继续配置家庭 AI 服务'
-        : '尚未配置服务',
+        : '还没有配置服务',
     providerCount,
     enabledCapabilityCount,
     pricedCapabilityCount: pricedCount,
-    publication: publicationFor(input.settings, input.dirty),
+    configurationStatus: configurationStatusFor(input.settings, input.dirty),
     steps: STEP_CONTENT.map((step) => ({
       ...step,
       status: completed[step.id] ? 'complete' : step.id === primarySection ? 'current' : 'upcoming',

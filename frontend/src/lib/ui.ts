@@ -153,7 +153,7 @@ export function buildInventoryAlerts(
       alerts.push({
         id: `${ingredient.id}-low`,
         title: `${ingredient.name} 库存偏低`,
-        detail: `当前可用 ${String(Number(availableQuantity.toFixed(2)))}${ingredient.default_unit}，建议补货`,
+        detail: `当前可用 ${String(Number(availableQuantity.toFixed(2)))} ${ingredient.default_unit}，建议补货`,
         tone: 'warning',
       });
     }

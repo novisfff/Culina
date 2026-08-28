@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
+    FamilyModelConfigRevisionStatus,
     FamilyModelProviderStatus,
     FamilyModelSecretStatus,
     ModelUsageCapability,
@@ -25,6 +26,7 @@ from app.models.family_model_settings import (
     FamilyModelProviderProfileVersion,
     FamilyModelSecretVersion,
     FamilyModelSettings,
+    FamilySearchProfile,
 )
 from app.repos.family_model_settings.configurations import (
     get_config_revision,
@@ -500,6 +502,64 @@ def _validate_fallback_graph(
     return ()
 
 
+def _active_search_profile(
+    db: Session,
+    *,
+    settings: FamilyModelSettings,
+) -> FamilySearchProfile | None:
+    """Resolve the family search identity from the two historical pointers.
+
+    ``FamilyModelConfigRevision.search_profile_id`` is the immutable owner of
+    the identity. ``FamilyModelSettings.active_search_profile_id`` is a
+    denormalized pointer that older deployments could leave stale. Prefer the
+    revision when it is a currently published snapshot, then use the
+    denormalized pointer as a recovery path. Every candidate is re-scoped to
+    the family before it is returned.
+    """
+
+    revision_profile_ids: list[str] = []
+    revision = None
+    if isinstance(settings.active_config_revision_id, str):
+        revision = get_config_revision(
+            db,
+            family_id=settings.family_id,
+            config_revision_id=settings.active_config_revision_id,
+        )
+        if (
+            revision is not None
+            and revision.status == FamilyModelConfigRevisionStatus.PUBLISHED
+            and isinstance(revision.search_profile_id, str)
+        ):
+            revision_profile_ids.append(revision.search_profile_id)
+
+    candidates = [*revision_profile_ids]
+    if isinstance(settings.active_search_profile_id, str):
+        candidates.append(settings.active_search_profile_id)
+    # If the pointed revision is a superseded historical row and the
+    # denormalized pointer is empty, retaining its identity is safer than
+    # silently treating an already provisioned search model as a first setup.
+    if (
+        not candidates
+        and revision is not None
+        and isinstance(revision.search_profile_id, str)
+    ):
+        candidates.append(revision.search_profile_id)
+
+    seen: set[str] = set()
+    for profile_id in candidates:
+        if profile_id in seen:
+            continue
+        seen.add(profile_id)
+        profile = get_search_profile(
+            db,
+            family_id=settings.family_id,
+            search_profile_id=profile_id,
+        )
+        if profile is not None:
+            return profile
+    return None
+
+
 def _validate_search_transition(
     db: Session,
     *,
@@ -510,24 +570,9 @@ def _validate_search_transition(
     # until the collection is complete. The active config revision still owns
     # that immutable profile identity, so ordinary config publication must not
     # silently replace its Embedding binding before activation.
-    active_profile_id = settings.active_search_profile_id
-    if active_profile_id is None and settings.active_config_revision_id is not None:
-        revision = get_config_revision(
-            db,
-            family_id=settings.family_id,
-            config_revision_id=settings.active_config_revision_id,
-        )
-        if revision is not None:
-            active_profile_id = revision.search_profile_id
-    if active_profile_id is None:
-        return ()
-    active = get_search_profile(
-        db,
-        family_id=settings.family_id,
-        search_profile_id=active_profile_id,
-    )
+    active = _active_search_profile(db, settings=settings)
     if active is None:
-        return (DraftValidationIssue("family_search_profile_locked", "search_profile_id"),)
+        return ()
     candidate = next(
         (
             binding
@@ -574,16 +619,8 @@ def _resolve_draft_search_profile_id(
         if profile is None:
             return None, (DraftValidationIssue("family_search_profile_not_found", "search_profile_id"),)
         return profile.id, ()
-    if settings.active_search_profile_id is not None:
-        return settings.active_search_profile_id, ()
-    if settings.active_config_revision_id is None:
-        return None, ()
-    revision = get_config_revision(
-        db,
-        family_id=settings.family_id,
-        config_revision_id=settings.active_config_revision_id,
-    )
-    return (revision.search_profile_id if revision is not None else None), ()
+    profile = _active_search_profile(db, settings=settings)
+    return (profile.id if profile is not None else None), ()
 
 
 def _validated_rate(
@@ -636,10 +673,16 @@ def _zero_rate(
 def _validate_price_coverage(
     payload: FamilyModelConfigDraftPayload,
     bindings: Sequence[ValidatedCapabilityBinding],
+    *,
+    ignore_disabled_rates: bool = False,
 ) -> tuple[tuple[ValidatedFamilyPriceRate, ...], tuple[DraftValidationIssue, ...]]:
-    enabled = {
+    all_bindings = {
         (binding.capability.value, binding.variant_key): binding
         for binding in bindings
+    }
+    enabled = {
+        identity: binding
+        for identity, binding in all_bindings.items()
         if binding.enabled and binding.provider_profile_id is not None
     }
     rates_by_binding: dict[tuple[str, str], list[tuple[int, FamilyModelPriceRateRequest]]] = {}
@@ -650,6 +693,11 @@ def _validate_price_coverage(
     for identity, supplied_rates in rates_by_binding.items():
         binding = enabled.get(identity)
         if binding is None:
+            if ignore_disabled_rates and identity in all_bindings and not all_bindings[identity].enabled:
+                # Old clients occasionally kept price rows after a card was
+                # disabled.  They are inert and must not make an unrelated
+                # capability edit fail; the storage merge drops them.
+                continue
             issues.extend(
                 DraftValidationIssue("family_model_price_incomplete", f"price_rates.{index}")
                 for index, _ in supplied_rates
@@ -677,6 +725,39 @@ def _validate_price_coverage(
     return tuple(validated), tuple(issues)
 
 
+def required_meters_for_capability(
+    capability: ModelUsageCapability | str,
+) -> frozenset[ModelUsageMeter]:
+    """Return the billable meters owned by one capability contract.
+
+    Immutable active rows are trusted when an unrelated card is edited.  The
+    independent save path still needs the same meter set to validate a
+    price-only edit, so expose the registry rather than duplicating it in the
+    draft merge service.
+    """
+
+    value = capability if isinstance(capability, ModelUsageCapability) else ModelUsageCapability(capability)
+    return _REQUIRED_METERS[value]
+
+
+def validate_family_model_capability_rates(
+    payload: FamilyModelConfigDraftPayload,
+    binding: ValidatedCapabilityBinding,
+) -> tuple[tuple[ValidatedFamilyPriceRate, ...], tuple[DraftValidationIssue, ...]]:
+    """Validate rates against an already validated/trusted binding.
+
+    This is intentionally separate from provider validation.  An active
+    binding is an immutable runtime fact; a temporary Provider outage must not
+    prevent its Owner from correcting that card's prices or editing a sibling.
+    """
+
+    return _validate_price_coverage(
+        payload,
+        (binding,),
+        ignore_disabled_rates=True,
+    )
+
+
 def _store_validation_result(
     draft: FamilyModelConfigDraft,
     *,
@@ -687,6 +768,134 @@ def _store_validation_result(
     draft.validation_errors_json = [issue.record() for issue in result.errors]
     draft.updated_at = utcnow()
     draft.updated_by = actor_user_id
+
+
+def _validate_payload(
+    db: Session,
+    *,
+    family_id: str,
+    settings: FamilyModelSettings,
+    payload: FamilyModelConfigDraftPayload,
+    network_policy: ProviderNetworkPolicy,
+    draft_version_number: int,
+    validate_search_transition: bool = True,
+    validate_fallback_graph: bool = True,
+    resolve_search_profile: bool = True,
+    ignore_disabled_rates: bool = False,
+) -> DraftValidationResult:
+    """Validate an already parsed payload without acquiring any locks.
+
+    The public draft-validation endpoint still validates the complete payload,
+    but saves and capability probes also need a capability-scoped variant.  A
+    single implementation keeps the adapter, credential and price rules
+    identical in both paths while letting callers decide which cross-capability
+    invariants are relevant to the operation.
+    """
+
+    bindings: list[ValidatedCapabilityBinding] = []
+    issues: list[DraftValidationIssue] = []
+    for index, binding in enumerate(payload.bindings):
+        validated, binding_issues = _validate_enabled_binding(
+            db,
+            family_id=family_id,
+            binding=binding,
+            binding_index=index,
+            network_policy=network_policy,
+        )
+        if validated is not None:
+            bindings.append(validated)
+        issues.extend(binding_issues)
+    if validate_fallback_graph:
+        issues.extend(_validate_fallback_graph(bindings))
+    if resolve_search_profile:
+        search_profile_id, search_profile_issues = _resolve_draft_search_profile_id(
+            db,
+            settings=settings,
+            payload=payload,
+        )
+        issues.extend(search_profile_issues)
+    else:
+        # A capability-scoped edit has no authority over the search profile.
+        # Do not resolve (or reject) an unrelated historical pointer here.
+        search_profile_id = None
+    if validate_search_transition:
+        issues.extend(_validate_search_transition(db, settings=settings, bindings=bindings))
+    rates, price_issues = _validate_price_coverage(
+        payload,
+        bindings,
+        ignore_disabled_rates=ignore_disabled_rates,
+    )
+    issues.extend(price_issues)
+    errors = tuple(issues)
+    return DraftValidationResult(
+        draft_version_number=draft_version_number,
+        payload=payload,
+        search_profile_id=search_profile_id,
+        bindings=tuple(bindings),
+        price_rates=rates,
+        errors=errors,
+        config_checksum=(
+            None
+            if errors
+            else config_checksum(
+                bindings=bindings,
+                profile_version_ids=tuple(
+                    binding.provider_profile_version_id
+                    for binding in bindings
+                    if binding.enabled and binding.provider_profile_version_id is not None
+                ),
+                search_profile_id=search_profile_id,
+            )
+        ),
+        price_checksum=None if errors else price_checksum(rates),
+    )
+
+
+def validate_family_model_capability(
+    db: Session,
+    *,
+    family_id: str,
+    settings: FamilyModelSettings,
+    payload: FamilyModelConfigDraftPayload,
+    capability: ModelUsageCapability | str,
+    network_policy: ProviderNetworkPolicy,
+    draft_version_number: int = 0,
+    validate_fallback_graph: bool = False,
+    ignore_disabled_rates: bool = False,
+) -> DraftValidationResult:
+    """Validate one capability group independently from its siblings.
+
+    LLM primary/fallback variants intentionally remain in the same group so
+    their fallback graph is checked together.  Search identity transition is
+    only evaluated for Embedding; an invalid candidate therefore cannot block
+    an unrelated LLM, image or audio save.
+    """
+
+    capability_value = capability.value if isinstance(capability, ModelUsageCapability) else str(capability)
+    scoped_bindings = tuple(
+        binding for binding in payload.bindings if binding.capability == capability_value
+    )
+    scoped_rates = tuple(
+        rate for rate in payload.price_rates if rate.capability == capability_value
+    )
+    scoped_payload = payload.model_copy(
+        update={
+            "bindings": list(scoped_bindings),
+            "price_rates": list(scoped_rates),
+        }
+    )
+    return _validate_payload(
+        db,
+        family_id=family_id,
+        settings=settings,
+        payload=scoped_payload,
+        network_policy=network_policy,
+        draft_version_number=draft_version_number,
+        validate_search_transition=capability_value == ModelUsageCapability.EMBEDDING.value,
+        validate_fallback_graph=validate_fallback_graph,
+        resolve_search_profile=capability_value == ModelUsageCapability.EMBEDDING.value,
+        ignore_disabled_rates=ignore_disabled_rates,
+    )
 
 
 def validate_family_model_draft(
@@ -723,50 +932,13 @@ def validate_family_model_draft(
         db.flush()
         return result
 
-    bindings: list[ValidatedCapabilityBinding] = []
-    issues: list[DraftValidationIssue] = []
-    for index, binding in enumerate(payload.bindings):
-        validated, binding_issues = _validate_enabled_binding(
-            db,
-            family_id=command.family_id,
-            binding=binding,
-            binding_index=index,
-            network_policy=command.network_policy,
-        )
-        if validated is not None:
-            bindings.append(validated)
-        issues.extend(binding_issues)
-    issues.extend(_validate_fallback_graph(bindings))
-    search_profile_id, search_profile_issues = _resolve_draft_search_profile_id(
+    result = _validate_payload(
         db,
+        family_id=command.family_id,
         settings=settings,
         payload=payload,
-    )
-    issues.extend(search_profile_issues)
-    issues.extend(_validate_search_transition(db, settings=settings, bindings=bindings))
-    rates, price_issues = _validate_price_coverage(payload, bindings)
-    issues.extend(price_issues)
-    result = DraftValidationResult(
+        network_policy=command.network_policy,
         draft_version_number=draft.draft_version_number,
-        payload=payload,
-        search_profile_id=search_profile_id,
-        bindings=tuple(bindings),
-        price_rates=rates,
-        errors=tuple(issues),
-        config_checksum=(
-            None
-            if issues
-            else config_checksum(
-                bindings=bindings,
-                profile_version_ids=tuple(
-                    binding.provider_profile_version_id
-                    for binding in bindings
-                    if binding.enabled and binding.provider_profile_version_id is not None
-                ),
-                search_profile_id=search_profile_id,
-            )
-        ),
-        price_checksum=None if issues else price_checksum(rates),
     )
     _store_validation_result(draft, actor_user_id=command.actor_user_id, result=result)
     db.flush()

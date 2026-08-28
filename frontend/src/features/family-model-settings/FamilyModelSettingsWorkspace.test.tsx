@@ -12,17 +12,15 @@ vi.mock('../../api/familyModelSettingsApi', () => ({
     getSettings: vi.fn(),
     getDraft: vi.fn(),
     getPrices: vi.fn(),
+    getCurrentSearchReplacement: vi.fn(),
     getSearchReplacement: vi.fn(),
     saveDraft: vi.fn(),
     validateDraft: vi.fn(),
-    publish: vi.fn(),
     createProviderProfile: vi.fn(),
     patchProviderProfile: vi.fn(),
     rotateProviderProfileKey: vi.fn(),
     checkProviderConnection: vi.fn(),
     discoverProviderModels: vi.fn(),
-    savePricesDraft: vi.fn(),
-    publishPrices: vi.fn(),
     testCapability: vi.fn(),
     previewSearchReplacement: vi.fn(),
     createSearchReplacement: vi.fn(),
@@ -74,12 +72,14 @@ describe('FamilyModelSettingsWorkspace', () => {
     vi.mocked(familyModelSettingsApi.getSettings).mockReset();
     vi.mocked(familyModelSettingsApi.getDraft).mockReset();
     vi.mocked(familyModelSettingsApi.getPrices).mockReset();
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockReset();
     vi.mocked(familyModelSettingsApi.saveDraft).mockReset();
     vi.mocked(familyModelSettingsApi.testCapability).mockReset();
     vi.mocked(familyModelSettingsApi.discoverProviderModels).mockReset();
     vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue(settings);
     vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft);
     vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices);
+    vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(null);
   });
 
   it('automatically saves capability changes without a publish action', async () => {
@@ -152,15 +152,15 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await user.click(await screen.findByRole('button', { name: /能力配置/ }));
+    await user.click(await screen.findByRole('button', { name: /功能设置/ }));
     const modelField = await screen.findByRole('combobox', { name: '模型名称' });
     await user.clear(modelField);
     await user.type(modelField, 'draft-model-v2');
 
     await waitFor(() => expect(familyModelSettingsApi.saveDraft).toHaveBeenCalledTimes(1), { timeout: 2_000 });
-    expect(familyModelSettingsApi.publish).not.toHaveBeenCalled();
+    expect('publish' in familyModelSettingsApi).toBe(false);
     expect(screen.queryByRole('button', { name: '保存草稿' })).not.toBeInTheDocument();
-    expect(screen.queryByText('前往发布复核')).not.toBeInTheDocument();
+    expect(screen.queryByText('前往配置检查')).not.toBeInTheDocument();
   });
 
   it('shows the first-time Owner workspace without exposing a credential', async () => {
@@ -169,9 +169,9 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     expect(screen.getByRole('heading', { name: '家庭 AI 服务' })).toBeVisible();
-    expect(screen.queryByText('API Key：')).not.toBeInTheDocument();
+    expect(screen.queryByText('API 密钥：')).not.toBeInTheDocument();
   });
 
   it('offers one state-derived next step and routes it to Provider setup', async () => {
@@ -180,12 +180,12 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    const nextStep = await screen.findByRole('button', { name: '连接第一个 AI 服务' });
-    expect(screen.getByText('1. 连接服务')).toBeVisible();
+    const nextStep = await screen.findByRole('button', { name: '添加第一个 AI 服务' });
+    expect(screen.getByText('1. 添加模型服务')).toBeVisible();
     expect(screen.queryByRole('button', { name: '配置能力' })).not.toBeInTheDocument();
 
     fireEvent.click(nextStep);
-    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();
   });
 
   it('uses the same state-derived next step in the phone action bar', async () => {
@@ -194,15 +194,15 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    const nextStep = await screen.findByRole('button', { name: '连接第一个 AI 服务' });
+    const nextStep = await screen.findByRole('button', { name: '添加第一个 AI 服务' });
     const footer = document.querySelector('.family-model-settings-mobile-footer');
     expect(footer).not.toBeNull();
-    expect(within(footer as HTMLElement).queryByRole('button', { name: '发布复核' })).not.toBeInTheDocument();
+    expect(within(footer as HTMLElement).queryByRole('button', { name: '配置检查' })).not.toBeInTheDocument();
     fireEvent.click(nextStep);
-    expect(screen.getByRole('heading', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();
   });
 
-  it('exposes configuration checking instead of publication review', async () => {
+  it('exposes configuration checking without a global confirmation step', async () => {
     render(
       <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
       { wrapper: wrapper() },
@@ -210,7 +210,7 @@ describe('FamilyModelSettingsWorkspace', () => {
 
     const sectionRail = await screen.findByRole('navigation', { name: '家庭 AI 服务设置分区' });
     expect(within(sectionRail).getByRole('button', { name: /配置检查/ })).toBeVisible();
-    expect(screen.queryByRole('button', { name: /发布复核/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /发布/ })).not.toBeInTheDocument();
   });
 
   it('describes an active clean configuration without claiming draft parity', async () => {
@@ -246,9 +246,9 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByRole('main', { name: '手机家庭 AI 服务' })).toBeVisible());
+    await screen.findByRole('button', { name: '模型服务' });
     expect(container.querySelector('.family-model-settings-desktop')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Provider 服务' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '模型服务' })).toBeVisible();
   });
 
   it('routes a browser-back event through the workspace back contract', async () => {
@@ -258,7 +258,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     expect(window.history.state?.culinaWorkspaceGuard).toBe('family-model-settings:family-a');
     await act(async () => {
       window.history.back();
@@ -275,7 +275,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
@@ -291,7 +291,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       { wrapper: wrapper() },
     );
 
-    await waitFor(() => expect(screen.getByText('尚未配置服务')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('还没有配置服务')).toBeVisible());
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -352,7 +352,7 @@ describe('FamilyModelSettingsWorkspace', () => {
       <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
       { wrapper: wrapper() },
     );
-    await waitFor(() => expect(screen.getByText(/1 类已启用能力/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/1 类已启用功能/)).toBeVisible());
 
     rendered.rerender(
       <FamilyModelSettingsWorkspace familyId="family-b" role="Owner" isPhoneViewport={false} onBack={() => undefined} />,
@@ -363,6 +363,6 @@ describe('FamilyModelSettingsWorkspace', () => {
     });
 
     await waitFor(() => expect(screen.getByText('正在加载家庭 AI 服务')).toBeVisible());
-    expect(screen.queryByText(/1 类已启用能力/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 类已启用功能/)).not.toBeInTheDocument();
   });
 });

@@ -168,7 +168,7 @@ export function MemberEditModal(props: {
     >
       <WorkspaceModal
         title="修改成员信息"
-        description="管理员可以维护成员昵称和联系方式，普通成员只能查看这些信息。"
+        description="家庭主理人可以管理成员昵称和联系方式，普通成员只能查看这些信息。"
         onClose={closeIfAllowed}
         className="member-edit-modal"
         footerActions={
@@ -335,13 +335,13 @@ export function ProfileEditModal(props: {
       closeOnBackdrop={!isBusy}
     >
       <WorkspaceModal
-        title="编辑我的资料"
-        description="更新联系方式与头像，头像可上传本地图片，也可以按你的说明生成。"
+        title="编辑个人信息"
+        description="更新显示名称、联系方式和头像；可上传图片，也可以按说明生成。"
         onClose={closeIfAllowed}
         className="profile-edit-modal"
         footerActions={
           <FormActions
-            primaryLabel="保存资料"
+            primaryLabel="保存个人信息"
             primaryType="submit"
             primaryForm={profileEditFormId}
             isSubmitting={isBusy}
@@ -391,7 +391,7 @@ export function ProfileEditModal(props: {
             <div className="profile-avatar-head">
               <div>
                 <span>头像图片</span>
-                <p>上传本地图片，或按资料和你的说明生成头像。</p>
+                <p>上传图片，或根据你的个人信息和说明生成头像。</p>
               </div>
               <div className="profile-avatar-actions">
                 <label className="ghost-button profile-avatar-upload-button">
@@ -412,7 +412,7 @@ export function ProfileEditModal(props: {
                   onClick={props.imageControls.onPromptOpen}
                   disabled={props.imageControls.isGenerating}
                 >
-                  基于资料生成头像
+                  根据个人信息生成头像
                 </ActionButton>
                 <ActionButton
                   tone="secondary"
@@ -442,7 +442,7 @@ export function ProfileEditModal(props: {
                       <Avatar label={previewLabel} seed={previewSeed} imageUrl={bottomPreviewUrl} large />
                     </div>
                   )}
-                  <span>{props.imageControls.isGenerating ? 'AI 后台智能头像生成中...' : props.form.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
+                  <span>{props.imageControls.isGenerating ? 'AI 正在生成头像…' : props.form.avatarImages.generatedAsset ? '已设置头像' : '当前预览'}</span>
                 </div>
               )}
               {props.imageControls.isPromptOpen && (
@@ -513,7 +513,7 @@ export function FamilyEditModal(props: {
     >
       <WorkspaceModal
         title="编辑家庭信息"
-        description="维护家庭资料与家庭头像，家庭图可上传本地照片，也可以按说明生成。"
+        description="管理家庭信息和头像；可上传照片，也可以按说明生成头像。"
         onClose={closeIfAllowed}
         className="family-edit-modal"
         footerActions={
@@ -536,7 +536,7 @@ export function FamilyEditModal(props: {
               <MediaWithPlaceholder src={resolvedImageUrl} alt={props.form.name || '家庭头像'} />
               <div>
                 <strong>{props.form.name || props.family?.name || '家庭厨房'}</strong>
-                <p>{props.form.location || props.family?.location || '未填写位置'}</p>
+                <p>{props.form.location || props.family?.location || '还没有填写位置'}</p>
               </div>
             </div>
             <div className="family-edit-basic-grid">
@@ -601,11 +601,11 @@ export function FamilyEditModal(props: {
             <div className="family-image-head">
               <div>
                 <span>家庭头像</span>
-                <p>上传餐桌或厨房照片，或按家庭资料生成一张统一风格头像。</p>
+                <p>上传餐桌或厨房照片，或根据家庭信息生成一张统一风格头像。</p>
               </div>
               <div className="family-image-actions">
                 <label className="ghost-button family-image-upload-button">
-                  上传本地家庭图
+                  上传家庭头像
                   <input
                     type="file"
                     accept="image/*,.svg"
@@ -622,7 +622,7 @@ export function FamilyEditModal(props: {
                   onClick={props.imageControls.onPromptOpen}
                   disabled={props.imageControls.isGenerating}
                 >
-                  基于家庭资料生成
+                  根据家庭信息生成头像
                 </ActionButton>
                 <ActionButton
                   tone="secondary"
@@ -630,7 +630,7 @@ export function FamilyEditModal(props: {
                   onClick={props.imageControls.onReset}
                   disabled={props.imageControls.isGenerating}
                 >
-                  清空家庭图
+                  移除家庭头像
                 </ActionButton>
               </div>
             </div>
@@ -638,7 +638,7 @@ export function FamilyEditModal(props: {
               {props.imageControls.isPromptOpen && (
                 <div className="family-image-prompt-panel">
                   <label>
-                    <span>你希望家庭图怎么生成？</span>
+                    <span>你希望头像怎么生成？</span>
                     <textarea
                       className="text-input"
                       rows={3}
@@ -649,7 +649,7 @@ export function FamilyEditModal(props: {
                   </label>
                   <FormActions
                     className="family-image-prompt-actions"
-                    primaryLabel="生成家庭图"
+                    primaryLabel="生成家庭头像"
                     primaryDisabled={!props.form.imagePrompt.trim()}
                     isSubmitting={props.imageControls.isGenerating}
                     secondaryLabel="取消"
@@ -682,7 +682,7 @@ export function FamilyEditModal(props: {
                       />
                     </div>
                   )}
-                  <span>{props.imageControls.isGenerating ? 'AI 后台智能画卷生成中...' : props.form.images.generatedAsset ? '已设置家庭图' : '当前预览'}</span>
+                        <span>{props.imageControls.isGenerating ? 'AI 正在生成家庭头像…' : props.form.images.generatedAsset ? '已设置家庭头像' : '当前预览'}</span>
                 </div>
               )}
             </div>

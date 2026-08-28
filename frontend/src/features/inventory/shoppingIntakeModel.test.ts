@@ -354,7 +354,7 @@ describe('shoppingIntakeModel', () => {
   it('partial and over-purchase summaries are exact', () => {
     const partial = summarizePurchaseQuantity({ actualQuantity: '2', plannedQuantity: 6, unit: '盒' });
     expect(partial).toEqual({ kind: 'partial', actual: 2, planned: 6, remaining: 4, unit: '盒' });
-    expect(formatPurchaseQuantitySummary(partial)).toBe('入库 2 盒，还差 4 盒');
+    expect(formatPurchaseQuantitySummary(partial)).toBe('加入库存 2 盒，还差 4 盒');
 
     const over = summarizePurchaseQuantity({ actualQuantity: '8', plannedQuantity: 6, unit: '盒' });
     expect(over).toEqual({ kind: 'over', actual: 8, planned: 6, unit: '盒' });

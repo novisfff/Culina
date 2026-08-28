@@ -101,7 +101,7 @@ describe('RecipeIngredientResolutionDialog', () => {
 
     expect(view.querySelector('.workspace-overlay-root.recipe-workspace-overlay-root')).not.toBeNull();
     expect(view.querySelector('.recipe-ingredient-resolution-modal')).not.toBeNull();
-    expect(view.textContent).toContain('处理缺失食材');
+    expect(view.textContent).toContain('处理未关联食材');
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());

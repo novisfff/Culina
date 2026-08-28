@@ -623,7 +623,7 @@ describe('ingredient workspace model', () => {
       referenceDate: '2026-03-20',
     });
     const salt = summaries.find((item) => item.ingredient.id === 'ingredient-salt');
-    expect(salt?.quantitySummaries.map((item) => item.label)).toEqual(['已有']);
+    expect(salt?.quantitySummaries.map((item) => item.label)).toEqual(['有库存']);
     expect(salt?.primaryStorage).toBe('常温');
     expect(salt?.inventoryItems).toEqual([]);
     expect(salt?.availableInventoryItems).toEqual([]);
@@ -633,7 +633,7 @@ describe('ingredient workspace model', () => {
     expect(saltCard?.linkedSummary?.ingredient.id).toBe('ingredient-salt');
     expect(saltCard?.headline).toBe('需要补充');
     expect(saltCard?.quantityLabel).toBe('需要补充');
-    expect(saltCard?.inventoryLabel).toBe('已有');
+    expect(saltCard?.inventoryLabel).toBe('有库存');
   });
 
   it('follows State when legacy presence InventoryItem disagrees', () => {
@@ -703,18 +703,18 @@ describe('ingredient workspace model', () => {
     expect(salt.quantitySummaries).toEqual([]);
     expect(salt.inventoryItems).toEqual([]);
     expect(salt.availableInventoryItems).toEqual([]);
-    expect(buildInventoryCardStatus(salt).label).toBe('已空或未登记');
-    expect(buildInventoryCardPresentation(salt, '2026-03-20').headline).toBe('没有');
+    expect(buildInventoryCardStatus(salt).label).toBe('还没有可用库存');
+    expect(buildInventoryCardPresentation(salt, '2026-03-20').headline).toBe('没有库存');
     expect(buildStorageGroups(summaries)[0]?.label).toBe('常温');
     // Phase 1 disagreement regression keeps State as the sole truth source while exposing confirmation labels.
     expect(salt.confirmationStatus).toBe('never_confirmed');
-    expect(salt.confirmationLabel).toBe('从未确认');
-    expect(buildInventoryCardPresentation(salt, '2026-03-20').confirmationLabel).toBe('从未确认');
+    expect(salt.confirmationLabel).toBe('未确认');
+    expect(buildInventoryCardPresentation(salt, '2026-03-20').confirmationLabel).toBe('未确认');
   });
 
   it('projects never/current/stale confirmation labels from last_confirmed_at only', () => {
     expect(CONFIRMATION_STATUS_LABELS).toEqual({
-      never_confirmed: '从未确认',
+      never_confirmed: '未确认',
       current: '刚确认过',
       stale: '建议再确认',
     });
@@ -815,7 +815,7 @@ describe('ingredient workspace model', () => {
       },
       referenceDate: '2026-07-12',
     });
-    expect(foodConfirmation.confirmationLabel).toBe('从未确认');
+    expect(foodConfirmation.confirmationLabel).toBe('未确认');
   });
 
   it('projects low State without any current InventoryItem', () => {
@@ -871,7 +871,7 @@ describe('ingredient workspace model', () => {
       headline: '少量',
       expiryLabel: '距到期 5 天',
     });
-    expect(buildSeasoningSummaries(summaries)[0]?.statusLabel).toBe('已有');
+    expect(buildSeasoningSummaries(summaries)[0]?.statusLabel).toBe('有库存');
   });
 
   it('builds seasoning summaries from seasoning categories and not-tracked ingredients', () => {
@@ -922,8 +922,8 @@ describe('ingredient workspace model', () => {
     const seasoningSummaries = buildSeasoningSummaries(summaries);
 
     expect(seasoningSummaries.map((item) => [item.summary.ingredient.name, item.statusLabel])).toEqual([
-      ['蚝油', '未配置'],
-      ['盐', '已有'],
+      ['蚝油', '还没有库存记录'],
+      ['盐', '有库存'],
     ]);
   });
 
@@ -1032,7 +1032,7 @@ describe('ingredient workspace model', () => {
     const flour = summaries.find((item) => item.ingredient.id === 'ingredient-flour');
 
     expect(flour?.hasMultipleUnits).toBe(true);
-    expect(flour?.quantitySummaries.map((item) => item.label)).toEqual(['2500g']);
+    expect(flour?.quantitySummaries.map((item) => item.label)).toEqual(['2500 g']);
   });
 
   it('uses remaining quantity and hides exhausted batches from current summaries', () => {
@@ -1060,7 +1060,7 @@ describe('ingredient workspace model', () => {
     const tomato = summaries.find((item) => item.ingredient.id === 'ingredient-tomato');
     const flour = summaries.find((item) => item.ingredient.id === 'ingredient-flour');
 
-    expect(tomato?.quantitySummaries.map((item) => item.label)).toEqual(['1个']);
+    expect(tomato?.quantitySummaries.map((item) => item.label)).toEqual(['1 个']);
     expect(flour?.inventoryItems.some((item) => item.id === 'inventory-2')).toBe(false);
   });
 
@@ -1094,7 +1094,7 @@ describe('ingredient workspace model', () => {
       'inventory-available',
     ]);
     expect(summaries[0]?.availableInventoryItems.map((item) => item.id)).toEqual(['inventory-available']);
-    expect(summaries[0]?.quantitySummaries.map((item) => item.label)).toEqual(['2个']);
+    expect(summaries[0]?.quantitySummaries.map((item) => item.label)).toEqual(['2 个']);
   });
 
   it('groups ingredients by their primary storage location', () => {
@@ -1157,7 +1157,7 @@ describe('ingredient workspace model', () => {
       priority: 3,
     });
     expect(buildInventoryCardStatus(flour!)).toMatchObject({
-      label: '平稳',
+      label: '库存正常',
       tone: 'stable',
       priority: 0,
     });
@@ -1212,7 +1212,7 @@ describe('ingredient workspace model', () => {
     });
 
     expect(buildInventoryCardStatus(emptySummaries[0]!)).toMatchObject({
-      label: '已空或未登记',
+      label: '还没有可用库存',
       tone: 'empty',
     });
   });
@@ -1230,16 +1230,16 @@ describe('ingredient workspace model', () => {
     const tomatoExpiryDate = formatDate('2026-03-21');
 
     expect(buildInventoryCardPresentation(flour!, '2026-03-20')).toMatchObject({
-      headline: '2500g',
-      secondary: `最近补货 ${restockDate} · 未设保质期`,
-      footerNote: `最近补货 ${restockDate}，库存平稳。`,
+          headline: '2500 g',
+      secondary: `最近补货 ${restockDate} · 没有设置保质期`,
+      footerNote: `最近补货 ${restockDate}，库存正常。`,
       hasExpiryInfo: false,
       expiryLabel: null,
       expiryDateLabel: null,
       expiryTone: null,
     });
     expect(buildInventoryCardPresentation(tomato!, '2026-03-20')).toMatchObject({
-      headline: '2个',
+      headline: '2 个',
       secondary: `最近补货 ${restockDate} · 最早 ${tomatoExpiryDate} 到期`,
       footerNote: expect.stringContaining('当前有 1 条提醒'),
       hasExpiryInfo: true,
@@ -1256,8 +1256,8 @@ describe('ingredient workspace model', () => {
     });
 
     expect(buildInventoryCardPresentation(emptySummaries[0]!, '2026-03-20')).toMatchObject({
-      headline: '未登记',
-      secondary: '还没有库存记录，适合先登记首批',
+      headline: '还没有库存',
+      secondary: '还没有库存，适合先补充第一批',
       footerNote: expect.stringContaining('当前有 1 条提醒'),
       hasExpiryInfo: false,
       expiryLabel: null,
@@ -1336,8 +1336,8 @@ describe('ingredient workspace model', () => {
     });
 
     expect(buildInventoryCardPresentation(overdueSummaries[0]!, '2026-03-20')).toMatchObject({
-      headline: '当前已空',
-      secondary: `最近补货 ${formatDate('2026-03-18')} · 当前已空`,
+      headline: '当前无可用库存',
+      secondary: `最近补货 ${formatDate('2026-03-18')} · 当前无可用库存`,
       hasExpiryInfo: true,
       expiryLabel: '已过期 2 天',
       expiryDateLabel: formatDate('2026-03-18'),
@@ -1370,7 +1370,7 @@ describe('ingredient workspace model', () => {
     });
 
     expect(buildInventoryCardPresentation(todaySummaries[0]!, '2026-03-20')).toMatchObject({
-      headline: '1盒',
+      headline: '1 盒',
       secondary: `最近补货 ${formatDate('2026-03-20')} · 最早 ${formatDate('2026-03-20')} 到期`,
       hasExpiryInfo: true,
       expiryLabel: '今天到期',
@@ -1404,7 +1404,7 @@ describe('ingredient workspace model', () => {
     });
 
     expect(buildInventoryCardPresentation(upcomingSummaries[0]!, '2026-03-20')).toMatchObject({
-      headline: '1盒',
+      headline: '1 盒',
       secondary: `最近补货 ${formatDate('2026-03-20')} · 最早 ${formatDate('2026-03-23')} 到期`,
       hasExpiryInfo: true,
       expiryLabel: '距到期 3 天',
@@ -1476,7 +1476,7 @@ describe('ingredient workspace model', () => {
       expect.objectContaining({
         id: 'inventory-expired-remaining',
         remainingQuantity: 3,
-        remainingLabel: '3个',
+        remainingLabel: '3 个',
         expiryDate: '2026-03-18',
         rowVersion: 4,
       }),
@@ -1655,23 +1655,23 @@ describe('ingredient workspace model', () => {
       title: '番茄',
       isLinked: true,
       hasAttention: true,
-      sourceLabel: '档案关联',
+      sourceLabel: '关联食材',
       statusTone: 'danger',
       subline: '补充本周家常菜库存',
-      contextTags: ['蔬菜', '冷藏', '库存 2个'],
+      contextTags: ['蔬菜', '冷藏', '库存 2 个'],
     });
     expect(cards[1]).toMatchObject({
       title: '面粉',
       isLinked: true,
       hasAttention: false,
-      inventoryLabel: '2500g',
+      inventoryLabel: '2500 g',
     });
     expect(cards[2]).toMatchObject({
       title: '可乐',
       isLinked: false,
-      sourceLabel: '自由项',
-      inventoryLabel: '未关联档案',
-      contextTags: ['自由项', '未关联档案', '买完后可补录'],
+      sourceLabel: '其他采购',
+      inventoryLabel: '还没有选择食材',
+      contextTags: ['其他采购', '还没有选择食材', '买回后可补充库存'],
     });
   });
 
@@ -1693,8 +1693,8 @@ describe('ingredient workspace model', () => {
     );
 
     expect(cards[0]).toMatchObject({
-      inventoryLabel: '未登记库存',
-      statusLabel: '已空或未登记',
+      inventoryLabel: '还没有库存',
+      statusLabel: '还没有可用库存',
       statusTone: 'muted',
     });
   });
@@ -1730,7 +1730,7 @@ describe('ingredient workspace model', () => {
 
     expect(summaries[0]?.quantitySummaries).toEqual([]);
     expect(cards[0]).toMatchObject({
-      inventoryLabel: '当前已空',
+      inventoryLabel: '当前无可用库存',
       statusLabel: '临期或过期',
       statusTone: 'danger',
     });
@@ -1795,10 +1795,10 @@ describe('ingredient workspace model', () => {
       title: '希腊酸奶',
       isLinked: true,
       linkedFood: yogurt,
-      sourceLabel: '食物档案',
-      inventoryLabel: '未入库',
-      contextTags: ['乳品', '冷藏', '库存 未入库'],
-      statusLabel: '待补库存',
+      sourceLabel: '成品速食',
+      inventoryLabel: '还没有库存',
+      contextTags: ['乳品', '冷藏', '库存 还没有库存'],
+      statusLabel: '需要补充库存',
     });
     expect(filterShoppingCards(cards, '乳品', 'linked').map((card) => card.shoppingItem.id)).toEqual(['shopping-yogurt']);
     expect(filterShoppingCards(cards, '冷藏', 'linked').map((card) => card.shoppingItem.id)).toEqual(['shopping-yogurt']);

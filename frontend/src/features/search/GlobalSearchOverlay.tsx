@@ -143,7 +143,7 @@ export function GlobalSearchOverlay(props: Props) {
             onCompositionEnd={searchComposition.onCompositionEnd}
           />
           {isLoading && (
-            <span className="search-loading-indicator global-search-loading" aria-label="正在检索" role="status" />
+            <span className="search-loading-indicator global-search-loading" aria-label="正在搜索" role="status" />
           )}
           {trimmedQuery && (
             <button className="global-search-clear" type="button" aria-label="清空搜索" onClick={() => setQuery('')}>
@@ -161,7 +161,7 @@ export function GlobalSearchOverlay(props: Props) {
                   code={searchQuery.data?.degradation_code}
                 />
               ) : (
-                <p className="global-search-degraded">检索结果可能不完整</p>
+                <p className="global-search-degraded">搜索结果可能不完整</p>
               )
             )}
             {results.length > 0 && (

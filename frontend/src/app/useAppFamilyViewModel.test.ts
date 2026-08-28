@@ -30,7 +30,7 @@ describe('buildAppFamilyViewModel', () => {
   it('does not convert a first Family load or failure into zero statistics', () => {
     expect(buildAppFamilyViewModel({
       data: undefined, isLoading: true, isError: false, isFetching: true, refetch: () => undefined,
-    }).weekActivityValue).toBe('--');
+    }).weekActivityValue).toBeNull();
     expect(buildAppFamilyViewModel({
       data: undefined, isLoading: false, isError: true, isFetching: false, refetch: () => undefined,
     }).activityPhase).toBe('error');

@@ -70,7 +70,7 @@ export function RecipeDetailView({
           <section className="recipe-detail-hero-panel">
             {showHeroTitle && (
               <div className="recipe-detail-title-block">
-                <p className="eyebrow">菜谱资料</p>
+                <p className="eyebrow">菜谱信息</p>
                 <h2>{selectedCard.recipe.title}</h2>
                 <p className="recipe-detail-meta-line">
                   {selectedCard.recipe.prep_minutes} 分钟 · {selectedCard.recipe.servings} 人份 · {selectedCard.availabilityLabel}
@@ -101,7 +101,7 @@ export function RecipeDetailView({
                   <span>
                     <RecipeUiIcon name="reset" />
                     <strong>{selectedCard.mealUsageCount}</strong>
-                    次复做
+                    次做过
                   </span>
                 </div>
                 <div className="recipe-detail-actions">
@@ -112,13 +112,13 @@ export function RecipeDetailView({
                   {showPlanAction && (
                     <ActionButton tone="secondary" type="button" onClick={() => onPlan(selectedCard)}>
                       <RecipeUiIcon name="calendar" />
-                      加入计划
+                      加入餐食计划
                     </ActionButton>
                   )}
                   {showShoppingAction && (
                     <ActionButton tone="secondary" type="button" onClick={() => onShopping(selectedCard)} disabled={isCreatingShopping}>
                       <RecipeUiIcon name="basket" />
-                      加入采购
+                      加入采购清单
                     </ActionButton>
                   )}
                   {showEditAction && (
@@ -139,7 +139,7 @@ export function RecipeDetailView({
                   <span><RecipeUiIcon name="basket" /></span>
                   <div>
                     <h3>用料与库存</h3>
-                    <p>根据当前库存判断，缺 {selectedShortageCount} 项</p>
+                    <p>{selectedShortageCount > 0 ? `当前缺少 ${selectedShortageCount} 项食材` : '当前库存已备齐'}</p>
                   </div>
                 </div>
                 {selectedCard.ingredientAvailability.length > 0 ? (
@@ -159,16 +159,16 @@ export function RecipeDetailView({
                           />
                           <strong>{item.item.ingredient_name}</strong>
                         </div>
-                        <span>{item.item.quantity}{item.item.unit}</span>
-                        <span>{item.item.note || '搭配主食'}</span>
+                        <span>{item.item.quantity} {item.item.unit}</span>
+                        <span>{item.item.note || '还没有备注'}</span>
                         <Badge className={item.ready ? 'recipe-stock-badge ready' : 'recipe-stock-badge missing'}>
-                          {item.ready ? '已备齐' : `缺 ${item.missingQuantity}${item.unit}`}
+                          {item.ready ? '已备齐' : `缺少 ${item.missingQuantity} ${item.unit}`}
                         </Badge>
                       </article>
                     ))}
                   </div>
                 ) : (
-                  <p className="subtle">还没有录入用料。</p>
+                  <p className="subtle">还没有用料。</p>
                 )}
               </section>
 
@@ -207,17 +207,17 @@ export function RecipeDetailView({
                 <div className="recipe-detail-section-head">
                   <span><RecipeUiIcon name="sparkle" /></span>
                   <div>
-                    <h3>烹饪提示与复做记录</h3>
+                    <h3>烹饪提示与做菜记录</h3>
                     <p>把口味调整和家人反馈留在这里</p>
                   </div>
                 </div>
                 <div className="recipe-detail-note-grid">
                   <article>
                     <h4>烹饪提示</h4>
-                    <p>{selectedCard.recipe.tips || '暂无额外提示。'}</p>
+                    <p>{selectedCard.recipe.tips || '还没有额外提示。'}</p>
                   </article>
                   <article>
-                    <h4>最近复做反馈</h4>
+                    <h4>最近一次反馈</h4>
                     {selectedRecentCookLog ? (
                       <>
                         <p>
@@ -241,20 +241,24 @@ export function RecipeDetailView({
                 <div className="recipe-detail-section-head">
                   <span><RecipeUiIcon name="basket" /></span>
                   <div>
-                    <h3>库存判断</h3>
-                    <p>当前库存覆盖 {selectedReadyCount} / {selectedIngredientCount} 项</p>
+                    <h3>库存情况</h3>
+                    <p>已有库存 {selectedReadyCount} / {selectedIngredientCount} 项</p>
                   </div>
                 </div>
                 <div className={`recipe-detail-stock-summary tone-${selectedCard.availability}`}>
                   <span><RecipeUiIcon name={selectedShortageCount > 0 ? 'warning' : 'check'} /></span>
                   <strong>{selectedShortageCount > 0 ? '需要先补齐食材' : '可以立即开始'}</strong>
-                  <small>共需 {selectedIngredientCount} 项食材，缺 {selectedShortageCount} 项</small>
+                  <small>
+                    {selectedShortageCount > 0
+                      ? `共需 ${selectedIngredientCount} 项食材，还缺少 ${selectedShortageCount} 项`
+                      : `共需 ${selectedIngredientCount} 项食材，已经备齐`}
+                  </small>
                 </div>
                 {selectedCard.shortages.length > 0 ? (
                   <div className="recipe-detail-shortage-list">
                     <strong>缺少食材</strong>
                     {selectedCard.shortages.slice(0, 3).map((item) => (
-                      <span key={`${item.ingredientName}-${item.unit}`}>· {item.ingredientName} {item.missingQuantity}{item.unit}</span>
+                      <span key={`${item.ingredientName}-${item.unit}`}>· {item.ingredientName} {item.missingQuantity} {item.unit}</span>
                     ))}
                   </div>
                 ) : (
@@ -272,12 +276,12 @@ export function RecipeDetailView({
                 <div className="recipe-detail-section-head">
                   <span><RecipeUiIcon name="calendar" /></span>
                   <div>
-                    <h3>菜谱计划</h3>
-                    <p>{selectedRecipePlanItems.length > 0 ? `已加入 ${selectedRecipePlanItems.length} 个计划` : '将此菜谱加入本周计划'}</p>
+                    <h3>餐食计划</h3>
+                    <p>{selectedRecipePlanItems.length > 0 ? `已加入 ${selectedRecipePlanItems.length} 项餐食计划` : '将此菜谱加入本周餐食计划'}</p>
                   </div>
                 </div>
                 <ActionButton tone="secondary" size="compact" type="button" onClick={() => onPlan(selectedCard)}>
-                  加入计划
+                  加入餐食计划
                 </ActionButton>
               </section>
               )}
@@ -293,7 +297,7 @@ export function RecipeDetailView({
                   <div><dt>最近更新</dt><dd>{formatDateTime(selectedCard.recipe.updated_at)}</dd></div>
                   <div><dt>创建时间</dt><dd>{formatDateTime(selectedCard.recipe.created_at)}</dd></div>
                   <div><dt>创建者</dt><dd>{selectedCard.recipe.created_by || '家庭成员'}</dd></div>
-                  <div><dt>来源/备注</dt><dd>{selectedCard.linkedFood ? selectedCard.linkedFood.name : '家庭自制菜谱'}</dd></div>
+                  <div><dt>来源或备注</dt><dd>{selectedCard.linkedFood ? selectedCard.linkedFood.name : '家庭自制菜谱'}</dd></div>
                 </dl>
                 {showDeleteAction && (
                   <ActionButton tone="tertiary" size="compact" type="button" onClick={() => void onDelete()} disabled={isDeletingRecipe}>

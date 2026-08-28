@@ -10,9 +10,9 @@ export function AiDeleteConversationDialog(props: {
   return (
     <ConfirmDialog
       open
-      title="删除这条历史？"
-      description={`将删除「${props.conversation.title || props.conversation.prompt || 'AI 会话'}」，相关消息不会再显示。`}
-      confirmLabel="确认删除"
+      title="永久删除这条会话？"
+      description={`将永久删除「${props.conversation.title || props.conversation.prompt || 'AI 会话'}」及其中的消息，删除后无法恢复。`}
+      confirmLabel="永久删除"
       cancelLabel="取消"
       tone="danger"
       isSubmitting={props.isDeleting}

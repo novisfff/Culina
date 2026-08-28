@@ -395,7 +395,7 @@
   gap: var(--space-3);
 }
 
-.family-model-settings-publication,
+.family-model-settings-configuration-status,
 .family-model-settings-step-state,
 .family-model-settings-mobile-task-state,
 .family-model-settings-provider-status {
@@ -422,20 +422,20 @@
   background: currentColor;
 }
 
-.family-model-settings-publication.is-published,
+.family-model-settings-configuration-status.is-active,
 .family-model-settings-provider-status.is-active {
   border-color: var(--success-line);
   background: var(--success-soft);
   color: var(--success);
 }
 
-.family-model-settings-publication.is-local_changes {
+.family-model-settings-configuration-status.is-saving {
   border-color: var(--warning-line);
   background: var(--warning-soft);
   color: var(--warning);
 }
 
-.family-model-settings-publication.is-unpublished {
+.family-model-settings-configuration-status.is-unconfigured {
   border-color: var(--line-soft);
   background: var(--surface-muted);
   color: var(--text-soft);
@@ -1913,6 +1913,29 @@ input:checked + .family-model-settings-switch-track::after,
   grid-column: 1 / -1;
 }
 
+.family-model-settings-search-failure {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.family-model-settings-search-failure strong {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.family-model-settings-search-failure span {
+  overflow-wrap: anywhere;
+}
+
 .family-model-settings-search-confirmation {
   border-color: var(--warning-line);
   background: var(--warning-soft);
@@ -2073,7 +2096,7 @@ input:checked + .family-model-settings-switch-track::after,
 }
 
 /* --------------------------------------------------------------------------
-   Publish Review
+   Configuration Check
    -------------------------------------------------------------------------- */
 
 .family-model-settings-review {

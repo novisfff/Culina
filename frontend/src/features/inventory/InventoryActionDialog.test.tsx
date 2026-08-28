@@ -229,12 +229,12 @@ describe('InventoryActionDialog', () => {
     expect(modal?.querySelector(':scope > .workspace-overlay-footer .inventory-action-footer-summary')).toBeNull();
     expect(modal?.querySelector(':scope > .workspace-overlay-footer > .workspace-overlay-footer-info')).not.toBeNull();
 
-    const intentGroup = view.querySelector('[role="radiogroup"][aria-label="库存处理方式"]');
+    const intentGroup = view.querySelector('[role="radiogroup"][aria-label="库存变更方式"]');
     const intentButton = [...(intentGroup?.querySelectorAll('button') ?? [])].find((node) =>
       node.textContent?.includes('暂时保留'),
     );
     const disposeOption = [...(intentGroup?.querySelectorAll('button') ?? [])].find((node) =>
-      node.textContent?.trim() === '销毁',
+      node.textContent?.trim() === '丢弃',
     );
     const correctButton = [...view.querySelectorAll('button')].find((node) =>
       node.textContent?.includes('修正日期'),
@@ -250,8 +250,8 @@ describe('InventoryActionDialog', () => {
   it('separates expired and upcoming batches and defaults to expired selection', () => {
     const { view } = renderDialog();
 
-    expect(view.textContent).toContain('已过期批次');
-    expect(view.textContent).toContain('即将到期批次');
+    expect(view.textContent).toContain('已过期库存');
+    expect(view.textContent).toContain('即将到期库存');
     expect(selectedIds(view)).toEqual(['expired-a', 'expired-b']);
   });
 
@@ -263,7 +263,7 @@ describe('InventoryActionDialog', () => {
   it('resets selection when switching disposal, temporary retention, and future snooze', () => {
     const { view } = renderDialog();
 
-    clickButton(view, '销毁');
+    clickButton(view, '丢弃');
     expect(selectedIds(view)).toEqual(['expired-a', 'expired-b']);
 
     clickButton(view, '暂时保留');
@@ -272,14 +272,14 @@ describe('InventoryActionDialog', () => {
     clickButton(view, '稍后提醒');
     expect(selectedIds(view)).toEqual(['upcoming-a', 'upcoming-b']);
 
-    clickButton(view, '销毁');
+    clickButton(view, '丢弃');
     expect(selectedIds(view)).toEqual(['expired-a', 'expired-b']);
   });
 
   it('blocks selecting unexpired rows for disposal and temporary retention', () => {
     const { view } = renderDialog();
 
-    clickButton(view, '销毁');
+    clickButton(view, '丢弃');
     const upcomingCheckbox = view.querySelector<HTMLInputElement>('input[value="upcoming-a"]');
     expect(upcomingCheckbox?.disabled).toBe(true);
 
@@ -327,9 +327,9 @@ describe('InventoryActionDialog', () => {
     const onDispose = vi.fn(async () => undefined);
     const { view } = renderDialog({ onDispose });
 
-    clickButton(view, '销毁所选批次');
+    clickButton(view, '丢弃所选库存');
 
-    expect(view.textContent).toContain('确认销毁');
+    expect(view.textContent).toContain('确认丢弃');
     expect(view.textContent).toContain('番茄');
     expect(view.textContent).toMatch(/2\s*个批次|2\s*批/);
     const footer = view.querySelector('.workspace-overlay-footer-info');
@@ -339,7 +339,7 @@ describe('InventoryActionDialog', () => {
     expect(view.querySelector('.inventory-action-batch-list')?.textContent ?? '').not.toContain('500 克');
 
     await act(async () => {
-      clickButton(view, '确认销毁');
+      clickButton(view, '确认丢弃');
     });
 
     expect(onDispose).toHaveBeenCalledWith([
@@ -430,7 +430,7 @@ describe('InventoryActionDialog', () => {
 
   it('shows neutral prior review copy without raw reviewer IDs', () => {
     const { view } = renderDialog();
-    expect(view.textContent).toContain('此前已确认暂时保留');
+    expect(view.textContent).toContain('已选择暂时保留');
     expect(view.textContent).toMatch(/再次提醒|原到期日/);
     expect(view.textContent).not.toContain('user-linran');
   });
@@ -454,9 +454,9 @@ describe('InventoryActionDialog', () => {
     expect(view.textContent).toContain('家人刚刚改动了这批库存');
     expect(view.querySelector('.workspace-overlay-root')).not.toBeNull();
 
-    clickButton(view, '销毁所选批次');
+    clickButton(view, '丢弃所选库存');
     await act(async () => {
-      clickButton(view, '确认销毁');
+      clickButton(view, '确认丢弃');
     });
 
     expect(onDispose).toHaveBeenCalled();
@@ -467,7 +467,7 @@ describe('InventoryActionDialog', () => {
   it('disables close and duplicate submission while busy without trapping focus', () => {
     const { onClose, view } = renderDialog({ busy: true });
 
-    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在处理库存');
+    expect(view.querySelector('[role="status"]')?.textContent).toContain('正在更新库存');
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
     act(() => view.querySelector<HTMLButtonElement>('button.ui-form-actions-secondary')?.click());
@@ -518,16 +518,16 @@ describe('InventoryActionDialog', () => {
     };
     const onDispose = vi.fn(async () => undefined);
     renderDialog({ group: presenceGroup, onDispose });
-    expect(container?.textContent).toContain('只记录整体有无');
-    expect(container?.textContent).toContain('标记为没有');
-    const disposeButton = Array.from(container?.querySelectorAll('button') ?? []).find((button) =>
-      button.textContent?.includes('标记为没有'),
+    expect(container?.textContent).toContain('只记录是否有库存');
+    expect(container?.textContent).toContain('确认没有库存');
+    const disposeButton = container?.querySelector<HTMLButtonElement>(
+      'button.ui-form-actions-primary',
     );
     expect(disposeButton).toBeTruthy();
     await act(async () => {
       disposeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    expect(container?.textContent).toContain('将把盐标记为已经没有');
+    expect(container?.textContent).toContain('会把盐标记为没有库存');
   });
 
 });

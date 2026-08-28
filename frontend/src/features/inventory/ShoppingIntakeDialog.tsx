@@ -60,7 +60,7 @@ export type ShoppingIntakeDialogProps = {
 
 const AVAILABILITY_OPTIONS = [
   { value: 'sufficient', label: '充足' },
-  { value: 'present_unknown', label: '还在' },
+  { value: 'present_unknown', label: '有库存' },
   { value: 'low', label: '少量' },
 ] as const;
 
@@ -100,10 +100,10 @@ function fieldErrorFor(
 }
 
 function itemKindLabel(item: ShoppingIntakeDraftItem) {
-  if (item.kind === 'exact_ingredient') return '精确数量';
-  if (item.kind === 'presence_ingredient') return '只记有无';
+  if (item.kind === 'exact_ingredient') return '按数量';
+  if (item.kind === 'presence_ingredient') return '记录是否有库存';
   if (item.kind === 'food') return '成品库存';
-  return '自由文本';
+  return '其他采购';
 }
 
 function plannedCopy(item: ShoppingIntakeDraftItem) {
@@ -111,12 +111,12 @@ function plannedCopy(item: ShoppingIntakeDraftItem) {
     return `计划 ${item.plannedQuantity} ${item.plannedUnit || item.unit}`;
   }
   if (item.kind === 'presence_ingredient') {
-    return '买到后记为家庭整体有无';
+    return '购买后记录库存状态';
   }
   if (item.resolution === 'complete_without_inventory') {
-    return '仅标记已买，不写库存';
+    return '只记录已购买，不加入库存';
   }
-  return '需关联库存或仅完成';
+  return '请选择对应库存，或只记录购买结果';
 }
 
 function compactTimeLabel(iso: string) {
@@ -198,36 +198,36 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
 
   const title =
     props.step === 'result'
-      ? '本次购买已登记'
+      ? '本次购买已记录'
       : props.step === 'review'
-        ? '核对实际数量与例外'
-        : '选择本次买到的项目';
+        ? '核对数量和差异'
+        : '选择本次买到的内容';
 
   const description =
     props.step === 'result'
-      ? '库存与采购清单已同步更新。'
+      ? '库存和采购清单已更新。'
       : props.step === 'review'
-        ? '默认按计划数量入库；只展开需要改动的例外。'
-        : '请显式勾选本次买到的项目，不会默认全选。';
+        ? '默认按计划数量加入库存，有变化的内容可以单独调整。'
+        : '请勾选本次买到的内容，系统不会默认全选。';
 
   const remainingErrorCount = fieldErrors.length;
   const canRevertResult = isOperationStillRevertible(props.result, Date.now());
   const liveMessage =
     props.errorMessage ||
-    (remainingErrorCount > 0 ? `还有 ${remainingErrorCount} 处需要确认` : null) ||
+    (remainingErrorCount > 0 ? `还有 ${remainingErrorCount} 项需要确认` : null) ||
     (props.step === 'result' && props.result
       ? canRevertResult
         ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销`
         : props.result.status === 'reverted'
-          ? '这次操作已撤销'
-          : '撤销窗口已过或当前无权撤销'
+          ? '这次购买记录已撤销'
+          : '已超过可撤销时间，或你没有撤销权限'
       : null);
 
   let footerActions: ReactNode = null;
   if (props.step === 'select') {
     footerActions = (
       <FormActions
-        primaryLabel={`下一步（${selectedItems.length}）`}
+        primaryLabel={`下一步（${selectedItems.length} 项）`}
         isSubmitting={busy}
         primaryDisabled={busy || loading || selectedItems.length === 0}
         onPrimary={props.onGoReview}
@@ -244,10 +244,10 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
         primaryLabel={
           requiresReconfirmation
             ? '重新确认并提交'
-            : '确认入库'
+            : '确认加入库存'
         }
         isSubmitting={busy}
-        submittingLabel={requiresReconfirmation ? '正在重新提交' : '正在登记'}
+        submittingLabel={requiresReconfirmation ? '正在重新确认' : '正在保存购买信息'}
         primaryDisabled={busy || loading || selectedItems.length === 0}
         onPrimary={requiresReconfirmation && props.onRetry ? props.onRetry : props.onSubmit}
         secondaryLabel="返回选择"
@@ -265,7 +265,7 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
         onPrimary={closeIfAllowed}
         secondaryLabel={
           canRevertResult && props.onRevertResult
-            ? '撤销本次登记'
+            ? '撤销本次记录'
             : canRevertResult
               ? '稍后可撤销'
               : undefined
@@ -285,13 +285,13 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
     <>
       {props.step === 'result' && props.result ? (
         <>
-          <span>{props.result.status === 'reverted' ? '登记已撤销' : '登记已生效'}</span>
+          <span>{props.result.status === 'reverted' ? '记录已撤销' : '购买已完成'}</span>
           <strong>
             {canRevertResult
               ? `可撤销至 ${compactTimeLabel(props.result.revertible_until)}`
               : props.result.status === 'reverted'
                 ? '库存已恢复'
-                : '本次登记已完成'}
+                : '本次记录已完成'}
           </strong>
         </>
       ) : (
@@ -316,9 +316,9 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
         title={title}
         titleId="shopping-intake-title"
         description={description}
-        eyebrow="采购入库"
+        eyebrow="记录购买"
         closeLabel="关闭"
-        closeAriaLabel="关闭采购入库"
+        closeAriaLabel="关闭购买记录"
         className={[
           'workspace-modal-wide',
           'inventory-shopping-intake-modal',
@@ -343,13 +343,13 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
 
           <OperationLoadingOverlay
             active={busy}
-            title={props.step === 'result' ? '正在撤销本次登记' : '正在登记采购项'}
+            title={props.step === 'result' ? '正在撤销本次记录' : '正在记录购买内容'}
           />
 
           {props.conflictState && props.conflictState !== 'none' ? (
             <div className="inventory-maintenance-conflict" role="status">
               <strong>需要重新确认</strong>
-              <p>{props.errorMessage ?? '家人可能刚改动了采购项或库存，请刷新后重新确认。'}</p>
+              <p>{props.errorMessage ?? '家人可能刚改动了待买内容或库存，请刷新后重新确认。'}</p>
             </div>
           ) : null}
 
@@ -363,8 +363,8 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
           {loading ? (
             <StateBlock
               status="loading"
-              title="正在准备采购项"
-              description="稍等一下，正在读取待买清单。"
+              title="正在准备采购清单"
+              description="稍等一下，正在读取采购清单。"
               className="inventory-maintenance-state"
             />
           ) : null}
@@ -372,8 +372,8 @@ export function ShoppingIntakeDialog(props: ShoppingIntakeDialogProps) {
           {!loading && props.step !== 'result' && (!props.draft || props.draft.items.length === 0) ? (
             <StateBlock
               status="empty"
-              title="没有待买项目"
-              description="采购清单里暂时没有未完成的项目。"
+              title="没有待买内容"
+              description="采购清单里暂时没有未完成的内容。"
               className="inventory-maintenance-state"
             />
           ) : null}
@@ -434,9 +434,9 @@ function SelectStep(props: {
   onLinkFreeText: (shoppingItemId: string, candidate: FreeTextLinkCandidate) => void;
 }) {
   return (
-    <section className="card inventory-maintenance-section inventory-shopping-intake-select" aria-label="待买项目">
+    <section className="card inventory-maintenance-section inventory-shopping-intake-select" aria-label="采购清单内容">
       <div className="inventory-maintenance-section-head">
-        <span>待买清单</span>
+        <span>采购清单</span>
         <em>{props.draft.items.length} 项</em>
       </div>
       <div className="inventory-maintenance-item-list">
@@ -520,10 +520,10 @@ function ReviewStep(props: {
 
   return (
     <div className="inventory-maintenance-review-layout">
-      <section className="inventory-shopping-review-overview" aria-label="入库核对摘要">
+      <section className="inventory-shopping-review-overview" aria-label="库存核对摘要">
         <div className="inventory-shopping-review-stats">
           <article>
-            <span>本次入库</span>
+            <span>本次加入库存</span>
             <strong>{props.selectedItems.length}</strong>
             <em>项</em>
           </article>
@@ -533,7 +533,7 @@ function ReviewStep(props: {
             <em>项</em>
           </article>
           <article className={props.exceptions.length > 0 ? 'has-exceptions' : ''}>
-            <span>需调整</span>
+          <span>需要调整</span>
             <strong>{props.exceptions.length}</strong>
             <em>项</em>
           </article>
@@ -543,20 +543,20 @@ function ReviewStep(props: {
             <span>购买日期</span>
             <time dateTime={props.draft.purchaseDate}>{props.draft.purchaseDate}</time>
           </div>
-          <p>存放位置和到期日按档案默认值带出，只需修改有差异的项目。</p>
+          <p>存放位置和到期日会沿用食材的默认设置，有变化时再调整。</p>
         </div>
       </section>
 
       <section
         className="inventory-maintenance-section inventory-shopping-review-section"
-        aria-label="本次入库项目"
+        aria-label="本次加入库存内容"
       >
         <div className="inventory-maintenance-section-head">
-          <span>本次入库项目</span>
+          <span>本次加入库存内容</span>
           <em>{reviewItems.length} 项</em>
         </div>
         {reviewItems.length === 0 ? (
-          <p className="subtle">当前没有需要核对的入库项目。</p>
+          <p className="subtle">当前没有需要核对的库存内容。</p>
         ) : (
           <div className="inventory-maintenance-item-list inventory-shopping-review-list">
             {reviewItems.map((item) => (
@@ -598,16 +598,16 @@ function ReviewStep(props: {
           <div className="inventory-shopping-review-empty" role="status">
             <span aria-hidden="true">✓</span>
             <div>
-              <strong>没有差异，可直接确认入库</strong>
-              <p>当前项目都会按计划数量和档案默认信息入库。</p>
+              <strong>没有差异，可直接加入库存</strong>
+              <p>当前内容会按计划数量和默认设置保存到库存。</p>
             </div>
           </div>
         ) : (
           <div className="inventory-shopping-review-difference-status" role="status">
             <span aria-hidden="true">!</span>
             <div>
-              <strong>{props.exceptions.length} 个项目存在差异</strong>
-              <p>差异项目已在上方标记，可继续在原位置调整。</p>
+              <strong>{props.exceptions.length} 项内容存在差异</strong>
+              <p>有差异的内容已在上方标记，可直接在原位置调整。</p>
             </div>
           </div>
         )}
@@ -668,7 +668,7 @@ function ReviewItemCard(props: {
           aria-expanded={props.isExpanded}
           onClick={() => props.onToggle(props.item.shoppingItemId)}
         >
-          {props.isExpanded ? '收起' : props.isException ? '编辑差异' : '调整'}
+          {props.isExpanded ? '收起' : props.isException ? '调整差异' : '调整'}
         </ActionButton>
       </div>
       {itemError?.field === 'conflict' ? (
@@ -707,13 +707,13 @@ function ExceptionSummary(props: { item: ShoppingIntakeDraftItem }) {
   if (props.item.kind === 'presence_ingredient') {
     return (
       <p className="subtle inventory-shopping-review-summary">
-        默认充足
+        默认状态：充足
         {props.item.resultingAvailabilityLevel !== 'sufficient'
           ? ` · 当前选择：${
               props.item.resultingAvailabilityLevel === 'low'
                 ? '少量'
                 : props.item.resultingAvailabilityLevel === 'present_unknown'
-                  ? '还在'
+                  ? '有库存'
                   : props.item.resultingAvailabilityLevel
             }`
           : ''}
@@ -723,7 +723,7 @@ function ExceptionSummary(props: { item: ShoppingIntakeDraftItem }) {
   }
   return (
     <p className="subtle inventory-shopping-review-summary">
-      {props.item.resolution === 'complete_without_inventory' ? '将仅标记已买' : '尚未关联库存'}
+      {props.item.resolution === 'complete_without_inventory' ? '只记录购买结果' : '还没有对应库存'}
     </p>
   );
 }
@@ -759,11 +759,11 @@ function ExceptionEditor(props: {
     return (
       <div className="inventory-maintenance-editor">
         <div className="inventory-maintenance-field-head">
-          <span>买到后状态</span>
-          <p className="subtle">只记录整体有无，不区分多个批次。</p>
+          <span>购买后库存状态</span>
+          <p className="subtle">这里只记录当前库存状态，不区分每次购买。</p>
         </div>
         <OptionChipGroup
-          ariaLabel={`${item.title} 有无状态`}
+          ariaLabel={`${item.title} 库存状态`}
           value={item.resultingAvailabilityLevel}
           size="large"
           className="inventory-maintenance-chip-group"
@@ -846,7 +846,7 @@ function ExceptionEditor(props: {
       {quantityError ? <p className="inventory-maintenance-field-error">{quantityError.message}</p> : null}
       {unitError ? <p className="inventory-maintenance-field-error">{unitError.message}</p> : null}
       <div className="inventory-maintenance-date-field">
-        <span>存放位置{item.kind === 'food' ? '（影响全部成品库存）' : ''}</span>
+          <span>存放位置{item.kind === 'food' ? '（同步到所有成品库存）' : ''}</span>
         <DropdownSelect
           ariaLabel={`${item.title}存放位置`}
           placeholder="选择存放位置"
@@ -922,10 +922,10 @@ function FreeTextActions(props: {
       candidate.kind === 'food'
         ? isFreeTextLinkCandidateUnitCompatible(candidate, props.item.plannedUnit)
           ? '成品库存'
-          : `成品库存 · 单位为 ${candidate.stockUnit || '份'}，请先调整采购计划单位`
+          : `成品库存 · 单位为 ${candidate.stockUnit || '份'}，请先调整采购清单中的单位`
         : candidate.quantityTrackingMode === 'track_quantity'
-          ? '食材档案 · 精确数量'
-          : '食材档案 · 只记有无',
+          ? '食材 · 按数量管理'
+          : '食材 · 记录是否有库存',
   }));
 
   const isCompletedWithoutInventory = props.item.resolution === 'complete_without_inventory';
@@ -942,7 +942,7 @@ function FreeTextActions(props: {
           data-field-key={`${props.item.shoppingItemId}:resolution`}
           onClick={() => props.onComplete(props.item.shoppingItemId)}
         >
-          仅标记已买
+          只记录已购买
         </ActionButton>
 
         {props.candidates.length > 0 &&
@@ -958,7 +958,7 @@ function FreeTextActions(props: {
                 disabled={props.busy || !isCompatible}
                 onClick={() => props.onLink(props.item.shoppingItemId, candidate)}
               >
-                关联{candidate.name}
+                匹配 {candidate.name}
               </ActionButton>
             );
           })}
@@ -973,7 +973,7 @@ function FreeTextActions(props: {
             aria-expanded={searchOpen}
             onClick={() => setSearchOpen((current) => !current)}
           >
-            {searchOpen ? '收起搜索' : '搜索其他档案'}
+            {searchOpen ? '收起搜索' : '搜索其他食材或成品'}
           </ActionButton>
         )}
       </div>
@@ -981,25 +981,25 @@ function FreeTextActions(props: {
       <div className="inventory-freetext-tips">
         {props.candidates.length === 0 && (
           <p className="subtle inventory-freetext-tip-row">
-            没有精确同名档案，可搜索其他档案或仅标记已买。
+            没有找到同名食材或成品，可继续搜索，或只记录购买结果。
           </p>
         )}
         {incompatibleExactFoodCandidates.length > 0 && (
           <p className="subtle inventory-freetext-tip-row warning">
-            成品库存需与采购计划使用相同单位，请先在采购清单中调整单位。
+            成品库存需要和采购清单使用相同单位，请先在采购清单中调整单位。
           </p>
         )}
       </div>
 
       {searchOpen && (
         <SearchableResourceSelect
-          ariaLabel={`${props.item.title}关联档案`}
-          placeholder="搜索食材或成品档案"
+          ariaLabel={`${props.item.title}选择食材或成品`}
+          placeholder="搜索食材或成品"
           value=""
           query={query}
           options={selectOptions}
           disabled={props.busy}
-          emptyText={query.trim() ? '没有找到匹配档案' : '暂无可关联档案'}
+          emptyText={query.trim() ? '没有找到匹配的食材或成品' : '没有可选择的食材或成品'}
           className="inventory-maintenance-freetext-search"
           onQueryChange={setQuery}
           onSearchClear={() => setQuery('')}
@@ -1033,27 +1033,27 @@ function ResultStep(props: {
     props.draft?.items.map((item) => [item.shoppingItemId, item.title]) ?? [],
   );
   return (
-    <section className="inventory-maintenance-result inventory-shopping-result" aria-label="入库结果">
+    <section className="inventory-maintenance-result inventory-shopping-result" aria-label="库存变更结果">
       <div className="inventory-shopping-result-overview">
         <div className="inventory-shopping-result-heading">
           <StatusBadge tone={props.result.status === 'applied' ? 'success' : 'neutral'} size="compact">
             {props.result.status === 'applied' ? '已生效' : '已撤销'}
           </StatusBadge>
           <div>
-            <h4>已登记 {totalCount} 项</h4>
-            <p>库存数量与采购清单已同步。</p>
+            <h4>已记录 {totalCount} 项</h4>
+            <p>库存数量和采购清单已更新。</p>
           </div>
         </div>
-        <div className="inventory-shopping-result-counts" aria-label="登记统计">
-          <span><strong>完成 {props.result.summary.completed_count}</strong> 项</span>
-          <span><strong>部分 {props.result.summary.partial_count}</strong> 项</span>
+        <div className="inventory-shopping-result-counts" aria-label="记录统计">
+            <span><strong>已完成 {props.result.summary.completed_count}</strong> 项</span>
+            <span><strong>部分完成 {props.result.summary.partial_count}</strong> 项</span>
         </div>
         <p className="inventory-maintenance-revert-copy" aria-live="polite">
           {props.result.status === 'reverted'
-            ? '这次操作已撤销'
+            ? '这次购买记录已撤销'
             : canRevert
-              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次登记`
-              : '撤销窗口已过或当前无权撤销'}
+              ? `可在 ${compactTimeLabel(props.result.revertible_until)} 前撤销本次记录`
+              : '已超过可撤销时间，或你没有撤销权限'}
         </p>
         {props.onViewResult ? (
           <ActionButton
@@ -1063,29 +1063,29 @@ function ResultStep(props: {
             disabled={Boolean(props.busy)}
             onClick={() => props.onViewResult?.(props.result.operation_id)}
           >
-            查看操作详情
+            查看变更详情
           </ActionButton>
         ) : null}
       </div>
       {props.result.items.length > 0 ? (
         <div className="inventory-shopping-result-items">
           <div className="inventory-maintenance-section-head">
-            <span>本次登记项目</span>
+            <span>本次记录内容</span>
             <em>{props.result.items.length} 项</em>
           </div>
           <ul className="inventory-maintenance-summary-list">
             {props.result.items.map((item) => {
               const isPartial = item.result === 'partial';
               const label = isPartial
-                ? `部分买到 · 剩余 ${item.remaining_planned_quantity ?? '—'}`
+                ? `已买到部分 · 剩余 ${item.remaining_planned_quantity ?? '—'}`
                 : item.result === 'completed_without_inventory'
-                  ? '仅完成采购项'
+                  ? '只记录购买结果'
                   : item.result === 'stocked'
                     ? '已加入库存'
                     : '已完成';
               return (
                 <li key={item.shopping_item_id}>
-                  <strong>{titleByShoppingItemId.get(item.shopping_item_id) ?? '采购项'}</strong>
+                  <strong>{titleByShoppingItemId.get(item.shopping_item_id) ?? '待买内容'}</strong>
                   <StatusBadge tone={isPartial ? 'warning' : 'success'} size="compact">
                     {label}
                   </StatusBadge>

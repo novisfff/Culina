@@ -112,35 +112,35 @@ export function modelUsageHealthNotices(health: ModelUsageMeasurementHealth): Mo
     notices.push({
       kind: 'exact',
       title: MODEL_USAGE_HEALTH_OPTIONS.exact.title,
-      description: `${health.exact_event_count} 次调用已精确计量。`,
+      description: `${health.exact_event_count} 次请求已完整记录。`,
     });
   }
   if (health.estimated_event_count > 0) {
     notices.push({
       kind: 'estimated',
       title: MODEL_USAGE_HEALTH_OPTIONS.estimated.title,
-      description: `${health.estimated_event_count} 次调用采用估算用量，费用可能随后调整。`,
+      description: `${health.estimated_event_count} 次请求使用估算用量，费用可能随后调整。`,
     });
   }
   if (health.unpriced_event_count > 0) {
     notices.push({
       kind: 'unpriced',
       title: MODEL_USAGE_HEALTH_OPTIONS.unpriced.title,
-      description: `${health.unpriced_event_count} 次调用尚未定价，暂未计入上方费用。`,
+      description: `${health.unpriced_event_count} 次请求还没有定价，暂不计入上方费用。`,
     });
   }
   if (health.uncertain_attempt_count > 0) {
     notices.push({
       kind: 'uncertain',
       title: MODEL_USAGE_HEALTH_OPTIONS.uncertain.title,
-      description: `${health.uncertain_attempt_count} 次调用仍在核对执行和结算情况。`,
+      description: `${health.uncertain_attempt_count} 次请求仍在核对执行和费用情况。`,
     });
   }
   if (health.pending_attempt_count > 0) {
     notices.push({
       kind: 'pending',
       title: MODEL_USAGE_HEALTH_OPTIONS.pending.title,
-      description: `${health.pending_attempt_count} 次调用正在等待结算。`,
+      description: `${health.pending_attempt_count} 次请求正在等待费用确认。`,
     });
   }
   if (health.unresolved_unknown_execution_attempt_count > 0) {
@@ -149,22 +149,22 @@ export function modelUsageHealthNotices(health: ModelUsageMeasurementHealth): Mo
       kind: 'conservative_unknown_execution',
       title: MODEL_USAGE_HEALTH_OPTIONS.conservative_unknown_execution.title,
       description: cost === null
-        ? `${health.unresolved_unknown_execution_attempt_count} 次调用的执行情况未知，金额暂时无法确认。`
-        : `${health.unresolved_unknown_execution_attempt_count} 次调用的执行情况未知，已按约 ${formatModelUsageCny(cost)} 计入额度。`,
+        ? `${health.unresolved_unknown_execution_attempt_count} 次请求是否执行还没有确认，金额暂时无法确认。`
+        : `${health.unresolved_unknown_execution_attempt_count} 次请求是否执行还没有确认，已按约 ${formatModelUsageCny(cost)} 计入额度。`,
     });
   }
   if (health.known_unmeasured_attempt_count > 0) {
     notices.push({
       kind: 'known_unmeasured',
       title: MODEL_USAGE_HEALTH_OPTIONS.known_unmeasured.title,
-      description: `${health.known_unmeasured_attempt_count} 次调用可定位，但尚未恢复具体用量。`,
+      description: `${health.known_unmeasured_attempt_count} 次请求可以找到记录，但具体用量还没有恢复。`,
     });
   }
   if (health.measurement_gap) {
     notices.push({
       kind: 'measurement_gap',
       title: MODEL_USAGE_HEALTH_OPTIONS.measurement_gap.title,
-      description: '该时间段的模型用量计量可能不完整。',
+      description: '该时间段的模型用量明细可能不完整。',
     });
   }
   return notices;
@@ -300,7 +300,7 @@ export function validateModelUsagePolicyDraft(draft: ModelUsagePolicyDraft): Mod
     return {
       valid: false,
       field: 'monthly_budget_cny',
-      message: '家庭月预算需为大于 0 的金额，或留空不设置预算。',
+      message: '家庭月预算需要填写大于 0 的金额，或留空表示不设置预算。',
     };
   }
   if ((draft.hard_limit_enabled || draft.capability_limits.length > 0) && !hasBudget) {
@@ -314,7 +314,7 @@ export function validateModelUsagePolicyDraft(draft: ModelUsagePolicyDraft): Mod
     return {
       valid: false,
       field: 'capability_limits',
-      message: '每项模型能力只能设置一个护栏。',
+      message: '每项模型功能只能设置一个限额。',
     };
   }
   for (const limit of draft.capability_limits) {
@@ -322,21 +322,21 @@ export function validateModelUsagePolicyDraft(draft: ModelUsagePolicyDraft): Mod
       return {
         valid: false,
         field: 'capability_limits',
-        message: '每项能力护栏都需要填写大于 0 的限制值。',
+        message: '每项功能限额都需要填写大于 0 的数值。',
       };
     }
     if (limit.limit_kind === 'cost' && limit.meter !== null) {
       return {
         valid: false,
         field: 'capability_limits',
-        message: '费用护栏不能同时选择计量项。',
+        message: '费用限额不能同时选择用量类型。',
       };
     }
     if (limit.limit_kind === 'meter' && (!limit.meter || !MODEL_USAGE_CAPABILITY_METERS[limit.capability].includes(limit.meter))) {
       return {
         valid: false,
         field: 'capability_limits',
-        message: '所选计量项不适用于这项模型能力。',
+        message: '所选用量类型不适用于这项模型功能。',
       };
     }
   }

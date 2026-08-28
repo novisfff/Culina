@@ -87,8 +87,8 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
 
   return (
     <WorkspaceModal
-      title="新增采购项"
-      description="可从已有食材或成品速食档案选择，也可直接记一条其他采购。"
+      title="新增采购内容"
+      description="可从已有食材或成品速食中选择，也可以直接添加其他采购。"
       closeLabel="关闭"
       closeAriaLabel="关闭"
       className="workspace-modal-wide shopping-quick-modal"
@@ -119,7 +119,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
       >
         <OperationLoadingOverlay
           active={Boolean(props.isCreatingShopping)}
-          title="正在加入购物清单"
+          title="正在加入采购清单"
         />
         <div className="shopping-quick-scroll">
           {selectedTarget ? (
@@ -137,7 +137,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                     <p>{(props.selectedShoppingFood ? props.selectedShoppingFoodMeta : props.selectedShoppingIngredientMeta).join(' · ')}</p>
                   </div>
                   <div className="ingredients-restock-identity-actions">
-                    <Badge>{props.selectedShoppingFood ? '成品速食' : '档案食材'}</Badge>
+                    <Badge>{props.selectedShoppingFood ? '成品速食' : '已有食材'}</Badge>
                     <ActionButton
                       type="button"
                       tone="secondary"
@@ -164,7 +164,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
               <span>名称</span>
               <SearchableResourceSelect
                 ariaLabel="选择采购食材或输入其他采购"
-                placeholder="输入名称，或选食材/成品；也可记其他采购"
+                placeholder="输入名称，或选择食材、成品；也可添加其他采购"
                 value=""
                 query={props.shoppingForm.title}
                 presentation="popover"
@@ -172,7 +172,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                 loadingMore={ingredientSearch.isFetchingNextPage}
                 hasMore={ingredientSearch.hasMore}
                 loadMoreText="加载更多食材"
-                loadingMoreText="正在加载更多食材..."
+                loadingMoreText="正在加载更多食材…"
                 options={ingredientSearch.ingredients.map((ingredient) => ({
                   id: `ingredient:${ingredient.id}`,
                   label: ingredient.name,
@@ -191,13 +191,13 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                         {
                           id: 'free_text:other',
                           label: `其他采购：${props.shoppingForm.title.trim()}`,
-                          description: '不关联档案，只记一条自由文本采购项',
+                          description: '不关联食材，仅添加其他采购',
                           image: <MediaWithPlaceholder src={undefined} alt="" />,
                         },
                       ]
                     : []
                 )}
-                emptyText={ingredientSearch.isSearching ? '正在搜索...' : '没有匹配档案，可继续输入并选择“其他采购”。'}
+                emptyText={ingredientSearch.isSearching ? '正在搜索…' : '没有找到匹配内容，可继续输入，或选择“其他采购”。'}
                 onSearchCompositionStart={ingredientSearch.onCompositionStart}
                 onSearchCompositionEnd={ingredientSearch.onCompositionEnd}
                 onQueryChange={(nextTitle) => {
@@ -241,7 +241,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
               />
               {props.shoppingForm.title.trim() && (
                 <p className="subtle">
-                  当前为<strong>其他采购</strong>：不会按名称自动关联档案。需要绑定食材或成品时，请从列表里明确选择。
+                  当前为<strong>其他采购</strong>：不会按名称自动关联食材。需要对应食材或成品时，请从列表中明确选择。
                 </p>
               )}
             </div>
@@ -255,7 +255,7 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                 unit={props.shoppingForm.unit || props.selectedShoppingFood?.stock_unit || props.selectedShoppingIngredient?.default_unit || '份'}
                 unitOptions={shoppingQuantityUnitOptions}
                 quantityDisabled={!tracksQuantity}
-                quantityDisabledReason={!tracksQuantity ? '只提醒需要补充，不记录具体数量。' : undefined}
+                        quantityDisabledReason={!tracksQuantity ? '只记录是否有库存，不填写具体数量。' : undefined}
                 onQuantityChange={(quantity) =>
                   props.setShoppingForm({
                     ...props.shoppingForm,
@@ -276,10 +276,10 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
                 </div>
                 <p className="subtle">
                   {props.selectedShoppingFood
-                    ? '成品买回后会进入补库存流程。'
+                    ? '成品买回后可以补充到库存。'
                     : props.selectedShoppingIngredient
-                      ? '默认先用主单位，常用副单位可以在上方切换。'
-                      : '其他采购默认 1 份，可按需要改数量和单位。'}
+                      ? '默认使用食材单位，其他常用单位可以在上方切换。'
+                      : '其他采购默认按 1 份记录，你可以根据需要修改数量和单位。'}
                 </p>
               </section>
             </div>
@@ -287,12 +287,12 @@ export function IngredientShoppingOverlay(props: IngredientShoppingOverlayProps)
 
           <section className="ingredients-restock-field-group">
             <div className="ingredients-restock-field-head">
-              <span>原因</span>
-              <p className="subtle">留一句自己回头能看懂的备注就行。</p>
+              <span>备注</span>
+              <p className="subtle">补充备注，方便之后查看。</p>
             </div>
             <input
               className="text-input"
-              placeholder="例如 备一份新的，替换临期库存"
+              placeholder="例如：备一份新的，替换临期库存"
               value={props.shoppingForm.reason}
               onChange={(event) =>
                 props.setShoppingForm({ ...props.shoppingForm, reason: event.target.value })

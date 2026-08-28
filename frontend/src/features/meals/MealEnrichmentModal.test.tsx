@@ -120,7 +120,7 @@ describe('MealEnrichmentModal', () => {
     const { view } = renderModal();
 
     expect(view.textContent).toContain('评价这顿晚餐');
-    expect(view.textContent).toContain('餐食已经记录；关闭评价不会撤销这顿');
+    expect(view.textContent).toContain('餐食已经记录；关闭此处不会撤销这顿饭。');
     expect(view.querySelector('.workspace-overlay-root.home-dashboard-overlay-root')).not.toBeNull();
     expect(view.querySelector<HTMLButtonElement>('button.ui-form-actions-primary')?.getAttribute('form')).toBe(
       'test-meal-enrichment-form',
@@ -148,12 +148,12 @@ describe('MealEnrichmentModal', () => {
     const { view } = renderModal({ pendingPlanItems: [pending], onRecordPlanItem });
 
     expect(view.textContent).toContain('评价这顿晚餐');
-    expect(view.textContent).toContain('本餐计划 · 尚未记录');
+    expect(view.textContent).toContain('计划中的食物 · 尚未记录');
     expect(view.textContent).toContain('添加其他实际吃的食物');
     expect(view.textContent).toContain('稍后再说');
 
     await act(async () => {
-      view.querySelector<HTMLButtonElement>('button[aria-label="记录米饭已吃"]')?.click();
+      view.querySelector<HTMLButtonElement>('button[aria-label="记录已吃：米饭"]')?.click();
     });
     expect(onRecordPlanItem).toHaveBeenCalledWith(pending);
   });
@@ -221,16 +221,16 @@ describe('MealEnrichmentModal', () => {
     document.body.append(container);
     root = createRoot(container);
     act(() => root?.render(<Harness />));
-    await act(async () => container?.querySelector<HTMLButtonElement>('button[aria-label="记录米饭已吃"]')?.click());
+    await act(async () => container?.querySelector<HTMLButtonElement>('button[aria-label="记录已吃：米饭"]')?.click());
 
-    expect(container.textContent).toContain('撤回刚才添加');
+    expect(container.textContent).toContain('撤回刚添加的食物');
     expect(container.textContent).toContain('米饭');
     await act(async () => {
-      Array.from(container?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((button) => button.textContent?.includes('撤回刚才添加'))?.click();
+      Array.from(container?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((button) => button.textContent?.includes('撤回刚添加的食物'))?.click();
     });
 
     expect(onRevertRecord).toHaveBeenCalledWith('op-rice');
-    expect(container.querySelector('button[aria-label="记录米饭已吃"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="记录已吃：米饭"]')).not.toBeNull();
   });
 
   it('opens the other-food picker and appends an existing food', async () => {
@@ -299,7 +299,7 @@ describe('MealEnrichmentModal', () => {
     });
 
     expect(onAddExistingFood).toHaveBeenCalledWith(rice);
-    expect(container.textContent).toContain('撤回刚才添加');
+    expect(container.textContent).toContain('撤回刚添加的食物');
   });
 
   it('clears temporary food-adder state when the modal switches to another meal', () => {

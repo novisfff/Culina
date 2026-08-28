@@ -463,7 +463,7 @@ export function buildTodayFoodRecommendations(
       if (expiring) {
         const expiryScore = daysUntilExpiry == null ? 0 : daysUntilExpiry <= 0 ? 250 : daysUntilExpiry <= 3 ? 220 : 170;
         score += expiryScore;
-        reasons.push(daysUntilExpiry == null || daysUntilExpiry > 0 ? '临期优先' : '今天需处理');
+        reasons.push(daysUntilExpiry == null || daysUntilExpiry > 0 ? '临期，建议优先处理' : '今天需要处理');
       }
 
       if (usage.last) {
@@ -471,7 +471,7 @@ export function buildTodayFoodRecommendations(
         const recentPenalty = daysSinceLast < 0 ? 0 : daysSinceLast <= 1 ? 160 : daysSinceLast <= 3 ? 90 : daysSinceLast <= 5 ? 45 : 0;
         if (recentPenalty > 0) {
           score -= expiring ? Math.round(recentPenalty * 0.45) : recentPenalty;
-          reasons.push('最近吃过已降权');
+          reasons.push('最近吃过，暂不优先推荐');
         }
       }
 
@@ -481,7 +481,7 @@ export function buildTodayFoodRecommendations(
       }
       if (usage.count >= 3) {
         score += 35;
-        reasons.push('常复吃');
+        reasons.push('常吃');
       } else if (usage.count > 0) {
         score += usage.count * 8;
       }
@@ -491,17 +491,17 @@ export function buildTodayFoodRecommendations(
       }
       if (food.repurchase === true) {
         score += 45;
-        reasons.push('愿意复购');
+        reasons.push('想再吃');
       }
       if (food.repurchase === false) {
         score -= 90;
-        reasons.push('暂不复购');
+        reasons.push('近期不想再吃');
       }
       if (dominantRecentType && normalizedType === dominantRecentType && !expiring) {
         score -= 35;
       } else if (dominantRecentType && normalizedType !== dominantRecentType) {
         score += 20;
-        reasons.push('换个类型');
+        reasons.push('换一种类型');
       }
       if (isFoodMissingDecisionInfo(food, recipes)) {
         score -= 25;
@@ -541,19 +541,19 @@ function getFoodEditorProfile(foodType: FoodType) {
   const normalizedType = normalizeFormFoodType(foodType);
   if (normalizedType === 'selfMade') {
     return {
-      title: '家常菜核心资料',
+      title: '家常菜核心信息',
       description: '重点确认菜谱与用料、适合餐别和家庭备注。',
     };
   }
   if (normalizedType === 'takeout' || normalizedType === 'diningOut') {
     return {
-      title: normalizedType === 'takeout' ? '外卖复吃判断' : '外食复吃判断',
-      description: '把店铺/餐厅、价格、评分和复购意愿补齐，下次就能快速判断要不要再吃。',
+      title: normalizedType === 'takeout' ? '外卖下次选择参考' : '外食下次选择参考',
+      description: '补上店铺/餐厅、价格、评分和下次是否还想吃，之后更容易做决定。',
     };
   }
   return {
-    title: '成品与速食库存',
-    description: '优先维护购买渠道、剩余数量和到期日期，这类食物会进入临期提醒。',
+    title: '成品与速食库存信息',
+    description: '先补充购买渠道、剩余数量和到期日，这类食物会进入临期提醒。',
   };
 }
 
@@ -982,7 +982,7 @@ export function FoodWorkspace(props: Props) {
   const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;
   const managementIssueCount = new Set([...expiringFoods, ...needsInfoFoods].map((food) => food.id)).size;
   const nextGovernanceFood = governanceQueue[0] ?? null;
-  const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '资料已够完整';
+  const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '信息已补齐';
   const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
@@ -1094,7 +1094,7 @@ export function FoodWorkspace(props: Props) {
       },
     },
     {
-      label: '缺料',
+      label: '缺少食材',
       active: mobileCookingFilter === 'shortage',
       onClick: () => {
         setMobileCookingFilter('shortage');
@@ -1131,7 +1131,7 @@ export function FoodWorkspace(props: Props) {
   }, [editorSceneTags, props.foodScenes, props.foods]);
   const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
   const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
-  const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 个原料 · ${currentRecipe.steps.length} 个步骤` : '还没有菜谱';
+  const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 种食材 · ${currentRecipe.steps.length} 步` : '还没有菜谱';
   const recipeEditorIngredientCount = recipeEditor.ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
   const recipeEditorStepCount = recipeEditor.form.steps.filter((step) => step.text.trim()).length;
   const canSaveRecipeEditorDraft = Boolean(recipeEditor.form.title.trim() && recipeEditorIngredientCount > 0);
@@ -1139,7 +1139,7 @@ export function FoodWorkspace(props: Props) {
   const foodEditorSubmitLabel = isSelfMade
     ? view === 'create'
       ? '保存家常菜谱'
-      : '保存菜谱和资料'
+      : '保存菜谱及食物信息'
     : view === 'create'
       ? '保存食物'
       : '保存修改';
@@ -1148,7 +1148,7 @@ export function FoodWorkspace(props: Props) {
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
   const recipeEditorCompletionItems = [
     { label: '已填写基础信息', done: Boolean(recipeEditor.form.title.trim() && Number(recipeEditor.form.servings) > 0) },
-    { label: '已添加原料', done: recipeEditorIngredientCount > 0 },
+    { label: '已添加食材', done: recipeEditorIngredientCount > 0 },
     { label: '已添加步骤', done: recipeEditorStepCount > 0 },
     { label: '已设置封面', done: Boolean(recipeEditorCoverAsset) },
   ];
@@ -1199,7 +1199,7 @@ export function FoodWorkspace(props: Props) {
         setIsFoodRecipeEditorOpen(true);
         return;
       }
-      showNotice({ tone: 'warning', title: '还没有菜谱', message: '请先补一份菜谱与用料。' });
+      showNotice({ tone: 'warning', title: '还没有菜谱', message: '请先补充菜谱和用料。' });
       return;
     }
     recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
@@ -1219,7 +1219,7 @@ export function FoodWorkspace(props: Props) {
         showNotice({ tone: 'warning', title: '没有找到对应菜谱', message: '请确认该菜谱是否存在。' });
       }
     } else {
-      showNotice({ tone: 'warning', title: '没有绑定菜谱', message: '这份食物目前没有关联的菜谱。' });
+      showNotice({ tone: 'warning', title: '没有相关菜谱', message: '这份食物还没有对应的菜谱。' });
     }
   }
 
@@ -1258,7 +1258,7 @@ export function FoodWorkspace(props: Props) {
         getPendingImageJobId(recipeEditor.form.images)
       );
       if (!recipePayload.title || recipePayload.ingredient_items.length === 0) {
-        showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '家常菜谱至少要有名称和一个食材。' });
+        showNotice({ tone: 'warning', title: '暂时无法保存菜谱', message: '家常菜谱至少要有名称和一种食材。' });
         return;
       }
       try {
@@ -1272,7 +1272,7 @@ export function FoodWorkspace(props: Props) {
             getPendingImageJobId(form.images)
           );
           await submitFood(event, true, payload);
-          showNotice({ tone: 'success', title: '家常菜谱已更新', message: `${recipePayload.title} 的菜谱和食物资料已保存。` });
+          showNotice({ tone: 'success', title: '家常菜谱已更新', message: `${recipePayload.title} 的菜谱和食物信息已保存。` });
         } else {
           await props.createRecipe(recipePayload);
           setView('list');
@@ -1298,7 +1298,7 @@ export function FoodWorkspace(props: Props) {
       getPendingImageJobId(recipeEditor.form.images)
     );
     if (!payload.title || payload.ingredient_items.length === 0) {
-      showNotice({ tone: 'warning', title: '还不能保存菜谱', message: '家常菜谱至少要有名称和一个食材。' });
+      showNotice({ tone: 'warning', title: '暂时无法保存菜谱', message: '家常菜谱至少要有名称和一种食材。' });
       return;
     }
     try {
@@ -1383,7 +1383,7 @@ export function FoodWorkspace(props: Props) {
     if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
       const card = recipeCards.find((entry) => entry.recipe.id === food.recipe_id);
       if (!card) {
-        showNotice({ tone: 'warning', title: '菜谱暂不可用', message: '没有找到这道家常菜的菜谱原料，请刷新后再试。' });
+        showNotice({ tone: 'warning', title: '暂时无法打开菜谱', message: '没有找到这道家常菜需要的食材，请刷新后再试。' });
         return;
       }
       recipeShopping.openShoppingDialog(card, () => undefined, 'all');
@@ -1413,16 +1413,16 @@ export function FoodWorkspace(props: Props) {
       setFoodShoppingDialog(null);
       showNotice({
         tone: 'success',
-        title: write.kind === 'update' ? '采购项已更新' : '已加入采购',
+        title: write.kind === 'update' ? '待买内容已更新' : '已加入采购清单',
         message: write.kind === 'update'
-          ? `${foodName} 的采购数量已更新。`
+          ? `${foodName} 的待买数量已更新。`
           : `${foodName} 已加入采购清单。`,
       });
     } catch (reason) {
       setFoodShoppingError(
         isApiError(reason) && reason.status === 409
-          ? '采购项已发生变化，请刷新后重新确认。'
-          : resolveErrorMessage(reason, '保存采购项失败，请稍后重试。'),
+          ? '待买内容已发生变化，请刷新后重新确认。'
+          : resolveErrorMessage(reason, '保存待买内容失败，请稍后重试。'),
       );
     } finally {
       setIsFoodShoppingSubmitting(false);
@@ -1510,7 +1510,7 @@ export function FoodWorkspace(props: Props) {
         const message =
           reason instanceof Error && reason.message.trim()
             ? reason.message
-            : '加载候选失败，请重试';
+            : '暂时无法加载可选餐食，请重试';
         setQuickRecord((current) =>
           current && current.date === date && current.mealType === mealType
             ? {
@@ -1538,8 +1538,8 @@ export function FoodWorkspace(props: Props) {
               ...current,
               error:
                 current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '加载候选失败，请重试'
-                  : '正在确认是否有可加入的餐食…',
+                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
+                  : '正在查找可加入的餐食…',
             }
           : current,
       );
@@ -1570,7 +1570,7 @@ export function FoodWorkspace(props: Props) {
               ...current,
               error: reason instanceof Error && reason.message.trim()
                 ? reason.message
-                : '记录失败，请重试',
+                : '餐食记录失败，请重试',
             }
           : current,
       );
@@ -1583,7 +1583,7 @@ export function FoodWorkspace(props: Props) {
       setQuickRecord(null);
       props.onRecordSuccess?.(response);
       setFeedback(
-        `${quickRecord.food.name} 已记录到${
+        `${quickRecord.food.name} 已记入${
           quickRecord.date === mealBusinessDate ? '今天' : formatDate(quickRecord.date)
         }${MEAL_TYPE_LABELS[quickRecord.mealType]}`,
       );
@@ -1634,7 +1634,7 @@ export function FoodWorkspace(props: Props) {
           ? {
               ...current,
               busy: false,
-              error: messageFromMealRecordReason(reason, '记录失败，请重试'),
+              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
             }
           : current,
       );
@@ -1735,11 +1735,11 @@ export function FoodWorkspace(props: Props) {
           <div className="hero-actions">
             <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>
               <FoodUiIcon name="plus" />
-              <span>新增外卖/成品</span>
+              <span>新增食物</span>
             </ActionButton>
             <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
               <FoodUiIcon name="receipt" />
-              <span>吃过的</span>
+              <span>用餐记录</span>
             </ActionButton>
           </div>
         }
@@ -1753,7 +1753,7 @@ export function FoodWorkspace(props: Props) {
                 <SearchField
                   className="food-search-field"
                   ariaLabel="搜索食物"
-                  placeholder="搜索食物、来源、口味或备注..."
+                  placeholder="搜索食物、来源、口味或备注…"
                   value={search}
                   loading={isFoodSearchFetching}
                   leadingIcon={<FoodUiIcon name="search" />}
@@ -1763,7 +1763,7 @@ export function FoodWorkspace(props: Props) {
                   onCompositionEnd={foodSearchComposition.onCompositionEnd}
                 />
                 <div className="food-library-head-actions">
-                  <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 份食物</p>
+                  <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 项食物</p>
                   {hasFoodFilters && (
                     <button className="food-clear-filters-button" type="button" onClick={clearFoodFilters}>
                       <FoodUiIcon name="refresh" />
@@ -1798,12 +1798,12 @@ export function FoodWorkspace(props: Props) {
                 </div>
               </div>
               {lensFilter === 'needsInfo' && (
-                <section className="food-governance-panel" aria-label="待完善补资料模式">
+                <section className="food-governance-panel" aria-label="需要完善的信息">
                   <div className="food-governance-head">
                     <div>
-                      <span className="eyebrow">补资料</span>
-                      <h4>{governanceQueue.length > 0 ? `还有 ${governanceQueue.length} 份会影响推荐` : '资料已够完整'}</h4>
-                      <p>{nextGovernanceFood ? nextGovernanceSummary : '当前没有需要补齐的食物。'}</p>
+                      <span className="eyebrow">补充信息</span>
+                      <h4>{governanceQueue.length > 0 ? `还有 ${governanceQueue.length} 项食物需要完善信息` : '信息已补齐'}</h4>
+                      <p>{nextGovernanceFood ? nextGovernanceSummary : '当前没有需要完善信息的食物。'}</p>
                     </div>
                     <button
                       type="button"
@@ -1814,11 +1814,11 @@ export function FoodWorkspace(props: Props) {
                     </button>
                   </div>
                   <OptionChipGroup
-                    ariaLabel="待完善类型"
+                    ariaLabel="需要完善的类型"
                     value={governanceIssueFilter}
                     className="food-governance-options"
                     options={[
-                      { value: 'all', label: '全部待补', description: `${needsInfoFoods.length}` },
+                      { value: 'all', label: '全部需要完善', description: `${needsInfoFoods.length}` },
                       ...governanceIssueSummaries.map((item) => ({
                         value: item.value,
                         label: item.label,
@@ -1834,7 +1834,7 @@ export function FoodWorkspace(props: Props) {
         feedbackSection={feedback ? (
           <div className="food-feedback">
             <span>{feedback}</span>
-            <button type="button" onClick={props.onOpenLogs}>去补详情</button>
+            <button type="button" onClick={props.onOpenLogs}>查看记录</button>
           </div>
         ) : null}
         gridSection={filteredFoods.length > 0 ? (
@@ -1848,7 +1848,7 @@ export function FoodWorkspace(props: Props) {
         ) : (
           <EmptyState
             title={currentLensCopy.emptyTitle}
-            description={search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? '当前视角里还有额外筛选条件，可以先清空筛选再看。' : currentLensCopy.emptyDescription}
+            description={search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? '没有符合条件的食物，可以清空筛选后再试。' : currentLensCopy.emptyDescription}
             action={
               search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? (
                 <ActionButton tone="secondary" type="button" onClick={clearFoodFilters}>清空筛选</ActionButton>
@@ -1864,23 +1864,23 @@ export function FoodWorkspace(props: Props) {
         <aside className="food-task-sidebar" aria-label="食物页辅助操作">
           <div className="food-task-sidebar-head">
             <strong>食物管理</strong>
-            <span className="eyebrow">视角、待办与菜单计划</span>
+              <span className="eyebrow">管理食物，安排下一餐</span>
           </div>
           <div className="food-sidebar-section food-sidebar-quick-section">
             <div className="food-sidebar-section-head">
-              <strong>常用视角</strong>
+              <strong>常用筛选</strong>
             </div>
-            <div className="food-library-insight" aria-label="食物快速视角">
+            <div className="food-library-insight" aria-label="食物快捷筛选">
               <button type="button" onClick={() => setLensFilter('favorite')} title={repeatFoods.map(({ food }) => food.name).join('、') || '常吃清单'}>
                 <span>常吃清单</span>
                 <strong>{repeatFoodCount}</strong>
               </button>
               <button type="button" onClick={() => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all'))}>
-                <span>临期/待补</span>
+                <span>临期或需要完善信息</span>
                 <strong>{managementIssueCount}</strong>
               </button>
               <button type="button" onClick={() => openGovernanceIssue('all')}>
-                <span>待完善</span>
+                <span>需要完善</span>
                 <strong>{needsInfoFoods.length}</strong>
               </button>
             </div>
@@ -1896,10 +1896,10 @@ export function FoodWorkspace(props: Props) {
               </button>
             </div>
             <div className="food-library-next-task">
-              <span>{nextGovernanceFood ? '下一条' : '待办'}</span>
+              <span>{nextGovernanceFood ? '下一项' : '需要完善'}</span>
               <strong>{nextGovernanceSummary}</strong>
               <button type="button" disabled={!nextGovernanceFood} onClick={openNextGovernanceFood}>
-                处理下一条
+                继续完善
               </button>
             </div>
           </div>
@@ -1907,7 +1907,7 @@ export function FoodWorkspace(props: Props) {
           <div className="food-sidebar-section food-sidebar-scenes-section">
             <div className="food-sidebar-section-head">
               <strong>按场景探索</strong>
-              <span>从食物场景标签中整理</span>
+              <span>按场景浏览食物</span>
             </div>
             <div className="food-sidebar-scene-list" aria-label="按场景探索">
               {sceneCards.length > 0 ? (
@@ -1930,13 +1930,13 @@ export function FoodWorkspace(props: Props) {
                     </span>
                     <span className="food-sidebar-scene-copy">
                       <strong>{scene.name}</strong>
-                      <span>{scene.description || (scene.count > 0 ? `${scene.count} 份食物` : '推荐场景')}</span>
+                      <span>{scene.description || (scene.count > 0 ? `${scene.count} 种食物` : '浏览这个场景')}</span>
                     </span>
                   </button>
                   );
                 })
               ) : (
-                <span className="food-sidebar-empty">暂无场景标签</span>
+                <span className="food-sidebar-empty">还没有场景标签</span>
               )}
             </div>
           </div>
@@ -1950,12 +1950,12 @@ export function FoodWorkspace(props: Props) {
               onClick: () => setLensFilter('favorite'),
             },
             {
-              label: '临期/待补',
+              label: '临期或需要完善信息',
               value: managementIssueCount,
               onClick: () => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all')),
             },
             {
-              label: '待完善',
+              label: '需要完善',
               value: needsInfoFoods.length,
               onClick: () => openGovernanceIssue('all'),
             },
@@ -1965,14 +1965,14 @@ export function FoodWorkspace(props: Props) {
               onClick: () => setIsSceneManagerOpen(true),
             },
           ]}
-          nextTaskLabel={nextGovernanceFood ? '下一条待办' : '待办'}
+          nextTaskLabel={nextGovernanceFood ? '下一项需要完善' : '需要完善'}
           nextTaskSummary={nextGovernanceSummary}
           canOpenNextTask={Boolean(nextGovernanceFood)}
           onOpenNextTask={openNextGovernanceFood}
           plan={planSurfaceProps}
           scenes={sceneCards.map((scene) => ({
             name: scene.name,
-            description: scene.description || (scene.count > 0 ? `${scene.count} 份食物` : '推荐场景'),
+            description: scene.description || (scene.count > 0 ? `${scene.count} 种食物` : '浏览这个场景'),
             imageUrl: resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined),
             imageSrcSet: buildMediaSrcSet(scene.imageAsset),
             active: sceneFilter === scene.name,
@@ -2117,21 +2117,21 @@ export function FoodWorkspace(props: Props) {
         >
           <WorkspaceModal
             title={view === 'create' ? '新增食物' : '编辑食物'}
-            description={isSelfMade ? '家常菜的菜谱、用料和日常记录都放在食物里维护。' : '补充来源、价格、复购和保质信息，让常吃食物更容易再次安排。'}
-            eyebrow="食物资料"
+            description={isSelfMade ? '家常菜的菜谱、用料和日常记录都可以在这里补充。' : '补充来源、价格、评分和到期信息，方便下次继续安排。'}
+            eyebrow="食物信息"
             className="food-editor-modal"
             closeLabel="关闭"
             busy={Boolean(props.isSavingFood)}
             footerInfo={(
               <>
-                <strong>已完成 {editorCompletedCount} / {editorCompletionItems.length} 项资料</strong>
-                <span>保存后仍可继续补充</span>
+                <strong>已完成 {editorCompletedCount} / {editorCompletionItems.length} 项信息</strong>
+            <span>保存后仍可继续完善</span>
               </>
             )}
             footerActions={(
               <FormActions
                 primaryLabel={foodEditorSubmitLabel}
-                submittingLabel="保存中..."
+                submittingLabel="保存中…"
                 primaryType="submit"
                 primaryForm={FOOD_EDITOR_FORM_ID}
                 primaryDisabled={!canSubmit}

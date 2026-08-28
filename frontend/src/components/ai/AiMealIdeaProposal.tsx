@@ -58,7 +58,7 @@ export function AiMealIdeaProposal({
           <h3>{title}</h3>
         </div>
         <div className="ai-query-card-context-badges">
-          <span className="ai-query-context-badge">真实食材 <strong>{ingredients.length}</strong> 项</span>
+          <span className="ai-query-context-badge">现有食材 <strong>{ingredients.length}</strong> 项</span>
         </div>
       </header>
       {reason && <p className="ai-query-reason">{reason}</p>}
@@ -69,8 +69,8 @@ export function AiMealIdeaProposal({
             <span className={item.available ? 'is-available' : 'is-missing'}>
               {item.available
                 ? item.quantityMode === 'track_quantity'
-                  ? `库存 ${item.availableQuantity ?? '0'}${item.unit ?? ''}`
-                  : '当前已有'
+                  ? `库存 ${item.availableQuantity ?? '0'} ${item.unit ?? ''}`
+                  : '已有库存'
                 : '当前库存不足'}
             </span>
           </section>

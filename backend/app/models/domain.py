@@ -778,6 +778,14 @@ class SearchIndexJob(Base):
     target_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     vector_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Safe provider diagnostics for a failed profile rebuild.  These are kept
+    # separate from the human-readable ``error`` so the API can expose useful
+    # status/certainty facts without parsing or echoing an untrusted response.
+    provider_http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider_error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    provider_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_sent: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    execution_certainty: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Diagnostic links deliberately remain scalar strings rather than ledger
     # foreign keys so retained usage data and search-job cleanup are decoupled.
     usage_attempt_key: Mapped[str | None] = mapped_column(String(255), nullable=True)

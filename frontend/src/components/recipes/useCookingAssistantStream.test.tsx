@@ -320,7 +320,7 @@ describe('useCookingAssistantStream', () => {
     };
     actionCardHandler = () => ({
       status: 'executed',
-      message: '页面操作已执行。',
+      message: '已完成。',
       data,
     });
     vi.spyOn(api, 'streamChatAi').mockImplementation(async (_payload, handlers) => {
@@ -347,7 +347,7 @@ describe('useCookingAssistantStream', () => {
 
     const messageText = JSON.stringify(latest?.messages ?? []);
     expect(messageText).toContain('设置 05:00 倒计时');
-    expect(messageText).toContain('已执行');
+    expect(messageText).toContain('已完成');
     expect(messageText).not.toContain('工具调用');
     expect(messageText).not.toContain('页面操作建议');
   });

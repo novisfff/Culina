@@ -118,7 +118,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
         >
           <WorkspaceModal
             title="场景管理"
-            description="新增常用食物场景，或整理不再使用的场景入口。"
+            description="新增常用食物场景，也可以管理不再使用的场景。"
             eyebrow="食物场景"
             onClose={closeManagerIfAllowed}
             className="food-scene-manager-modal"
@@ -127,11 +127,11 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
               <div className="food-scene-manager-toolbar">
                 <div>
                   <strong>{props.sceneCards.length} 个场景</strong>
-                  <span>整理常用入口</span>
+                  <span>管理常用场景</span>
                 </div>
                 <ActionButton tone="primary" type="button" onClick={props.onOpenCreateScene} disabled={isManagerBusy}>
                   <FoodUiIcon name="plus" />
-                  <span>新建场景</span>
+                  <span>新增场景</span>
                 </ActionButton>
               </div>
               <div className="food-scene-list">
@@ -162,7 +162,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                             disabled={isManagerBusy}
                             onClick={() => props.onOpenEditScene(scene)}
                           >
-                            {scene.id ? '编辑' : '创建'}
+                            {scene.id ? '编辑' : '使用'}
                           </button>
                           {scene.id && (
                             <div
@@ -213,11 +213,11 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                     </div>
                     <div>
                       <strong>还没有场景</strong>
-                      <span>新建一个常用场景，快速整理食物</span>
+                      <span>新增常用场景，方便查找食物</span>
                     </div>
                     <ActionButton tone="secondary" type="button" onClick={props.onOpenCreateScene} disabled={isManagerBusy}>
                       <FoodUiIcon name="plus" />
-                      <span>新建场景</span>
+                      <span>新增场景</span>
                     </ActionButton>
                   </div>
                 )}
@@ -230,7 +230,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
       <ConfirmDialog
         open={Boolean(pendingDeleteScene)}
         title={pendingDeleteScene ? `删除「${pendingDeleteScene.name}」？` : '删除场景？'}
-        description="删除后，这个入口将从场景列表中移除。"
+        description="删除后，这个场景会从列表中移除。"
         confirmLabel="删除场景"
         tone="danger"
         isSubmitting={isManagerBusy}
@@ -254,7 +254,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
           closeOnBackdrop={!isUpdatingScene}
         >
           <WorkspaceModal
-            title={props.sceneFormMode === 'edit' ? '编辑场景' : '新建场景'}
+            title={props.sceneFormMode === 'edit' ? '编辑场景' : '新增场景'}
             description="填写名称和说明后，可生成一张统一风格的食物场景封面。"
             eyebrow="食物场景"
             onClose={closeSceneFormIfAllowed}
@@ -262,7 +262,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
             footerActions={
               <FormActions
                 className="food-scene-form-actions"
-                primaryLabel={props.sceneFormMode === 'create' ? '创建场景' : '保存场景'}
+                primaryLabel={props.sceneFormMode === 'create' ? '新增场景' : '保存场景'}
                 primaryType="submit"
                 primaryForm={sceneFormId}
                 primaryDisabled={!props.sceneDraft.name.trim()}
@@ -322,7 +322,7 @@ export function FoodSceneDialogs(props: FoodSceneDialogsProps) {
                       onClick={props.onGenerateSceneImage}
                     >
                       <FoodUiIcon name="star" />
-                      {props.sceneImageState.isGenerating ? '后台生成中' : props.sceneDraft.imageAssetUrl ? '重新生成' : '生成封面'}
+                      {props.sceneImageState.isGenerating ? '正在生成' : props.sceneDraft.imageAssetUrl ? '重新生成' : '生成封面'}
                     </button>
                     {props.sceneDraft.imageAssetUrl && (
                       <button

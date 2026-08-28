@@ -68,7 +68,7 @@ describe('FoodPlanDialogParts', () => {
       />,
     );
 
-    expect(view.textContent).toContain('即将加入');
+    expect(view.textContent).toContain('将加入餐食计划');
     expect(view.textContent).toContain('番茄炒蛋');
     act(() => Array.from(view.querySelectorAll('button')).find((button) => button.textContent === '修改')?.click());
     expect(onClear).toHaveBeenCalledTimes(1);

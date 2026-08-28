@@ -12,7 +12,7 @@ export function RecipeDetailDrawer({ onClose, ...props }: RecipeDetailDrawerProp
   return (
     <WorkspaceOverlayFrame rootClassName="recipe-workspace-overlay-root" onClose={onClose}>
       <WorkspaceDrawer
-        eyebrow="菜谱资料"
+        eyebrow="菜谱信息"
         title={props.selectedCard.recipe.title}
         description={metaLine}
         className="recipe-detail-drawer"

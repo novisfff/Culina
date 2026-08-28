@@ -15,7 +15,7 @@ export function FoodHubView(props: FoodHubViewProps) {
       <PageHeader
         variant="compact"
         title="吃什么"
-        description="选一份，安排这餐。"
+        description="选一份，安排这一餐。"
         actions={props.heroActions}
       />
 

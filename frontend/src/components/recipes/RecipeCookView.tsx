@@ -205,7 +205,7 @@ export function RecipeCookView({
   const finishedTimers = timers.filter((t) => t.mode === 'countdown' && t.durationSeconds && t.seconds >= t.durationSeconds);
   let stepTabSuffix = '';
   if (finishedTimers.length > 0) {
-    stepTabSuffix = ' (已完成 🔔)';
+    stepTabSuffix = '（已完成）';
   } else if (runningTimers.length > 0) {
     const firstRunning = runningTimers[0];
     const remaining = firstRunning.mode === 'countdown' ? Math.max((firstRunning.durationSeconds ?? 0) - firstRunning.seconds, 0) : firstRunning.seconds;
@@ -243,13 +243,13 @@ export function RecipeCookView({
               <div className="recipe-cook-header-status-row warning">
                 <span aria-hidden="true"><RecipeUiIcon name="warning" /></span>
                 <div>
-                  <strong>缺 {cookPreview.shortages.length} 项食材</strong>
+                  <strong>缺少 {cookPreview.shortages.length} 项食材</strong>
                   <small title={cookPreview.shortages.map(formatCookShortageSummary).join('、')}>
                     {cookPreview.shortages.map(formatCookShortageSummary).join('、')}
                   </small>
                 </div>
                 <button type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={isCreatingShopping}>
-                  采购
+                  去采购
                 </button>
               </div>
             ) : null}
@@ -260,7 +260,7 @@ export function RecipeCookView({
                   <strong>已恢复进度</strong>
                   <small>步骤、用料和计时已保存</small>
                 </div>
-                <button type="button" onClick={resetActiveCookSession}>重来</button>
+                    <button type="button" onClick={resetActiveCookSession}>重新开始</button>
               </div>
             ) : null}
           </div>
@@ -276,7 +276,7 @@ export function RecipeCookView({
         </ActionButton>
       </header>
 
-      <div className="recipe-cook-mobile-nav" role="tablist" aria-label="移动端视图分段">
+      <div className="recipe-cook-mobile-nav" role="tablist" aria-label="做菜视图切换">
         <button
           className={`recipe-cook-mobile-tab ${activeMobileTab === 'step' ? 'active' : ''}`}
           type="button"
@@ -334,7 +334,7 @@ export function RecipeCookView({
                     <RecipeUiIcon name="clock" />
                     <div className="meta-copy">
                       <span>预计用时</span>
-                      <strong>{currentCookStep?.estimated_minutes ? `${currentCookStep.estimated_minutes} 分钟` : '按需调整'}</strong>
+                      <strong>{currentCookStep?.estimated_minutes ? `${currentCookStep.estimated_minutes} 分钟` : '以实际情况为准'}</strong>
                     </div>
                   </div>
                   {currentCookStep?.tip ? (
@@ -367,7 +367,7 @@ export function RecipeCookView({
               ‹ 上一步
             </ActionButton>
             <ActionButton tone="primary" type="button" onClick={completeCurrentCookStepAndContinue}>
-              {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪' : '完成本步，进入下一步'}
+              {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步并结束烹饪' : '完成本步，进入下一步'}
             </ActionButton>
           </div>
 
@@ -376,7 +376,7 @@ export function RecipeCookView({
               ‹ 上一步
             </ActionButton>
             <ActionButton tone="primary" type="button" onClick={completeCurrentCookStepAndContinue}>
-              {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步，完成烹饪' : '完成本步，进入下一步'}
+              {cookSession.currentStepIndex >= cookSteps.length - 1 ? '完成本步并结束烹饪' : '完成本步，进入下一步'}
             </ActionButton>
           </div>
         </section>
@@ -387,7 +387,7 @@ export function RecipeCookView({
               <div className="recipe-cook-status-row warning">
                 <span><RecipeUiIcon name="warning" /></span>
                 <div>
-                  <strong>还缺 {cookPreview.shortages.length} 项食材</strong>
+                  <strong>还缺少 {cookPreview.shortages.length} 项食材</strong>
                   <small>{cookPreview.shortages.map(formatCookShortageSummary).join('、')}</small>
                 </div>
                 <button type="button" onClick={() => openShoppingDialog(activeCookCard)} disabled={isCreatingShopping}>
@@ -404,9 +404,9 @@ export function RecipeCookView({
                   <RecipeUiIcon name="clock" className="timer-head-icon" />
                   烹饪计时器
                 </span>
-                <strong>{activeTimer?.mode === 'countdown' ? '倒计时' : '正计时'}</strong>
+                <strong>{activeTimer?.mode === 'countdown' ? '倒计时' : '已用时间'}</strong>
               </div>
-              <small>{currentStepSuggestedSeconds ? `建议 ${formatCookTimerDuration(currentStepSuggestedSeconds)}` : '建议时长未设置'}</small>
+              <small>{currentStepSuggestedSeconds ? `建议 ${formatCookTimerDuration(currentStepSuggestedSeconds)}` : '未设置建议时长'}</small>
             </div>
 
             <div className="recipe-cook-timer-tabs" role="tablist">
@@ -554,7 +554,7 @@ export function RecipeCookView({
                   {activeTimer?.mode === 'countdown' ? (
                     <button type="button" onClick={() => addCookTimerSeconds(30)}>
                       <RecipeUiIcon name="plusThirty" />
-                      +30秒
+                      +30 秒
                     </button>
                   ) : null}
                 </div>
@@ -595,7 +595,7 @@ export function RecipeCookView({
                         <span className="checklist-box">{checked ? <RecipeUiIcon name="check" /> : null}</span>
                         <strong>{item.ingredient_name}</strong>
                         <small className={availability?.ready ? 'ready' : availability ? 'missing' : ''}>
-                          {item.quantity}{item.unit}{availability?.ready ? ' · 已备齐' : availability ? ` · 缺 ${availability.missingQuantity}${availability.unit}` : ''}
+                          {item.quantity} {item.unit}{availability?.ready ? ' · 已备齐' : availability ? ` · 缺少 ${availability.missingQuantity} ${availability.unit}` : ''}
                         </small>
                       </button>
                     );
@@ -677,7 +677,7 @@ export function RecipeCookView({
       <ConfirmDialog
         open={Boolean(pendingExitTarget)}
         title={pendingExitTarget ? getExitConfirmTitle(pendingExitTarget) : '退出烹饪'}
-        description={`当前有 ${runningTimers.length} 个计时器正在工作。退出后会暂停计时，烹饪步骤和已用时间仍会保留。`}
+        description={`当前有 ${runningTimers.length} 个计时器正在运行。退出后会暂停计时，烹饪步骤和已用时间仍会保留。`}
         confirmLabel="暂停并退出"
         cancelLabel="继续烹饪"
         tone="primary"
@@ -694,7 +694,7 @@ export function RecipeCookView({
       <ConfirmDialog
         open={Boolean(deletingTimerId)}
         title="确认删除正在运行的计时器？"
-        description="该计时器正在运行中，删除后将无法恢复计时进度。"
+        description="计时器正在运行，删除后将无法恢复已记录的时间。"
         confirmLabel="确认删除"
         cancelLabel="继续计时"
         tone="danger"

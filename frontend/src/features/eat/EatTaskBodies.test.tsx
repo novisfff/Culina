@@ -289,7 +289,7 @@ describe('buildEatTaskBodies plan complete', () => {
     });
 
     renderWithQuery(<>{bodies.planTaskContent}</>);
-    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    await userEvent.click(screen.getByRole('button', { name: '记录这餐' }));
     await waitFor(() => {
       expect(completeFoodPlanItem).toHaveBeenCalled();
     });
@@ -367,10 +367,10 @@ describe('EatPlanTaskBody record failure', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    await userEvent.click(screen.getByRole('button', { name: '记录这餐' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('网络暂时不可用');
-    expect(screen.getByText('菜单计划详情')).toBeInTheDocument();
+    expect(screen.getByText('餐食计划详情')).toBeInTheDocument();
     expect(screen.queryByText('评价这顿晚餐')).not.toBeInTheDocument();
   });
 
@@ -408,7 +408,7 @@ describe('EatPlanTaskBody record failure', () => {
     );
     const view = renderWithQuery(renderBody(firstItem));
 
-    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    await userEvent.click(screen.getByRole('button', { name: '记录这餐' }));
     expect(await screen.findByText('评价这顿晚餐')).toBeInTheDocument();
 
     view.rerender(renderBody(secondItem));
@@ -439,7 +439,7 @@ describe('EatPlanTaskBody record failure', () => {
     );
     const view = renderWithQuery(renderBody(firstItem));
 
-    await userEvent.click(screen.getByRole('button', { name: '记录已吃' }));
+    await userEvent.click(screen.getByRole('button', { name: '记录这餐' }));
     view.rerender(renderBody(secondItem));
     resolveCreatedMeal({
       id: 'meal-first',
@@ -635,7 +635,7 @@ describe('EatMealCreateTaskBody', () => {
     );
 
     // Full composer, not the empty-state dead end.
-    expect(screen.queryByText('还没有可记录的家常菜')).toBeNull();
+    expect(screen.queryByText('暂无可记录的家常菜')).toBeNull();
     expect(screen.getByRole('heading', { name: '记一餐' })).toBeVisible();
     const searchbox = screen.getByRole('searchbox', { name: '搜索食物' });
     expect(searchbox).toBeVisible();
@@ -643,7 +643,7 @@ describe('EatMealCreateTaskBody', () => {
     // Set query in one shot (avoids flake from character-by-character typing under suite load).
     const user = userEvent.setup();
     fireEvent.change(searchbox, { target: { value: '酸汤牛肉' } });
-    await user.click(await screen.findByRole('option', { name: "按‘酸汤牛肉’记下" }));
+    await user.click(await screen.findByRole('option', { name: '按“酸汤牛肉”记下' }));
     await user.click(screen.getByRole('button', { name: '家里做' }));
     expect(screen.getByText('酸汤牛肉')).toBeVisible();
 
@@ -717,7 +717,7 @@ describe('EatMealCreateTaskBody', () => {
     );
 
     expect(await screen.findByText('计划番茄炒蛋')).toBeVisible();
-    expect(screen.getByText('本餐计划')).toBeVisible();
+    expect(screen.getByText('餐食计划')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: '记下这餐' }));
     await waitFor(() => expect(recordMeal).toHaveBeenCalled());
     expect(recordMeal).toHaveBeenCalledWith(
@@ -918,7 +918,7 @@ describe('EatCookTaskBody finish dialog', () => {
       expect(screen.getByTestId('eat-cook-task-body')).toBeInTheDocument();
     });
 
-    const finishButtons = screen.getAllByRole('button', { name: '完成本步，完成烹饪' });
+    const finishButtons = screen.getAllByRole('button', { name: '完成本步并结束烹饪' });
     await userEvent.click(finishButtons[0]);
     await waitFor(() => {
       expect(screen.getByText(/完成烹饪：/)).toBeInTheDocument();
@@ -950,8 +950,8 @@ describe('EatFoodTaskBody image and scene tag actions', () => {
       />,
     );
 
-    await userEvent.click(screen.getAllByRole('button', { name: '编辑档案' })[0]);
-    expect(await screen.findByText('编辑食物')).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole('button', { name: '编辑食物' })[0]);
+    expect(await screen.findByRole('heading', { name: '编辑食物' })).toBeInTheDocument();
     const editorForm = document.querySelector<HTMLFormElement>('#eat-food-editor-form');
     const saveButton = screen.getByRole('button', { name: '保存' });
     expect(editorForm).not.toBeNull();
@@ -972,7 +972,7 @@ describe('EatFoodTaskBody image and scene tag actions', () => {
     });
 
     await userEvent.click(screen.getByRole('button', { name: '添加标签' }));
-    const createInput = await screen.findByPlaceholderText('创建新标签，例如：周末轻食');
+    const createInput = await screen.findByPlaceholderText('新增标签，例如：周末轻食');
     await userEvent.type(createInput, '周末轻食');
     await userEvent.click(screen.getByRole('button', { name: '创建并添加' }));
     expect(screen.getByText('周末轻食')).toBeInTheDocument();

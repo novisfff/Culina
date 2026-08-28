@@ -51,12 +51,12 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(panelsSource).toContain("label: '调料'");
     expect(panelsSource).toContain("label: '提醒'");
     expect(panelsSource).toContain("label: '临期'");
-    expect(panelsSource).toContain("label: '在库'");
-    expect(panelsSource).toContain("label: '待录入'");
+    expect(panelsSource).toContain("label: '有库存'");
+    expect(panelsSource).toContain("label: '待补充库存'");
     expect(panelsSource).toContain('ingredients-inventory-entry-chip-group');
     expect(panelsSource).toContain('ingredients-inventory-quick-chip-group');
     expect(panelsSource).toContain('inventorySummaryText');
-    expect(panelsSource).toContain('减扣');
+    expect(panelsSource).toContain('扣减');
 
     const workspaceSource = readFileSync(sourcePath, 'utf8');
     expect(workspaceSource).toContain('api.getInventoryOverview');
@@ -83,9 +83,9 @@ describe('IngredientWorkspace shared overlay usage', () => {
 
     expect(panelsSource).toContain('isPendingFoodStockItem');
     expect(panelsSource).toContain('ingredients-unified-inventory-card-pending');
-    expect(panelsSource).toContain('待补库存');
+    expect(panelsSource).toContain('需要补充库存');
     expect(panelsSource).toContain('{!isPending ? (');
-    expect(panelsSource).toContain('补库存');
+    expect(panelsSource).toContain('补充库存');
     expect(panelsSource).toContain("isPending ? 'ingredient-work-card-action-button-primary' : 'ingredient-work-card-action-button-secondary'");
     expect(styleSource).toContain('.ingredients-unified-inventory-card-pending .inventory-ingredient-card-actions');
     expect(styleSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
@@ -97,11 +97,11 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(panelsSource).toContain('const shouldShowShoppingAction = isPending;');
     expect(panelsSource).toContain('tone="primary"');
     expect(panelsSource).toContain('onClick={props.onRecordMeal}');
-    expect(panelsSource).toContain('减扣');
-    expect(panelsSource).toContain('补库存');
+    expect(panelsSource).toContain('扣减');
+    expect(panelsSource).toContain('补充库存');
     expect(panelsSource).toContain('{shouldShowShoppingAction ? (');
     expect(panelsSource).toContain('onClick={props.onAddShopping}');
-    expect(panelsSource).toContain('加采购');
+    expect(panelsSource).toContain('加入采购清单');
   });
 
   it('handles unified food-stock actions inside the ingredient workspace', () => {
@@ -109,8 +109,8 @@ describe('IngredientWorkspace shared overlay usage', () => {
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
 
-    expect(panelsSource).toContain('减扣');
-    expect(panelsSource).toContain('补库存');
+    expect(panelsSource).toContain('扣减');
+    expect(panelsSource).toContain('补充库存');
     // Ordinary Food recording uses shared recordMeal; inventory is a separate command.
     expect(workspaceSource).not.toContain('api.quick' + 'AddMealLog');
     expect(workspaceSource).not.toContain('quick' + 'AddMeal');
@@ -145,7 +145,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
 
     // Inventory follow-up is a separate submit after record.
     expect(workspaceSource).toContain('api.consumeFoodStock');
-    expect(workspaceSource).toContain('处理库存');
+    expect(workspaceSource).toContain('更新库存');
     // Cancelling inventory follow-up must not roll back the meal — no revert on dismiss.
     expect(workspaceSource).not.toMatch(/setInventoryFollowUp[\s\S]{0,200}revert/);
     expect(workspaceSource).not.toMatch(/onClose[\s\S]{0,120}revertMeal/);
@@ -175,10 +175,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('setFoodStockRestockSource');
     expect(workspaceSource).toContain("const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10']");
     expect(workspaceSource).not.toContain("const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '3', '6', '12']");
-    expect(workspaceSource).toContain('不填到期');
-    expect(workspaceSource).toContain('7天');
-    expect(workspaceSource).toContain('30天');
-    expect(workspaceSource).toContain('90天');
+    expect(workspaceSource).toContain('不设置到期日');
+    expect(workspaceSource).toContain('7 天');
+    expect(workspaceSource).toContain('30 天');
+    expect(workspaceSource).toContain('90 天');
     expect(workspaceSource).toContain('超市');
     expect(workspaceSource).toContain('便利店');
     expect(workspaceSource).toContain('网购');
@@ -221,7 +221,7 @@ describe('IngredientWorkspace navigation consumption', () => {
     expect(workspaceSource).toContain("document.getElementById('mobile-ingredient-priority')");
     expect(mobileSource).toContain('id="mobile-ingredient-priority"');
     expect(panelsSource).toContain('id="ingredient-priority-list"');
-    expect(workspaceSource).toContain("label: '需处理'");
+    expect(workspaceSource).toContain("label: '需要处理'");
     expect(workspaceSource).toContain("value: 'actionNeeded'");
   });
 

@@ -82,7 +82,7 @@ describe('homeDashboardModel', () => {
       updated_at: '2026-07-15T00:00:00Z',
     };
 
-    expect(getDashboardPlanProgress([])).toEqual({ totalCount: 0, recordedCount: 0, pendingCount: 0, label: '暂无安排', state: 'empty' });
+    expect(getDashboardPlanProgress([])).toEqual({ totalCount: 0, recordedCount: 0, pendingCount: 0, label: '当天还没有安排餐食', state: 'empty' });
     expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2' }])).toEqual({ totalCount: 2, recordedCount: 0, pendingCount: 2, label: '2 项安排', state: 'planned' });
     expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 1, pendingCount: 1, label: '已记录 1 / 2', state: 'partial' });
     expect(getDashboardPlanProgress([{ ...base, status: 'cooked' }, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 2, pendingCount: 0, label: '2 项已记录', state: 'complete' });
@@ -333,10 +333,10 @@ describe('homeDashboardModel', () => {
     expect(model.homeInventoryActionGroups.map((group) => group.ingredientName)).toEqual(['鸡蛋', '牛奶']);
     expect(model.homeInventoryActionCount).toBe(2);
     expect('dashboardTodoItems' in model).toBe(false);
-    expect(model.dashboardStats.find((stat) => stat.label === '需处理食材')).toMatchObject({
+    expect(model.dashboardStats.find((stat) => stat.label === '需要处理的食材')).toMatchObject({
       value: '2',
       unit: '种',
-      detail: '过期、临期或待补货',
+      detail: '过期、临期或需要补货',
     });
     expect(model.dashboardStats.find((stat) => stat.label === '在库食材')).toMatchObject({
       value: '2',
@@ -346,7 +346,7 @@ describe('homeDashboardModel', () => {
     expect(model.mobileRecommendations[0]?.recommendation.food.id).toBe('food-1');
     expect(model.desktopRecommendations[0]?.recommendation.food.id).toBe('food-1');
     expect(model.activeFoodPlanItems).toHaveLength(2);
-    expect(model.dashboardStats.find((stat) => stat.label === '本周已安排')).toMatchObject({
+    expect(model.dashboardStats.find((stat) => stat.label === '本周已安排餐食')).toMatchObject({
       value: '1',
       unit: '顿',
       detail: '按家庭节奏规划',
@@ -528,7 +528,7 @@ describe('homeDashboardModel', () => {
 
     expect(model.homeInventoryActionGroups).toHaveLength(3);
     expect(model.homeInventoryActionCount).toBe(6);
-    expect(model.dashboardStats.find((stat) => stat.label === '需处理食材')?.value).toBe('6');
+    expect(model.dashboardStats.find((stat) => stat.label === '需要处理的食材')?.value).toBe('6');
     expect(model.hasLaterInventoryActionGroups).toBe(true);
     expect(model.hasFullListInventoryActionGroups).toBe(true);
     expect(model.homeEligibleInventoryActionGroups.some((group) => group.ingredientId === 'ingredient-6')).toBe(false);
@@ -595,7 +595,7 @@ describe('homeDashboardModel', () => {
         isError: true,
         isFetching: false,
       }),
-    ).toMatchObject({ phase: 'error', weekCountLabel: '本周协作 --' });
+    ).toMatchObject({ phase: 'error', weekCountLabel: '本周协作暂未统计' });
 
     expect(
       buildHomeHighlightsViewModel({

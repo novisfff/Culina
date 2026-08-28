@@ -126,7 +126,7 @@ describe('MealRecordResultBar', () => {
     expect(slider).toBeVisible();
     expect(slider).toHaveAttribute('aria-valuemin', '0.5');
     expect(slider).toHaveAttribute('aria-valuenow', '0.5');
-    expect(slider).toHaveAttribute('aria-valuetext', '尚未评分');
+    expect(slider).toHaveAttribute('aria-valuetext', '未评分');
 
     rerender(
       <MealRecordResultBar
@@ -184,7 +184,7 @@ describe('MealRecordResultBar', () => {
       now: new Date('2026-07-15T11:20:00.000Z'),
     });
     expect(screen.queryByRole('button', { name: '撤销' })).not.toBeInTheDocument();
-    expect(screen.getByText(/已过撤销时限|不可撤销/)).toBeVisible();
+    expect(screen.getByText(/已超过可撤销时间|不可撤销/)).toBeVisible();
   });
 
   it('shows remaining undo window while still revertible', () => {

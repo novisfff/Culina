@@ -90,7 +90,7 @@ describe('aiWorkspaceHelpers', () => {
 
   it('keeps approval continuation chunks in one text part after structural parts', () => {
     const parts: AiMessage['parts'] = [
-      { id: 'assistant-text', type: 'text', text: '已生成库存处理草稿。' },
+      { id: 'assistant-text', type: 'text', text: '已生成库存变更草稿。' },
       {
         id: 'approval-part-1',
         type: 'approval_request',

@@ -4,10 +4,10 @@ import { StatusBadge } from '../../ui-kit';
 import type { AiDraftSummaryItem, AiDraftTone } from './types';
 
 const summaryToneLabels: Record<AiDraftTone, string> = {
-  plan: '待确认草稿',
+  plan: '等待确认',
   warning: '需要留意',
   danger: '请确认影响',
-  neutral: '草稿信息',
+  neutral: '内容概览',
   success: '已确认',
 };
 

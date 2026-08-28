@@ -44,7 +44,7 @@ export function MealHistorySurface(props: MealHistorySurfaceProps) {
   }
 
   return (
-    <section className="meal-history-surface meal-history-surface-timeline" aria-label="吃过的">
+    <section className="meal-history-surface meal-history-surface-timeline" aria-label="用餐记录">
       {props.children}
     </section>
   );

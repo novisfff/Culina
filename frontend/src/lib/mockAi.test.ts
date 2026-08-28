@@ -8,7 +8,7 @@ describe('runAiConversation', () => {
     const result = runAiConversation(state, 'recommendation', '今晚做什么', state.currentUserId, {});
 
     expect(result.conversation.response).toContain('推荐');
-    expect(result.recommendation?.detail).toContain('匹配库存度');
+    expect(result.recommendation?.detail).toContain('现有食材匹配度');
   });
 
   it('answers food question using recipe context', () => {

@@ -402,6 +402,7 @@ describe('cacheInvalidation', () => {
 
     expect(invalidatedKeys(queryClient)).toEqual([
       queryKeys.familySearchProfile('family-a'),
+      queryKeys.familySearchReplacementCurrent('family-a'),
       queryKeys.familyModelSettings('family-a'),
       queryKeys.searchRoot,
       queryKeys.aiStatus('family-a'),

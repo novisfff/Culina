@@ -124,11 +124,11 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
       <div className="family-model-settings-section-head">
         <div>
           <h2 id="family-model-price-editor-title">模型价格</h2>
-          <p>价格为可选项。系统会按能力列出常见计费项，未填写的项目按 0 计算。</p>
+          <p>价格为可选项。系统会按功能列出常见计费项，未填写的价格按 0 元计入费用。</p>
         </div>
       </div>
       {enabledBindings.length === 0 ? (
-        <p className="family-model-settings-empty-inline">请先在“能力配置”中启用至少一项能力。</p>
+        <p className="family-model-settings-empty-inline">请先在“功能设置”中启用至少一项功能。</p>
       ) : null}
       <div className="family-model-settings-price-groups">
         {PRICE_GROUPS.map((group) => {
@@ -155,7 +155,7 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
                           <div className="family-model-settings-price-head-info">
                             <div>
                               <strong>{FAMILY_MODEL_CAPABILITY_OPTIONS[binding.capability].label}</strong>
-                              <span>{binding.requested_model || '未填写模型'} · {rates.length} 个计费项</span>
+                              <span>{binding.requested_model || '未填写模型名称'} · {rates.length} 个计费项</span>
                             </div>
                           </div>
                           <span className={`family-model-settings-binding-chevron ${expanded ? 'is-expanded' : ''}`} aria-hidden="true">
@@ -204,7 +204,7 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
                                 <span>币种</span>
                                 <input
                                   value={currency}
-                                  placeholder="多个币种"
+                                  placeholder="请输入币种"
                                   maxLength={8}
                                   disabled={props.busy}
                                   onChange={(event) => patchRates(indexes, { source_currency: event.target.value.toUpperCase() })}
@@ -215,7 +215,7 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
                                 <input
                                   inputMode="decimal"
                                   value={fxToCny}
-                                  placeholder="多个汇率"
+                                  placeholder="请输入汇率"
                                   disabled={props.busy}
                                   onChange={(event) => patchRates(indexes, { fx_to_cny: event.target.value })}
                                 />
@@ -223,7 +223,7 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
                             </div>
                           </div>
                           {rates.some(({ rate }) => rate.unit_price === '0' || /^0\.0+$/.test(rate.unit_price)) ? (
-                            <p className="family-model-settings-zero-price-note">当前按 0 元计算，可在获得服务商报价后随时补充。</p>
+                            <p className="family-model-settings-zero-price-note">当前按 0 元计入费用，可在获得模型服务报价后随时补充。</p>
                           ) : null}
                           {error ? <p className="family-model-settings-field-error" role="alert">{error}</p> : null}
                         </div>

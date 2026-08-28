@@ -8,9 +8,9 @@ import { recipeDraftSummaryItems } from './aiRecipeDraftViewModel';
 
 function resolvedRecipeTitle(status: string) {
   if (status === 'approved') return '已创建菜谱';
-  if (status === 'rejected') return '未写入的菜谱草稿';
-  if (status === 'expired') return '已过期的菜谱草稿';
-  return '已处理的菜谱草稿';
+  if (status === 'rejected') return '这份菜谱没有保存';
+  if (status === 'expired') return '这份菜谱建议已过期';
+  return '这份菜谱建议已处理';
 }
 
 function resolvedRecipeStatus(status: string): 'approved' | 'rejected' | 'expired' | 'cancelled' | 'canceled' {
@@ -62,7 +62,7 @@ export function AiGeneratedRecipeDraftView(props: {
         className="ai-recipe-summary-card"
       />
       <AiDraftImpactNote tone="plan" title="确认后">
-        将创建这道菜谱，并同步关联的家常菜食物资料。
+        将新增这份菜谱，并同时更新关联的家常菜信息。
       </AiDraftImpactNote>
       <AiRecipeDraftEditorFields
         recipe={props.recipe}

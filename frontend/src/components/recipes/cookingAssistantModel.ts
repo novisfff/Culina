@@ -177,7 +177,7 @@ export function buildCookingAssistantSubject(args: CookingAssistantSubjectArgs) 
         availableQuantity: item.availableQuantity,
         missingQuantity: item.missingQuantity,
         unit: item.unit,
-        summary: `${item.ingredientName}缺 ${item.missingQuantity}${item.unit}`,
+        summary: `${item.ingredientName} 缺少 ${item.missingQuantity} ${item.unit}`,
       };
     }),
     timers: args.timers.map((timer) => ({
@@ -231,7 +231,7 @@ export function buildCookingAssistantSubject(args: CookingAssistantSubjectArgs) 
           availabilityText: availability
             ? availability.ready
               ? '已备齐'
-              : `缺 ${availability.missingQuantity}${availability.unit}`
+              : `缺少 ${availability.missingQuantity} ${availability.unit}`
             : '',
         };
       }),
@@ -254,7 +254,7 @@ export function buildCookingAssistantSubject(args: CookingAssistantSubjectArgs) 
           availableQuantity: item.availableQuantity,
           missingQuantity: item.missingQuantity,
           unit: item.unit,
-          summary: `${item.ingredientName}缺 ${item.missingQuantity}${item.unit}`,
+        summary: `${item.ingredientName} 缺少 ${item.missingQuantity} ${item.unit}`,
         };
       }),
       timers: args.timers.map((timer) => ({
@@ -308,7 +308,7 @@ function validateAction(action: AiCookPageAction, state: CookingAssistantRuntime
     case 'jump_to_step':
       return Number.isInteger(action.stepIndex) && action.stepIndex >= 0 && action.stepIndex < state.stepCount ? null : '这个步骤不存在。';
     case 'switch_tab':
-      return action.tab === 'step' || action.tab === 'ingredients' ? null : '这个页面区域不能切换。';
+      return action.tab === 'step' || action.tab === 'ingredients' ? null : '无法打开这个区域。';
     case 'start_timer':
     case 'pause_timer':
     case 'reset_timer':
@@ -329,16 +329,16 @@ function validateAction(action: AiCookPageAction, state: CookingAssistantRuntime
     case 'open_shopping_dialog':
       return null;
     default:
-      return '暂不支持这个页面操作。';
+      return '暂时无法完成，请稍后再试。';
   }
 }
 
 export function validateCookingUiActions(data: AiUiActionsCardData, state: CookingAssistantRuntimeState): string | null {
-  if (data.surface !== 'recipe_cook_page') return '这个操作不属于当前页面。';
-  if (data.recipeId !== state.recipeId) return '这个操作不属于当前菜谱。';
-  if (data.cookSessionId !== state.cookSessionId) return '这个操作不属于当前烹饪会话。';
-  if (data.sessionRevision !== state.sessionRevision) return '页面状态刚更新了一下，请再说一遍。';
-  if (!data.actions.length || data.actions.length > 4) return '页面操作数量不合适。';
+  if (data.surface !== 'recipe_cook_page') return '当前页面无法完成这项操作。';
+  if (data.recipeId !== state.recipeId) return '这项操作对应的不是当前菜谱。';
+  if (data.cookSessionId !== state.cookSessionId) return '做菜进度已变化，请重新发起操作。';
+  if (data.sessionRevision !== state.sessionRevision) return '页面内容刚更新，请再试一次。';
+  if (!data.actions.length || data.actions.length > 4) return '一次只能确认 4 项操作，请分开进行。';
   for (const action of data.actions) {
     const error = validateAction(action, state);
     if (error) return error;
@@ -375,21 +375,21 @@ export function describeCookingAction(action: AiCookPageAction) {
     case 'delete_timer':
       return '删除计时器';
     case 'finish_cooking':
-      return '打开完成烹饪确认';
+      return '确认完成烹饪';
     case 'open_shopping_dialog':
       return '打开采购清单';
     default:
-      return '页面操作';
+      return '相关操作';
   }
 }
 
 export function buildCookingActionTaskText(data: AiUiActionsCardData) {
   const actionText = data.actions.map(describeCookingAction).join('、');
-  return actionText || '页面操作';
+  return actionText || '相关操作';
 }
 
 export function buildCookingActionToolCardMessage(data: AiUiActionsCardData, status: CookingAssistantActionResult['status'], message?: string) {
-  const statusText = status === 'executed' ? '已执行' : status === 'needs_confirmation' ? '等待确认' : '未执行';
+  const statusText = status === 'executed' ? '已完成' : status === 'needs_confirmation' ? '等待确认' : '未完成';
   return [status === 'rejected' && message ? message : buildCookingActionTaskText(data), statusText].join('\n');
 }
 
@@ -448,8 +448,8 @@ export function executeCookingUiActions(
     return { status: 'rejected', message: error, data };
   }
   if (cookingUiActionsNeedConfirmation(data) && !options.confirmed) {
-    return { status: 'needs_confirmation', message: '需要确认后再执行。', data };
+    return { status: 'needs_confirmation', message: '请确认后继续。', data };
   }
   data.actions.forEach((action) => executeAction(action, handlers));
-  return { status: 'executed', message: '页面操作已执行。', data };
+  return { status: 'executed', message: '已完成。', data };
 }

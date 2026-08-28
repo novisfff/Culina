@@ -358,8 +358,8 @@ describe('AppShell primary navigation', () => {
   it('keeps the desktop information order and centers AI on mobile', () => {
     renderAppShell(<div>内容</div>, 'eat');
     const desktopExpected = ['首页', '吃什么', '食材', 'AI', '家庭'];
-    for (const name of ['大屏主导航', '顶部主导航', '手机主导航']) {
-      const expected = name === '手机主导航'
+    for (const name of ['侧边导航', '顶部导航', '底部导航']) {
+      const expected = name === '底部导航'
         ? ['首页', '吃什么', 'AI', '食材', '家庭']
         : desktopExpected;
       expect(
@@ -379,7 +379,7 @@ describe('AppShell mobile keyboard layout', () => {
 
     expect(view.textContent).not.toContain('电脑和 iPad 端需要横屏查看');
     expect(screen.queryByRole('region', { name: '请横屏使用 Culina' })).not.toBeInTheDocument();
-    expect(view.textContent).toContain('手机端需要竖屏查看');
+    expect(view.textContent).toContain('竖屏查看效果更好');
     expect(screen.getByRole('region', { name: '请竖屏使用 Culina' })).toBeInTheDocument();
   });
 

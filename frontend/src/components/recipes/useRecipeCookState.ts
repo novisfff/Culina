@@ -151,7 +151,7 @@ export function useRecipeCookState(args: {
   const cookSteps = activeCookCard?.recipe.steps.length
     ? activeCookCard.recipe.steps
     : activeCookCard
-      ? [{ id: 'fallback-step', title: '', text: '这份菜谱还没有录入步骤，可以先按你的习惯完成烹饪。', icon: 'tip', summary: '', estimated_minutes: null, tip: '', key_points: [] }]
+      ? [{ id: 'fallback-step', title: '', text: '这份菜谱还没有填写步骤，可以先按你的习惯完成烹饪。', icon: 'tip', summary: '', estimated_minutes: null, tip: '', key_points: [] }]
       : [];
   const currentCookStep = cookSteps[clampStepIndex(cookSession?.currentStepIndex ?? 0, Math.max(cookSteps.length, 1))] ?? null;
   const currentStepSuggestedSeconds = getStepSuggestedSeconds(currentCookStep);
@@ -1009,11 +1009,11 @@ export function useRecipeCookState(args: {
       });
 
       if (result === 'incomplete') {
-        setCookFinishStatusMessage('完成结果不完整，请重试');
+        setCookFinishStatusMessage('完成记录不完整，请重试');
         args.showRecipeNotice({
           tone: 'danger',
-          title: '完成结果不完整',
-          message: '完成结果不完整，请重试',
+          title: '完成记录不完整',
+          message: '完成记录不完整，请重试',
         });
         return;
       }

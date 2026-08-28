@@ -173,7 +173,7 @@ function resolveRecipeTarget(
   input: ResolveEatTaskInput,
 ): ResolvedEatTask {
   if (!isSettled(input.recipesStatus) || !isSettled(input.foodsStatus)) {
-    return loading('正在解析做法');
+    return loading('正在整理做法');
   }
   if (
     isFailedWithoutData(input.recipesStatus, input.recipes.length > 0)
@@ -222,7 +222,7 @@ function resolvePlanDetail(
   input: ResolveEatTaskInput,
 ): ResolvedEatTask {
   if (!isSettled(input.planDetailStatus)) {
-    return loading('正在加载菜单项');
+    return loading('正在加载餐食安排');
   }
   if (input.planDetail && input.planDetail.id === task.foodPlanItemId) {
     return {
@@ -232,7 +232,7 @@ function resolvePlanDetail(
     };
   }
   if (input.planDetailStatus === 'error') {
-    return loadError('菜单项加载失败');
+    return loadError('餐食安排加载失败');
   }
   return { kind: 'plan-not-found', foodPlanItemId: task.foodPlanItemId };
 }
@@ -275,14 +275,14 @@ function resolveMealCreate(
   }
 
   if (!isSettled(input.planDetailStatus)) {
-    return loading('正在加载菜单项');
+    return loading('正在加载餐食安排');
   }
 
   if (input.planDetail && input.planDetail.id === task.source.foodPlanItemId) {
     return { kind: 'meal-create', task, planItem: input.planDetail };
   }
   if (input.planDetailStatus === 'error') {
-    return loadError('菜单项加载失败');
+    return loadError('餐食安排加载失败');
   }
   return { kind: 'plan-not-found', foodPlanItemId: task.source.foodPlanItemId };
 }

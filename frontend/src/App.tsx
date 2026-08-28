@@ -222,7 +222,7 @@ function WorkspaceLoadingFallback() {
   return (
     <main className="page-stack">
       <section className="card page-section">
-        <EmptyState title="正在加载工作台" description="首次打开需要加载对应模块，请稍候。" />
+        <EmptyState title="正在准备家庭厨房" description="页面内容正在加载，请稍候。" />
       </section>
     </main>
   );
@@ -637,11 +637,11 @@ function App() {
     } catch (reason) {
       showNotice({
         tone: 'danger',
-        title: '加入购物清单失败',
+        title: '加入采购清单失败',
         message:
           reason instanceof Error && reason.message.trim()
             ? reason.message
-            : '加入购物清单失败',
+            : '加入采购清单失败',
       });
     }
   }
@@ -701,10 +701,10 @@ function App() {
       setOperationDetail(null);
       setOperationDetailError(
         isApiError(reason)
-          ? reason.detail || '读取操作详情失败'
+          ? reason.detail || '加载变更详情失败'
           : reason instanceof Error
             ? reason.message
-            : '读取操作详情失败',
+            : '加载变更详情失败',
       );
     } finally {
       setOperationDetailLoading(false);
@@ -751,8 +751,8 @@ function App() {
       }
       showNotice({
         tone: 'success',
-        title: '已撤销本次操作',
-        message: result.summary.description || '库存已回退到操作前状态。',
+        title: '已撤销本次变更',
+        message: result.summary.description || '库存已恢复到变更前状态。',
       });
     } catch (reason) {
       const message = messageFromApiError(reason, '撤销失败，请稍后重试');
@@ -894,8 +894,8 @@ function App() {
   if (authInitializing) {
     return (
       <AuthStatusScreen
-        title="正在连接家庭厨房..."
-        description="正在恢复登录状态..."
+        title="正在连接家庭厨房…"
+        description="正在恢复登录状态…"
       />
     );
   }
@@ -909,8 +909,8 @@ function App() {
   if (isBootLoading) {
     return (
       <AuthStatusScreen
-        title="正在连接家庭厨房..."
-        description="家庭数据加载中..."
+        title="正在连接家庭厨房…"
+        description="家庭数据加载中…"
       />
     );
   }
@@ -1036,7 +1036,7 @@ function App() {
   }
 
   const selectedPlanSummary = selectedDashboardPlanDay
-    ? `${selectedDashboardPlanDateLabel} · ${selectedDashboardPlanDay.totalCount} 项计划`
+    ? `${selectedDashboardPlanDateLabel} · ${selectedDashboardPlanDay.totalCount} 项餐食安排`
     : selectedDashboardPlanDateLabel;
 
   void homeInventoryActionCount;
@@ -1717,7 +1717,7 @@ function App() {
             }))}
             closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
             updateMealLog={(mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload)}
-            onInvalidMealEnrichmentSave={() => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、评论或照片，再保存这顿饭。' })}
+            onInvalidMealEnrichmentSave={() => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、备注或照片，再保存这顿饭。' })}
             isUpdatingMeal={updateMealMutation.isPending}
             isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
             homePlanAddFood={homePlanAddFood}
@@ -1882,7 +1882,7 @@ function App() {
                   busy: revertInventoryOperationMutation.isPending,
                   errorMessage:
                     operationHistoryError ??
-                    queryErrorMessage(inventoryOperationsQuery.error, '读取操作历史失败'),
+                    queryErrorMessage(inventoryOperationsQuery.error, '加载库存变更记录失败'),
                   selectedOperationId,
                   detail: operationDetail,
                   detailLoading: operationDetailLoading,
