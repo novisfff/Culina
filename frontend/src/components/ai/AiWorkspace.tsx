@@ -25,6 +25,7 @@ import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { resolveMediaUrl } from '../../lib/assets';
 import { abortAiStream } from '../../lib/aiStreamAbort';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
+import './ai-route.css';
 import {
   AiDesktopConversationHistory,
   createPendingConversationKey,

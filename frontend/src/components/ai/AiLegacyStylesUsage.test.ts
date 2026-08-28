@@ -45,7 +45,7 @@ describe('AI legacy style cleanup', () => {
     const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
     const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/compatibility-responsive.css'), 'utf8');
 
-    expect(entry).toContain("@import './styles/09-ai-draft-ui.css' layer(domain);");
+    expect(entry).not.toContain("@import './styles/09-ai-draft-ui.css' layer(domain);");
     expect(draftStyles).toContain('.ai-draft-summary-card');
     expect(draftStyles).toContain('.ai-draft-section');
     expect(draftStyles).toContain('.ai-draft-impact-note');
@@ -150,7 +150,10 @@ describe('AI legacy style cleanup', () => {
 
     expect(aiStyles).toContain('.ai-welcome-card');
     expect(aiStyles).toContain('.ai-suggestion-grid-card');
-    expect(styleEntrypoint).toContain("@import './styles/09-ai-workspace.css' layer(domain);");
+    expect(styleEntrypoint).not.toContain("@import './styles/09-ai-workspace.css' layer(domain);");
+    const routeStyles = readFileSync(resolve(repoRoot, 'src/components/ai/ai-route.css'), 'utf8');
+    expect(routeStyles).toContain("@import '../../styles/09-ai-workspace.css' layer(domain);");
+    expect(routeStyles).toContain("@import '../../styles/09-ai-draft-ui.css' layer(domain);");
     expect(foodStyles).not.toContain('.ai-welcome-card');
     expect(foodStyles).not.toContain('.ai-suggestion-grid-card');
     expect(foodStyles).not.toContain('.ai-empty-prompt');
