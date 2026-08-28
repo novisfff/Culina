@@ -18,6 +18,7 @@ import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
+import { AppHomeDashboardDialogs } from './app/AppHomeDashboardDialogs';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
   relatedSelfMadeFoods,
@@ -84,9 +85,6 @@ const FoodWorkspace = lazy(() =>
 );
 const IngredientWorkspace = lazy(() =>
   import('./components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace }))
-);
-const HomeDashboardDialogs = lazy(() =>
-  import('./features/home/HomeDashboardDialogs').then((module) => ({ default: module.HomeDashboardDialogs }))
 );
 const InventoryMaintenanceDialogs = lazy(() =>
   import('./features/inventory/InventoryMaintenanceDialogs').then((module) => ({
@@ -1327,7 +1325,7 @@ function App() {
         >
 
         <Suspense fallback={null}>
-          <HomeDashboardDialogs
+          <AppHomeDashboardDialogs
             recipes={recipes}
             ingredients={ingredients}
             homePlanDetailItem={homePlanDetailItem}
