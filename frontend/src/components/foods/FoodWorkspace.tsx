@@ -141,7 +141,6 @@ import { useRecipeShoppingState } from '../recipes/useRecipeShoppingState';
 import { SHOPPING_UNIT_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { resolveIngredientImageUrl } from '../recipes/RecipeWorkspaceModel';
 import {
-  NormalizedFoodType,
   normalizeFoodType,
   isReadyLikeFood,
   isOutsideFood,
@@ -157,8 +156,6 @@ import {
   getFoodFactRows,
   getFoodMealHistory,
   getFoodAudienceText,
-  getDaysUntil,
-  getDaysSince,
   isFoodExpiring,
   getFoodGovernanceIssues,
   getFoodGovernanceIssueLabels,
