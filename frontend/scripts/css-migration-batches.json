@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "batches": [
+    {
+      "id": "shell-foundation",
+      "status": "active",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": ["frontend/src/styles/shell.css"],
+      "owners": ["foundation", "ui-kit", "shell"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "pending"
+    },
+    {
+      "id": "home-family",
+      "status": "planned",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/01-home-dashboard.css",
+        "frontend/src/styles/02-family-settings.css",
+        "frontend/src/styles/14-model-usage.css",
+        "frontend/src/styles/15-family-model-settings.css"
+      ],
+      "owners": ["home", "family", "model-usage"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "pending"
+    },
+    {
+      "id": "eat-meal",
+      "status": "planned",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/03-recipe-workspace.css",
+        "frontend/src/styles/08-meal-log.css",
+        "frontend/src/styles/12-eat-workspace.css",
+        "frontend/src/styles/13-meal-composer.css"
+      ],
+      "owners": ["recipe", "eat", "meal"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "pending"
+    },
+    {
+      "id": "ingredient-food-inventory",
+      "status": "planned",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/04-ingredients-workspace.css",
+        "frontend/src/styles/05-workspace-overlays.css",
+        "frontend/src/styles/06-food-workspace.css",
+        "frontend/src/styles/10-inventory-actions.css",
+        "frontend/src/styles/11-inventory-maintenance.css"
+      ],
+      "owners": ["ingredients", "food", "inventory"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "pending"
+    },
+    {
+      "id": "ai-search",
+      "status": "planned",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/09-ai-draft-ui.css",
+        "frontend/src/styles/09-ai-workspace.css",
+        "frontend/src/styles/09-global-search.css"
+      ],
+      "owners": ["ai", "search"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "pending"
+    },
+    {
+      "id": "compat-retire",
+      "status": "planned",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": ["frontend/src/styles.css"],
+      "owners": ["compatibility"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "pending"
+    }
+  ]
+}
