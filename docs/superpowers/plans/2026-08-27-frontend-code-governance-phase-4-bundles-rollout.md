@@ -45,7 +45,7 @@
 - isEventForActiveRun(event, activeKey, activeRunId) => boolean
 - deriveAiStatus(state) => { isRunning, isWaiting, isCancellable, canRetry }
 
-- [ ] **Step 1: 写状态矩阵失败测试**
+- [x] **Step 1: 写状态矩阵失败测试**
 
 逐行锁定 pending migration、active run、approval pending/settled、human input、cancel、404、partial failure、unknown part；每行断言 visible status、composer enabled、cache action 和 retry action。
 
@@ -53,15 +53,15 @@ Run: npm --prefix frontend run test -- src/components/ai/aiStateMatrix.test.ts s
 
 Expected: FAIL，因为新状态矩阵和 selector 尚不存在。
 
-- [ ] **Step 2: 实现纯状态 selector**
+- [x] **Step 2: 实现纯状态 selector**
 
 只接受已规范化 state/event，不读 React 或 API；unknown status/part 返回安全的 neutral/partial 状态，不抛异常。
 
-- [ ] **Step 3: 建立 fixtures 与旧行为 oracle**
+- [x] **Step 3: 建立 fixtures 与旧行为 oracle**
 
 在 aiWorkspaceTestFixtures.ts 为每种状态提供最小 conversation、run、message、approval、human-input fixture；保留旧 AiWorkspace 测试作为 oracle。
 
-- [ ] **Step 4: 运行并提交**
+- [x] **Step 4: 运行并提交**
 
 ~~~bash
 npm --prefix frontend run test -- src/components/ai/aiStateMatrix.test.ts src/lib/aiWorkspaceContracts.test.ts
@@ -91,7 +91,7 @@ Rollback: 回滚纯 selector/fixture 不影响当前 AI runtime。
 - clearInaccessibleConversation({ key, cache, localStore }) => void
 - AiConversationData = { history, active, messages, pendingApprovals, pendingHumanInputs, loading, fetching, error, retry }
 
-- [ ] **Step 1: 写失败 selection/migration tests**
+- [x] **Step 1: 写失败 selection/migration tests**
 
 断言本地 pending conversation 成为 server conversation 时 message、composer、attachment scope 原子迁移且不重复；切换 conversation 时旧 local scope 不泄漏；404 清理 message/approval/cache/local scope；后台 refresh 不清空已显示消息。
 
@@ -99,19 +99,19 @@ Run: npm --prefix frontend run test -- src/components/ai/aiConversationSelection
 
 Expected: 新测试 FAIL；当前逻辑分散在 AiWorkspace/useAiConversationLiveSync。
 
-- [ ] **Step 2: 提取纯 selection/store**
+- [x] **Step 2: 提取纯 selection/store**
 
 localStorage 读写继续经过 lib/storage；store key/version 不变。selection 只返回 key/id，不直接修改 React state。
 
-- [ ] **Step 3: 接入 data hook**
+- [x] **Step 3: 接入 data hook**
 
 useAiConversationData 组合 history/messages/approval/human-input query，区分 initial loading 与 background fetching，暴露 retry 而不暴露 QueryClient。
 
-- [ ] **Step 4: 迁移 live sync**
+- [x] **Step 4: 迁移 live sync**
 
 useAiConversationLiveSync 只调用 clear/migrate selector 并派发 controller action；事件先校验 key/run id。
 
-- [ ] **Step 5: 验证和提交**
+- [x] **Step 5: 验证和提交**
 
 ~~~bash
 npm --prefix frontend run test -- src/components/ai/aiConversationSelection.test.ts src/components/ai/aiConversationMigration.test.ts src/components/ai/AiWorkspaceLiveSync.test.tsx src/components/ai/AiWorkspaceAttachments.test.tsx
@@ -148,7 +148,7 @@ type AiStreamAction =
   | { type: "run-cancelled"; conversationKey: string; runId: string };
 ~~~
 
-- [ ] **Step 1: 写失败 reducer tests**
+- [x] **Step 1: 写失败 reducer tests**
 
 覆盖 delta 合并、part 顺序、旧 run 丢弃、unknown part 安全降级、stream failure 保留内容、cancelled 不显示错误、response 不重复 message、thinking/status 派生。
 
@@ -156,19 +156,19 @@ Run: npm --prefix frontend run test -- src/components/ai/aiStreamReducer.test.ts
 
 Expected: FAIL，因为 reducer 尚不存在。
 
-- [ ] **Step 2: 迁移纯 helper**
+- [x] **Step 2: 迁移纯 helper**
 
 把 mergeMessagePart、mergeRemoteAndLocalMessage、appendDeltaToMessageParts、preferredRunActivityEvent 移入 state；保留原函数名的 re-export，避免一次性改所有测试。
 
-- [ ] **Step 3: 实现事件适配器**
+- [x] **Step 3: 实现事件适配器**
 
 useAiConversationStreams 只负责 SSE/AbortController 到规范化 action 的转换；每个 callback 绑定 conversation key/run id，AbortError 映射为 cancelled。
 
-- [ ] **Step 4: 对照旧 route**
+- [x] **Step 4: 对照旧 route**
 
 用同一 fixtures 运行旧 helper 与 reducer，比较 message ids、part order、status 和 error；任何差异先停止，不进入 lazy chunk。
 
-- [ ] **Step 5: 验证和提交**
+- [x] **Step 5: 验证和提交**
 
 ~~~bash
 npm --prefix frontend run test -- src/components/ai/aiStreamReducer.test.ts src/components/ai/aiRunStateModel.test.ts src/components/ai/AiWorkspace.test.tsx src/components/ai/AiWorkspaceLiveSync.test.tsx
@@ -202,7 +202,7 @@ Rollback: controller 可继续适配旧 callback；不改服务端 SSE 协议。
 - AiComposerState = { text, attachments, disabledReason, canSubmit, busy }
 - cancellation transitions are requesting → cancelling → cancelled | failed; expected AbortError never becomes user error.
 
-- [ ] **Step 1: 写失败 contract tests**
+- [x] **Step 1: 写失败 contract tests**
 
 断言 approval busy 禁止重复提交/关闭；settled result 可见后才 refresh；human-input 前后 message 顺序不变；cancel/retry 只作用于同一 run；inventory draft action 失败保留草稿；composer/attachment scope 按 conversation key 隔离。
 
@@ -210,19 +210,19 @@ Run: npm --prefix frontend run test -- src/components/ai/aiApprovalState.test.ts
 
 Expected: FAIL；新 state/controller 尚不存在。
 
-- [ ] **Step 2: 实现 approval/composer reducer**
+- [x] **Step 2: 实现 approval/composer reducer**
 
 纯 state 只处理 action 和 selector；不在 View 内判断多个布尔值。settled approval id 去重并保留未知 approval 为 pending-safe。
 
-- [ ] **Step 3: 实现 actions/cancellation controller**
+- [x] **Step 3: 实现 actions/cancellation controller**
 
 controller 持有 QueryClient、AbortController 和 API 调用；成功/失败映射为稳定业务状态；只在服务端结果可读后调用对应 cacheInvalidation。
 
-- [ ] **Step 4: 迁移现有 hooks**
+- [x] **Step 4: 迁移现有 hooks**
 
 保留 useAiConversationComposerState/useAiRunCancellation 的 export，内部委托新 controller；删除 AiWorkspace 内重复 busy/isRunning/waiting 判断。
 
-- [ ] **Step 5: 验证和提交**
+- [x] **Step 5: 验证和提交**
 
 ~~~bash
 npm --prefix frontend run test -- src/components/ai src/lib/aiWorkspaceContracts.test.ts
@@ -257,7 +257,7 @@ Rollback: 通过旧 hook adapter 恢复状态转换；不自动重试或推进�
 - MessagePartRenderer receives one normalized AiMessagePart and an onAction port; it cannot import API, QueryClient or stream hook.
 - AiWorkspace.tsx becomes compatibility entry that composes Route + Shell and exports old symbol for two stable versions.
 
-- [ ] **Step 1: 写失败 behavior tests**
+- [x] **Step 1: 写失败 behavior tests**
 
 断言已有消息在 pending/refresh/error 时仍可读；history selection、composer submit、attachment error、approval/human-input/debug overlay、mobile/desktop view 的标题和主操作保持一致；未知 part 显示可理解降级。
 
@@ -265,19 +265,19 @@ Run: npm --prefix frontend run test -- src/components/ai/AiWorkspaceBehavior.tes
 
 Expected: FAIL，因为新 Route/View 尚不存在。
 
-- [ ] **Step 2: 实现 shell 和 views**
+- [x] **Step 2: 实现 shell 和 views**
 
 共享 state/actions/model，桌面 history 与手机 chrome 可有不同 View；不复制 stream logic 或大段 JSX。
 
-- [ ] **Step 3: 接入 overlay hosts**
+- [x] **Step 3: 接入 overlay hosts**
 
 approval、human-input、debug、quality diagnostics、delete conversation 由 host 接收 discriminated state；busy 时禁止 backdrop/Escape 关闭，局部错误不清空 thread。
 
-- [ ] **Step 4: 迁移并删除重复逻辑**
+- [x] **Step 4: 迁移并删除重复逻辑**
 
 AiWorkspace 只做 route port 组合；移除已迁出的 merge/status/approval/composer helper，保留兼容 re-export。
 
-- [ ] **Step 5: 验证和提交**
+- [x] **Step 5: 验证和提交**
 
 ~~~bash
 npm --prefix frontend run test -- src/components/ai
@@ -316,7 +316,7 @@ Rollback: Route 可切回旧 AiWorkspace export；不删除旧测试 fixture。
 - loadAiApproval() => Promise<{ default: React.ComponentType<ApprovalProps> }>
 - each entry exports one default View and one error fallback; loading fallback never covers composer or existing messages.
 
-- [ ] **Step 1: 写失败 lazy loading tests**
+- [x] **Step 1: 写失败 lazy loading tests**
 
 断言纯 text/image/result-card 不加载 react-markdown；markdown part 才加载 Markdown entry；approval/editor/debug 加载失败显示局部重试且保留 thread；manifest 能识别每个 logical entry。
 
@@ -324,15 +324,15 @@ Run: npm --prefix frontend run test -- src/components/ai/aiSecondaryEntries.test
 
 Expected: FAIL；当前 AiWorkspace 静态导入所有 renderer。
 
-- [ ] **Step 2: 加入显式 dynamic import**
+- [x] **Step 2: 加入显式 dynamic import**
 
 用 React.lazy 或 route loader 显式指向 entries；不要用字符串拼接 import 路径。加载边界只包对应 part/overlay。
 
-- [ ] **Step 3: 移除首屏静态重依赖**
+- [x] **Step 3: 移除首屏静态重依赖**
 
 确认 AiWorkspaceRoute/AiWorkspaceShell 不再 import react-markdown、remark-gfm、大型 approval editor、debug drawer 或 voice/image-generation 非首屏模块。
 
-- [ ] **Step 4: 运行 build/manifest 检查**
+- [x] **Step 4: 运行 build/manifest 检查**
 
 ~~~bash
 npm --prefix frontend run test -- src/components/ai/aiSecondaryEntries.test.tsx
@@ -343,7 +343,7 @@ node frontend/scripts/bundle-manifest.mjs --check frontend/dist/.vite/frontend-h
 
 Expected: manifest 有 markdown、ai-approval、ai-human-input、ai-debug entry；AI entryCritical 只含 shell/orchestrator，routeTotal 列出可达二级资源且去重。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ~~~bash
 git diff --check

@@ -153,9 +153,9 @@ Phase 1 验收：legacy CSS 行数≤67,000、`!important≤650`、`@media≤180
 
 详细步骤见 [Phase 2/3](2026-08-27-frontend-code-governance-phase-2-workspaces.md) 的前半部分。主任务：
 
-- [ ] 新增 WorkspacePort<Data, Actions> 及 Home/Eat/Ingredients/AI/Family 的明确 contract 测试。
-- [ ] 将 21 个 app query 按 shell/home/eat/ingredients/family/AI 分组；保留 facade 兼容字段，禁止新增字段。
-- [ ] 将 37 个 app mutation 按 ingredient/inventory/recipe/food/meal/AI 分组（含 shopping 和 food-plan）；缓存失效仍集中在 cacheInvalidation.ts。
+- [x] 新增 WorkspacePort<Data, Actions> 及 Home/Eat/Ingredients/AI/Family 的明确 contract 测试。
+- [x] 将 21 个 app query 按 shell/home/eat/ingredients/family/AI 分组；保留 facade 兼容字段，禁止新增字段。
+- [x] 将 37 个 app mutation 按 ingredient/inventory/recipe/food/meal/AI 分组（含 shopping 和 food-plan）；缓存失效仍集中在 cacheInvalidation.ts。
 - [ ] 提取 `AppWorkspaceRouter`、`AppOverlayHost`、`useAppInventoryOperations`、`useAppHomeController`，让 `App.tsx` 只负责组合。
 - [ ] 将 Home、库存操作历史/盘点/购物入库和 Eat task adapter 的 payload/副作用从入口移到域 action/controller。
 - [ ] 为首次 loading、后台 refresh、错误保留、冲突、重复提交和导航 focus 添加行为测试。
@@ -168,9 +168,9 @@ Phase 2 验收：`App.tsx` 不再新增业务 JSX/API；query/mutation facade �
 
 - [ ] Ingredient：将搜索 query、catalog/inventory/shopping view model、food-stock action、detail/editor/overlay route 拆开；workspace 只做组合。
 - [ ] Food：将 search/filter view model、plan/scene/editor/quick-record dialog state 和 desktop/mobile view 拆开；保持 recipe relation 与 plan completion contract。
-- [ ] Eat：按 task kind 拆 `EatTaskBodies`，让 discover/plan/history/cook/meal-create 共享 typed action ports，不共享大段 JSX。
-- [ ] 继续拆 `InventoryReconciliationDialog` 的步骤 reducer、字段校验和 View；保留 stale version/conflict/rollback 语义。
-- [ ] 把 `api/types.ts` 按域拆为 type modules，保留兼容 barrel，确认 type-only import 不增加 runtime chunk。
+- [x] Eat：按 task kind 拆 `EatTaskBodies`，让 discover/plan/history/cook/meal-create 共享 typed action ports，不共享大段 JSX。
+- [x] 继续拆 `InventoryReconciliationDialog` 的步骤 reducer、字段校验和 View；保留 stale version/conflict/rollback 语义。
+- [x] 把 `api/types.ts` 按域拆为 type modules，保留兼容 barrel，确认 type-only import 不增加 runtime chunk。
 
 Phase 3 验收：Ingredient/Food/Eat 关键文件达到设计规格阶段目标；每个桌面/手机路径有行为测试；没有因“只移动文件”留下双实现。
 
@@ -178,11 +178,11 @@ Phase 3 验收：Ingredient/Food/Eat 关键文件达到设计规格阶段目标�
 
 详细步骤见 [Phase 4/5](2026-08-27-frontend-code-governance-phase-4-bundles-rollout.md) 的前半部分。主任务：
 
-- [ ] 把 conversation selection/local migration、run/stream reducer、query adapters、composer 和 overlay controllers 分离。
-- [ ] `useAiConversationStreams` 只处理事件/状态转换；MessageBubble、Markdown、approval、human input 和 debug drawer 各自是 View/二级 entry。
-- [ ] 保留 active conversation/run 隔离、404 inaccessible 清理、cancel/retry、approval settled refresh、未知 part 安全降级。
-- [ ] 将 `react-markdown`/`remark-gfm` 及大型 approval editor 从 AI 首屏 shell 移到按需 chunk；加载态不能遮挡已显示消息。
-- [ ] 对 AI run/approval/human-input/cancelled/partial-success 建立状态表和跨端 contract 测试。
+- [x] 把 conversation selection/local migration、run/stream reducer、query adapters、composer 和 overlay controllers 分离。
+- [x] `useAiConversationStreams` 只处理事件/状态转换；MessageBubble、Markdown、approval、human input 和 debug drawer 各自是 View/二级 entry。
+- [x] 保留 active conversation/run 隔离、404 inaccessible 清理、cancel/retry、approval settled refresh、未知 part 安全降级。
+- [x] 将 `react-markdown`/`remark-gfm` 及大型 approval editor 从 AI 首屏 shell 移到按需 chunk；加载态不能遮挡已显示消息。
+- [x] 对 AI run/approval/human-input/cancelled/partial-success 建立状态表和跨端 contract 测试。
 
 Phase 4 验收：AI shell `entryCritical≤10.5 KiB` 的路径可解释，routeTotal 已进入 manifest；AI 现有测试和 P0 视口通过，覆盖率不靠降低阈值达标。
 
@@ -192,8 +192,8 @@ Phase 4 验收：AI shell `entryCritical≤10.5 KiB` 的路径可解释，routeT
 
 - [ ] `main.tsx` 只同步加载 foundation/ui-kit/shell CSS；Home/Eat/Ingredients/AI/Family route 自己加载 domain CSS，旧 global import 仅保留回滚入口。
 - [ ] 将 `07-mobile.css` 规则分配到 route CSS，保留固定 layer 顺序和 mobile/tablet/desktop 三层。
-- [ ] 用 `manualChunks` 或显式 dynamic import 控制大型共享依赖；先看 manifest 的重复传输，再决定是否抽 vendor chunk。
-- [ ] 让所有 entry（包括 FamilyModelSettings、ModelUsage、Markdown、InventoryAction、Home dialogs）进入 budget config；禁止 prefix-first 匹配。
+- [x] 用 `manualChunks` 或显式 dynamic import 控制大型共享依赖；先看 manifest 的重复传输，再决定是否抽 vendor chunk。
+- [x] 让所有 entry（包括 FamilyModelSettings、ModelUsage、Markdown、InventoryAction、Home dialogs）进入 budget config；禁止 prefix-first 匹配。
 - [ ] 当某 entry 连续两个版本达到目标并通过视口验证后，将其从 ratchet 切为 target hard failure；保留 routeTotal 防止转移超限。
 - [ ] 完成发布前回归、artifact 保存、回滚构建和旧 alias 清理。
 
