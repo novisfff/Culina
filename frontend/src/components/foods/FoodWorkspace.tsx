@@ -117,6 +117,7 @@ import { useFoodPlanState } from './useFoodPlanState';
 import './food-route.css';
 import { useFoodSceneState, type FoodSceneCardView } from './useFoodSceneState';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
+import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './FoodQuickRecordState';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
 import { FoodMobileView } from './FoodMobileView';
@@ -308,28 +309,6 @@ type Props = {
 };
 
 type MobileCookingFilter = 'all' | 'ready' | 'shortage';
-
-type FoodQuickRecordState = {
-  food: Food;
-  date: string;
-  mealType: MealType;
-  target: RecordMealTarget;
-  selectedCandidateId: string | null;
-  candidateMode: 'none' | 'single' | 'multi';
-  candidates: MealLogCandidate[];
-  candidateResolution: MealCandidateResolution;
-  targetTouchedByUser: boolean;
-  clientRequestId: string;
-  busy: boolean;
-  error: string | null;
-};
-
-function createClientRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
   { value: 'all', label: '全部' },
@@ -1127,7 +1106,7 @@ export function FoodWorkspace(props: Props) {
       candidates: [],
       candidateResolution: { status: 'loading' },
       targetTouchedByUser: false,
-      clientRequestId: createClientRequestId(),
+      clientRequestId: createFoodRecordClientRequestId(),
       busy: false,
       error: null,
     });
@@ -1393,7 +1372,7 @@ export function FoodWorkspace(props: Props) {
             ? {
                 ...current,
                 busy: false,
-                clientRequestId: createClientRequestId(),
+                clientRequestId: createFoodRecordClientRequestId(),
                 error:
                   code === 'record_operation_reverted'
                     ? '上次记录已撤销，请再试一次'
