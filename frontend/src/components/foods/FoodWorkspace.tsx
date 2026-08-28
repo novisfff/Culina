@@ -45,6 +45,7 @@ import {
   WorkspaceOverlayFrame,
 } from '../ui-kit';
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
+import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
@@ -53,15 +54,12 @@ import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
-import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import {
   buildRecordMealPayload,
   canSubmitWithCandidateResolution,
   createMealBusinessDate,
   createMealRecordDateOptions,
-  deriveCandidatePresentation,
   type MealCandidateResolution,
-  type MealComposerFood,
 } from '../../features/meals/MealComposerModel';
 import {
   extractMealRecordErrorCode,
@@ -71,7 +69,6 @@ import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
-import { useMealCandidateData } from '../../features/meals/useMealCandidateData';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
@@ -572,136 +569,6 @@ export function getMobileDefaultFoodSceneCardMedia(
     imageUrl: managedScene?.imageUrl,
     imageAsset: managedScene?.imageAsset,
   };
-}
-
-/** Plan detail with candidate confirmation for non-Recipe complete (Task 15). */
-function FoodPlanDetailWithCandidates(props: {
-  item: FoodPlanItem;
-  food: Food | null;
-  recipes: Recipe[];
-  form: import('./FoodPlanDetailModal').FoodPlanDetailFormState;
-  isEditing: boolean;
-  isUpdatingPlan?: boolean;
-  isCompleting?: boolean;
-  onClose: () => void;
-  onChangeForm: (form: import('./FoodPlanDetailModal').FoodPlanDetailFormState) => void;
-  onEditingChange: (editing: boolean) => void;
-  onResetEdit: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onComplete: (target?: {
-    target_meal_log_id?: string | null;
-    expected_meal_log_row_version?: number | null;
-  }) => void;
-  onDelete: () => void;
-  resolveAssetUrl: (url: string) => string;
-}) {
-  const needsPlanCompleteCandidates = Boolean(
-    props.item && !props.item.recipe_id && props.item.status !== 'cooked',
-  );
-  const planCandidateQuery = useMealCandidateData({
-    open: needsPlanCompleteCandidates,
-    date: props.item.plan_date,
-    mealType: props.item.meal_type,
-  });
-  const planCandidates = planCandidateQuery.candidates;
-  const planCandidatesFetched = planCandidateQuery.query.isFetched;
-  const planCandidateIdsKey = planCandidates
-    .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
-    .join(',');
-  const [planCompleteTarget, setPlanCompleteTarget] = useState<RecordMealTarget>({ kind: 'new' });
-  const [planCompleteSelectedCandidateId, setPlanCompleteSelectedCandidateId] = useState<string | null>(
-    null,
-  );
-  const [planCompleteCandidateMode, setPlanCompleteCandidateMode] = useState<'none' | 'single' | 'multi'>(
-    'none',
-  );
-
-  useEffect(() => {
-    if (!needsPlanCompleteCandidates) {
-      setPlanCompleteTarget((current) => (current.kind === 'new' ? current : { kind: 'new' }));
-      setPlanCompleteSelectedCandidateId(null);
-      setPlanCompleteCandidateMode('none');
-      return;
-    }
-    if (!planCandidatesFetched) return;
-    const presentation = deriveCandidatePresentation(planCandidates, props.item.meal_type);
-    setPlanCompleteTarget(presentation.target);
-    setPlanCompleteSelectedCandidateId(presentation.selectedCandidateId);
-    setPlanCompleteCandidateMode(presentation.mode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    needsPlanCompleteCandidates,
-    props.item.id,
-    props.item.plan_date,
-    props.item.meal_type,
-    planCandidateIdsKey,
-    planCandidatesFetched,
-  ]);
-
-  const planCompleteDraftFoods: MealComposerFood[] = [
-    {
-      kind: 'existing',
-      food_id: props.item.food_id,
-      name: props.item.food_name,
-      servings: 1,
-      cover: null,
-    },
-  ];
-
-  const planCompleteExtras =
-    needsPlanCompleteCandidates ? (
-      <MealCandidateSelector
-        mode={planCompleteCandidateMode}
-        mealType={props.item.meal_type}
-        candidates={planCandidates}
-        selectedCandidateId={planCompleteSelectedCandidateId}
-        target={planCompleteTarget}
-        draftFoods={planCompleteDraftFoods}
-        disabled={props.isCompleting}
-        className="food-plan-detail-candidates"
-        onTargetChange={(target, selectedCandidateId) => {
-          setPlanCompleteTarget(target);
-          setPlanCompleteSelectedCandidateId(selectedCandidateId ?? null);
-        }}
-      />
-    ) : null;
-
-  function handleComplete() {
-    if (props.item.recipe_id) {
-      props.onComplete();
-      return;
-    }
-    const target =
-      planCompleteTarget.kind === 'existing'
-        ? {
-            target_meal_log_id: planCompleteTarget.meal_log_id,
-            expected_meal_log_row_version: planCompleteTarget.expected_row_version,
-          }
-        : undefined;
-    props.onComplete(target);
-  }
-
-  return (
-    <FoodPlanDetailModal
-      item={props.item}
-      food={props.food}
-      recipes={props.recipes}
-      form={props.form}
-      isEditing={props.isEditing}
-      isUpdatingPlan={props.isUpdatingPlan}
-      isCompleting={props.isCompleting}
-      completeExtras={planCompleteExtras}
-      onClose={props.onClose}
-      onChangeForm={props.onChangeForm}
-      onEditingChange={props.onEditingChange}
-      onResetEdit={props.onResetEdit}
-      onSubmit={props.onSubmit}
-      onComplete={handleComplete}
-      onDelete={props.onDelete}
-      resolveAssetUrl={props.resolveAssetUrl}
-      overlayRootClassName="food-workspace-overlay-root"
-    />
-  );
 }
 
 export function FoodWorkspace(props: Props) {
