@@ -92,6 +92,8 @@ import { getFoodEditorProfile, getFoodPriority, getQuickDefaultMealType } from '
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   FOOD_GOVERNANCE_ISSUE_OPTIONS,
+  FOOD_QUICK_VIEW_OPTIONS,
+  MOBILE_DEFAULT_FOOD_SCENES,
   FOOD_LENS_COPY,
   FOOD_TYPE_OPTIONS,
   MEAL_OPTIONS,
@@ -304,23 +306,6 @@ type Props = {
   isUpdatingMeal?: boolean;
   isCreatingShopping?: boolean;
 };
-
-const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'selfMade', label: '家常菜' },
-  { value: 'outside', label: '外卖外食' },
-  { value: 'ready', label: '成品速食' },
-];
-
-const MOBILE_DEFAULT_FOOD_SCENES = [
-  { key: 'protein', title: '高蛋白', fallbackIndex: 0 },
-  { key: 'dinner', title: '工作日晚餐', fallbackIndex: 1 },
-  { key: 'kid', title: '孩子也能吃', fallbackIndex: 2 },
-  { key: 'light', title: '周末轻食', fallbackIndex: 3 },
-];
-
-
-
 
 export function FoodWorkspace(props: Props) {
   const {

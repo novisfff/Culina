@@ -4,6 +4,20 @@ import type { FoodIconName } from './FoodWorkspacePrimitives';
 export type FoodWorkspaceLens = 'all' | 'today' | 'selfMade' | 'outside' | 'ready' | 'expiring' | 'favorite' | 'needsInfo';
 export type FoodGovernanceIssue = 'image' | 'meal' | 'note' | 'source' | 'stock';
 
+export const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'selfMade', label: '家常菜' },
+  { value: 'outside', label: '外卖外食' },
+  { value: 'ready', label: '成品速食' },
+];
+
+export const MOBILE_DEFAULT_FOOD_SCENES = [
+  { key: 'protein', title: '高蛋白', fallbackIndex: 0 },
+  { key: 'dinner', title: '工作日晚餐', fallbackIndex: 1 },
+  { key: 'kid', title: '孩子也能吃', fallbackIndex: 2 },
+  { key: 'light', title: '周末轻食', fallbackIndex: 3 },
+];
+
 export const FOOD_TYPE_OPTIONS: Array<{ value: FoodType; label: string }> = [
   { value: 'selfMade', label: '家常菜' },
   { value: 'takeout', label: '外卖' },
