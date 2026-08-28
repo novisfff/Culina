@@ -1,4 +1,5 @@
-import type { Food, MealLog, Recipe, FoodType, MealType } from '../../api/types/food';
+import type { Food, Recipe, FoodType, MealType } from '../../api/types/food';
+import type { MealLog } from '../../api/types/meal';
 import type { FoodWorkspaceLens } from './FoodWorkspaceOptions';
 import { getFoodSceneTags, isFoodExpiring, isFoodMissingDecisionInfo, isOutsideFood, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
 

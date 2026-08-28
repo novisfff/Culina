@@ -8,7 +8,6 @@ export type {
   DisposeExpiredInventoryRequest,
   DisposeExpiredInventoryResponse,
   ExactTransitionResolution,
-  Food,
   IngredientTrackingModeTransitionRequest,
   PresenceTransitionResolution,
   SnoozeExpiryAlertsAction,

@@ -1,26 +1,32 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type {
-  CompleteFoodPlanItemPayload,
-  CookRecipeRequest,
-  CookRecipePreviewRequest,
-  CookRecipePreviewResponse,
-  CookRecipeResponse,
-  Food,
-  FoodPlanItem,
   Ingredient,
   InventoryItem,
-  MealLog,
   MealType,
   Member,
-  RecordMealPayload,
-  RecordMealResponse,
-  RecordMealTarget,
   Recipe,
   RecipePayload,
   ShoppingListItem,
   UpdateFoodPayload,
-  UpdateMealLogPayload,
+  } from '../../api/types/food';
+import type {
+  CookRecipeRequest,
+  CookRecipePreviewRequest,
+  CookRecipePreviewResponse,
+  CookRecipeResponse,
+} from '../../api/types/recipe';
+import type {
+  Food,
+  FoodPlanItem,
 } from '../../api/types/food';
+import type {
+  CompleteFoodPlanItemPayload,
+  MealLog,
+  RecordMealPayload,
+  RecordMealResponse,
+  RecordMealTarget,
+  UpdateMealLogPayload,
+} from '../../api/types/meal';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import { FoodDetailDrawer } from '../../components/foods/FoodDetailDrawer';
 import { FoodEditorForm } from '../../components/foods/FoodEditorForm';

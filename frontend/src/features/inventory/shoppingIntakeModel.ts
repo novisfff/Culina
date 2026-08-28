@@ -1,5 +1,5 @@
+import type { Food } from '../../api/types/food';
 import type {
-  Food,
   Ingredient,
   IngredientInventoryState,
   InventoryAvailabilityLevel,

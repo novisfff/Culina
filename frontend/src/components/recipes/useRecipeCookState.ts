@@ -4,8 +4,10 @@ import type {
   CookRecipePreviewResponse,
   CookRecipeRequest,
   CookRecipeResponse,
-  RecordMealTarget,
 } from '../../api/types/recipe';
+import type {
+  RecordMealTarget,
+} from '../../api/types/meal';
 import type { CookLaunchContext } from '../../app/appNavigationModel';
 import { deriveCandidatePresentation } from '../../features/meals/MealComposerModel';
 import { useMealCandidateData } from '../../features/meals/useMealCandidateData';

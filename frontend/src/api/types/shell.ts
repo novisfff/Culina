@@ -49,4 +49,4 @@ export interface Member extends UserSummary {
   status: string;
 }
 
-export type { ActivityLog, ActivityLogQuery, ImageInputValue } from '../types';
+export type { ActivityLog, ActivityLogQuery } from '../types';

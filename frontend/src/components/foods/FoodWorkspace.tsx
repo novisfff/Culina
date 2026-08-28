@@ -5,7 +5,6 @@ import { isApiError } from '../../api/request';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
 import { queryKeys } from '../../api/queryKeys';
 import type {
-  CompleteFoodPlanItemPayload,
   Food,
   FoodPlanItem,
   FoodPayload,
@@ -13,20 +12,23 @@ import type {
   FoodType,
   Ingredient,
   InventoryItem,
-  MealLog,
-  MealLogCandidate,
   MealType,
   MediaAsset,
   Member,
-  RecordMealPayload,
-  RecordMealResponse,
-  RecordMealTarget,
   Recipe,
   RecipePayload,
   ShoppingListItem,
   UpdateFoodPayload,
-  UpdateMealLogPayload,
 } from '../../api/types/food';
+import type {
+  CompleteFoodPlanItemPayload,
+  MealLog,
+  MealLogCandidate,
+  RecordMealPayload,
+  RecordMealResponse,
+  RecordMealTarget,
+  UpdateMealLogPayload,
+} from '../../api/types/meal';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';

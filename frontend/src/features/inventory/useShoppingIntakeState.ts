@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import type { Food } from '../../api/types/food';
 import type {
-  Food,
   Ingredient,
   IngredientInventoryState,
   ShoppingIntakeResult,

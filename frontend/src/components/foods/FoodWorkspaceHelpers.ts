@@ -1,4 +1,5 @@
-import type { Food, FoodType, Ingredient, InventoryItem, MealLog, MealType, Recipe } from '../../api/types/food';
+import type { Food, FoodType, Ingredient, InventoryItem, MealType, Recipe } from '../../api/types/food';
+import type { MealLog } from '../../api/types/meal';
 import { todayKey } from '../../lib/date';
 import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
 import { MEAL_TYPE_LABELS, formatDate, getFoodCover } from '../../lib/ui';
