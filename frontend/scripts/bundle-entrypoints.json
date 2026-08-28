@@ -16,7 +16,7 @@
     "ai-approval": { "source": "src/components/ai/entries/AiApprovalEntry.tsx", "dynamic": true },
     "ai-human-input": { "source": "src/components/ai/entries/AiHumanInputEntry.tsx", "dynamic": true },
     "ai-debug": { "source": "src/components/ai/entries/AiDebugEntry.tsx", "dynamic": true },
-    "inventory-operation": { "source": "src/features/inventory/InventoryMaintenanceDialogs.tsx", "dynamic": false },
+    "inventory-operation": { "source": "src/features/inventory/InventoryMaintenanceDialogs.tsx", "dynamic": true },
     "home-dialogs": { "source": "src/features/home/HomeDashboardDialogs.tsx", "dynamic": true }
   }
 }

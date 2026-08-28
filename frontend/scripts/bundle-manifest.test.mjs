@@ -152,6 +152,37 @@ describe('frontend health manifest', () => {
     });
   });
 
+  it('does not pull sibling routes through a shared main entry', () => {
+    const bundle = completeBundle();
+    bundle['opaque-sibling.js'] = chunk({
+      fileName: 'opaque-sibling.js',
+      source: 'src/features/eat/EatWorkspace.tsx',
+      code: 'eat();',
+      isDynamicEntry: true,
+      modules: ['src/features/eat/EatWorkspace.tsx'],
+    });
+    bundle['opaque-main.js'].dynamicImports.push('opaque-sibling.js');
+    bundle['opaque-ai.js'].imports = ['opaque-main.js'];
+    const entryConfig = {
+      ...ENTRY_CONFIG,
+      entries: {
+        ...ENTRY_CONFIG.entries,
+        eat: { source: 'src/features/eat/EatWorkspace.tsx', dynamic: true },
+      },
+    };
+    const manifest = createFrontendHealthManifest({
+      bundle,
+      entryConfig,
+      rootDir: ROOT_DIR,
+      commit: COMMIT,
+    });
+
+    expect(manifest.entries.ai.routeTotal.assets).toContain('opaque-ai.js');
+    expect(manifest.entries.ai.routeTotal.assets).toContain('shared.js');
+    expect(manifest.entries.ai.routeTotal.assets).toContain('opaque-markdown.js');
+    expect(manifest.entries.ai.routeTotal.assets).not.toContain('opaque-sibling.js');
+  });
+
   it('keeps entryCritical JS-only while initial transfer retains direct CSS', () => {
     const manifest = createFrontendHealthManifest({
       bundle: completeBundle(),

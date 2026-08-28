@@ -142,7 +142,7 @@ function summarizeAssets(assetNames, assets) {
 function reachableAssets(rootChunk, chunks, assets, includeDynamic) {
   const reachable = new Set();
   const visitedChunks = new Set();
-  const visit = (fileName) => {
+  const visit = (fileName, isRoot = false) => {
     if (visitedChunks.has(fileName)) return;
     visitedChunks.add(fileName);
     const chunk = chunks.get(fileName);
@@ -151,11 +151,14 @@ function reachableAssets(rootChunk, chunks, assets, includeDynamic) {
       if (assets[asset]) reachable.add(asset);
     }
     for (const imported of chunk.imports) visit(imported);
-    if (includeDynamic) {
+    // A route entry can import the shared main chunk. Do not follow the
+    // main entry's sibling route imports when calculating this route's
+    // transfer; only the route root may fan out into its own dynamic graph.
+    if (includeDynamic && (isRoot || !chunk.isEntry)) {
       for (const imported of chunk.dynamicImports) visit(imported);
     }
   };
-  visit(rootChunk.fileName);
+  visit(rootChunk.fileName, true);
   return reachable;
 }
 

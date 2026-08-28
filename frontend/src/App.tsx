@@ -52,7 +52,6 @@ import { useFamilySettingsState } from './features/family/useFamilySettingsState
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
-import { InventoryMaintenanceDialogs } from './features/inventory/InventoryMaintenanceDialogs';
 import {
   InventoryOperationBanner,
   selectRecentBannerOperation,
@@ -102,6 +101,11 @@ const IngredientWorkspace = lazy(() =>
 );
 const HomeDashboardDialogs = lazy(() =>
   import('./features/home/HomeDashboardDialogs').then((module) => ({ default: module.HomeDashboardDialogs }))
+);
+const InventoryMaintenanceDialogs = lazy(() =>
+  import('./features/inventory/InventoryMaintenanceDialogs').then((module) => ({
+    default: module.InventoryMaintenanceDialogs,
+  }))
 );
 const FamilySettings = lazy(() =>
   import('./features/family/FamilySettings').then((module) => ({ default: module.FamilySettings }))
@@ -1619,6 +1623,7 @@ function App() {
           />
         </Suspense>
 
+        <Suspense fallback={null}>
         <InventoryMaintenanceDialogs
           shoppingIntake={
             shoppingIntakeState.open
@@ -1772,6 +1777,7 @@ function App() {
               : null
           }
         />
+        </Suspense>
 
         </AppOverlayHost>
       </AppWorkspaceRouter>
