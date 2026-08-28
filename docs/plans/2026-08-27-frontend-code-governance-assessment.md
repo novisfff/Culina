@@ -262,3 +262,13 @@ focused 集成集为 6 个文件、33 个测试。构建转换 640 modules；can
 新 CSS tokenizer 在 B0 上得到 10,247 个 selector block、38,905 个 declaration；与原体检的启发式 10,316/39,038 不同，因为新口径跳过 keyframe 内部规则。当前 `59ea22b7` 后代源码采样为 10,255/38,944；B0 baseline 没有因此改写。`!important=837`、`@media=214` 与 B0 一致。
 
 本阶段没有修改用户可见 UI，未运行 Playwright/P0 smoke、人工截图或 375×812、390×844、430×932、768×1024、1024×768、1440×900 六视口；Phase 0 结论不替代后续 CSS/响应式阶段的视觉验收。`.artifacts`、`frontend/dist`、`frontend/coverage` 均只作本地验证并在提交前删除。
+
+## 11. Phase 1 CSS 与响应式落地记录（2026-08-28）
+
+Phase 1 在同一独立 worktree 按 shell-foundation、home-family、eat-meal、ingredient-food-inventory、ai-search、compat-retire 批次完成。`07-mobile.css` 的规则已迁移至 `compatibility-responsive.css`，并保留固定 layer 顺序 `reset > tokens > primitives > shell > domain > responsive > compatibility`；旧文件不再作为生产入口。
+
+当前 CSS 治理指标：legacy CSS 64,890 行、`!important` 648、`@media` 180、token drift 10、duplicate selectors 62、undefined variables 0、business specificity candidates 1,368、attribute selector candidates 150、noncanonical media 61（均在 registry 中有 owner/expiry）。CSS gzip 为 191,911 bytes，较 B0 增加 477 bytes；manifest `routeTotal` gzip 为 742,454 bytes，较 B0 减少 721 bytes。
+
+新增 `frontend/e2e/css-governance.spec.mjs` 覆盖临时 fixture 的横向溢出、43px 触控目标与 busy overlay Escape 失败路径，以及 Home、Ingredients、Food、Eat、AI、Family 六个真实路径。测试在 375×812、390×844、430×932、768×1024、1024×768、1440×900 六视口循环，并以 reduced motion 模式运行，6/6 通过；`frontend:e2e:p0` 52/52 通过。Phase 1 focused contract tests 23/23 通过，完整 Vitest 1,852/1,852、build、style-token 与 CSS ratchet 均通过。
+
+本阶段未执行人工截图 diff；CSS 治理 E2E 提供了布局、交互目标和 overlay 语义的自动化证据。`.artifacts`、`frontend/dist`、`frontend/coverage` 仍仅为本地验证产物，不纳入提交。

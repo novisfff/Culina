@@ -3979,7 +3979,8 @@
 
 .home-dashboard-lower-grid .home-required-actions .home-question-more {
   width: auto;
-  min-height: var(--control-height-compact);
+  min-height: var(--control-height);
+  height: var(--control-height);
   align-self: end;
   justify-self: end;
   margin: 0;

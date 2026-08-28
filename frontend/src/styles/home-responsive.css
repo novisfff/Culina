@@ -2305,8 +2305,8 @@
   .home-required-actions .home-question-more {
     position: relative;
     width: auto;
-    min-height: var(--control-height-compact);
-    height: var(--control-height-compact);
+    min-height: var(--control-height);
+    height: var(--control-height);
     justify-self: end;
     margin: 0;
     padding-inline: var(--space-1);

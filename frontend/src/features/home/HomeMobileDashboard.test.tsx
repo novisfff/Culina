@@ -669,7 +669,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
       /\.home-required-actions \.home-action-row \.solid-button \{[^}]*min-height: var\(--control-height\);[^}]*height: var\(--control-height\);[^}]*border: 0;[^}]*background: transparent;/s,
     );
     expect(mobileStyles).toMatch(
-      /\.home-required-actions \.home-question-more \{[^}]*position: relative;[^}]*width: auto;[^}]*min-height: var\(--control-height-compact\);[^}]*height: var\(--control-height-compact\);[^}]*justify-self: end;[^}]*margin: 0;/s,
+      /\.home-required-actions \.home-question-more \{[^}]*position: relative;[^}]*width: auto;[^}]*min-height: var\(--control-height\);[^}]*height: var\(--control-height\);[^}]*justify-self: end;[^}]*margin: 0;/s,
     );
     expect(mobileStyles).toMatch(
       /\.home-required-actions \.home-question-more::before \{[^}]*position: absolute;[^}]*inset: calc\(var\(--space-1\) \* -1\) 0;/s,

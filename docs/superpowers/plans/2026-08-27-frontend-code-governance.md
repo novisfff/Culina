@@ -140,14 +140,14 @@ Phase 0 验收：对临时 fixture 增加一个 `!important`、超预算 chunk�
 
 详细步骤见 [Phase 1](2026-08-27-frontend-code-governance-phase-1-css.md)。主任务：
 
-- [ ] 用 canonical token contract 校验 `00-foundation.css`，修正 `--brand-button-radius:24px` 和旧变量 alias。
-- [ ] 登记 runtime inline variables；将无 fallback、无 owner 的变量降为明确修复项，最终归零。
-- [ ] 建立 selector ownership、dead selector report 和例外 registry；先报告再删除，避免误删动态 class。
-- [ ] 用 `@layer` 固定 reset/token/ui/shell/domain/responsive/compatibility 顺序，把 `07-mobile.css` 的业务规则分配回 owner。
-- [ ] 合并同域重复 selector，按工作包删除 `!important`；canonical 设备层只保留 767、768–1023、1024+，其他断点写理由。
-- [ ] 把源码字符串 CSS Usage 测试逐步替换为真实行为/快照契约，但保留必要的迁移边界测试。
+- [x] 用 canonical token contract 校验 `00-foundation.css`，修正 `--brand-button-radius:24px` 和旧变量 alias。
+- [x] 登记 runtime inline variables；将无 fallback、无 owner 的变量降为明确修复项，最终归零。
+- [x] 建立 selector ownership、dead selector report 和例外 registry；先报告再删除，避免误删动态 class。
+- [x] 用 `@layer` 固定 reset/token/ui/shell/domain/responsive/compatibility 顺序，把 `07-mobile.css` 的业务规则分配回 owner。
+- [x] 合并同域重复 selector，按工作包删除 `!important`；canonical 设备层只保留 767、768–1023、1024+，其他断点写理由。
+- [x] 把源码字符串 CSS Usage 测试逐步替换为真实行为/快照契约，但保留必要的迁移边界测试。
 
-Phase 1 验收：legacy CSS 行数≤67,000、`!important≤650`、`@media≤180`、token drift≤25、无未分类 undefined variable；六个固定视口和 reduced-motion P0 路径通过。
+Phase 1 验收：legacy CSS 行数≤67,000、`!important≤650`、`@media≤180`、token drift≤25、无未分类 undefined variable；六个固定视口和 reduced-motion P0 路径通过。实际结果记录为 64,890 行、648 个 `!important`、180 个 `@media`、10 个 drift、0 个 undefined variable；六视口治理 E2E 与 P0 均通过。
 
 ## 6. Phase 2：App、query/mutation 与跨域 overlay
 
