@@ -27,6 +27,7 @@ import type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiAppro
 import { AiMessageImageGrid } from './AiMessageImageGrid';
 import { AiApprovalHost } from './views/AiApprovalHost';
 import { AiHumanInputHost } from './views/AiHumanInputHost';
+import { AiMessagePartRenderer, type NormalizedAiMessagePart } from './views/AiMessagePartRenderer';
 import { ResultCard } from './AiResultCards';
 import {
   extractRunActivitySkillName,
@@ -861,7 +862,7 @@ export function MessageBubble({
                 </AiHumanInputHost>
               );
             }
-            return null;
+            return <AiMessagePartRenderer key={item.key} part={part as unknown as NormalizedAiMessagePart} />;
           })}
           {shouldShowThinking && (
             <div className="ai-thinking-cue" aria-live="polite">
