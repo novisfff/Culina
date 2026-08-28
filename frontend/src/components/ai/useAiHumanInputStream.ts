@@ -7,9 +7,9 @@ import {
   clearActiveStreamRun,
   handleInaccessibleStreamError,
   removeRunController,
-  type HumanInputStreamPayload,
   type StreamMutationContext,
 } from './aiStreamSupport';
+import type { HumanInputStreamPayload } from './useAiConversationStreams';
 
 export function useAiHumanInputStream(context: StreamMutationContext) {
   const [submittingRequestIds, setSubmittingRequestIds] = useState<Set<string>>(() => new Set());
