@@ -338,3 +338,7 @@ git diff --check
 - `b0e6b196`：将 Ingredient 库存摘要卡的状态投影、媒体和库存动作渲染迁入 `IngredientInventoryCard`，Workspace 仅提供数据和回调。
 
 本批定向 typecheck 与 Food/Ingredient 使用契约测试通过；全量 `frontend:quality` 已完成 typecheck 并运行 Vitest，未发现新增编译错误。Food workspace 约 2316 行，Ingredient workspace 约 3175 行，仍高于规格目标，后续必须继续按完整组件边界拆分。
+
+- `fccda6c6`：将 Eat shell 与 MealLog workspace 从 App 首屏静态闭包改为显式 lazy route；新增 `meal-log` logical entry、预算和 rollout state，并把 `eat` 标记为 dynamic entry。构建后主 JS gzip 从约 267.18 KiB 降至约 258.95 KiB，生成独立 Eat（约 2.01 KiB gzip）与 MealLog（约 8.38 KiB gzip）chunk。
+
+该批 App/Eat/Meal 定向测试 46 文件、364 个测试通过；bundle/manifest/rollout 脚本 20 个测试通过；Vite build 706 modules，manifest 检查通过并包含 17 个 logical entry，0 orphan/unregistered dynamic entry。历史 routeTotal 与主包目标差距仍保持 ratchet warning，未启用 target。
