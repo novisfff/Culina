@@ -15,6 +15,7 @@ import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { buildHomeShoppingController } from './app/useAppHomeController';
+import { createInventoryOperationController } from './app/useAppInventoryOperations';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppOverlayState } from './app/appOverlayState';
@@ -657,25 +658,14 @@ function App() {
     setOperationHistoryConflict(null);
   }
 
-  async function loadOperationDetail(operationId: string) {
-    setOperationDetailLoading(true);
-    setOperationDetailError(null);
-    try {
-      const detail = await api.getInventoryOperation(operationId);
-      setOperationDetail(detail);
-    } catch (reason) {
-      setOperationDetail(null);
-      setOperationDetailError(
-        isApiError(reason)
-          ? reason.detail || '加载变更详情失败'
-          : reason instanceof Error
-            ? reason.message
-            : '加载变更详情失败',
-      );
-    } finally {
-      setOperationDetailLoading(false);
-    }
-  }
+  const inventoryOperationController = createInventoryOperationController({
+    getDetail: api.getInventoryOperation,
+    setDetail: setOperationDetail,
+    setLoading: setOperationDetailLoading,
+    setError: setOperationDetailError,
+    errorMessage: (reason) => messageFromApiError(reason, '加载变更详情失败'),
+  });
+  const loadOperationDetail = inventoryOperationController.loadDetail;
 
   async function handleRevertInventoryOperation(operationId: string) {
     setOperationHistoryConflict(null);
