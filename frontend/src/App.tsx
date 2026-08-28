@@ -20,7 +20,6 @@ import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppGlobalOverlays } from './app/AppGlobalOverlays';
 import type { AppOverlayState } from './app/appOverlayState';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
-import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
   relatedSelfMadeFoods,
   buildCookLaunchContext,
@@ -48,7 +47,6 @@ import {
 import {
   todayKey,
 } from './lib/ui';
-import { MealLogWorkspace } from './features/meals/MealLogWorkspace';
 import { useMealRecordResultState } from './features/meals/useMealRecordResultState';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
@@ -87,6 +85,12 @@ import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
 
 const AiWorkspace = lazy(() =>
   import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
+);
+const EatWorkspace = lazy(() =>
+  import('./features/eat/EatWorkspace').then((module) => ({ default: module.EatWorkspace }))
+);
+const MealLogWorkspace = lazy(() =>
+  import('./features/meals/MealLogWorkspace').then((module) => ({ default: module.MealLogWorkspace }))
 );
 const FoodWorkspace = lazy(() =>
   import('./components/foods/FoodWorkspace').then((module) => ({ default: module.FoodWorkspace }))

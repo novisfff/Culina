@@ -3,7 +3,8 @@
   "entries": {
     "main": { "source": "src/main.tsx", "dynamic": false },
     "home": { "source": "src/features/home/HomeDashboard.tsx", "dynamic": false },
-    "eat": { "source": "src/features/eat/EatWorkspace.tsx", "dynamic": false },
+    "eat": { "source": "src/features/eat/EatWorkspace.tsx", "dynamic": true },
+    "meal-log": { "source": "src/features/meals/MealLogWorkspace.tsx", "dynamic": true },
     "ingredients": { "source": "src/components/ingredients/IngredientWorkspace.tsx", "dynamic": true },
     "food": { "source": "src/components/foods/FoodWorkspace.tsx", "dynamic": true },
     "ai": { "source": "src/components/ai/AiWorkspace.tsx", "dynamic": true },

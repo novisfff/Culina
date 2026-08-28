@@ -22,6 +22,13 @@
       "phase": 5,
       "owner": "eat"
     },
+    "meal-log": {
+      "criticalGzipBudget": 49152,
+      "routeTotalGzipBudget": 98304,
+      "cssBudget": 32768,
+      "phase": 5,
+      "owner": "meal"
+    },
     "ingredients": {
       "criticalGzipBudget": 37888,
       "routeTotalGzipBudget": 65536,
