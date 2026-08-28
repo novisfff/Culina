@@ -56,11 +56,11 @@ import {
   InventoryOperationBanner,
   selectRecentBannerOperation,
 } from './features/inventory/InventoryOperationBanner';
-import { storageLocationForScope } from './features/inventory/inventoryReconciliationScope';
 import { useInventoryReconciliationActions } from './features/inventory/useInventoryReconciliationActions';
 import { useInventoryReconciliationState } from './features/inventory/useInventoryReconciliationState';
 import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
+import { storageLocationForScope } from './features/inventory/inventoryReconciliationScope';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
 import { useAppNotifications } from './hooks/useAppNotifications';
@@ -466,7 +466,7 @@ function App() {
 
   function openReconciliation(args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) {
     const scope = args?.scope ?? 'suggested';
-    void reconciliationActions.openReconciliation(scope, storageLocationForScope(scope));
+    void reconciliationActions.openReconciliation(scope);
   }
 
   const [recentBannerOverride, setRecentBannerOverride] = useState<InventoryOperationResult | null>(null);
