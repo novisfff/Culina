@@ -4,7 +4,7 @@ import type {
   FamilyModelEmbeddingBindingDraft,
   FamilyModelPriceRate,
   FamilyModelSearchReplacementPreviewResult,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { ConfirmDialog, DropdownSelect } from '../../components/ui-kit';
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';

@@ -4,7 +4,7 @@ import type {
   FamilyModelConfigDraft,
   FamilyModelDraftValidation,
   UserRole,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import {
   createEmptyFamilyModelDraft,
   createFamilyModelSettingsDraft,
