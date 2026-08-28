@@ -22,7 +22,6 @@ import type {
   UserSummary,
 } from '../../api/types';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
-import { useAiConversationMutations } from '../../app/mutations/useAiConversationMutations';
 import { resolveMediaUrl } from '../../lib/assets';
 import { abortAiStream } from '../../lib/aiStreamAbort';
 import { FOOD_TYPE_LABELS } from '../../lib/ui';
@@ -1032,8 +1031,9 @@ export function AiWorkspace({
     refreshAfterApprovalSettled,
     isApprovalDecisionSettledPart,
   });
-  const { deleteConversationMutation, visibilityMutation } = useAiConversationMutations({
-    onDeleted: (conversationId) => {
+  const deleteConversationMutation = useMutation({
+    mutationFn: api.deleteAiConversation,
+    onSuccess: async (_, conversationId) => {
       const remainingConversations = conversations.filter((conversation) => conversation.id !== conversationId);
       if (conversationId === activeConversationId) {
         const nextConversation = remainingConversations[0] ?? null;
@@ -1047,10 +1047,21 @@ export function AiWorkspace({
       }
       clearComposerScope(conversationId);
       clearAttachmentScope(conversationId);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
+      queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
+      queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
       setPendingDeleteConversation(null);
     },
-    onDeleteSettled: () => setDeletingConversationId(null),
-    onVisibilityError: (error) => {
+    onSettled: () => setDeletingConversationId(null),
+  });
+  const visibilityMutation = useMutation({
+    mutationFn: ({ conversationId, visibility }: { conversationId: string; visibility: AiConversationVisibility }) =>
+      api.updateAiConversationVisibility(conversationId, visibility),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AiConversation[]>(queryKeys.aiConversations, (items = []) =>
+        items.map((item) => (item.id === updated.id ? updated : item)));
+    },
+    onError: (error) => {
       setPlanFeedback(isApiError(error) && error.status === 409
         ? '会话正在生成回复，请先等待完成或取消当前任务'
         : error instanceof Error ? error.message : '更新公开状态失败');
