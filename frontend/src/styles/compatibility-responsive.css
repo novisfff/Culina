@@ -938,3 +938,12 @@
   }
 }
 /* Food editor body only. The shared mobile sheet remains owned by ui-kit. */
+/* Shared desktop defaults for mobile route variants. */
+.mobile-dashboard-page,
+.mobile-food-page,
+.mobile-family-page,
+.mobile-ingredient-page,
+.mobile-recipe-page,
+.mobile-bottom-nav {
+  display: none;
+}
