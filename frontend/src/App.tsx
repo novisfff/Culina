@@ -19,7 +19,6 @@ import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppGlobalOverlays } from './app/AppGlobalOverlays';
 import type { AppOverlayState } from './app/appOverlayState';
-import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import {
   relatedSelfMadeFoods,
   buildCookLaunchContext,
@@ -1119,7 +1118,7 @@ function App() {
                 || deleteFoodPlanItemMutation.isPending
               }
               cookResumePromptOpen={cookResumePromptOpen}
-              {...buildEatTaskBodies({
+              taskBodyArgs={{
                 resolvedTask: resolvedEatTask,
                 recipes,
                 foods,
@@ -1184,7 +1183,7 @@ function App() {
                   navigation.navigate({ workspace: 'eat', view: 'history', mealLogId });
                 },
                 onCookResumePromptChange: setCookResumePromptOpen,
-              })}
+              }}
               discoverContent={
                 <FoodWorkspace
                   recipes={recipes}

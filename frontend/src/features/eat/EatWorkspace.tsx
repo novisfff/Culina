@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import { ActionButton, StateBlock } from '../../components/ui-kit';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
+import { buildEatTaskBodies } from './EatTaskBodies';
 import './eat-route.css';
 import '../meals/meal-route.css';
 import './recipe-route.css';
@@ -21,6 +22,8 @@ export type EatWorkspaceProps = {
   recipeTaskContent?: ReactNode;
   cookTaskContent?: ReactNode;
   mealCreateContent?: ReactNode;
+  /** Route-owned adapter inputs; keeps task body construction out of the app shell. */
+  taskBodyArgs?: Parameters<typeof buildEatTaskBodies>[0];
 };
 
 function returnLabel(view: AppNavigationService['state']['eat']['baseView']): string {
@@ -413,6 +416,16 @@ function renderResolvedTask(
  * Does not own domain mutations, recommendations, or query fetching.
  */
 export function EatWorkspace(props: EatWorkspaceProps) {
+  const taskBodies = props.taskBodyArgs ? buildEatTaskBodies(props.taskBodyArgs) : {};
+  const taskContentProps = {
+    foodTaskContent: props.foodTaskContent ?? taskBodies.foodTaskContent,
+    planTaskContent: props.planTaskContent ?? taskBodies.planTaskContent,
+    mealTaskContent: props.mealTaskContent ?? taskBodies.mealTaskContent,
+    recipeTaskContent: props.recipeTaskContent ?? taskBodies.recipeTaskContent,
+    cookTaskContent: props.cookTaskContent ?? taskBodies.cookTaskContent,
+    mealCreateContent: props.mealCreateContent ?? taskBodies.mealCreateContent,
+  };
+  const resolvedProps = { ...props, ...taskContentProps };
   if (props.resolvedTask.kind === 'cook') {
     return (
       <main className="eat-workspace eat-workspace-cook-mode recipe-workspace recipe-workspace-cook-mode">
@@ -425,7 +438,7 @@ export function EatWorkspace(props: EatWorkspaceProps) {
             {props.discoverContent ?? null}
           </section>
         ) : null}
-        {renderResolvedTask(props, {
+        {renderResolvedTask(resolvedProps, {
           headingRef: props.navigation.registerTaskHeading as Ref<HTMLHeadingElement>,
         })}
         <div className="sr-only" aria-live="polite">
@@ -444,10 +457,10 @@ export function EatWorkspace(props: EatWorkspaceProps) {
           tabIndex={-1}
           aria-label="当前吃什么列表"
         >
-          {renderBaseView(props)}
+          {renderBaseView(resolvedProps)}
         </section>
 
-        {renderResolvedTask(props, {
+        {renderResolvedTask(resolvedProps, {
           headingRef: props.navigation.registerTaskHeading as Ref<HTMLHeadingElement>,
         })}
       </div>
