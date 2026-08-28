@@ -4,6 +4,7 @@ import { ActionButton, StateBlock } from '../../components/ui-kit';
 import type { ResolvedEatTask } from './EatWorkspaceViewModel';
 import './eat-route.css';
 import '../meals/meal-route.css';
+import './recipe-route.css';
 
 export type EatWorkspaceProps = {
   navigation: AppNavigationService;
