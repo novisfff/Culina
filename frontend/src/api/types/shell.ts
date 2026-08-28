@@ -1,7 +1,14 @@
 /** Application shell, identity, and family-administration contracts. */
-import type { AiRecommendation } from '../types';
 import type { MediaAsset } from './media';
 import type { UserRole } from './primitives';
+
+export interface AiRecommendation {
+  id: string;
+  family_id: string;
+  title: string;
+  detail: string;
+  created_at: string;
+}
 
 export interface UserSummary {
   id: string;
