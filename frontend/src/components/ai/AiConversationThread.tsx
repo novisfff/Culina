@@ -829,9 +829,8 @@ export function MessageBubble({
                     ? '请先处理最新的待确认草稿。'
                     : undefined;
               return (
-                <AiApprovalHost open busy={isSubmittingThisApproval}>
+                <AiApprovalHost key={item.key} open busy={isSubmittingThisApproval}>
                 <ApprovalPanel
-                  key={item.key}
                   approval={part.approval}
                   foods={foods}
                   ingredients={ingredients}
