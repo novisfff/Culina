@@ -40,7 +40,7 @@
   /* Shared color treatment for primary orange action buttons. */
   --brand-button-bg: var(--accent);
   --brand-button-bg-hover: var(--accent-strong);
-  --brand-button-radius: 24px;
+  --brand-button-radius: var(--radius-sm);
   --brand-button-shadow: 0 10px 22px rgba(210, 107, 51, 0.18);
   --brand-button-shadow-hover: 0 12px 26px rgba(210, 107, 51, 0.22);
   --sage-soft: var(--info-soft);
