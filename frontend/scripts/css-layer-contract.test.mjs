@@ -39,7 +39,6 @@ describe('CSS cascade layer contract', () => {
     expect(entrypoint).toContain("@import './styles/shell-responsive.css' layer(responsive);");
     expect(entrypoint).toContain("@import './styles/compatibility-responsive.css' layer(compatibility);");
     expect(homeRoute).toContain("@import '../01-home-dashboard.css' layer(domain);");
-    expect(homeRoute).toContain("@import '../home-responsive.css' layer(responsive);");
     expect(aiRoute).toContain("@import '../09-ai-workspace.css' layer(domain);");
     expect(aiRoute).toContain("@import '../09-ai-draft-ui.css' layer(domain);");
     expect(responsiveEntrypoint).not.toContain("@import './07-mobile.css';");

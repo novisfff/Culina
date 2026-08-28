@@ -7,3 +7,4 @@
 @import './styles/shell.css' layer(shell);
 @import './styles/shell-responsive.css' layer(responsive);
 @import './styles/compatibility-responsive.css' layer(compatibility);
+@import './styles/responsive.css' layer(responsive);

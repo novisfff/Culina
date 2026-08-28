@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-void import('../../styles/routes/food.css');
+import '../../styles/routes/food.css';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { isApiError } from '../../api/request';

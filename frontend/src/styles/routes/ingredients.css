@@ -2,5 +2,3 @@
 @import '../05-workspace-overlays.css' layer(domain);
 @import '../10-inventory-actions.css' layer(domain);
 @import '../11-inventory-maintenance.css' layer(domain);
-@import '../ingredients-responsive.css' layer(responsive);
-@import '../inventory-responsive.css' layer(responsive);
