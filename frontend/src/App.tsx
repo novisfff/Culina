@@ -14,6 +14,7 @@ import { useAppMutations } from './app/useAppMutations';
 import { useAppNavigationState } from './app/useAppNavigationState';
 import { useAppWorkspaceQueries } from './app/useAppWorkspaceQueries';
 import { useAppNavigationEffects } from './app/useAppNavigationEffects';
+import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { buildEatTaskBodies } from './features/eat/EatTaskBodies';
 import { EatWorkspace } from './features/eat/EatWorkspace';
 import {
@@ -1211,6 +1212,7 @@ function App() {
         });
       }}
     >
+      <AppWorkspaceRouter navigationState={navigation.state}>
 
           {navigation.state.primaryTab === 'home' && (
           <HomeDashboard
@@ -1896,6 +1898,7 @@ function App() {
           }
         />
 
+      </AppWorkspaceRouter>
     </AppShell>
   );
 }
