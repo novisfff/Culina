@@ -848,9 +848,8 @@ export function MessageBubble({
               const isPendingHumanInput = isPendingHumanInputPart(part);
               const isCancelledHumanInput = part.status === 'cancelled';
               return (
-                <AiHumanInputHost open>
+                <AiHumanInputHost key={item.key} open>
                 <HumanInputRequestPanel
-                  key={item.key}
                   message={message}
                   request={part.request}
                   response={part.response}
