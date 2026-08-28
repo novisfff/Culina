@@ -16,7 +16,7 @@ import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { useAppHomeShoppingState } from './app/useAppHomeController';
 import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
-import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
+import { AppWorkspaceRouter, WorkspaceLoadingFallback } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppHomeDashboardDialogs } from './app/AppHomeDashboardDialogs';
 import { AppInventoryMaintenanceDialogs } from './app/AppInventoryMaintenanceDialogs';
@@ -41,9 +41,6 @@ import {
   buildInventoryActionGroups,
   selectHomeEligibleInventoryActionGroups,
 } from './features/inventory/inventoryActionModel';
-import {
-  EmptyState,
-} from './components/ui-kit';
 import {
   todayKey,
 } from './lib/ui';
@@ -87,16 +84,6 @@ const FoodWorkspace = lazy(() =>
 const IngredientWorkspace = lazy(() =>
   import('./components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace }))
 );
-function WorkspaceLoadingFallback() {
-  return (
-    <main className="page-stack">
-      <section className="card page-section">
-        <EmptyState title="正在准备家庭厨房" description="页面内容正在加载，请稍候。" />
-      </section>
-    </main>
-  );
-}
-
 function App() {
   const {
     isAuthenticated,
