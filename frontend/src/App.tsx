@@ -56,8 +56,7 @@ import {
   InventoryOperationBanner,
   selectRecentBannerOperation,
 } from './features/inventory/InventoryOperationBanner';
-import { useInventoryReconciliationActions } from './features/inventory/useInventoryReconciliationActions';
-import { useInventoryReconciliationState } from './features/inventory/useInventoryReconciliationState';
+import { useReconciliationController } from './features/inventory/useReconciliationController';
 import { useShoppingIntakeActions } from './features/inventory/useShoppingIntakeActions';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
 import { storageLocationForScope } from './features/inventory/inventoryReconciliationScope';
@@ -432,12 +431,10 @@ function App() {
     },
   });
 
-  const reconciliationState = useInventoryReconciliationState();
-  const reconciliationActions = useInventoryReconciliationActions({
+  const reconciliationController = useReconciliationController({
     familyId: family?.id ?? '',
     userId: user?.id ?? '',
     referenceDate: homeBusinessDateKey,
-    state: reconciliationState,
     fetchReconciliation: async ({ scope, storageLocation }) =>
       api.getInventoryReconciliation({
         scope,
@@ -449,6 +446,7 @@ function App() {
     },
     showNotice,
   });
+  const { state: reconciliationState, actions: reconciliationActions } = reconciliationController;
 
   const homeShoppingState = useAppHomeShoppingState({
     ingredients,
