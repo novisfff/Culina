@@ -72,7 +72,7 @@
     },
     {
       "id": "ai-search",
-      "status": "active",
+      "status": "complete",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/09-ai-draft-ui.css",
@@ -81,11 +81,11 @@
       ],
       "owners": ["ai", "search"],
       "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
-      "rollbackCommit": "pending"
+      "rollbackCommit": "dbe462e1"
     },
     {
       "id": "compat-retire",
-      "status": "planned",
+      "status": "active",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": ["frontend/src/styles.css"],
       "owners": ["compatibility"],
