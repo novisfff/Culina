@@ -9,6 +9,16 @@ export default defineConfig({
   plugins: [react(), viteFrontendHealthManifestPlugin({ entryConfig: bundleEntrypoints })],
   build: {
     manifest: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/react-markdown/') || id.includes('/node_modules/remark-gfm/')) {
+            return 'ai-markdown-vendor';
+          }
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     proxy: {

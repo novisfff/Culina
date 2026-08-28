@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react';
-void import('../../styles/routes/model-usage.css');
 import type { UserRole } from '../../api/types/modelUsage';
 import { StateBlock } from '../../components/ui-kit';
 import { ModelUsageDesktopView } from './ModelUsageDesktopView';

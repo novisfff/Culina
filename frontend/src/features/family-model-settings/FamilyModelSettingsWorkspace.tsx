@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-void import('../../styles/routes/family-model-settings.css');
 import { StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,

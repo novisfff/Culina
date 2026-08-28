@@ -9,7 +9,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-void import('../../styles/routes/ingredients.css');
 import { createPortal } from 'react-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLogoIcon } from '../../app/shellIcons';

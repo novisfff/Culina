@@ -40,12 +40,12 @@ function collectNonTestSourceFiles(dir: string): string[] {
 
 describe('AI legacy style cleanup', () => {
   it('loads shared AI Draft styles from the dedicated stylesheet', () => {
-    const entry = readFileSync(resolve(repoRoot, 'src/styles/routes/ai.css'), 'utf8');
+    const entry = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
     const draftStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-draft-ui.css'), 'utf8');
     const aiWorkspaceStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
     const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/compatibility-responsive.css'), 'utf8');
 
-    expect(entry).toContain("@import '../09-ai-draft-ui.css' layer(domain);");
+    expect(entry).toContain("@import './styles/09-ai-draft-ui.css' layer(domain);");
     expect(draftStyles).toContain('.ai-draft-summary-card');
     expect(draftStyles).toContain('.ai-draft-section');
     expect(draftStyles).toContain('.ai-draft-impact-note');
@@ -146,11 +146,11 @@ describe('AI legacy style cleanup', () => {
   it('keeps AI welcome prompt styles out of the food workspace stylesheet', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
     const aiStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
-    const styleEntrypoint = readFileSync(resolve(repoRoot, 'src/styles/routes/ai.css'), 'utf8');
+    const styleEntrypoint = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
 
     expect(aiStyles).toContain('.ai-welcome-card');
     expect(aiStyles).toContain('.ai-suggestion-grid-card');
-    expect(styleEntrypoint).toContain("@import '../09-ai-workspace.css' layer(domain);");
+    expect(styleEntrypoint).toContain("@import './styles/09-ai-workspace.css' layer(domain);");
     expect(foodStyles).not.toContain('.ai-welcome-card');
     expect(foodStyles).not.toContain('.ai-suggestion-grid-card');
     expect(foodStyles).not.toContain('.ai-empty-prompt');

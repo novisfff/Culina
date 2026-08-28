@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-void import('../../styles/routes/home.css');
 import type {
   Food,
   FoodPlanItem,
