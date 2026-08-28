@@ -8,6 +8,7 @@ import {
   InventoryOperationBanner,
   isOperationStillRevertible,
   selectRecentBannerOperation,
+  selectRecentBannerOperationWithOverride,
 } from './InventoryOperationBanner';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -90,6 +91,11 @@ describe('InventoryOperationBanner helpers', () => {
     expect(selected?.operation_id).toBe('op-new');
     expect(isOperationStillRevertible(newest, Date.parse('2026-07-11T08:11:00.000Z'))).toBe(true);
     expect(isOperationStillRevertible(reverted, Date.parse('2026-07-11T08:11:00.000Z'))).toBe(false);
+  });
+
+  it('prefers a newer eligible override over the operation list', () => {
+    const override = { ...applied, operation_id: 'op-override', applied_at: '2026-07-11T08:14:00.000Z' };
+    expect(selectRecentBannerOperationWithOverride([applied], override, Date.parse('2026-07-11T08:14:30.000Z'))?.operation_id).toBe('op-override');
   });
 });
 

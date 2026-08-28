@@ -51,6 +51,19 @@ export function selectRecentBannerOperation(
   return eligible[0] ?? null;
 }
 
+export function selectRecentBannerOperationWithOverride(
+  operations: InventoryOperationResult[],
+  override: InventoryOperationResult | null,
+  nowMs: number,
+): InventoryOperationResult | null {
+  const fromList = selectRecentBannerOperation(operations, nowMs);
+  const fromOverride = override ? selectRecentBannerOperation([override], nowMs) : null;
+  if (fromOverride && (!fromList || Date.parse(fromOverride.applied_at) >= Date.parse(fromList.applied_at))) {
+    return fromOverride;
+  }
+  return fromList;
+}
+
 export function operationTypeLabel(operationType: InventoryOperationResult['operation_type']) {
   return operationType === 'shopping_intake' ? '本次购买已记录' : '本次盘点已完成';
 }

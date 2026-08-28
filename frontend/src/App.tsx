@@ -54,7 +54,7 @@ import { refreshHomeInventoryActions } from './features/home/useHomeInventoryRef
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
 import {
   InventoryOperationBanner,
-  selectRecentBannerOperation,
+  selectRecentBannerOperationWithOverride,
 } from './features/inventory/InventoryOperationBanner';
 import { useReconciliationController } from './features/inventory/useReconciliationController';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
@@ -466,14 +466,7 @@ function App() {
   });
 
   const recentBannerOperation = useMemo(() => {
-    const nowMs = Date.now();
-    const fromList = selectRecentBannerOperation(inventoryOperations, nowMs);
-    if (recentBannerOverride && selectRecentBannerOperation([recentBannerOverride], nowMs)) {
-      if (!fromList || Date.parse(recentBannerOverride.applied_at) >= Date.parse(fromList.applied_at)) {
-        return recentBannerOverride;
-      }
-    }
-    return fromList;
+    return selectRecentBannerOperationWithOverride(inventoryOperations, recentBannerOverride, Date.now());
   }, [inventoryOperations, recentBannerOverride]);
 
   const openOperationHistory = operationHistory.openHistory;
