@@ -13,7 +13,7 @@
 - `node frontend/scripts/bundle-manifest.mjs --check frontend/dist/.vite/frontend-health-manifest.json`：14 entries。
 - `npm run frontend:e2e:p0`：52/52 通过，覆盖固定移动/平板/桌面路径。
 
-尚未达到最终规格的项目：`api/types.ts` 仍是兼容单体；Eat task body 与 reconciliation Review/Summary 仍保留旧实现；AI controller 尚未完全替换旧 callback 链；route-owned CSS 与 bundle target hard-failure rollout 尚未完成。因此本跟踪记录不把当前阶段标记为最终验收。
+尚未达到最终规格的项目：`api/types.ts` 仍是兼容单体；AI controller 尚未完全替换旧 callback 链；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
 ## 1. 范围与基线
 
@@ -309,4 +309,4 @@ npm --prefix frontend run test -- src/features/inventory/InventoryReconciliation
 git diff --check
 ```
 
-上述定向测试均通过。随后运行全量 `npm run frontend:quality && npm run frontend:build`：249 个测试文件、1,902 个测试通过，style-token gate 通过，Vite 转换 685 modules，build 与 bundle checker 退出 0（历史 targetGap 仍为 warning）。之后重新运行 `npm run frontend:e2e:p0`，固定路径 52/52 通过。后续又将 Markdown 专属依赖显式拆为 `ai-markdown-vendor` chunk，并重新 build：686 modules、manifest 无 error，Markdown entryCritical gzip 降至约 0.88 KiB，但 AI routeTotal 仍超过目标。一次 route-owned CSS 实验因 P0 首帧/cascade 回归撤回，并在恢复全局样式、重建 dist 后以 52/52 P0 通过确认回滚有效。人工截图与 bundle target hard-failure rollout 仍未完成，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
+上述定向测试均通过。随后运行全量 `npm run frontend:quality && npm run frontend:build`：249 个测试文件、1,902 个测试通过，style-token gate 通过，Vite 转换 685 modules，build 与 bundle checker 退出 0（历史 targetGap 仍为 warning）。之后重新运行 `npm run frontend:e2e:p0`，固定路径 52/52 通过。后续又将 Markdown 专属依赖显式拆为 `ai-markdown-vendor` chunk，并重新 build：686 modules、manifest 无 error，Markdown entryCritical gzip 降至约 0.88 KiB，但 AI routeTotal 仍超过目标。一次 route-owned CSS 实验因 P0 首帧/cascade 回归撤回，并在恢复全局样式、重建 dist 后以 52/52 P0 通过确认回滚有效。新增 bundle rollout state 校验与 checker 集成测试（18 个脚本测试通过）；当前所有入口仍为 ratchet，target 仅在连续 build/viewport 证据完整后启用。人工截图与 route-owned CSS 仍未完成，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
