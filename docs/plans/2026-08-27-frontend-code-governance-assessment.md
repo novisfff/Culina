@@ -317,5 +317,6 @@ git diff --check
 
 - `36557051`：Ingredient 目录/库存摘要、状态、展开说明和采购原因迁入 `workspaceModel.ts`，并以 model 契约测试锁定展示结果；`IngredientWorkspace.tsx` 删除重复实现。
 - `69c3e70a`：Food 日期投影、食物类型归一化、推荐餐别、卡片主操作、采购资格和库存文案迁入 `FoodWorkspaceModel.ts`，保留 Workspace 的兼容导出。
+- `eeb1678d`：Ingredient 库存存储概览卡、图标和插图迁入独立 View，Workspace 仅传递数据与回调。
 
 本批验证：全量 Vitest 256 个文件 / 1,919 个测试通过；Vite 696 modules、manifest 无 error，bundle 历史超目标继续以 ratchet warning 输出；P0 固定路径 52/52 通过。构建后仍有未收敛的历史预算 gap，route-owned CSS、App/Ingredient/Food 大文件最终目标、连续 viewport 发布证据和 target hard-failure 尚未完成，不能据此勾选 Phase 3/5 最终验收。
