@@ -28,18 +28,23 @@ describe('CSS cascade layer contract', () => {
 
   it('assigns foundation, ui-kit, shell, domain, and responsive imports', async () => {
     const entrypoint = await readFrontend('src/styles.css');
+    const responsiveEntrypoint = await readFrontend('src/styles/responsive.css');
 
     expect(entrypoint).toContain("@import './styles/00-ui-kit.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/legacy-primitives.css' layer(primitives);");
     expect(entrypoint).toContain("@import './styles/shell.css' layer(shell);");
     expect(entrypoint).toContain("@import './styles/01-home-dashboard.css' layer(domain);");
-    expect(entrypoint).toContain("@import './styles/07-mobile.css' layer(responsive);");
-    expect(entrypoint).toContain("@import './styles/family-responsive.css' layer(responsive);");
-    expect(entrypoint).toContain("@import './styles/home-responsive.css' layer(responsive);");
-    expect(entrypoint).toContain("@import './styles/recipe-responsive.css' layer(responsive);");
-    expect(entrypoint).toContain("@import './styles/meal-responsive.css' layer(responsive);");
-    expect(entrypoint).toContain("@import './styles/eat-responsive.css' layer(responsive);");
-    expect(entrypoint).toContain("@import './styles/shell-responsive.css' layer(responsive);");
+    expect(entrypoint).toContain("@import './styles/responsive.css' layer(responsive);");
+    expect(responsiveEntrypoint).toContain("@import './07-mobile.css';");
+    expect(responsiveEntrypoint).toContain("@import './family-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './home-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './recipe-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './meal-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './eat-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './ingredients-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './food-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './inventory-responsive.css';");
+    expect(responsiveEntrypoint).toContain("@import './shell-responsive.css';");
   });
 
   it('keeps only reset and tokens in foundation and shell rules in shell.css', async () => {

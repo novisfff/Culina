@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const editorSourcePath = resolve(__dirname, 'IngredientEditorView.tsx');
 const ingredientsStylePath = resolve(__dirname, '../../styles/04-ingredients-workspace.css');
-const mobileStylePath = resolve(__dirname, '../../styles/07-mobile.css');
+const mobileStylePath = resolve(__dirname, '../../styles/ingredients-responsive.css');
 
 const staleStorageChoiceClasses = [
   'ingredients-storage-choice-row',

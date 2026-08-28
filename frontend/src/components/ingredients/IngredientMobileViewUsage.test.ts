@@ -22,7 +22,7 @@ describe('IngredientMobileView shared overlay usage', () => {
 
   it('mobile ingredient page mixes ready food stock into inventory library', () => {
     const mobileSource = readFileSync(sourcePath, 'utf8');
-    const mobileCss = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileCss = readFileSync(resolve(__dirname, '../../styles/ingredients-responsive.css'), 'utf8');
     expect(mobileSource).toContain('mobileFoodStockItems');
     expect(mobileSource).toContain("type: 'food'");
     expect(mobileSource).toContain('mobile-ingredient-food-card');

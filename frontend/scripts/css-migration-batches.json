@@ -54,22 +54,25 @@
     },
     {
       "id": "ingredient-food-inventory",
-      "status": "active",
+      "status": "complete",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/04-ingredients-workspace.css",
+        "frontend/src/styles/ingredients-responsive.css",
         "frontend/src/styles/05-workspace-overlays.css",
         "frontend/src/styles/06-food-workspace.css",
+        "frontend/src/styles/food-responsive.css",
         "frontend/src/styles/10-inventory-actions.css",
-        "frontend/src/styles/11-inventory-maintenance.css"
+        "frontend/src/styles/11-inventory-maintenance.css",
+        "frontend/src/styles/inventory-responsive.css"
       ],
       "owners": ["ingredients", "food", "inventory"],
       "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
-      "rollbackCommit": "pending"
+      "rollbackCommit": "58f0d4db"
     },
     {
       "id": "ai-search",
-      "status": "planned",
+      "status": "active",
       "sources": ["frontend/src/styles/07-mobile.css"],
       "destinations": [
         "frontend/src/styles/09-ai-draft-ui.css",

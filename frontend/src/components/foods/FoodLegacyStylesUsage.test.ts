@@ -130,7 +130,7 @@ describe('Food legacy style cleanup', () => {
 
   it('keeps the food editor responsive rules in the food domain', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
-    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/food-responsive.css'), 'utf8');
 
     expect(foodStyles).toContain('.food-editor-recipe-action');
     expect(foodStyles).toContain('.food-editor-usage-panel');

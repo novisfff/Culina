@@ -5,13 +5,13 @@
       "src/styles/04-ingredients-workspace.css": 2,
       "src/styles/05-workspace-overlays.css": 1,
       "src/styles/06-food-workspace.css": 1,
-      "src/styles/07-mobile.css": 2,
+      "src/styles/ingredients-responsive.css": 2,
       "src/styles/home-responsive.css": 4,
       "src/styles/09-ai-workspace.css": 6,
       "src/styles/11-inventory-maintenance.css": 2
     },
     "radius-17px": {
-      "src/styles/07-mobile.css": 1,
+      "src/styles/ingredients-responsive.css": 1,
       "src/styles/family-responsive.css": 1,
       "src/styles/home-responsive.css": 1
     },
