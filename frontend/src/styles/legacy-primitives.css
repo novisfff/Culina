@@ -100,10 +100,17 @@
 }
 
 .tabbar-inner {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   gap: 10px;
+}
+
+.tabbar-notification-center {
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
 .tabbar-scroll {

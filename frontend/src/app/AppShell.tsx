@@ -575,6 +575,16 @@ export function AppShell({
         <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
           <nav className="tabbar" aria-label="顶部导航">
             <div className="tabbar-inner">
+              <AppNotificationCenter
+                items={notifications}
+                isLoading={notificationsLoading}
+                variant="desktop"
+                onDismissBackgroundTask={onDismissBackgroundTask}
+                onRetryBackgroundTask={onRetryBackgroundTask}
+                retryingBackgroundTaskId={retryingBackgroundTaskId}
+                onOpenModelUsageAlert={onOpenModelUsageAlert}
+                onDismissModelUsageAlert={onDismissModelUsageAlert}
+              />
               <div className="tabbar-scroll">
                 {PRIMARY_NAV_ITEMS.map((item) => (
                   <button
