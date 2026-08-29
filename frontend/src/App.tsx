@@ -319,6 +319,9 @@ function App() {
     transitionIngredientTrackingModeMutation,
     createInventoryMutation,
     upsertInventoryStateMutation,
+    snoozeStateExpiryAlertMutation,
+    correctStateExpiryDateMutation,
+    setInventoryStateAbsentMutation,
     consumeInventoryMutation,
     disposeExpiredInventoryMutation,
     snoozeInventoryExpiryAlertsMutation,
@@ -749,9 +752,12 @@ function App() {
     snoozeInventoryExpiryAlerts: (payload) => snoozeInventoryExpiryAlertsMutation.mutateAsync(payload),
     correctInventoryExpiryDate: (inventoryItemId, payload) =>
       correctInventoryExpiryDateMutation.mutateAsync({ inventoryItemId, payload }),
-    snoozeStateExpiryAlert: (ingredientId, payload) => api.snoozeStateExpiryAlert(ingredientId, payload),
-    correctStateExpiryDate: (ingredientId, payload) => api.correctStateExpiryDate(ingredientId, payload),
-    setInventoryStateAbsent: (ingredientId, payload) => api.setInventoryStateAbsent(ingredientId, payload),
+    snoozeStateExpiryAlert: (ingredientId, payload) =>
+      snoozeStateExpiryAlertMutation.mutateAsync({ ingredientId, payload }),
+    correctStateExpiryDate: (ingredientId, payload) =>
+      correctStateExpiryDateMutation.mutateAsync({ ingredientId, payload }),
+    setInventoryStateAbsent: (ingredientId, payload) =>
+      setInventoryStateAbsentMutation.mutateAsync({ ingredientId, payload }),
     refreshInventoryActions,
     completeActionGroup,
     closeActionGroup,

@@ -13,6 +13,9 @@ describe('app workspace port contracts', () => {
   it('keeps meal candidate loading outside App composition', () => {
     const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
     expect(appSource).not.toContain('api.getMealCandidates');
+    expect(appSource).not.toContain('api.snoozeStateExpiryAlert');
+    expect(appSource).not.toContain('api.correctStateExpiryDate');
+    expect(appSource).not.toContain('api.setInventoryStateAbsent');
     expect(appSource).toContain('useMealCandidateLoader');
   });
 
