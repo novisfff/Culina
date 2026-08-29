@@ -15,7 +15,8 @@ async function openFamilyModelSettings(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const mobileFamilyNavigation = page.locator('.mobile-bottom-nav:visible').getByRole('button', { name: '家庭' });
   const desktopFamilyNavigation = page.locator('.sidebar-nav:visible').getByRole('button', { name: '家庭' });
-  await mobileFamilyNavigation.or(desktopFamilyNavigation).click();
+  const topFamilyNavigation = page.locator('.tabbar:visible').getByRole('button', { name: '家庭' });
+  await mobileFamilyNavigation.or(desktopFamilyNavigation).or(topFamilyNavigation).click();
   await page.locator('.family-ai-services-entry:visible, .mobile-family-ai-services-entry:visible').first().click();
 }
 
@@ -23,7 +24,8 @@ async function openModelUsage(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const mobileFamilyNavigation = page.locator('.mobile-bottom-nav:visible').getByRole('button', { name: '家庭' });
   const desktopFamilyNavigation = page.locator('.sidebar-nav:visible').getByRole('button', { name: '家庭' });
-  await mobileFamilyNavigation.or(desktopFamilyNavigation).click();
+  const topFamilyNavigation = page.locator('.tabbar:visible').getByRole('button', { name: '家庭' });
+  await mobileFamilyNavigation.or(desktopFamilyNavigation).or(topFamilyNavigation).click();
   await page.locator('.family-model-usage-entry:visible, .mobile-family-model-usage-entry:visible').first().click();
 }
 
