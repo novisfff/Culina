@@ -5,7 +5,6 @@
 @import './styles/legacy-primitives.css' layer(primitives);
 @import './styles/00-ui-kit.css' layer(primitives);
 @import './styles/shell.css' layer(shell);
-@import './styles/04-ingredients-workspace.css' layer(domain);
 @import './styles/05-workspace-overlays.css' layer(domain);
 @import './styles/10-inventory-actions.css' layer(domain);
 @import './styles/11-inventory-maintenance.css' layer(domain);

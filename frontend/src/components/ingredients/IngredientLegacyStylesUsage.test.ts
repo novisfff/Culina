@@ -81,6 +81,14 @@ const currentWorkspaceStyleSelectors = [
 ];
 
 describe('Ingredient legacy style cleanup', () => {
+  it('loads ingredient workspace styles from the lazy route entry', () => {
+    const repoRoot = resolve(__dirname, '../../..');
+    const globalStyles = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
+    const routeStyles = readFileSync(resolve(__dirname, 'ingredient-route.css'), 'utf8');
+    expect(globalStyles).not.toContain("@import './styles/04-ingredients-workspace.css' layer(domain);");
+    expect(routeStyles).toContain("@import '../../styles/04-ingredients-workspace.css' layer(domain);");
+  });
+
   it('keeps ingredient workspace ownership in the ingredient stylesheet', () => {
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');

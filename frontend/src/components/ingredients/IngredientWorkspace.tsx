@@ -131,6 +131,7 @@ import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
 import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
 import { useIngredientInventoryRefresh } from './useIngredientInventoryRefresh';
 import { useIngredientFoodLookup } from './useIngredientFoodLookup';
+import './ingredient-route.css';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
