@@ -20,6 +20,14 @@ import { AppWorkspaceRouter, WorkspaceRouteBoundary } from './app/AppWorkspaceRo
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppHomeDashboardDialogs } from './app/AppHomeDashboardDialogs';
 import { AppInventoryMaintenanceDialogs } from './app/AppInventoryMaintenanceDialogs';
+import {
+  AppAiWorkspace as AiWorkspace,
+  AppEatWorkspace as EatWorkspace,
+  AppHomeDashboard as HomeDashboard,
+  AppMealLogWorkspace as MealLogWorkspace,
+  AppFoodWorkspace as FoodWorkspace,
+  AppIngredientWorkspace as IngredientWorkspace,
+} from './app/AppWorkspaceEntries';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
   relatedSelfMadeFoods,
@@ -66,24 +74,6 @@ import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
 import { AppFamilyWorkspace } from './app/AppFamilyWorkspace';
 
-const AiWorkspace = lazy(() =>
-  import('./components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace }))
-);
-const EatWorkspace = lazy(() =>
-  import('./features/eat/EatWorkspace').then((module) => ({ default: module.EatWorkspace }))
-);
-const HomeDashboard = lazy(() =>
-  import('./features/home/HomeDashboard').then((module) => ({ default: module.HomeDashboard }))
-);
-const MealLogWorkspace = lazy(() =>
-  import('./features/meals/MealLogWorkspace').then((module) => ({ default: module.MealLogWorkspace }))
-);
-const FoodWorkspace = lazy(() =>
-  import('./components/foods/FoodWorkspace').then((module) => ({ default: module.FoodWorkspace }))
-);
-const IngredientWorkspace = lazy(() =>
-  import('./components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace }))
-);
 function App() {
   const {
     isAuthenticated,

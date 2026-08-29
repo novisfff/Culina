@@ -8,10 +8,15 @@ describe('AppWorkspaceRouter route contract', () => {
   it('owns the shared workspace loading fallback in the app composition layer', () => {
     const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
     const routerSource = readFileSync(resolve(__dirname, './AppWorkspaceRouter.tsx'), 'utf8');
+    const entriesSource = readFileSync(resolve(__dirname, './AppWorkspaceEntries.ts'), 'utf8');
     expect(appSource).not.toContain('function WorkspaceLoadingFallback');
     expect(appSource).not.toContain('fallback={<WorkspaceLoadingFallback />');
     expect(routerSource).toContain('WorkspaceLoadingFallback');
     expect(routerSource).toContain('WorkspaceRouteBoundary');
+    expect(appSource).not.toContain("import('./features/eat/EatWorkspace')");
+    expect(appSource).not.toContain("import('./components/ingredients/IngredientWorkspace')");
+    expect(entriesSource).toContain('AppAiWorkspace');
+    expect(entriesSource).toContain('AppIngredientWorkspace');
   });
 
   it('selects one route for each primary workspace', () => {
