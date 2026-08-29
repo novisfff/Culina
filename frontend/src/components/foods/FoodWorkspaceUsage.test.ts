@@ -23,6 +23,8 @@ describe('FoodWorkspace navigation usage', () => {
     const appNavigationSource = readFileSync(resolve(repoRoot, 'src/app/useAppGlobalSearchNavigation.ts'), 'utf8');
     const stateSource = readFileSync(resolve(repoRoot, 'src/components/foods/useFoodWorkspaceState.ts'), 'utf8');
     const workspaceSource = readSource('FoodWorkspace.tsx');
+    const navigationModelSource = readSource('FoodNavigationModel.ts');
+    const navigationHookSource = readSource('useFoodNavigationRequests.ts');
 
     expect(appNavigationSource).toContain("target?: 'detail' | 'edit' | 'quickMeal'");
     expect(appNavigationSource).toContain("quickMealAction?: 'eat' | 'cook'");
@@ -31,9 +33,9 @@ describe('FoodWorkspace navigation usage', () => {
     expect(appNavigationSource).not.toContain('setFoodNavigationRequest');
     expect(stateSource).toContain("args.navigationRequest?.target === 'edit'");
     expect(stateSource).toContain("args.navigationRequest?.target === 'quickMeal'");
-    expect(workspaceSource).toContain('resolveFoodNavigationRequestAction');
-    expect(workspaceSource).toContain('handledNavigationRequestIdRef');
-    expect(workspaceSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
+    expect(navigationModelSource).toContain('resolveFoodNavigationRequestAction');
+    expect(navigationHookSource).toContain('handledRequestIdRef');
+    expect(navigationModelSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
     expect(stateSource).toContain('expected_row_version: editingFood.row_version');
     expect(workspaceSource).toMatch(/updateFoodFavorite\(food\.id, !food\.favorite, food\.row_version\)/);
     // Ordinary Food recording uses recordMeal + MealQuickRecordView; stock is a separate command.
