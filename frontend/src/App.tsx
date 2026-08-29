@@ -22,11 +22,11 @@ import { AppFoodWorkspaceRoute } from './app/AppFoodWorkspaceRoute';
 import { AppIngredientWorkspaceRoute } from './app/AppIngredientWorkspaceRoute';
 import { AppHomeWorkspaceRoute } from './app/AppHomeWorkspaceRoute';
 import { AppEatWorkspaceRoute } from './app/AppEatWorkspaceRoute';
+import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
 import {
-  AppMealLogWorkspace as MealLogWorkspace,
 } from './app/AppWorkspaceEntries';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
@@ -1288,7 +1288,7 @@ function App() {
                 />
               }
               historyContent={
-                <MealLogWorkspace
+                <AppMealLogWorkspaceRoute
                   foodPlanItems={foodPlanItems}
                   members={members}
                   recentMeals={recentMeals}
