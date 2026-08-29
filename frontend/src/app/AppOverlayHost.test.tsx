@@ -20,6 +20,7 @@ describe('AppOverlayHost overlay contract', () => {
     expect(hostSource).toContain('AppGlobalOverlays');
     expect(hostSource).toContain('NormalizedOverlayState');
     expect(hostSource).toContain('AppOverlayContent');
+    expect(hostSource).not.toContain('children?: ReactNode');
   });
 
   it('represents no overlay as a single discriminated state', () => {
