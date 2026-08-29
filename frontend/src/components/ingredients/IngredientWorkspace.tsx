@@ -47,8 +47,6 @@ import { ShoppingHistoryRow as IngredientShoppingHistoryRow } from './ShoppingHi
 import { ShoppingWorkRow } from './ShoppingWorkRow';
 import { IngredientWorkspaceIcon, type IngredientWorkspaceIconName } from './IngredientWorkspaceIcon';
 import {
-  createClientRequestId,
-  getDefaultFoodStockMealType,
   isPendingShopping,
   resolveErrorMessage,
 } from './ingredientWorkspaceHelpers';
@@ -124,6 +122,7 @@ import {
 } from './useIngredientInventoryRefresh';
 import { useIngredientFoodLookup } from './useIngredientFoodLookup';
 import { useIngredientFoodStockMealRecord } from './useIngredientFoodStockMealRecord';
+import { useIngredientFoodStockNavigation } from './useIngredientFoodStockNavigation';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -830,99 +829,23 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 
-  function findUnifiedInventoryItemBySourceId(sourceId: string) {
-    return unifiedInventoryItems.find((item) => item.source_id === sourceId);
-  }
-
-  function handleOpenFoodStockFromInventory(foodId: string) {
-    const item = findUnifiedInventoryItemBySourceId(foodId);
-    if (item) {
-      setFoodStockAdjustDialog({
-        item,
-        quantity: '1',
-        unit: item.unit || '份',
-        expiryDate: item.expiry_date ?? '',
-        purchaseSource: item.purchase_source ?? '',
-        error: null,
-      });
-      return;
-    }
-    showNotice({
-      tone: 'warning',
-      title: '暂时无法补充库存',
-      message: '这项成品库存还没有加载完成，请稍后再试。',
-    });
-  }
-
-  /** Primary 减扣: open compact recordMeal. Inventory is a separate optional follow-up. */
-  function handleRecordFoodStockMeal(foodId: string) {
-    const item = findUnifiedInventoryItemBySourceId(foodId);
-    if (!item) {
-      showNotice({
-        tone: 'warning',
-        title: '暂时无法打开扣减流程',
-        message: '这项成品库存还没有加载完成，请稍后再试。',
-      });
-      return;
-    }
-    const food =
-      props.foods.find((entry) => entry.id === foodId) ??
-      readyFoodOptions.find((entry) => entry.id === foodId) ??
-      null;
-    if (!food) {
-      // Inventory-only path when Food entity is not loaded.
-      setFoodStockDeductDialog({
-        item,
-        stockQuantity: item.quantity && item.quantity > 0 ? '1' : '',
-        error: null,
-      });
-      return;
-    }
-    setQuickRecord({
-      food,
-      item,
-      date: mealBusinessDate,
-      mealType: getDefaultFoodStockMealType(),
-      target: { kind: 'new' },
-      selectedCandidateId: null,
-      candidateMode: 'none',
-      candidates: [],
-      candidateResolution: { status: 'loading' },
-      targetTouchedByUser: false,
-      clientRequestId: createClientRequestId(),
-      busy: false,
-      error: null,
-    });
-  }
-
-  async function handleAddFoodShopping(foodId: string) {
-    let food = readyFoodOptions.find((item) => item.id === foodId) ?? null;
-    if (!food) {
-      const item = findUnifiedInventoryItemBySourceId(foodId);
-      if (!item) {
-        showNotice({ tone: 'warning', title: '暂时无法加入采购清单', message: '这项成品信息还没有加载完成，请稍后再试。' });
-        return;
-      }
-      try {
-        food = await lookupFood(item.title, foodId);
-      } catch (error) {
-        showNotice({
-          tone: 'warning',
-          title: '暂时无法加入采购清单',
-          message: resolveErrorMessage(error, '这项成品信息暂时没有查到，请稍后再试。'),
-        });
-        return;
-      }
-      if (food) {
-        setTransientShoppingFood(food);
-      }
-    }
-    if (!food) {
-      showNotice({ tone: 'warning', title: '暂时无法加入采购清单', message: '这项成品信息暂时没有查到，请稍后再试。' });
-      return;
-    }
-    openShoppingOverlay({ food, reason: '补充成品库存' });
-  }
+  const {
+    handleOpenFoodStockFromInventory,
+    handleRecordFoodStockMeal,
+    handleAddFoodShopping,
+  } = useIngredientFoodStockNavigation({
+    unifiedInventoryItems,
+    foods: props.foods,
+    readyFoodOptions,
+    lookupFood,
+    setFoodStockAdjustDialog,
+    setFoodStockDeductDialog,
+    setQuickRecord,
+    setTransientShoppingFood,
+    mealBusinessDate,
+    showNotice,
+    openShoppingOverlay,
+  });
 
   function handleInventoryEntryFilterChange(nextFilter: InventoryEntryFilter) {
     setInventoryEntryFilter(nextFilter);
