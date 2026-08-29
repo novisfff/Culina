@@ -24,10 +24,6 @@ import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
 import type { AppOverlayState } from './app/appOverlayState';
-import {
-  relatedSelfMadeFoods,
-  buildCookLaunchContext,
-} from './features/eat/eatCookLaunchModel';
 import type {
   InventoryOperationDetail,
   InventoryOperationResult,
@@ -69,6 +65,7 @@ import { resolveShoppingFormSubmission } from './components/ingredients/shopping
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
+import { useAppCookNavigation } from './app/useAppCookNavigation';
 
 function App() {
   const {
@@ -248,60 +245,13 @@ function App() {
     requestFoodPlanWeek(planDate);
   }, [requestFoodPlanWeek]);
 
-  // FoodWorkspace / plan surface still use the legacy (recipeId, foodPlanItemId?) signature.
-  // Exact-one selfMade relation: 0 or >1 matches → recipe-target (never arbitrary find()).
-  const startRecipeCook = useCallback((recipeId: string, foodPlanItemId?: string) => {
-    const related = relatedSelfMadeFoods(foods, recipeId);
-    const recipe = recipes.find((item) => item.id === recipeId) ?? null;
-    // Prefer latest plan detail query when the cook originates from a plan item.
-    const planItem = foodPlanItemId
-      ? (
-          (foodPlanDetail && foodPlanDetail.id === foodPlanItemId ? foodPlanDetail : null)
-          ?? foodPlanItems.find((item) => item.id === foodPlanItemId)
-          ?? null
-        )
-      : null;
-    // Plan cook requires OCC base. If week/detail cache miss, open plan-detail by id
-    // so the detail query supplies updated_at before cook starts.
-    if (foodPlanItemId && !planItem?.updated_at) {
-      navigation.navigate({ workspace: 'eat', view: 'plan', foodPlanItemId });
-      return;
-    }
-    if (related.length !== 1) {
-      // Fall back to recipe-target so missing/ambiguous relation errors surface in EatWorkspace.
-      navigation.navigate({ workspace: 'eat', view: 'recipe', recipeId });
-      return;
-    }
-    const linkedFood = related[0];
-    const launchContext = buildCookLaunchContext({
-      foodPlanItemId,
-      planItem,
-      servings: recipe?.servings,
-    });
-    navigation.navigate({
-      workspace: 'eat',
-      view: 'cook',
-      foodId: linkedFood.id,
-      recipeId,
-      launchContext,
-    });
-  }, [foodPlanDetail, foodPlanItems, foods, navigation, recipes]);
-
-  const startCookWithFood = useCallback((foodId: string, recipeId: string) => {
-    const recipe = recipes.find((item) => item.id === recipeId) ?? null;
-    navigation.navigate({
-      workspace: 'eat',
-      view: 'cook',
-      foodId,
-      recipeId,
-      launchContext: {
-        date: businessDateKey(new Date(), 'Asia/Shanghai'),
-        mealType: 'dinner',
-        servings: recipe?.servings && recipe.servings > 0 ? recipe.servings : 1,
-        source: { kind: 'direct' },
-      },
-    });
-  }, [navigation, recipes]);
+  const { startRecipeCook, startCookWithFood } = useAppCookNavigation({
+    foods,
+    recipes,
+    foodPlanItems,
+    foodPlanDetail,
+    navigate: navigation.navigate,
+  });
 
   useEffect(() => {
     if (!authLoading && !isWorkspaceBootLoading) {
