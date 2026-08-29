@@ -471,30 +471,6 @@ function App() {
     setSelectedRecipePlanDate(foodPlanDetail.plan_date);
   }, [foodPlanDetail, navigation.state.eat.task]);
 
-  if (authInitializing) {
-    return (
-      <AuthStatusScreen
-        title="正在连接家庭厨房…"
-        description="正在恢复登录状态…"
-      />
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <LoginScreen />;
-  }
-
-  const isBootLoading = authLoading || (!hasBooted && isWorkspaceBootLoading);
-
-  if (isBootLoading) {
-    return (
-      <AuthStatusScreen
-        title="正在连接家庭厨房…"
-        description="家庭数据加载中…"
-      />
-    );
-  }
-
   const {
     homePlanDetailItem,
     homePlanDetailFood,
@@ -925,6 +901,29 @@ function App() {
     onCompletionSecondaryAction: openIngredientShopping,
     resolveAssetUrl: resolveDashboardAssetUrl,
   };
+
+  if (authInitializing) {
+    return (
+      <AuthStatusScreen
+        title="正在连接家庭厨房…"
+        description="正在恢复登录状态…"
+      />
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
+
+  const isBootLoading = authLoading || (!hasBooted && isWorkspaceBootLoading);
+  if (isBootLoading) {
+    return (
+      <AuthStatusScreen
+        title="正在连接家庭厨房…"
+        description="家庭数据加载中…"
+      />
+    );
+  }
 
   return (
     <AppShell
