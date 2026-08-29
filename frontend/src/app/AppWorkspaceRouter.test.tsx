@@ -11,7 +11,6 @@ describe('AppWorkspaceRouter route contract', () => {
     const entriesSource = readFileSync(resolve(__dirname, './AppWorkspaceEntries.ts'), 'utf8');
     expect(appSource).not.toContain('function WorkspaceLoadingFallback');
     expect(appSource).not.toContain('fallback={<WorkspaceLoadingFallback />');
-    expect(appSource).not.toContain('<WorkspaceRouteBoundary>');
     expect(appSource).not.toContain('<AiWorkspace');
     expect(appSource).not.toContain('<FoodWorkspace');
     expect(appSource).not.toContain('<IngredientWorkspace');

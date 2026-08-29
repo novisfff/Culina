@@ -16,7 +16,7 @@ import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { useAppHomeShoppingState } from './app/useAppHomeController';
 import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
-import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
+import { AppWorkspaceRouter, WorkspaceRouteBoundary } from './app/AppWorkspaceRouter';
 import { AppAiWorkspaceRoute } from './app/AppAiWorkspaceRoute';
 import { AppFoodWorkspaceRoute } from './app/AppFoodWorkspaceRoute';
 import { AppIngredientWorkspaceRoute } from './app/AppIngredientWorkspaceRoute';
@@ -1058,6 +1058,7 @@ function App() {
       <AppWorkspaceRouter navigationState={navigation.state}>
 
           {navigation.state.primaryTab === 'home' && (
+          <WorkspaceRouteBoundary>
           <AppHomeWorkspaceRoute
             sidebarFamilyName={sidebarFamilyName}
             sidebarMotto={sidebarMotto}
@@ -1132,9 +1133,11 @@ function App() {
             onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
             onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
           />
+          </WorkspaceRouteBoundary>
         )}
 
         {navigation.state.primaryTab === 'eat' ? (
+          <WorkspaceRouteBoundary>
             <AppEatWorkspaceRoute
               navigation={navigation}
               taskResolutionArgs={{
@@ -1333,9 +1336,11 @@ function App() {
                 />
               }
             />
+          </WorkspaceRouteBoundary>
         ) : null}
 
         {navigation.state.primaryTab === 'ingredients' && (
+          <WorkspaceRouteBoundary>
             <AppIngredientWorkspaceRoute
               ingredients={ingredients}
               foods={foods}
@@ -1400,9 +1405,11 @@ function App() {
               isCreatingShopping={createShoppingMutation.isPending}
               isUpdatingShopping={updateShoppingMutation.isPending || deleteShoppingMutation.isPending}
             />
+          </WorkspaceRouteBoundary>
         )}
 
         {navigation.state.primaryTab === 'ai' && (
+          <WorkspaceRouteBoundary>
             <AppAiWorkspaceRoute
               familyId={family?.id ?? ''}
               conversations={aiConversations}
@@ -1413,6 +1420,7 @@ function App() {
               onBackHome={() => navigation.navigate({ workspace: 'home' })}
               onNavigate={navigation.navigate}
             />
+          </WorkspaceRouteBoundary>
         )}
 
         {navigation.state.primaryTab === 'family' && (
