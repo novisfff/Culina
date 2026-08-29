@@ -104,6 +104,7 @@ import {
   filterMobileLibraryFoods,
   paginateMobileSceneCards,
 } from './FoodMobileLibraryModel';
+import { buildFoodEditorSceneTagOptions, buildRecipeEditorSceneTagOptions } from './FoodWorkspaceViewModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { useFoodWorkspaceSearch } from './useFoodWorkspaceSearch';
 import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
@@ -587,13 +588,11 @@ export function FoodWorkspace(props: Props) {
   const editorCompletionItems = editorCompletion.items;
   const editorCompletedCount = editorCompletion.completedCount;
   const editorCompletionPercent = editorCompletion.percent;
-  const sceneTagOptions = useMemo(() => {
-    const names = new Set<string>();
-    props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
-    props.foods.forEach((food) => getFoodSceneTags(food).forEach((tag) => names.add(tag)));
-    editorSceneTags.forEach((tag) => names.add(tag));
-    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
-  }, [editorSceneTags, props.foodScenes, props.foods]);
+  const sceneTagOptions = buildFoodEditorSceneTagOptions({
+    foodScenes: props.foodScenes,
+    foods: props.foods,
+    editorSceneTags,
+  });
   const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
   const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
   const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 种食材 · ${currentRecipe.steps.length} 步` : '还没有菜谱';
@@ -620,12 +619,10 @@ export function FoodWorkspace(props: Props) {
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
   const recipeEditorCompletionItems = recipeEditorCompletion.items;
   const recipeEditorCompletionPercent = recipeEditorCompletion.percent;
-  const recipeEditorSceneSelectOptions = useMemo(() => {
-    const names = new Set<string>();
-    props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
-    props.recipes.forEach((recipe) => recipe.scene_tags?.forEach((tag) => names.add(tag)));
-    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
-  }, [props.foodScenes, props.recipes]);
+  const recipeEditorSceneSelectOptions = buildRecipeEditorSceneTagOptions({
+    foodScenes: props.foodScenes,
+    recipes: props.recipes,
+  });
   const recipeEditorImagePayload = buildRecipeImagePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
   const recipeEditorImageComposer = useImageComposer({
     value: recipeEditor.form.images,

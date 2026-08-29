@@ -1,4 +1,4 @@
-import type { Food, Recipe, FoodType, MealType } from '../../api/types/food';
+import type { Food, FoodScene, Recipe, FoodType, MealType } from '../../api/types/food';
 import type { MealLog } from '../../api/types/meal';
 import type { FoodWorkspaceLens } from './FoodWorkspaceOptions';
 import { getFoodSceneTags, isFoodExpiring, isFoodMissingDecisionInfo, isOutsideFood, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
@@ -21,4 +21,31 @@ export function filterFoodWorkspaceItems(
   lensFilter: FoodWorkspaceLens = 'all', recipes: Recipe[] = [], matchedFoodIds: readonly string[] = [],
 ) {
   return buildFoodWorkspaceViewModel({ foods, recipes, mealLogs: [], search, typeFilter, mealFilter, lensFilter, matchedFoodIds }).items;
+}
+
+function sortedUniqueSceneTags(tags: Iterable<string>) {
+  return Array.from(new Set(Array.from(tags).map((tag) => tag.trim()).filter(Boolean)))
+    .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+export function buildFoodEditorSceneTagOptions(args: {
+  foodScenes: FoodScene[];
+  foods: Food[];
+  editorSceneTags: readonly string[];
+}) {
+  return sortedUniqueSceneTags([
+    ...args.foodScenes.filter((scene) => !scene.hidden).map((scene) => scene.name),
+    ...args.foods.flatMap((food) => getFoodSceneTags(food)),
+    ...args.editorSceneTags,
+  ]);
+}
+
+export function buildRecipeEditorSceneTagOptions(args: {
+  foodScenes: FoodScene[];
+  recipes: Recipe[];
+}) {
+  return sortedUniqueSceneTags([
+    ...args.foodScenes.filter((scene) => !scene.hidden).map((scene) => scene.name),
+    ...args.recipes.flatMap((recipe) => recipe.scene_tags ?? []),
+  ]);
 }
