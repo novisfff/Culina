@@ -48,6 +48,7 @@ describe('FoodWorkspace navigation usage', () => {
   it('exports focused Food surfaces and keeps the unified workspace composition', () => {
     const discoverSource = readSource('FoodDiscoverSurface.tsx');
     const planSource = readSource('FoodPlanSurface.tsx');
+    const desktopSidebarSource = readSource('FoodDesktopSidebar.tsx');
     const workspaceSource = readSource('FoodWorkspace.tsx');
     const hubSource = readSource('FoodHubView.tsx');
     const mobileSource = readSource('FoodMobileView.tsx');
@@ -56,7 +57,10 @@ describe('FoodWorkspace navigation usage', () => {
     expect(discoverSource).toContain('export function FoodDiscoverSurface');
     expect(planSource).toContain('export function FoodPlanSurface');
     expect(workspaceSource).toContain('<FoodDiscoverSurface');
-    expect(workspaceSource).toContain('<FoodPlanSurface');
+    expect(workspaceSource).toContain('<FoodDesktopSidebar');
+    expect(workspaceSource).not.toContain('<FoodPlanSurface');
+    expect(desktopSidebarSource).toContain('<FoodPlanSurface');
+    expect(desktopSidebarSource).toContain('resolveFoodAssetUrl(scene.imageUrl)');
     expect(workspaceSource).not.toContain("surface?: 'discover' | 'plan'");
     expect(workspaceSource).not.toContain("surface === 'plan'");
     expect(discoverSource).not.toContain('<AppShell');
