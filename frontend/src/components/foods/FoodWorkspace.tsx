@@ -157,15 +157,14 @@ import {
   getFoodFactRows,
   getFoodMealHistory,
   getFoodAudienceText,
-  isFoodExpiring,
   getFoodGovernanceIssues,
   getFoodGovernanceIssueLabels,
-  isFoodMissingDecisionInfo,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
-import { buildFoodWorkspaceViewModel, filterFoodWorkspaceItems } from './FoodWorkspaceViewModel';
+import { filterFoodWorkspaceItems } from './FoodWorkspaceViewModel';
+import { useFoodGovernanceData } from './useFoodGovernanceData';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -462,24 +461,12 @@ export function FoodWorkspace(props: Props) {
     [props.foods, props.ingredients, props.inventoryItems, props.mealLogs, props.recipes]
   );
   const getFoodCookingSummary = (food: Food): FoodCookingSummary | null => buildFoodCookingSummaryFromRecipeCards(food, recipeCards);
-  const expiringFoods = useMemo(() => props.foods.filter(isFoodExpiring), [props.foods]);
-  const needsInfoFoods = useMemo(() => props.foods.filter((food) => isFoodMissingDecisionInfo(food, props.recipes)), [props.foods, props.recipes]);
-  const governanceIssueSummaries = useMemo(
-    () =>
-      FOOD_GOVERNANCE_ISSUE_OPTIONS.map((item) => ({
-        ...item,
-        count: props.foods.filter((food) => getFoodGovernanceIssues(food, props.recipes).includes(item.value)).length,
-      })),
-    [props.foods, props.recipes]
-  );
-  const governanceQueue = useMemo(
-    () =>
-      needsInfoFoods
-        .filter((food) => governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter))
-        .slice()
-        .sort((a, b) => getFoodGovernanceIssues(b, props.recipes).length - getFoodGovernanceIssues(a, props.recipes).length || b.updated_at.localeCompare(a.updated_at)),
-    [governanceIssueFilter, needsInfoFoods, props.recipes]
-  );
+  const { expiringFoods, needsInfoFoods, governanceIssueSummaries, governanceQueue } = useFoodGovernanceData({
+    foods: props.foods,
+    recipes: props.recipes,
+    issueFilter: governanceIssueFilter,
+    issueOptions: FOOD_GOVERNANCE_ISSUE_OPTIONS,
+  });
   const suggestedMealType = useMemo(() => getSuggestedMealTypeForHour(), []);
   const repeatFoods = useMemo(
     () =>
