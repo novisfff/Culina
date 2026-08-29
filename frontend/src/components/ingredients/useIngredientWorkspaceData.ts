@@ -7,9 +7,6 @@ import {
   buildIngredientSummaries,
   buildPrioritySurfaceRows,
   buildShoppingCardGroups,
-  buildShoppingCards,
-  buildShoppingOverview,
-  filterShoppingCards,
   filterIngredientSummaries,
   isSeasoningIngredient,
   type IngredientSummaryViewModel,
@@ -23,8 +20,11 @@ import type {
   InventoryQuickFilter,
   MobileIngredientFilter,
 } from './useIngredientWorkspaceState';
-import { buildIngredientCatalogViewModel } from './IngredientWorkspaceViewModel';
-import { buildIngredientInventoryViewModel } from './IngredientWorkspaceViewModel';
+import {
+  buildIngredientCatalogViewModel,
+  buildIngredientInventoryViewModel,
+  buildIngredientShoppingViewModel,
+} from './IngredientWorkspaceViewModel';
 
 type UseIngredientWorkspaceDataArgs = {
   ingredients: Ingredient[];
@@ -145,16 +145,24 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     const selectedIngredient =
       summaries.find((item) => item.ingredient.id === args.selectedIngredientId) ?? summaries[0] ?? null;
     const allAlerts = summaries.flatMap((item) => item.alerts);
-    const pendingShopping = args.shoppingItems.filter(args.isPendingShopping);
-    const completedShopping = args.shoppingItems.filter((item) => item.done);
-    const pendingShoppingCards = buildShoppingCards(pendingShopping, summaries, { foods: args.foods });
-    const completedShoppingCards = buildShoppingCards(completedShopping, summaries, { completed: true, foods: args.foods });
-    const shoppingOverview = buildShoppingOverview(pendingShoppingCards);
-    const visiblePendingShoppingCards = filterShoppingCards(pendingShoppingCards, args.shoppingSearch, args.shoppingFocus);
-    const visibleCompletedShoppingCards = filterShoppingCards(completedShoppingCards, args.shoppingSearch, 'all');
-    const visiblePendingShoppingGroups = buildShoppingCardGroups(visiblePendingShoppingCards);
-    const activeShoppingOverview =
-      shoppingOverview.find((item) => item.key === args.shoppingFocus) ?? shoppingOverview[0] ?? null;
+    const shoppingProjection = buildIngredientShoppingViewModel({
+      shoppingItems: args.shoppingItems,
+      summaries,
+      foods: args.foods,
+      search: args.shoppingSearch,
+      focus: args.shoppingFocus,
+      isPending: args.isPendingShopping,
+    });
+    const {
+      pendingShopping,
+      completedShoppingCards,
+      pendingShoppingCards,
+      shoppingOverview,
+      visiblePendingShoppingCards,
+      visibleCompletedShoppingCards,
+      visiblePendingShoppingGroups,
+      activeShoppingOverview,
+    } = shoppingProjection;
     const stockedIngredientCount = summaries.filter((item) => item.quantitySummaries.length > 0).length;
     const workspaceMetrics = [
       { label: '提醒', value: `${priorityActionCount} 种`, detail: '过期、临期或待补货需要优先处理' },

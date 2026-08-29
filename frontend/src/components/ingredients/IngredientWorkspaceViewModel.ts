@@ -3,12 +3,18 @@ import {
   buildIngredientCategoryFilters,
   buildIngredientSummaries,
   buildInventoryStorageOverview,
+  buildShoppingCardGroups,
+  buildShoppingCards,
+  buildShoppingOverview,
   buildStorageGroups,
+  filterShoppingCards,
   filterIngredientSummaries,
   filterIngredientSummariesForInventory,
   isSeasoningIngredient,
   sortInventorySummariesByExpiry,
   type IngredientSummaryViewModel,
+  type ShoppingCardFocus,
+  type ShoppingOverviewViewModel,
 } from './workspaceModel';
 import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
 import type { CatalogStatusFilter, InventoryQuickFilter } from './useIngredientWorkspaceState';
@@ -90,5 +96,30 @@ export function buildIngredientInventoryViewModel(args: {
     focusedInventorySummaries,
     inventoryStorageOverview: buildInventoryStorageOverview(filteredInventorySummaries),
     inventoryGroups,
+  };
+}
+
+export function buildIngredientShoppingViewModel(args: {
+  shoppingItems: ShoppingListItem[];
+  summaries: IngredientSummaryViewModel[];
+  foods: Food[];
+  search: string;
+  focus: ShoppingCardFocus;
+  isPending: (item: ShoppingListItem) => boolean;
+}) {
+  const pendingShopping = args.shoppingItems.filter(args.isPending);
+  const completedShopping = args.shoppingItems.filter((item) => item.done);
+  const pendingShoppingCards = buildShoppingCards(pendingShopping, args.summaries, { foods: args.foods });
+  const completedShoppingCards = buildShoppingCards(completedShopping, args.summaries, { completed: true, foods: args.foods });
+  const shoppingOverview = buildShoppingOverview(pendingShoppingCards);
+  return {
+    pendingShopping,
+    completedShoppingCards,
+    pendingShoppingCards,
+    shoppingOverview,
+    visiblePendingShoppingCards: filterShoppingCards(pendingShoppingCards, args.search, args.focus),
+    visibleCompletedShoppingCards: filterShoppingCards(completedShoppingCards, args.search, 'all'),
+    visiblePendingShoppingGroups: buildShoppingCardGroups(filterShoppingCards(pendingShoppingCards, args.search, args.focus)),
+    activeShoppingOverview: shoppingOverview.find((item: ShoppingOverviewViewModel) => item.key === args.focus) ?? shoppingOverview[0] ?? null,
   };
 }

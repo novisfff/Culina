@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Ingredient } from '../../api/types';
 import type { IngredientSummaryViewModel } from './workspaceModel';
-import { buildIngredientCatalogViewModel, buildIngredientInventoryViewModel } from './IngredientWorkspaceViewModel';
+import {
+  buildIngredientCatalogViewModel,
+  buildIngredientInventoryViewModel,
+  buildIngredientShoppingViewModel,
+} from './IngredientWorkspaceViewModel';
 
 describe('Ingredient catalog view model', () => {
   it('projects catalog filters and counts without React state', () => {
@@ -45,5 +49,24 @@ describe('Ingredient catalog view model', () => {
     expect(model.filteredInventorySummaries).toHaveLength(1);
     expect(model.focusedInventorySummaries[0]?.ingredient.id).toBe('i-1');
     expect(model.inventoryGroups).toHaveLength(1);
+  });
+
+  it('projects pending and completed shopping cards with the active focus', () => {
+    const model = buildIngredientShoppingViewModel({
+      shoppingItems: [
+        { id: 's-1', title: '番茄', done: false, reason: '', quantity: 1, unit: '个', updated_at: '' },
+        { id: 's-2', title: '鸡蛋', done: true, reason: '', quantity: 1, unit: '个', updated_at: '' },
+      ] as never,
+      summaries: [],
+      foods: [],
+      search: '番茄',
+      focus: 'all',
+      isPending: (item) => !item.done,
+    });
+
+    expect(model.pendingShoppingCards).toHaveLength(1);
+    expect(model.visiblePendingShoppingCards).toHaveLength(1);
+    expect(model.visiblePendingShoppingCards[0]?.title).toBe('番茄');
+    expect(model.visibleCompletedShoppingCards).toHaveLength(0);
   });
 });
