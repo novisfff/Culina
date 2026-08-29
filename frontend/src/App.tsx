@@ -23,6 +23,7 @@ import { AppIngredientWorkspaceRoute } from './app/AppIngredientWorkspaceRoute';
 import { AppHomeWorkspaceRoute } from './app/AppHomeWorkspaceRoute';
 import { AppEatWorkspaceRoute } from './app/AppEatWorkspaceRoute';
 import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
+import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
@@ -72,7 +73,6 @@ import { resolveShoppingFormSubmission } from './components/ingredients/shopping
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
-import { AppFamilyWorkspace } from './app/AppFamilyWorkspace';
 
 function App() {
   const {
@@ -1418,7 +1418,7 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'family' && (
-          <AppFamilyWorkspace
+          <AppFamilyWorkspaceRoute
             state={navigation.state}
             isOwner={isOwner}
             family={family ?? null}
