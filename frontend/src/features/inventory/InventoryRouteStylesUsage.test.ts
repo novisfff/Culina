@@ -8,8 +8,7 @@ describe('inventory maintenance route styles', () => {
     const globalStyles = readFileSync(resolve(repoRoot, 'styles.css'), 'utf8');
     const routeStyles = readFileSync(resolve(__dirname, 'inventory-route.css'), 'utf8');
     const entrySource = readFileSync(resolve(repoRoot, 'app/AppInventoryMaintenanceDialogs.tsx'), 'utf8');
-    expect(globalStyles).not.toContain("@import './styles/10-inventory-actions.css' layer(domain);");
-    expect(globalStyles).not.toContain("@import './styles/11-inventory-maintenance.css' layer(domain);");
+    expect(globalStyles).toContain("@import './features/inventory/inventory-route.css' layer(domain);");
     expect(routeStyles).toContain("@import '../../styles/10-inventory-actions.css' layer(domain);");
     expect(routeStyles).toContain("@import '../../styles/11-inventory-maintenance.css' layer(domain);");
     expect(entrySource).toContain("./routeEntries/inventory");

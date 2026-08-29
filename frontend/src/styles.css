@@ -6,4 +6,16 @@
 @import './styles/00-ui-kit.css' layer(primitives);
 @import './styles/shell.css' layer(shell);
 @import './styles/05-workspace-overlays.css' layer(domain);
+/* Legacy rollback mode only: route-owned styles are reassembled here. */
+@import './features/home/home-route.css' layer(domain);
+@import './features/eat/eat-route.css' layer(domain);
+@import './features/eat/recipe-route.css' layer(domain);
+@import './features/meals/meal-route.css' layer(domain);
+@import './components/ingredients/ingredient-route.css' layer(domain);
+@import './components/foods/food-route.css' layer(domain);
+@import './components/ai/ai-route.css' layer(domain);
+@import './features/family/family-route.css' layer(domain);
+@import './features/family-model-settings/family-model-settings-route.css' layer(domain);
+@import './features/model-usage/model-usage-route.css' layer(domain);
+@import './features/inventory/inventory-route.css' layer(domain);
 @import './styles/responsive.css' layer(responsive);

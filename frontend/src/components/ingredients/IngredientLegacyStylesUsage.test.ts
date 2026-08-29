@@ -85,7 +85,7 @@ describe('Ingredient legacy style cleanup', () => {
     const repoRoot = resolve(__dirname, '../../..');
     const globalStyles = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
     const routeStyles = readFileSync(resolve(__dirname, 'ingredient-route.css'), 'utf8');
-    expect(globalStyles).not.toContain("@import './styles/04-ingredients-workspace.css' layer(domain);");
+    expect(globalStyles).toContain("@import './components/ingredients/ingredient-route.css' layer(domain);");
     expect(routeStyles).toContain("@import '../../styles/04-ingredients-workspace.css' layer(domain);");
   });
 

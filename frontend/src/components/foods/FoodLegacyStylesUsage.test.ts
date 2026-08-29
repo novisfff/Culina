@@ -8,7 +8,7 @@ describe('Food legacy style cleanup', () => {
   it('loads Food domain styles from the lazy route entry', () => {
     const globalStyles = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
     const routeStyles = readFileSync(resolve(repoRoot, 'src/components/foods/food-route.css'), 'utf8');
-    expect(globalStyles).not.toContain("@import './styles/06-food-workspace.css' layer(domain);");
+    expect(globalStyles).toContain("@import './components/foods/food-route.css' layer(domain);");
     expect(routeStyles).toContain("@import '../../styles/06-food-workspace.css' layer(domain);");
   });
 
