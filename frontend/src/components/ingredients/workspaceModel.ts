@@ -6,11 +6,6 @@ import type {
   Recipe,
   ShoppingListItem,
 } from '../../api/types';
-import {
-  buildInventoryActionGroups,
-  type ExpiryInventoryActionGroup,
-  type InventoryActionGroup,
-} from '../../features/inventory/inventoryActionModel';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -50,6 +45,16 @@ export type {
 } from './workspaceTypes';
 export { buildShoppingOverview, filterShoppingCards } from './shoppingWorkspaceModel';
 export {
+  buildIngredientAlerts,
+  buildIngredientPriorityActionGroups,
+  buildPriorityGroupStatus,
+  buildPrioritySurfaceRows,
+  getPriorityGroupPrimaryLabel,
+  inventoryActionGroupsToAlerts,
+  type PrioritySurfaceRow,
+  type PrioritySurfaceShoppingBinding,
+} from './ingredientInventoryAlertsModel';
+export {
   buildIngredientCategoryFilters,
   getIngredientCategoryPreset,
   getIngredientEditorCategoryPresets,
@@ -74,14 +79,9 @@ export {
   REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS,
   ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS,
 } from './ingredientConfirmationModel';
-import {
-  buildExactIngredientConfirmation,
-  buildPresenceIngredientConfirmation,
-  buildFoodConfirmation,
-} from './ingredientConfirmationModel';
-import {
-  isSeasoningIngredient,
-} from './ingredientCategoryModel';
+import { buildExactIngredientConfirmation, buildPresenceIngredientConfirmation, buildFoodConfirmation } from './ingredientConfirmationModel';
+import { isSeasoningIngredient } from './ingredientCategoryModel';
+import { buildIngredientAlerts } from './ingredientInventoryAlertsModel';
 import type {
   CatalogCardStatusTone,
   DisposableExpiredInventoryItemViewModel,
@@ -289,136 +289,6 @@ function isAvailableInventory(item: InventoryItem, todayTime: number) {
     isRemainingInventory(item) &&
     (!item.expiry_date || new Date(item.expiry_date).getTime() >= todayTime)
   );
-}
-
-export function buildIngredientAlerts(
-  inventoryItems: InventoryItem[],
-  ingredients: Ingredient[],
-  today: string,
-  shoppingItems: ShoppingListItem[] = [],
-  inventoryStates: IngredientInventoryState[] = [],
-) {
-  const groups = buildInventoryActionGroups({
-    inventoryItems,
-    ingredients,
-    shoppingItems,
-    inventoryStates,
-    referenceDate: today,
-  });
-  return inventoryActionGroupsToAlerts(groups, ingredients);
-}
-
-export function inventoryActionGroupsToAlerts(
-  groups: InventoryActionGroup[],
-  ingredients: Ingredient[]
-): IngredientAlertViewModel[] {
-  const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
-  const alerts: IngredientAlertViewModel[] = [];
-
-  for (const group of groups) {
-    const ingredient = ingredientById.get(group.ingredientId);
-    if (group.kind === 'low_stock') {
-      alerts.push({
-        id: group.id,
-        ingredientId: group.ingredientId,
-        ingredientName: group.ingredientName,
-        title: group.title,
-        detail: group.detail,
-        tone: 'warning',
-        kind: 'lowStock',
-        storageLocation: ingredient?.default_storage || '',
-      });
-      continue;
-    }
-
-    // One alert per shared group so priority/action counts stay ingredient-level.
-    alerts.push({
-      id: group.id,
-      ingredientId: group.ingredientId,
-      ingredientName: group.ingredientName,
-      title: group.title,
-      detail: group.detail,
-      tone: group.severity === 'expires_later' ? 'warning' : 'danger',
-      kind: 'expiry',
-      severity: group.severity,
-      storageLocation: group.storageLocations[0] || ingredient?.default_storage || '',
-    });
-  }
-
-  return alerts;
-}
-
-export function buildIngredientPriorityActionGroups(args: {
-  inventoryItems: InventoryItem[];
-  ingredients: Ingredient[];
-  shoppingItems?: ShoppingListItem[];
-  inventoryStates?: IngredientInventoryState[];
-  referenceDate: string;
-}) {
-  return buildInventoryActionGroups({
-    inventoryItems: args.inventoryItems,
-    ingredients: args.ingredients,
-    shoppingItems: args.shoppingItems ?? [],
-    inventoryStates: args.inventoryStates ?? [],
-    referenceDate: args.referenceDate,
-  });
-}
-
-export type PrioritySurfaceShoppingBinding = {
-  ingredientId: string;
-  ingredientName: string;
-  reason: string;
-};
-
-export type PrioritySurfaceRow = {
-  group: InventoryActionGroup;
-  shoppingBinding: PrioritySurfaceShoppingBinding | null;
-};
-
-export function buildPrioritySurfaceRows(groups: InventoryActionGroup[]): PrioritySurfaceRow[] {
-  return groups.map((group) => ({
-    group,
-    shoppingBinding:
-      group.kind === 'low_stock'
-        ? {
-            ingredientId: group.ingredientId,
-            ingredientName: group.ingredientName,
-            reason: '库存不足',
-          }
-        : null,
-  }));
-}
-
-export function buildPriorityGroupStatus(group: InventoryActionGroup): InventoryCardStatusViewModel {
-  if (group.kind === 'low_stock') {
-    return {
-      label: '库存偏低',
-      tone: 'warning',
-      detail: group.detail,
-      priority: 2,
-    };
-  }
-  if (group.severity === 'expires_later') {
-    return {
-      label: '临期或过期',
-      tone: 'warning',
-      detail: group.detail,
-      priority: 2,
-    };
-  }
-  return {
-    label: '临期或过期',
-    tone: 'danger',
-    detail: group.detail,
-    priority: 3,
-  };
-}
-
-export function getPriorityGroupPrimaryLabel(group: InventoryActionGroup) {
-  if (group.kind === 'low_stock') {
-    return '加入采购清单';
-  }
-  return group.severity === 'expired' ? '处理过期库存' : '处理临期库存';
 }
 
 export function buildQuantitySummaries(inventoryItems: InventoryItem[]): QuantitySummaryViewModel[] {
