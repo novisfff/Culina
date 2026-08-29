@@ -3,10 +3,10 @@ import type { AppNavigationState } from './appNavigationModel';
 import { canRenderFamilyAiServices } from './appNavigationModel';
 import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../api/types/shell';
 
-const FamilySettings = lazy(() => import('../features/family/FamilySettings').then((module) => ({ default: module.FamilySettings })));
-const ModelUsageWorkspace = lazy(() => import('../features/model-usage/ModelUsageWorkspace').then((module) => ({ default: module.ModelUsageWorkspace })));
-const ModelUsageRequestLogsPage = lazy(() => import('../features/model-usage/ModelUsageRequestLogsPage').then((module) => ({ default: module.ModelUsageRequestLogsPage })));
-const FamilyModelSettingsWorkspace = lazy(() => import('../features/family-model-settings/FamilyModelSettingsWorkspace').then((module) => ({ default: module.FamilyModelSettingsWorkspace })));
+const FamilySettings = lazy(() => import('./routeEntries/family').then((module) => module.loadFamilySettings()));
+const ModelUsageWorkspace = lazy(() => import('./routeEntries/modelUsage').then((module) => module.loadModelUsageWorkspace()));
+const ModelUsageRequestLogsPage = lazy(() => import('./routeEntries/modelUsage').then((module) => module.loadModelUsageRequestLogs()));
+const FamilyModelSettingsWorkspace = lazy(() => import('./routeEntries/modelUsage').then((module) => module.loadFamilyModelSettings()));
 
 type FamilySettingsProps = ComponentProps<typeof FamilySettings>;
 

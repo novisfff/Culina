@@ -6,7 +6,6 @@ import { MODEL_USAGE_CAPABILITY_OPTIONS } from './modelUsageOptions';
 import { ModelUsageRequestLogs } from './ModelUsageRequestLogs';
 import type { ModelUsageRequestLogFilters } from './modelUsageRequestLogsModel';
 import { useModelUsageRequestLogs } from './useModelUsageRequestLogs';
-import './model-usage-route.css';
 
 type Props = {
   familyId: string;

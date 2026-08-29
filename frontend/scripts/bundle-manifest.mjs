@@ -66,7 +66,13 @@ function normalizeEntryConfig(entryConfig) {
     if (!id || !entry || typeof entry !== 'object' || typeof entry.source !== 'string' || !entry.source.startsWith('src/')) {
       throw new Error(`invalid bundle entrypoint: ${id}`);
     }
-    entries[id] = { source: entry.source, dynamic: Boolean(entry.dynamic) };
+    const styleSources = Array.isArray(entry.styleSources)
+      ? entry.styleSources.filter((source) => typeof source === 'string' && source.startsWith('src/'))
+      : [];
+    const additionalSources = Array.isArray(entry.additionalSources)
+      ? entry.additionalSources.filter((source) => typeof source === 'string' && source.startsWith('src/'))
+      : [];
+    entries[id] = { source: entry.source, dynamic: Boolean(entry.dynamic), styleSources, additionalSources };
   }
   return { version: 1, entries };
 }
@@ -75,7 +81,7 @@ function normalizeEntryConfig(entryConfig) {
 export function resolveLogicalEntry(source, entryConfig) {
   const config = normalizeEntryConfig(entryConfig);
   const matching = Object.entries(config.entries)
-    .filter(([, entry]) => entry.source === source)
+    .filter(([, entry]) => entry.source === source || entry.styleSources.includes(source) || entry.additionalSources.includes(source))
     .map(([id]) => id)
     .sort(compareText);
   if (matching.length > 1) {
@@ -160,6 +166,13 @@ function reachableAssets(rootChunk, chunks, assets, includeDynamic) {
   };
   visit(rootChunk.fileName, true);
   return reachable;
+}
+
+function ownedStyleAssets(entry, chunks) {
+  const sources = new Set(entry.styleSources ?? []);
+  return [...chunks.values()]
+    .filter((chunk) => sources.has(chunk.facadeSource))
+    .flatMap((chunk) => [chunk.fileName, ...chunk.css]);
 }
 
 
@@ -261,13 +274,16 @@ export function createFrontendHealthManifest({
         asset: chunk.fileName,
       }));
     }
+    const initialAssets = id === 'main'
+      ? [...new Set([...reachableAssets(chunk, chunks, assets, false), ...ownedStyleAssets(entry, chunks)])]
+      : reachableAssets(chunk, chunks, assets, false);
     entries[id] = {
       source: entry.source,
       js: [chunk.fileName],
       css: [...chunk.css],
       imports: [...chunk.imports],
       dynamicImports: [...chunk.dynamicImports],
-      initial: summarizeAssets(reachableAssets(chunk, chunks, assets, false), assets),
+      initial: summarizeAssets(initialAssets, assets),
       entryCritical: summarizeAssets([chunk.fileName], assets),
       routeTotal: summarizeAssets(reachableAssets(chunk, chunks, assets, true), assets),
       shared: [],
@@ -278,7 +294,10 @@ export function createFrontendHealthManifest({
     if (!chunk.isEntry && !chunk.isDynamicEntry) continue;
     const source = chunk.facadeSource;
     const entryId = logicalEntryForChunk(chunk, config);
-    const registeredAsDynamic = entryId && config.entries[entryId].dynamic;
+    const registeredAsDynamic = entryId && (
+      config.entries[entryId].dynamic
+      || config.entries[entryId].styleSources.includes(source)
+    );
     if (chunk.isDynamicEntry && !registeredAsDynamic) {
       manifestErrors.push(createManifestError('unregistered-dynamic-entry', {
         asset: chunk.fileName,

@@ -5,9 +5,6 @@ import { resolveEatTask, type ResolvedEatTask } from './EatWorkspaceViewModel';
 import { buildEatTaskBodies } from './EatTaskBodies';
 type EatTaskBodyArgs = Parameters<typeof buildEatTaskBodies>[0];
 type EatTaskResolutionArgs = Parameters<typeof resolveEatTask>[0];
-import './eat-route.css';
-import '../meals/meal-route.css';
-import './recipe-route.css';
 
 export type EatWorkspaceProps = {
   navigation: AppNavigationService;

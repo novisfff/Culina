@@ -1,9 +1,7 @@
 import { lazy, Suspense, type ComponentProps } from 'react';
 
 const InventoryMaintenanceDialogs = lazy(() =>
-  import('../features/inventory/InventoryMaintenanceDialogs').then((module) => ({
-    default: module.InventoryMaintenanceDialogs,
-  })),
+  import('./routeEntries/inventory').then((module) => module.loadInventoryMaintenanceDialogs()),
 );
 
 export type AppInventoryMaintenanceDialogsProps = ComponentProps<typeof InventoryMaintenanceDialogs>;

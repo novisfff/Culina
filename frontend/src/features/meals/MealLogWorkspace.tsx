@@ -23,7 +23,6 @@ import {
   buildMealTimelineRowModel,
 } from './MealLogMobileView';
 import { MealMemoryStrip, type MealMemoryStripStatus } from './MealMemoryStrip';
-import './meal-route.css';
 import { MealRecordResultBar } from './MealRecordResultBar';
 import {
   MEAL_FILTERS,

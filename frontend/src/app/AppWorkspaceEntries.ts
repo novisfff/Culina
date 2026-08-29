@@ -1,20 +1,20 @@
 import { lazy } from 'react';
 
 export const AppAiWorkspace = lazy(() =>
-  import('../components/ai/AiWorkspace').then((module) => ({ default: module.AiWorkspace })),
+  import('./routeEntries/ai').then((module) => module.loadAiWorkspace()),
 );
 export const AppEatWorkspace = lazy(() =>
-  import('../features/eat/EatWorkspace').then((module) => ({ default: module.EatWorkspace })),
+  import('./routeEntries/eat').then((module) => module.loadEatWorkspace()),
 );
 export const AppHomeDashboard = lazy(() =>
-  import('../features/home/HomeDashboard').then((module) => ({ default: module.HomeDashboard })),
+  import('./routeEntries/home').then((module) => module.loadHomeDashboard()),
 );
 export const AppMealLogWorkspace = lazy(() =>
-  import('../features/meals/MealLogWorkspace').then((module) => ({ default: module.MealLogWorkspace })),
+  import('./routeEntries/mealLog').then((module) => module.loadMealLogWorkspace()),
 );
 export const AppFoodWorkspace = lazy(() =>
-  import('../components/foods/FoodWorkspace').then((module) => ({ default: module.FoodWorkspace })),
+  import('./routeEntries/food').then((module) => module.loadFoodWorkspace()),
 );
 export const AppIngredientWorkspace = lazy(() =>
-  import('../components/ingredients/IngredientWorkspace').then((module) => ({ default: module.IngredientWorkspace })),
+  import('./routeEntries/ingredients').then((module) => module.loadIngredientWorkspace()),
 );

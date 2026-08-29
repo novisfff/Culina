@@ -2,7 +2,6 @@ import type { ComponentProps } from 'react';
 import { InventoryOperationHistoryDialog } from './InventoryOperationHistoryDialog';
 import { InventoryReconciliationDialog } from './InventoryReconciliationDialog';
 import { ShoppingIntakeDialog } from './ShoppingIntakeDialog';
-import './inventory-route.css';
 
 /**
  * Single composition shell for inventory maintenance overlays.

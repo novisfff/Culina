@@ -117,9 +117,6 @@ import {
   type FoodFormState,
 } from './FoodWorkspaceModel';
 import { useFoodPlanState } from './useFoodPlanState';
-import './food-route.css';
-import '../../features/meals/meal-route.css';
-import '../../features/eat/recipe-route.css';
 import { useFoodSceneState } from './useFoodSceneState';
 import { getMobileDefaultFoodSceneCardMedia, getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
