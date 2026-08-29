@@ -79,7 +79,6 @@ import {
   useImageComposer,
 } from '../../hooks/useImageComposer';
 import { useNotice } from '../../hooks/useNotice';
-import { buildRecipeCards } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
@@ -89,7 +88,7 @@ import {
   resolveErrorMessage,
 } from '../recipes/RecipeWorkspaceModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
-import { getFoodEditorProfile, getFoodPriority, getQuickDefaultMealType } from './FoodWorkspaceHelpers';
+import { getFoodEditorProfile, getQuickDefaultMealType } from './FoodWorkspaceHelpers';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   FOOD_GOVERNANCE_ISSUE_OPTIONS,
@@ -129,7 +128,6 @@ import { FoodMobileView } from './FoodMobileView';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import {
   FoodCardLibrary,
-  buildFoodLibraryCardViewModel,
   type FoodLibraryCardActions,
 } from './FoodLibraryCard';
 import {
@@ -149,7 +147,6 @@ import {
   describeExpiry,
   getFoodStatus,
   getFoodInventoryConfirmation,
-  getMealUsage,
   getDefaultMealType,
   getPrimaryFoodActionLabel,
   getSecondaryFoodActionLabel,
@@ -163,7 +160,7 @@ import {
   buildFoodCookingSummaryFromRecipeCards,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
-import { filterFoodWorkspaceItems } from './FoodWorkspaceViewModel';
+import { useFoodWorkspaceData } from './useFoodWorkspaceData';
 import { useFoodGovernanceData } from './useFoodGovernanceData';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
@@ -452,14 +449,29 @@ export function FoodWorkspace(props: Props) {
   } = useFoodWorkspaceSearch(search);
   const searchAwareFoods = remoteSearchFoods ?? props.foods;
 
-  const foodUsageCards = useMemo(
-    () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
-    [props.foods, props.mealLogs]
-  );
-  const recipeCards = useMemo(
-    () => buildRecipeCards(props.recipes, props.ingredients, props.inventoryItems, props.mealLogs, props.foods),
-    [props.foods, props.ingredients, props.inventoryItems, props.mealLogs, props.recipes]
-  );
+  const {
+    foodUsageCards,
+    recipeCards,
+    repeatFoods,
+    repeatFoodCount,
+    filteredFoods,
+    foodCardViewModels,
+    foodCardResetKey,
+  } = useFoodWorkspaceData({
+    foods: props.foods,
+    searchAwareFoods,
+    recipes: props.recipes,
+    ingredients: props.ingredients,
+    inventoryItems: props.inventoryItems,
+    mealLogs: props.mealLogs,
+    appliedFoodSearch,
+    matchedFoodIds,
+    typeFilter,
+    mealFilter,
+    lensFilter,
+    sceneFilter,
+    governanceIssueFilter,
+  });
   const getFoodCookingSummary = (food: Food): FoodCookingSummary | null => buildFoodCookingSummaryFromRecipeCards(food, recipeCards);
   const { expiringFoods, needsInfoFoods, governanceIssueSummaries, governanceQueue } = useFoodGovernanceData({
     foods: props.foods,
@@ -468,40 +480,8 @@ export function FoodWorkspace(props: Props) {
     issueOptions: FOOD_GOVERNANCE_ISSUE_OPTIONS,
   });
   const suggestedMealType = useMemo(() => getSuggestedMealTypeForHour(), []);
-  const repeatFoods = useMemo(
-    () =>
-      foodUsageCards
-        .filter(({ food, usage }) => food.favorite || usage.count >= 2)
-        .sort((a, b) => Number(b.food.favorite) - Number(a.food.favorite) || b.usage.count - a.usage.count)
-        .slice(0, 3),
-    [foodUsageCards]
-  );
-  const filteredFoods = useMemo(() => {
-    const items = filterFoodWorkspaceItems(searchAwareFoods, appliedFoodSearch, typeFilter, mealFilter, lensFilter, props.recipes, matchedFoodIds)
-      .filter((food) => sceneFilter === 'all' || getFoodSceneTags(food).includes(sceneFilter))
-      .filter((food) => lensFilter !== 'needsInfo' || governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter));
-    if (appliedFoodSearch) {
-      return items;
-    }
-    return items
-      .slice()
-      .sort((a, b) => getFoodPriority(b, props.mealLogs, lensFilter, props.recipes) - getFoodPriority(a, props.mealLogs, lensFilter, props.recipes));
-  }, [appliedFoodSearch, governanceIssueFilter, lensFilter, matchedFoodIds, mealFilter, props.mealLogs, props.recipes, searchAwareFoods, sceneFilter, typeFilter]);
-  const foodCardViewModels = useMemo(
-    () => filteredFoods.map((food) => buildFoodLibraryCardViewModel(food, props.recipes, props.mealLogs)),
-    [filteredFoods, props.mealLogs, props.recipes],
-  );
-  const foodCardResetKey = [
-    appliedFoodSearch,
-    typeFilter,
-    mealFilter,
-    lensFilter,
-    sceneFilter,
-    governanceIssueFilter,
-  ].join('|');
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
-  const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;
   const managementIssueCount = new Set([...expiringFoods, ...needsInfoFoods].map((food) => food.id)).size;
   const nextGovernanceFood = governanceQueue[0] ?? null;
   const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '信息已补齐';
