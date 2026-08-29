@@ -554,9 +554,10 @@ export function AppShell({
               >
                 <DashboardIcon name="more" />
               </button>
-              <div className="sidebar-user-main">
-                <Avatar label={userName} seed={userSeed} imageUrl={userImageUrl} large={!sidebarCollapsed} />
-                <div className="sidebar-user-copy">
+            <div className="sidebar-user-main">
+              <Avatar label={userName} seed={userSeed} imageUrl={userImageUrl} large={!sidebarCollapsed} />
+              <span className="sidebar-collapsed-user-label">{userName}</span>
+              <div className="sidebar-user-copy">
                   <strong>{userName}</strong>
                   <p className="subtle">{userMeta}</p>
                   <p className="sidebar-user-note">{userNote}</p>
