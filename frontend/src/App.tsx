@@ -16,7 +16,7 @@ import { useAppNavigationEffects } from './app/useAppNavigationEffects';
 import { useAppHomeShoppingState } from './app/useAppHomeController';
 import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
-import { AppWorkspaceRouter, WorkspaceLoadingFallback } from './app/AppWorkspaceRouter';
+import { AppWorkspaceRouter, WorkspaceRouteBoundary } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import { AppHomeDashboardDialogs } from './app/AppHomeDashboardDialogs';
 import { AppInventoryMaintenanceDialogs } from './app/AppInventoryMaintenanceDialogs';
@@ -870,7 +870,7 @@ function App() {
       <AppWorkspaceRouter navigationState={navigation.state}>
 
           {navigation.state.primaryTab === 'home' && (
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
+          <WorkspaceRouteBoundary>
           <HomeDashboard
             sidebarFamilyName={sidebarFamilyName}
             sidebarMotto={sidebarMotto}
@@ -945,11 +945,11 @@ function App() {
             onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
             onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
           />
-          </Suspense>
+          </WorkspaceRouteBoundary>
         )}
 
         {navigation.state.primaryTab === 'eat' ? (
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
+          <WorkspaceRouteBoundary>
             <EatWorkspace
               navigation={navigation}
               taskResolutionArgs={{
@@ -1148,11 +1148,11 @@ function App() {
                 />
               }
             />
-          </Suspense>
+          </WorkspaceRouteBoundary>
         ) : null}
 
         {navigation.state.primaryTab === 'ingredients' && (
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
+          <WorkspaceRouteBoundary>
             <IngredientWorkspace
               ingredients={ingredients}
               foods={foods}
@@ -1217,11 +1217,11 @@ function App() {
               isCreatingShopping={createShoppingMutation.isPending}
               isUpdatingShopping={updateShoppingMutation.isPending || deleteShoppingMutation.isPending}
             />
-          </Suspense>
+          </WorkspaceRouteBoundary>
         )}
 
         {navigation.state.primaryTab === 'ai' && (
-          <Suspense fallback={<WorkspaceLoadingFallback />}>
+          <WorkspaceRouteBoundary>
             <AiWorkspace
               familyId={family?.id ?? ''}
               conversations={aiConversations}
@@ -1232,7 +1232,7 @@ function App() {
               onBackHome={() => navigation.navigate({ workspace: 'home' })}
               onNavigate={navigation.navigate}
             />
-          </Suspense>
+          </WorkspaceRouteBoundary>
         )}
 
         {navigation.state.primaryTab === 'family' && (

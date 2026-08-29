@@ -9,7 +9,9 @@ describe('AppWorkspaceRouter route contract', () => {
     const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
     const routerSource = readFileSync(resolve(__dirname, './AppWorkspaceRouter.tsx'), 'utf8');
     expect(appSource).not.toContain('function WorkspaceLoadingFallback');
+    expect(appSource).not.toContain('fallback={<WorkspaceLoadingFallback />');
     expect(routerSource).toContain('WorkspaceLoadingFallback');
+    expect(routerSource).toContain('WorkspaceRouteBoundary');
   });
 
   it('selects one route for each primary workspace', () => {

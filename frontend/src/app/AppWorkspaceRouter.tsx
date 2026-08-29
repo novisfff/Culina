@@ -1,6 +1,6 @@
 import type { AppNavigationState } from './appNavigationModel';
 import { resolveWorkspaceRoute } from './appRouteEntries';
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { EmptyState } from '../components/ui-kit';
 
 export function WorkspaceLoadingFallback() {
@@ -11,6 +11,10 @@ export function WorkspaceLoadingFallback() {
       </section>
     </main>
   );
+}
+
+export function WorkspaceRouteBoundary({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<WorkspaceLoadingFallback />}>{children}</Suspense>;
 }
 
 export function AppWorkspaceRouter({ navigationState, render, children }: { navigationState: AppNavigationState; render?: (route: ReturnType<typeof resolveWorkspaceRoute>) => ReactNode; children?: ReactNode }) {
