@@ -585,6 +585,9 @@ export function AppShell({
                 onOpenModelUsageAlert={onOpenModelUsageAlert}
                 onDismissModelUsageAlert={onDismissModelUsageAlert}
               />
+              <span className="tabbar-user-label" aria-label={`当前用户：${userName}`}>
+                {userName}
+              </span>
               <div className="tabbar-scroll">
                 {PRIMARY_NAV_ITEMS.map((item) => (
                   <button
