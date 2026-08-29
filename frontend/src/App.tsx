@@ -17,11 +17,11 @@ import { useAppHomeShoppingState } from './app/useAppHomeController';
 import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations';
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
+import { AppAiWorkspaceRoute } from './app/AppAiWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
 import {
-  AppAiWorkspace as AiWorkspace,
   AppEatWorkspace as EatWorkspace,
   AppHomeDashboard as HomeDashboard,
   AppMealLogWorkspace as MealLogWorkspace,
@@ -1405,7 +1405,7 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'ai' && (
-            <AiWorkspace
+            <AppAiWorkspaceRoute
               familyId={family?.id ?? ''}
               conversations={aiConversations}
               isLoading={aiConversationsQuery.isLoading}
