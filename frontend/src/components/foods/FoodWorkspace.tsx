@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { isApiError } from '../../api/request';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
 import type {
   Food,
@@ -157,6 +156,7 @@ import { useFoodWorkspaceData } from './useFoodWorkspaceData';
 import { useFoodGovernanceData } from './useFoodGovernanceData';
 import { useFoodQuickRecordCandidates } from './useFoodQuickRecordCandidates';
 import { useFoodQuickRecordSubmit } from './useFoodQuickRecordSubmit';
+import { createFoodShoppingSubmit } from './useFoodShoppingActions';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -894,43 +894,16 @@ export function FoodWorkspace(props: Props) {
     openFoodShoppingDialog(food);
   }
 
-  async function submitFoodShopping() {
-    if (!foodShoppingDialog || isFoodShoppingSubmitting) return;
-    let write;
-    try {
-      write = buildFoodShoppingWrite(foodShoppingDialog.draft, foodShoppingDialog.existingItem);
-    } catch (reason) {
-      setFoodShoppingError(resolveErrorMessage(reason, '请确认采购信息。'));
-      return;
-    }
-    setIsFoodShoppingSubmitting(true);
-    setFoodShoppingError(null);
-    try {
-      if (write.kind === 'update') {
-        await props.updateShoppingItem(write.itemId, write.payload);
-      } else {
-        await props.createShoppingItem(write.payload);
-      }
-      const foodName = foodShoppingDialog.draft.title;
-      setFoodShoppingDialog(null);
-      showNotice({
-        tone: 'success',
-        title: write.kind === 'update' ? '待买内容已更新' : '已加入采购清单',
-        message: write.kind === 'update'
-          ? `${foodName} 的待买数量已更新。`
-          : `${foodName} 已加入采购清单。`,
-      });
-    } catch (reason) {
-      setFoodShoppingError(
-        isApiError(reason) && reason.status === 409
-          ? '待买内容已发生变化，请刷新后重新确认。'
-          : resolveErrorMessage(reason, '保存待买内容失败，请稍后重试。'),
-      );
-    } finally {
-      setIsFoodShoppingSubmitting(false);
-    }
-  }
-
+  const submitFoodShopping = createFoodShoppingSubmit({
+    dialog: foodShoppingDialog,
+    isSubmitting: isFoodShoppingSubmitting,
+    setDialog: setFoodShoppingDialog,
+    setSubmitting: setIsFoodShoppingSubmitting,
+    setError: setFoodShoppingError,
+    createShoppingItem: props.createShoppingItem,
+    updateShoppingItem: props.updateShoppingItem,
+    showNotice,
+  });
   function updateQuickMealDialog(
     patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings'>>,
   ) {
