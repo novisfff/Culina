@@ -19,5 +19,5 @@ export function WorkspaceRouteBoundary({ children }: { children: ReactNode }) {
 
 export function AppWorkspaceRouter({ navigationState, render, children }: { navigationState: AppNavigationState; render?: (route: ReturnType<typeof resolveWorkspaceRoute>) => ReactNode; children?: ReactNode }) {
   const route = resolveWorkspaceRoute(navigationState);
-  return render ? render(route) : children;
+  return <WorkspaceRouteBoundary>{render ? render(route) : children}</WorkspaceRouteBoundary>;
 }
