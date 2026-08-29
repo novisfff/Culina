@@ -163,6 +163,7 @@ import { submitFoodRecipeEditorAction } from './useFoodRecipeEditorActions';
 import { submitFoodFormAction } from './useFoodFormActions';
 import { submitFoodCookConfirmAction } from './useFoodCookActions';
 import { useFoodNavigationRequests } from './useFoodNavigationRequests';
+import { useFoodEditorNavigation } from './useFoodEditorNavigation';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -640,26 +641,22 @@ export function FoodWorkspace(props: Props) {
   });
   const recipeEditorSubmitDisabled = Boolean(props.isCreatingRecipe || props.isUpdatingRecipe);
 
-  function handleOpenCreate(type: FoodType = 'takeout') {
-    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    if (type === 'selfMade') {
-      recipeEditor.openCreate();
-    }
-    openCreate(type);
-  }
-
-  function handleOpenEdit(food: Food) {
-    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
-      const card = recipeCards.find((item) => item.recipe.id === food.recipe_id);
-      if (card) {
-        recipeEditor.openEdit(card);
-      }
-    }
-    openEdit(food);
-  }
+  const {
+    handleOpenCreate,
+    handleOpenEdit,
+    handleOpenRecipeEditorDirectly: openRecipeEditorDirectly,
+    closeFoodRecipeEditor,
+  } = useFoodEditorNavigation({
+    resetFoodImage: () => imageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+    resetRecipeImage: () => recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+    openCreate,
+    openEdit,
+    recipeCards,
+    recipeEditorOpenCreate: recipeEditor.openCreate,
+    recipeEditorOpenEdit: recipeEditor.openEdit,
+    setRecipeEditorOpen: setIsFoodRecipeEditorOpen,
+    closeDetail,
+  });
 
   function handleOpenRecipeEditor() {
     if (!currentRecipeCard) {
@@ -677,24 +674,12 @@ export function FoodWorkspace(props: Props) {
   }
 
   function handleOpenRecipeEditorDirectly(food: Food) {
-    if (food.recipe_id) {
-      const card = recipeCards.find((item) => item.recipe.id === food.recipe_id);
-      if (card) {
-        recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-        recipeEditor.openEdit(card);
-        setIsFoodRecipeEditorOpen(true);
-        closeDetail();
-      } else {
-        showNotice({ tone: 'warning', title: '没有找到对应菜谱', message: '请确认该菜谱是否存在。' });
-      }
-    } else {
-      showNotice({ tone: 'warning', title: '没有相关菜谱', message: '这份食物还没有对应的菜谱。' });
-    }
-  }
-
-  function closeFoodRecipeEditor() {
-    setIsFoodRecipeEditorOpen(false);
-    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    if (openRecipeEditorDirectly(food)) return;
+    showNotice({
+      tone: 'warning',
+      title: food.recipe_id ? '没有找到对应菜谱' : '没有相关菜谱',
+      message: food.recipe_id ? '请确认该菜谱是否存在。' : '这份食物还没有对应的菜谱。',
+    });
   }
 
   function closeFoodRecipeEditorIfAllowed() {
