@@ -47,7 +47,6 @@ import { useMealCandidateLoader } from './features/meals/useMealCandidateLoader'
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
-import { refreshHomeInventoryActions } from './features/home/useHomeInventoryRefresh';
 import type { HomeMealEnrichmentOpenRequest } from './features/home/useHomeDashboardActions';
 import {
   InventoryOperationBanner,
@@ -66,6 +65,7 @@ import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
 import { useAppCookNavigation } from './app/useAppCookNavigation';
+import { useAppHomeInventoryActions } from './app/useAppHomeInventoryActions';
 
 function App() {
   const {
@@ -655,17 +655,10 @@ function App() {
     }
   }
 
-  async function refreshInventoryActions() {
-    return refreshHomeInventoryActions({
-      invalidateChanged: inventoryRefreshSources.invalidateChanged,
-      invalidateShopping: inventoryRefreshSources.invalidateShopping,
-      fetchInventory: inventoryRefreshSources.fetchInventory,
-      fetchStates: inventoryRefreshSources.fetchStates,
-      fetchIngredients: inventoryRefreshSources.fetchIngredients,
-      fetchShopping: inventoryRefreshSources.fetchShopping,
-      referenceDate: homeBusinessDateKey,
-    });
-  }
+  const refreshInventoryActions = useAppHomeInventoryActions({
+    sources: inventoryRefreshSources,
+    referenceDate: homeBusinessDateKey,
+  });
 
   const {
     startHomePlanDetailCook,
