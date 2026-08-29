@@ -1,9 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterInventoryOperation } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   CorrectInventoryExpiryDateRequest,
@@ -129,7 +126,10 @@ import {
 import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
 import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
 import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
-import { useIngredientInventoryRefresh } from './useIngredientInventoryRefresh';
+import {
+  useIngredientInventoryRefresh,
+  useIngredientInventoryOperationInvalidation,
+} from './useIngredientInventoryRefresh';
 import { useIngredientFoodLookup } from './useIngredientFoodLookup';
 import './ingredient-route.css';
 
@@ -280,8 +280,8 @@ const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string 
 ];
 
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
-  const queryClient = useQueryClient();
   const lookupFood = useIngredientFoodLookup();
+  const invalidateInventoryOperation = useIngredientInventoryOperationInvalidation();
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   const foodStockRecordDateOptions = useMemo(
@@ -519,7 +519,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     onTrackingTransitionSettled: async () => {
       // Invalidate only after the dual-write path finishes (success or recovered transition),
       // so inventory/state refresh does not land under an open transition dialog.
-      await invalidateAfterInventoryOperation(queryClient);
+      await invalidateInventoryOperation();
     },
     showNotice,
     resolveErrorMessage,
@@ -662,7 +662,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   });
 
   const refreshInventoryActionGroup = useIngredientInventoryRefresh({
-    queryClient,
     recipes: props.recipes,
     referenceDate: inventoryActionReferenceDate,
   });

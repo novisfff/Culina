@@ -25,6 +25,13 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain('api.getFoods({ q: item.title, limit: 20 })');
   });
 
+  it('does not import query or API clients in the workspace view', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).not.toContain("from '@tanstack/react-query'");
+    expect(workspaceSource).not.toContain("from '../../api/client'");
+    expect(workspaceSource).not.toContain("from '../../api/queryKeys'");
+  });
+
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
     const source = [
       readFileSync(sourcePath, 'utf8'),
