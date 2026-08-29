@@ -7,10 +7,14 @@ describe('AppOverlayHost overlay contract', () => {
   it('exposes normalized state to the typed overlay renderer', () => {
     const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
     const hostSource = readFileSync(resolve(__dirname, './AppOverlayHost.tsx'), 'utf8');
+    const homeEntrySource = readFileSync(resolve(__dirname, './AppHomeDashboardDialogs.tsx'), 'utf8');
+    const inventoryEntrySource = readFileSync(resolve(__dirname, './AppInventoryMaintenanceDialogs.tsx'), 'utf8');
     expect(appSource).not.toContain("import('./features/home/HomeDashboardDialogs')");
     expect(hostSource).toContain('AppHomeDashboardDialogs');
     expect(appSource).not.toContain("import('./features/inventory/InventoryMaintenanceDialogs')");
     expect(hostSource).toContain('AppInventoryMaintenanceDialogs');
+    expect(homeEntrySource).toContain('Suspense');
+    expect(inventoryEntrySource).toContain('Suspense');
     expect(appSource).not.toContain('<AppGlobalOverlays');
     expect(hostSource).toContain('AppGlobalOverlays');
     expect(hostSource).toContain('NormalizedOverlayState');

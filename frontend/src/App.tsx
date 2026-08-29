@@ -1297,8 +1297,7 @@ function App() {
           }}
         >
 
-        <Suspense fallback={null}>
-          <AppHomeDashboardDialogs
+        <AppHomeDashboardDialogs
             recipes={recipes}
             ingredients={ingredients}
             homePlanDetailItem={homePlanDetailItem}
@@ -1364,10 +1363,8 @@ function App() {
             dismissCompletionSummary={dismissCompletionSummary}
             onCompletionSecondaryAction={openIngredientShopping}
             resolveAssetUrl={resolveDashboardAssetUrl}
-          />
-        </Suspense>
+        />
 
-        <Suspense fallback={null}>
         <AppInventoryMaintenanceDialogs
           shoppingIntake={
             shoppingIntakeState.open
@@ -1505,7 +1502,6 @@ function App() {
               : null
           }
         />
-        </Suspense>
 
         </AppOverlayHost>
       </AppWorkspaceRouter>
