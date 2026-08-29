@@ -185,7 +185,6 @@ function App() {
     setIsHomePlanDetailEditing,
     selectedActionGroupId,
     completionSummary,
-    completedIngredientId,
     nextGroupId,
     actionDialogBusy,
     actionDialogError,
@@ -514,10 +513,8 @@ function App() {
     today,
     homeEligibleInventoryActionGroups,
     homeInventoryActionGroups,
-    homeInventoryActionCount,
     hasLaterInventoryActionGroups,
     hasFullListInventoryActionGroups,
-    availableInventoryCount,
     activeFoodPlanItems,
     pendingShoppingPreview,
     todaysMeals,
@@ -528,11 +525,8 @@ function App() {
     dashboardPlanDays,
     selectedDashboardPlanDay,
     selectedDashboardPlanDateLabel,
-    homeRestockShoppingItem,
     homeMealDetail,
     homeMealDetailParticipants,
-    homeRestockIngredient,
-    homeRestockIngredientImageUrl,
     homeHighlightsViewModel,
     homeRequiredActions,
     hasMoreHomeActions,
@@ -609,9 +603,6 @@ function App() {
     ? `${selectedDashboardPlanDateLabel} · ${selectedDashboardPlanDay.totalCount} 项餐食安排`
     : selectedDashboardPlanDateLabel;
 
-  void homeInventoryActionCount;
-  void availableInventoryCount;
-  void completedIngredientId;
 
   const selectedActionGroup =
     homeEligibleInventoryActionGroups.find((group) => group.id === selectedActionGroupId) ?? null;
@@ -629,13 +620,6 @@ function App() {
     return resolveAssetUrl(url, { passthroughPrefixes: ['/images/'] });
   }
 
-  void openIngredientsCatalog;
-  void openIngredientDetail;
-  void closeHomeRestock;
-  void updateHomeRestockForm;
-  void homeRestockShoppingItem;
-  void homeRestockIngredient;
-  void homeRestockIngredientImageUrl;
 
   function handleOpenNextActionGroup() {
     const group = openNextActionGroup();
