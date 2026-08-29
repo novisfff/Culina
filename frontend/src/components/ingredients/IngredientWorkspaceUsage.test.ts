@@ -11,6 +11,14 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain('queryClient.fetchQuery');
   });
 
+  it('requires expiry actions from the app mutation port', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).toContain('snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest)');
+    expect(workspaceSource).toContain('correctInventoryExpiryDate: (');
+    expect(workspaceSource).not.toContain('props.snoozeInventoryExpiryAlerts ??');
+    expect(workspaceSource).not.toContain('props.correctInventoryExpiryDate ??');
+  });
+
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
     const source = [
       readFileSync(sourcePath, 'utf8'),

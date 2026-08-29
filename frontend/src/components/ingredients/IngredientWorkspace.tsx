@@ -223,8 +223,8 @@ type IngredientWorkspaceProps = {
     unit?: string | null;
   }) => Promise<ConsumeInventoryResponse>;
   disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<DisposeExpiredInventoryResponse | unknown>;
-  snoozeInventoryExpiryAlerts?: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
-  correctInventoryExpiryDate?: (
+  snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
+  correctInventoryExpiryDate: (
     inventoryItemId: string,
     payload: CorrectInventoryExpiryDateRequest,
   ) => Promise<unknown>;
@@ -695,12 +695,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     upsertInventoryState: props.upsertInventoryState,
     consumeInventory: props.consumeInventory,
     disposeExpiredInventory: props.disposeExpiredInventory,
-    snoozeInventoryExpiryAlerts:
-      props.snoozeInventoryExpiryAlerts ??
-      (async (payload) => api.snoozeInventoryExpiryAlerts(payload)),
-    correctInventoryExpiryDate:
-      props.correctInventoryExpiryDate ??
-      (async (inventoryItemId, payload) => api.correctInventoryExpiryDate(inventoryItemId, payload)),
+    snoozeInventoryExpiryAlerts: props.snoozeInventoryExpiryAlerts,
+    correctInventoryExpiryDate: props.correctInventoryExpiryDate,
     refreshInventoryActionGroup,
     createShoppingItem: props.createShoppingItem,
     updateShoppingItem: props.updateShoppingItem,
