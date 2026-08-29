@@ -2,7 +2,6 @@ import type {
   Food,
   Ingredient,
   IngredientInventoryState,
-  InventoryConfirmationStatus,
   InventoryItem,
   Recipe,
   ShoppingListItem,
@@ -12,7 +11,6 @@ import {
   type ExpiryInventoryActionGroup,
   type InventoryActionGroup,
 } from '../../features/inventory/inventoryActionModel';
-import { hoursBetweenInstants } from '../../lib/date';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -51,6 +49,29 @@ export type {
   StorageGroupViewModel,
 } from './workspaceTypes';
 export { buildShoppingOverview, filterShoppingCards } from './shoppingWorkspaceModel';
+export {
+  aggregateConfirmationStatus,
+  buildExactIngredientConfirmation,
+  buildFoodConfirmation,
+  buildPresenceIngredientConfirmation,
+  confirmationStatusFromLastConfirmedAt,
+  confirmationStatusLabel,
+  confirmationStatusTone,
+  earliestConfirmationAt,
+  staleAfterDaysForStorageLocation,
+  CONFIRMATION_STATUS_LABELS,
+  CONFIRMATION_STATUS_TONES,
+  FOOD_STALE_AFTER_DAYS,
+  FROZEN_INGREDIENT_STALE_AFTER_DAYS,
+  PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
+  REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS,
+  ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS,
+} from './ingredientConfirmationModel';
+import {
+  buildExactIngredientConfirmation,
+  buildPresenceIngredientConfirmation,
+  buildFoodConfirmation,
+} from './ingredientConfirmationModel';
 import type {
   CatalogCardStatusTone,
   DisposableExpiredInventoryItemViewModel,
@@ -169,155 +190,6 @@ export type ShoppingCardGroupViewModel = {
 const STORAGE_ORDER = ['冷藏', '冷冻', '常温'];
 const ALL_CATEGORY_FILTER = 'all';
 const SEASONING_CATEGORY_LABELS = new Set(['调料', '调味料', '酱料']);
-
-/** Fixed re-confirm intervals from the approved design. */
-export const FOOD_STALE_AFTER_DAYS = 7;
-export const REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS = 14;
-export const FROZEN_INGREDIENT_STALE_AFTER_DAYS = 30;
-export const ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS = 30;
-export const PRESENCE_INGREDIENT_STALE_AFTER_DAYS = 30;
-
-export const CONFIRMATION_STATUS_LABELS: Record<InventoryConfirmationStatus, string> = {
-  never_confirmed: '未确认',
-  current: '刚确认过',
-  stale: '建议再确认',
-};
-
-export const CONFIRMATION_STATUS_TONES: Record<InventoryConfirmationStatus, InventoryConfirmationTone> = {
-  never_confirmed: 'neutral',
-  current: 'current',
-  stale: 'stale',
-};
-
-export function confirmationStatusLabel(status: InventoryConfirmationStatus): string {
-  return CONFIRMATION_STATUS_LABELS[status];
-}
-
-export function confirmationStatusTone(status: InventoryConfirmationStatus): InventoryConfirmationTone {
-  return CONFIRMATION_STATUS_TONES[status];
-}
-
-export function staleAfterDaysForStorageLocation(storageLocation: string | null | undefined): number {
-  const label = (storageLocation || '').trim();
-  if (label === '冷藏') return REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS;
-  if (label === '冷冻') return FROZEN_INGREDIENT_STALE_AFTER_DAYS;
-  if (label === '常温') return ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS;
-  return ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS;
-}
-
-/**
- * Pure confirmation freshness from last_confirmed_at only.
- * Never derives status from updated_at / row_version / changed_since_confirmation.
- * `referenceDate` is an explicit business date key (YYYY-MM-DD) or ISO instant.
- */
-export function confirmationStatusFromLastConfirmedAt(
-  lastConfirmedAt: string | null | undefined,
-  args: { referenceDate: string; staleAfterDays: number },
-): InventoryConfirmationStatus {
-  if (!lastConfirmedAt) {
-    return 'never_confirmed';
-  }
-  const referenceInstant = args.referenceDate.includes('T')
-    ? args.referenceDate
-    : `${args.referenceDate.slice(0, 10)}T12:00:00.000Z`;
-  const ageHours = hoursBetweenInstants(referenceInstant, lastConfirmedAt);
-  if (!Number.isFinite(ageHours)) {
-    return 'never_confirmed';
-  }
-  const staleAfterHours = args.staleAfterDays * 24;
-  return ageHours > staleAfterHours ? 'stale' : 'current';
-}
-
-export function aggregateConfirmationStatus(
-  statuses: InventoryConfirmationStatus[],
-): InventoryConfirmationStatus {
-  if (statuses.length === 0) return 'never_confirmed';
-  if (statuses.some((status) => status === 'never_confirmed')) return 'never_confirmed';
-  if (statuses.some((status) => status === 'stale')) return 'stale';
-  return 'current';
-}
-
-export function earliestConfirmationAt(values: Array<string | null | undefined>): string | null {
-  const present = values.filter((value): value is string => Boolean(value));
-  if (present.length === 0) return null;
-  return present.slice().sort((left, right) => left.localeCompare(right))[0] ?? null;
-}
-
-export function buildExactIngredientConfirmation(args: {
-  batches: Array<Pick<InventoryItem, 'last_confirmed_at' | 'storage_location' | 'remaining_quantity' | 'quantity' | 'consumed_quantity' | 'disposed_quantity'>>;
-  referenceDate: string;
-  fallbackStorage?: string | null;
-}): {
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-} {
-  const remaining = args.batches.filter((batch) => getInventoryRemainingQuantity(batch as InventoryItem) > 0);
-  if (remaining.length === 0) {
-    return {
-      confirmationStatus: 'never_confirmed',
-      confirmationLabel: CONFIRMATION_STATUS_LABELS.never_confirmed,
-      confirmationTone: CONFIRMATION_STATUS_TONES.never_confirmed,
-      lastConfirmedAt: null,
-    };
-  }
-  const statuses = remaining.map((batch) =>
-    confirmationStatusFromLastConfirmedAt(batch.last_confirmed_at, {
-      referenceDate: args.referenceDate,
-      staleAfterDays: staleAfterDaysForStorageLocation(batch.storage_location || args.fallbackStorage),
-    }),
-  );
-  const confirmationStatus = aggregateConfirmationStatus(statuses);
-  return {
-    confirmationStatus,
-    confirmationLabel: confirmationStatusLabel(confirmationStatus),
-    confirmationTone: confirmationStatusTone(confirmationStatus),
-    lastConfirmedAt: earliestConfirmationAt(remaining.map((batch) => batch.last_confirmed_at)),
-  };
-}
-
-export function buildPresenceIngredientConfirmation(args: {
-  state: IngredientInventoryState | null | undefined;
-  referenceDate: string;
-}): {
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-} {
-  const confirmationStatus = confirmationStatusFromLastConfirmedAt(args.state?.last_confirmed_at, {
-    referenceDate: args.referenceDate,
-    staleAfterDays: PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
-  });
-  return {
-    confirmationStatus,
-    confirmationLabel: confirmationStatusLabel(confirmationStatus),
-    confirmationTone: confirmationStatusTone(confirmationStatus),
-    lastConfirmedAt: args.state?.last_confirmed_at ?? null,
-  };
-}
-
-export function buildFoodConfirmation(args: {
-  food: Pick<Food, 'inventory_last_confirmed_at' | 'storage_location'>;
-  referenceDate: string;
-}): {
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-} {
-  const confirmationStatus = confirmationStatusFromLastConfirmedAt(args.food.inventory_last_confirmed_at, {
-    referenceDate: args.referenceDate,
-    staleAfterDays: FOOD_STALE_AFTER_DAYS,
-  });
-  return {
-    confirmationStatus,
-    confirmationLabel: confirmationStatusLabel(confirmationStatus),
-    confirmationTone: confirmationStatusTone(confirmationStatus),
-    lastConfirmedAt: args.food.inventory_last_confirmed_at ?? null,
-  };
-}
 
 export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
   { label: '蔬菜', defaultUnit: '个', defaultStorage: '冷藏', icon: 'vegetable' },
