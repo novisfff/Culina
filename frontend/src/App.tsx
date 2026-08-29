@@ -437,6 +437,7 @@ function App() {
     updateHomeRestockForm,
     startRecommendedRecipe,
     startPlanRecipe: startPlanRecipeRaw,
+    openFamilyActivity,
   } = useAppHomeHandlers({
     ingredientNavigationRequestIdRef,
     setIngredientNavigationRequest,
@@ -447,6 +448,7 @@ function App() {
     ingredients,
     openShoppingIntake,
     openIngredientShoppingDialog: openHomeIngredientShoppingDialog,
+    setFamilyOverlayMode,
   });
 
   // Prefer latest foodPlanDetail.updated_at when cook originates from an open plan item.
@@ -609,11 +611,6 @@ function App() {
 
   function retryHomeHighlights() {
     void activityHighlightsQuery.refetch();
-  }
-
-  function openFamilyActivity() {
-    setFamilyOverlayMode('activity');
-    navigation.navigate({ workspace: 'family' });
   }
 
   const selectedPlanSummary = selectedDashboardPlanDay
