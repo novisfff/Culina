@@ -1136,7 +1136,6 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   }
 
   const { submitInventoryFollowUp, submitFoodStockDeductDialog, submitFoodStockAdjustDialog } = useIngredientFoodStockActions({
-    queryClient,
     foodStockSubmitting,
     setFoodStockSubmitting,
     inventoryFollowUp,

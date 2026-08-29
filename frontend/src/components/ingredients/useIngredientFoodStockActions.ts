@@ -1,5 +1,5 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
-import type { QueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { invalidateAfterFoodChanged } from '../../api/cacheInvalidation';
 import { parseUnifiedFoodStockQuantity, resolveUnifiedFoodStockDeductQuantity } from './inventoryOverviewModel';
@@ -8,7 +8,6 @@ import type { FoodStockAdjustDialogState, FoodStockDeductDialogState, FoodStockI
 type Notice = { tone: 'success' | 'warning'; title: string; message: string };
 
 type Args = {
-  queryClient: QueryClient;
   foodStockSubmitting: 'meal' | 'adjust' | null;
   setFoodStockSubmitting: Dispatch<SetStateAction<'meal' | 'adjust' | null>>;
   inventoryFollowUp: FoodStockInventoryFollowUpState | null;
@@ -21,6 +20,7 @@ type Args = {
 };
 
 export function useIngredientFoodStockActions(args: Args) {
+  const queryClient = useQueryClient();
   async function submitInventoryFollowUp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const current = args.inventoryFollowUp;
@@ -38,7 +38,7 @@ export function useIngredientFoodStockActions(args: Args) {
     args.setFoodStockSubmitting('meal');
     try {
       await api.consumeFoodStock(current.item.source_id, { expected_row_version: current.item.row_version, quantity: resolved.quantity, unit: current.item.unit || '份', note: '从库存页扣减成品库存' });
-      invalidateAfterFoodChanged(args.queryClient);
+      invalidateAfterFoodChanged(queryClient);
       args.setInventoryFollowUp(null);
       args.showNotice({ tone: 'success', title: '已扣减库存', message: `${current.item.title} 已扣减 ${resolved.quantity} ${current.item.unit || '份'}。` });
     } catch (error) {
@@ -65,7 +65,7 @@ export function useIngredientFoodStockActions(args: Args) {
     args.setFoodStockSubmitting('meal');
     try {
       await api.consumeFoodStock(current.item.source_id, { expected_row_version: current.item.row_version, quantity: resolved.quantity, unit: current.item.unit || '份', note: '从库存页扣减成品库存' });
-      invalidateAfterFoodChanged(args.queryClient);
+      invalidateAfterFoodChanged(queryClient);
       args.setFoodStockDeductDialog(null);
       args.showNotice({ tone: 'success', title: '已扣减库存', message: `${current.item.title} 已扣减 ${resolved.quantity} ${current.item.unit || '份'}。` });
     } catch (error) {
@@ -88,7 +88,7 @@ export function useIngredientFoodStockActions(args: Args) {
     args.setFoodStockSubmitting('adjust');
     try {
       await api.restockFoodStock(current.item.source_id, payload);
-      invalidateAfterFoodChanged(args.queryClient);
+      invalidateAfterFoodChanged(queryClient);
       args.setFoodStockAdjustDialog(null);
       args.showNotice({ tone: 'success', title: '库存已补充', message: `${current.item.title} 已补充 ${parsed.quantity} ${payload.unit}。` });
     } catch (error) {
