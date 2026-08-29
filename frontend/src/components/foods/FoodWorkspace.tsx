@@ -162,6 +162,7 @@ import {
 } from './FoodWorkspaceHelpers';
 import { useFoodWorkspaceData } from './useFoodWorkspaceData';
 import { useFoodGovernanceData } from './useFoodGovernanceData';
+import { useFoodQuickRecordCandidates } from './useFoodQuickRecordCandidates';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -968,73 +969,11 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  // Load authoritative candidates when compact record date/mealType change.
-  useEffect(() => {
-    if (!quickRecord) return;
-    let cancelled = false;
-    const { date, mealType } = quickRecord;
-    const loader = props.loadMealCandidates;
-    if (!loader) {
-      setQuickRecord((current) =>
-        current && current.date === date && current.mealType === mealType
-          ? {
-              ...current,
-              candidates: [],
-              candidateMode: 'none',
-              candidateResolution: { status: 'ready' },
-            }
-          : current,
-      );
-      return;
-    }
-    setQuickRecord((current) =>
-      current && current.date === date && current.mealType === mealType
-        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
-        : current,
-    );
-    void (async () => {
-      try {
-        const candidates = await loader(date, mealType);
-        if (cancelled) return;
-        const presentation = deriveCandidatePresentation(candidates, mealType);
-        setQuickRecord((current) => {
-          if (!current || current.date !== date || current.mealType !== mealType) return current;
-          return {
-            ...current,
-            candidates,
-            candidateMode: presentation.mode,
-            candidateResolution: { status: 'ready' },
-            ...(current.targetTouchedByUser
-              ? {}
-              : {
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                }),
-          };
-        });
-      } catch (reason) {
-        if (cancelled) return;
-        const message =
-          reason instanceof Error && reason.message.trim()
-            ? reason.message
-            : '暂时无法加载可选餐食，请重试';
-        setQuickRecord((current) =>
-          current && current.date === date && current.mealType === mealType
-            ? {
-                ...current,
-                candidateResolution: { status: 'error', message },
-                error: message,
-              }
-            : current,
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Only re-run when open identity / date / mealType / loader change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, props.loadMealCandidates]);
+  useFoodQuickRecordCandidates({
+    quickRecord,
+    setQuickRecord,
+    loadMealCandidates: props.loadMealCandidates,
+  });
 
   async function submitCompactRecord() {
     if (!quickRecord || quickRecord.busy) return;
