@@ -468,6 +468,9 @@ export function AppShell({
       <div className="page-glow page-glow-left" />
       <div className="page-glow page-glow-right" />
       <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame sidebar-expanded'}>
+        <span className="app-shell-current-user" aria-label={`当前用户：${userName}`}>
+          {userName}
+        </span>
         <aside className="sidebar-shell card">
           <div className="sidebar-top">
             <div className="sidebar-brand">
@@ -587,9 +590,6 @@ export function AppShell({
                 onOpenModelUsageAlert={onOpenModelUsageAlert}
                 onDismissModelUsageAlert={onDismissModelUsageAlert}
               />
-              <span className="tabbar-user-label" aria-label={`当前用户：${userName}`}>
-                {userName}
-              </span>
               <div className="tabbar-scroll">
                 {PRIMARY_NAV_ITEMS.map((item) => (
                   <button

@@ -113,9 +113,9 @@
   top: 0;
 }
 
-.tabbar-user-label {
+.app-shell-current-user {
   position: absolute;
-  left: 0;
+  left: 16px;
   top: 18px;
   max-width: 160px;
   overflow: hidden;
