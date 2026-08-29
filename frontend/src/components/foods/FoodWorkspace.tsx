@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
 import type {
   Food,
@@ -162,6 +162,7 @@ import { createFoodShoppingSubmit } from './useFoodShoppingActions';
 import { submitFoodRecipeEditorAction } from './useFoodRecipeEditorActions';
 import { submitFoodFormAction } from './useFoodFormActions';
 import { submitFoodCookConfirmAction } from './useFoodCookActions';
+import { useFoodNavigationRequests } from './useFoodNavigationRequests';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -172,37 +173,8 @@ export { getSuggestedMealTypeForHour } from './FoodWorkspaceModel';
 export type { TodayFoodRecommendation } from './FoodRecommendationsModel';
 export { buildTodayFoodRecommendations } from './FoodRecommendationsModel';
 
-type FoodWorkspaceNavigationRequest = NonNullable<Props['navigationRequest']>;
-
-type FoodNavigationRequestAction =
-  | { kind: 'idle' }
-  | { kind: 'pending' }
-  | { kind: 'edit'; food: Food; requestId: number }
-  | { kind: 'quickMeal'; food: Food; requestId: number; quickMealAction: 'eat' | 'cook' };
-
-export function resolveFoodNavigationRequestAction(args: {
-  foods: Food[];
-  navigationRequest?: FoodWorkspaceNavigationRequest | null;
-  handledRequestId: number | null;
-}): FoodNavigationRequestAction {
-  const { foods, navigationRequest, handledRequestId } = args;
-  if (!navigationRequest || navigationRequest.target === 'detail' || handledRequestId === navigationRequest.requestId) {
-    return { kind: 'idle' };
-  }
-  const food = foods.find((item) => item.id === navigationRequest.foodId);
-  if (!food) {
-    return { kind: 'pending' };
-  }
-  if (navigationRequest.target === 'edit') {
-    return { kind: 'edit', food, requestId: navigationRequest.requestId };
-  }
-  return {
-    kind: 'quickMeal',
-    food,
-    requestId: navigationRequest.requestId,
-    quickMealAction: navigationRequest.quickMealAction ?? 'eat',
-  };
-}
+export { resolveFoodNavigationRequestAction } from './FoodNavigationModel';
+export type { FoodWorkspaceNavigationRequest } from './FoodNavigationModel';
 
 type Props = {
   foods: Food[];
@@ -863,24 +835,12 @@ export function FoodWorkspace(props: Props) {
     handleOpenEdit(nextFood);
   }
 
-  const handledNavigationRequestIdRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const action = resolveFoodNavigationRequestAction({
-      foods: props.foods,
-      navigationRequest: props.navigationRequest,
-      handledRequestId: handledNavigationRequestIdRef.current,
-    });
-    if (action.kind === 'edit') {
-      handledNavigationRequestIdRef.current = action.requestId;
-      handleOpenEdit(action.food);
-      return;
-    }
-    if (action.kind === 'quickMeal') {
-      handledNavigationRequestIdRef.current = action.requestId;
-      openQuickMealDialog(action.food, getDefaultMealType(action.food), action.quickMealAction);
-    }
-  }, [props.foods, props.navigationRequest]);
+  useFoodNavigationRequests({
+    foods: props.foods,
+    navigationRequest: props.navigationRequest,
+    onEdit: handleOpenEdit,
+    onQuickMeal: openQuickMealDialog,
+  });
 
   const planSurfaceProps: FoodPlanSurfaceProps = {
       weekRange: props.foodPlanWeekRange,
