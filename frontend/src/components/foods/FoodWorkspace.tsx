@@ -90,7 +90,6 @@ import {
   type FoodWorkspaceLens,
 } from './FoodWorkspaceOptions';
 import {
-  buildDirectCookTarget,
   getFoodPlanDateParts,
   getSuggestedMealTypeForHour,
   isReadyLikeType,
@@ -156,6 +155,7 @@ import { useFoodQuickRecordSubmit } from './useFoodQuickRecordSubmit';
 import { createFoodShoppingSubmit } from './useFoodShoppingActions';
 import { submitFoodRecipeEditorAction } from './useFoodRecipeEditorActions';
 import { submitFoodFormAction } from './useFoodFormActions';
+import { submitFoodCookConfirmAction } from './useFoodCookActions';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -872,30 +872,15 @@ export function FoodWorkspace(props: Props) {
     setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
   }
 
-  async function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!quickMealDialog) return;
-    const current = quickMealDialog;
-    if (!(current.action === 'cook' && current.recipeId)) return;
-    // Direct Cook: never create a plan item just to start cooking.
-    const servings =
-      current.servings != null && current.servings > 0
-        ? current.servings
-        : props.recipes.find((recipe) => recipe.id === current.recipeId)?.servings || 1;
-    const target = buildDirectCookTarget({
-      foodId: current.food.id,
-      recipeId: current.recipeId,
-      date: current.date,
-      mealType: current.mealType,
-      servings,
+  function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
+    void submitFoodCookConfirmAction({
+      event,
+      dialog: quickMealDialog,
+      recipes: props.recipes,
+      setDialog: setQuickMealDialog,
+      navigate: props.navigate,
+      onStartRecipe: props.onStartRecipe,
     });
-    setQuickMealDialog(null);
-    if (props.navigate) {
-      props.navigate(target);
-    } else {
-      // Legacy fallback when navigate is not composed (older tests).
-      props.onStartRecipe(current.recipeId);
-    }
   }
 
   useFoodQuickRecordCandidates({

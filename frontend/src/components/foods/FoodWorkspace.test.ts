@@ -685,11 +685,11 @@ describe('food workspace helpers', () => {
       },
     });
 
-    const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
-    expect(workspaceSource).toContain('buildDirectCookTarget');
-    expect(workspaceSource).toContain('// Direct Cook: never create a plan item just to start cooking.');
+    const actionSource = readFileSync('src/components/foods/useFoodCookActions.ts', 'utf8');
+    expect(actionSource).toContain('buildDirectCookTarget');
+    expect(actionSource).toContain('// Direct Cook: never create a plan item just to start cooking.');
     // Direct cook no longer creates a FoodPlanItem just to start cooking.
-    expect(workspaceSource).not.toMatch(
+    expect(actionSource).not.toMatch(
       /action === 'cook'[\s\S]{0,200}createFoodPlanItem/,
     );
   });
