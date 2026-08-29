@@ -63,15 +63,24 @@ describe('appNavigationModel', () => {
     });
   });
 
-  it('navigates the family shortcut to the AI settings view', () => {
+  it('drops the removed automatic-execution view from legacy persisted navigation', () => {
+    const restored = parsePersistedNavigation(JSON.stringify({
+      version: 2,
+      primaryTab: 'ai',
+      eatBaseView: 'discover',
+      discoverSection: 'all',
+      aiView: 'autoExecution',
+    }));
     const next = reduceNavigation(initialNavigationState, {
       type: 'navigate',
-      target: { workspace: 'ai', view: 'autoExecution' },
+      target: { workspace: 'ai' },
     });
 
+    expect(restored.primaryTab).toBe('ai');
+    expect(restored.ai.view).toBe('conversation');
     expect(next.primaryTab).toBe('ai');
-    expect(next.ai.view).toBe('autoExecution');
-    expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(next))).ai.view).toBe('autoExecution');
+    expect(next.ai.view).toBe('conversation');
+    expect(persistedNavigationFromState(next)).not.toHaveProperty('aiView');
   });
 
   it('falls back to home for corrupt v2 input', () => {

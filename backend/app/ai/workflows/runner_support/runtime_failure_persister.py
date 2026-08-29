@@ -14,9 +14,11 @@ from app.ai.workflows.runner_support.human_input_resume_claim import (
     current_stream_resume_claim,
 )
 from app.ai.workflows.runner_support.run_status import (
+    COMPLETED,
     FAILED,
     TERMINAL_RUN_STATUSES,
     WAITING_APPROVAL,
+    WAITING_INPUT,
 )
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunEvent
@@ -43,7 +45,17 @@ class RuntimeFailurePersister:
         family_id: str,
         user_id: str,
         error: BaseException | str,
-    ) -> None:
+    ) -> bool:
+        """Persist a runtime failure and report whether it was safely absorbed.
+
+        A stream worker can fail after an approval has already committed the
+        business operation and appended its operation-result card.  In that
+        case the operation is the durable user-facing fact; turning the same
+        assistant message/run into a generic failure would be both misleading
+        and destructive to the result card.  ``True`` tells the stream bridge
+        that a final response can be emitted instead of forwarding an error
+        event to the client.
+        """
         requires_auto_execution_block = isinstance(error, AutoExecutionBlockRequired)
         try:
             self.db.rollback()
@@ -55,7 +67,7 @@ class RuntimeFailurePersister:
                     error=error,
                 )
                 live_ai_stream_cache.clear_run(run_id)
-                return
+                return False
             try:
                 run = lock_run_for_transition(
                     self.db,
@@ -64,19 +76,33 @@ class RuntimeFailurePersister:
                 )
             except LookupError:
                 live_ai_stream_cache.clear_run(run_id)
-                return
+                return False
             if cancellation_wins(self.db, run=run):
                 finalize_run_cancellation(self.db, run=run)
                 self.db.commit()
                 live_ai_stream_cache.clear_run(run_id)
-                return
+                return False
+
+            # The approval commit and the provider/stream continuation are
+            # separate phases.  If the latter fails after a successful
+            # operation-result card has been persisted, preserve that success
+            # and let the caller return the durable conversation snapshot.
+            if self._preserve_successful_operation_result(
+                run=run,
+                run_id=run_id,
+                conversation_id=conversation_id,
+            ):
+                self.db.commit()
+                live_ai_stream_cache.clear_run(run_id)
+                return True
+
             if run.status in {*TERMINAL_RUN_STATUSES, WAITING_APPROVAL}:
                 had_stream_claim = current_stream_resume_claim(run) is not None
                 clear_stream_resume_claim(run)
                 if had_stream_claim:
                     self.db.commit()
                 live_ai_stream_cache.clear_run(run_id)
-                return
+                return False
             text = "AI 服务暂时不可用，请稍后重试。"
             self._get_or_create_failed_assistant_message(
                 run=run,
@@ -97,6 +123,7 @@ class RuntimeFailurePersister:
             self._mark_conversation_failed(conversation_id=conversation_id, text=text)
             self.db.commit()
             live_ai_stream_cache.clear_run(run_id)
+            return False
         except Exception:
             self.db.rollback()
             logger.exception(
@@ -109,6 +136,122 @@ class RuntimeFailurePersister:
                 raise AIRuntimeFailurePersistenceError(
                     "AI 运行失败状态无法安全保存，请稍后重试"
                 ) from None
+            return False
+
+    def _preserve_successful_operation_result(
+        self,
+        *,
+        run: Any,
+        run_id: str,
+        conversation_id: str,
+    ) -> bool:
+        matched = self._latest_successful_operation_message(run_id=run_id)
+        if matched is None:
+            return False
+        message, has_pending_approval, has_pending_input = matched
+        if has_pending_approval:
+            next_status = WAITING_APPROVAL
+        elif has_pending_input:
+            next_status = WAITING_INPUT
+        else:
+            next_status = COMPLETED
+
+        clear_stream_resume_claim(run)
+        run.status = next_status
+        # ``error`` is an internal continuation/provider detail.  Exposing it
+        # through a completed run would make the durable success look failed to
+        # diagnostics that only inspect the run row.
+        run.error = None
+        if not run.output_summary:
+            run.output_summary = str(message.content or "")[:255]
+
+        metadata = dict(message.message_metadata or {})
+        metadata.pop("liveStreaming", None)
+        metadata.pop("liveTextPartIds", None)
+        metadata.pop("livePartIds", None)
+        message.message_metadata = metadata
+        message.status = next_status
+
+        conversation = self.db.get(AIConversation, conversation_id)
+        if conversation is not None:
+            conversation.last_run_status = next_status
+            conversation.last_message_at = utcnow()
+            context = dict(conversation.context or {})
+            if next_status == COMPLETED:
+                context.pop("activeRunId", None)
+            conversation.context = self.json_record(context)
+            if not conversation.response:
+                conversation.response = message.content or ""
+                conversation.summary = (message.content or "")[:255]
+        logger.warning(
+            "AI runtime failure occurred after operation result was committed; preserving success run_id=%s conversation_id=%s status=%s",
+            run_id,
+            conversation_id,
+            next_status,
+        )
+        return True
+
+    def _latest_successful_operation_message(
+        self,
+        *,
+        run_id: str,
+    ) -> tuple[AIMessage, bool, bool] | None:
+        messages = list(
+            self.db.scalars(
+                select(AIMessage)
+                .where(AIMessage.run_id == run_id, AIMessage.role == "assistant")
+                .order_by(AIMessage.created_at.desc(), AIMessage.id.desc())
+                .with_for_update()
+            )
+        )
+        for message in messages:
+            if not self._contains_successful_operation_result(message):
+                continue
+            has_pending_approval = False
+            has_pending_input = False
+            for part in message.parts or []:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "approval_request":
+                    approval = part.get("approval") if isinstance(part.get("approval"), dict) else {}
+                    if str(approval.get("status") or "").lower() in {"pending", "pending_retry"}:
+                        has_pending_approval = True
+                elif part.get("type") == "human_input_request":
+                    request_status = str(part.get("status") or "pending").lower()
+                    if request_status in {"pending", "pending_retry"}:
+                        has_pending_input = True
+            return message, has_pending_approval, has_pending_input
+        return None
+
+    @staticmethod
+    def _contains_successful_operation_result(message: AIMessage) -> bool:
+        for part in message.parts or []:
+            if not isinstance(part, dict) or part.get("type") != "result_card":
+                continue
+            card = part.get("card") if isinstance(part.get("card"), dict) else {}
+            if card.get("type") != "operation_result":
+                continue
+            data = card.get("data") if isinstance(card.get("data"), dict) else {}
+            result_status = str(data.get("result_status") or data.get("resultStatus") or "").lower()
+            operation_status = str(data.get("operation_status") or data.get("operationStatus") or "").lower()
+            if result_status == "failed" or operation_status == "failed":
+                continue
+            # A projection may temporarily expose ``result_status=completed``
+            # while the underlying operation is still pending. That card is
+            # only a progress snapshot; preserving it as a committed success
+            # would hide a real write failure that follows.
+            if operation_status == "pending":
+                continue
+            if result_status in {"completed", "no_change", "reverted"}:
+                return True
+            if operation_status in {"completed", "reverted"}:
+                return True
+            # Older trusted cards may not carry the canonical status aliases;
+            # an operation-result card with no explicit failure still denotes a
+            # committed result and is safe to preserve.
+            if not result_status and not operation_status:
+                return True
+        return False
 
     def _persist_auto_execution_block(
         self,

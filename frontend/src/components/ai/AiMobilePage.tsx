@@ -221,7 +221,6 @@ export function AiMobilePage(props: Props) {
         onSelectConversation={props.onSelectConversation}
         onChangeVisibility={props.onChangeVisibility}
         onDeleteConversation={props.onDeleteConversation}
-        onOpenAutoExecution={() => props.onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}
       />
 
       <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>

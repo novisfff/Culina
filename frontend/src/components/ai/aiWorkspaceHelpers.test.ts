@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AiApprovalRequest, AiMessage, AiResultCard } from '../../api/types';
-import { appendDeltaToMessageParts, mergeRemoteAndLocalMessage } from './aiWorkspaceHelpers';
+import {
+  appendDeltaToMessageParts,
+  mergeRemoteAndLocalMessage,
+  operationResultDisplayParts,
+} from './aiWorkspaceHelpers';
 import { recipeDraft } from './aiWorkspaceTestFixtures';
 
 function approvalRequest(overrides: Partial<AiApprovalRequest> = {}): AiApprovalRequest {
@@ -32,6 +36,44 @@ function approvalRequest(overrides: Partial<AiApprovalRequest> = {}): AiApproval
 }
 
 describe('aiWorkspaceHelpers', () => {
+  it('lets the successful operation card own an identical confirmation acknowledgement', () => {
+    const operationCardPart: AiMessage['parts'][number] = {
+      id: 'operation-result',
+      type: 'result_card',
+      card: {
+        id: 'operation-result-card',
+        type: 'operation_result',
+        title: '已更新收藏状态',
+        data: {
+          result_status: 'completed',
+          operation_status: 'completed',
+          actionSummary: '已按你的确认执行。',
+          execution_explanation: '已按你的确认执行。',
+        },
+      } as AiResultCard,
+    };
+    const parts: AiMessage['parts'] = [
+      { id: 'approval-summary-a', type: 'text', text: '已按你的确认执行。' },
+      { id: 'approval-summary-b', type: 'text', text: '已按你的确认执行' },
+      { id: 'follow-up', type: 'text', text: '已按你的确认执行。你还可以继续调整菜谱。' },
+      operationCardPart,
+    ];
+
+    expect(operationResultDisplayParts(parts)).toEqual([
+      parts[2],
+      operationCardPart,
+    ]);
+  });
+
+  it('keeps repeated short text when there is no matching successful operation result', () => {
+    const parts: AiMessage['parts'] = [
+      { id: 'short-a', type: 'text', text: '好的。' },
+      { id: 'short-b', type: 'text', text: '好的。' },
+    ];
+
+    expect(operationResultDisplayParts(parts)).toBe(parts);
+  });
+
   it('appends reused text part ids after existing non-text parts', () => {
     const parts: AiMessage['parts'] = [
       { id: 'assistant-text', type: 'text', text: '已创建第一份菜谱。' },

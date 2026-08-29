@@ -521,16 +521,22 @@ class WorkspaceGraphRunner:
                 )
             yield ("response", response)
 
-        def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
+        def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> bool:
+            handled = False
             if current_run_id:
-                runner.runtime_failure_persister.mark_failed(
+                handled = runner.runtime_failure_persister.mark_failed(
                     run_id=current_run_id,
                     conversation_id=conversation_id,
                     family_id=family_id,
                     user_id=user_id,
                     error=exc,
                 )
-            if discard_history_on_terminal:
+            # A handled failure has already been converted into a durable
+            # success response by the stream bridge. Keep that conversation
+            # available until the response is emitted; purging it here would
+            # make the bridge unable to build the final snapshot. Unhandled
+            # failures retain the original transient-history cleanup.
+            if discard_history_on_terminal and current_run_id and not handled:
                 purge_ai_conversation_user_data(
                     runner.db,
                     family_id=family_id,
@@ -538,6 +544,7 @@ class WorkspaceGraphRunner:
                     expected_run_id=current_run_id,
                 )
                 runner.db.commit()
+            return handled
 
         yield from self._stream_graph_events(
             graph_stream,
@@ -812,15 +819,32 @@ class WorkspaceGraphRunner:
             next_status = WAITING_APPROVAL
         elif operation is not None and not is_operation_completed(operation.get("status")):
             next_status = FAILED
-        elif decision == "rejected" or self._approval_resume_payload_from_decision(serialized) is not None:
-            next_status = RUNNING
         run_id = str(approval.get("run_id") or "")
+        terminal_fast_decision = False
         if run_id:
             run = lock_run_for_transition(
                 self.db,
                 family_id=family_id,
                 run_id=run_id,
             )
+            # A stream worker may still be finishing the original model turn
+            # when a legacy/non-stream decision arrives.  In that race keep a
+            # short-lived replay record so the worker can consume the decision
+            # at its approval interrupt.  Once the graph is already waiting,
+            # a completed operation without a continuation is terminal and
+            # must not leave the run (or activeRunId) stuck in ``running``.
+            requires_orchestrator_resume = self._approval_requires_orchestrator_resume(
+                serialized,
+                run=run,
+            )
+            terminal_fast_decision = (
+                next_status == COMPLETED
+                and decision == "approved"
+                and not requires_orchestrator_resume
+                and run.status != RUNNING
+            )
+            if next_status == COMPLETED and not terminal_fast_decision:
+                next_status = RUNNING
             if serialized.get("suppress_continuation") or cancellation_wins(
                 self.db,
                 run=run,
@@ -828,6 +852,7 @@ class WorkspaceGraphRunner:
             ):
                 finalize_run_cancellation(self.db, run=run)
                 next_status = CANCELLED
+                terminal_fast_decision = False
             else:
                 run.status = next_status
             run.context_summary = record_approval_outcome_summary(
@@ -839,13 +864,38 @@ class WorkspaceGraphRunner:
         if conversation is not None:
             conversation.last_run_status = next_status
             context = dict(conversation.context or {})
-            fast_decisions = context.get("fastApprovalDecisions") if isinstance(context.get("fastApprovalDecisions"), dict) else {}
-            context["fastApprovalDecisions"] = {**fast_decisions, approval_id: serialized}
+            if terminal_fast_decision:
+                context.pop("activeRunId", None)
+                fast_decisions = context.get("fastApprovalDecisions")
+                if isinstance(fast_decisions, dict):
+                    fast_decisions = dict(fast_decisions)
+                    fast_decisions.pop(approval_id, None)
+                    if fast_decisions:
+                        context["fastApprovalDecisions"] = fast_decisions
+                    else:
+                        context.pop("fastApprovalDecisions", None)
+            else:
+                fast_decisions = context.get("fastApprovalDecisions") if isinstance(context.get("fastApprovalDecisions"), dict) else {}
+                context["fastApprovalDecisions"] = {**fast_decisions, approval_id: serialized}
             conversation.context = self._json_record(context)
         message_id = str(approval.get("message_id") or "")
         message = self.db.get(AIMessage, message_id) if message_id else None
         if message is not None:
             message.status = next_status
+        if terminal_fast_decision and run_id:
+            self.approval_followup_streamer.append_deterministic_completion(
+                {
+                    "family_id": family_id,
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "run_id": run_id,
+                    "message": conversation.prompt if conversation is not None else "",
+                    "status": next_status,
+                    "error": None,
+                },
+                serialized,
+                terminal_status="completed",
+            )
         self.db.flush()
         return serialized
 
@@ -1082,7 +1132,8 @@ class WorkspaceGraphRunner:
                 continue
             card = part.get("card") if isinstance(part.get("card"), dict) else {}
             data = card.get("data") if isinstance(card.get("data"), dict) else {}
-            if str(card.get("id") or "") != expected_card_id and str(data.get("approvalId") or "") != approval.id:
+            card_approval_id = data.get("approvalId") or data.get("approval_id")
+            if str(card.get("id") or "") != expected_card_id and str(card_approval_id or "") != approval.id:
                 continue
             events.append(
                 {
@@ -1283,6 +1334,74 @@ class WorkspaceGraphRunner:
         metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
         return approval_resume_payload_from_metadata(metadata)
 
+    def _approval_has_continuation(self, decision_result: dict[str, Any]) -> bool:
+        draft_id = approval_resume_draft_id(decision_result)
+        draft = self.db.get(AITaskDraft, draft_id) if draft_id else None
+        metadata = draft.ai_metadata if draft is not None and isinstance(draft.ai_metadata, dict) else {}
+        return (
+            continuation_from_metadata(metadata) is not None
+            or approval_resume_payload_from_metadata(metadata) is not None
+        )
+
+    def _approval_requires_orchestrator_resume(
+        self,
+        decision_result: dict[str, Any],
+        *,
+        run: AIAgentRun | None = None,
+    ) -> bool:
+        """Return whether an approved operation still has graph work to do.
+
+        A typed continuation (or a legacy ``afterApproval`` payload) is the
+        strongest signal, but it is not the only one.  The orchestrator can
+        deliberately stage a multi-Skill request without putting a typed
+        handoff on the first draft; after that draft is approved it must get a
+        fresh model round to produce the next draft.  ``meal_plan`` is also
+        retained as a historical single-Skill resume boundary because the
+        existing workspace contract lets the orchestrator acknowledge the
+        confirmed plan before ending the run.
+
+        Simple profile/recipe writes with no continuation remain terminal and
+        therefore avoid an unnecessary provider call after their operation has
+        already committed.
+        """
+
+        if self._approval_has_continuation(decision_result):
+            return True
+
+        if run is None:
+            run_id = str(
+                (
+                    decision_result.get("approval")
+                    if isinstance(decision_result.get("approval"), dict)
+                    else {}
+                ).get("run_id")
+                or ""
+            )
+            if run_id:
+                run = self.db.get(AIAgentRun, run_id)
+
+        if run is not None:
+            if str(run.intent or "") == "multi_skill":
+                return True
+            summary = run.context_summary if isinstance(run.context_summary, dict) else {}
+            routing = summary.get("routing") if isinstance(summary.get("routing"), dict) else {}
+            routed_skills = routing.get("skills") if isinstance(routing.get("skills"), list) else []
+            orchestrator_summary = (
+                summary.get("orchestrator")
+                if isinstance(summary.get("orchestrator"), dict)
+                else {}
+            )
+            injected_skills = (
+                orchestrator_summary.get("injectedSkills")
+                if isinstance(orchestrator_summary.get("injectedSkills"), list)
+                else []
+            )
+            if len({str(key) for key in [*routed_skills, *injected_skills] if str(key)}) > 1:
+                return True
+
+        draft_record = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
+        return str(draft_record.get("draft_type") or draft_record.get("draftType") or "") == "meal_plan"
+
     def _pop_fast_approval_decision(self, state: WorkspaceGraphState, approval_id: str) -> dict[str, Any] | None:
         if not approval_id:
             return None
@@ -1385,7 +1504,7 @@ class WorkspaceGraphRunner:
         on_disconnect: Callable[[], None],
         before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
         after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
-        on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None = None,
+        on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], bool | None] | None = None,
         runner_factory: Callable[[], "WorkspaceGraphRunner"] | None = None,
         perf_context: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:

@@ -279,7 +279,7 @@ Script 约束：
 
 草稿型 Skill 必须声明至少一个 `draft_types`、至少一个允许的 draft tool，并且 draft tool 自身设置 `requires_confirmation=True`。这个字段不是“所有草稿都必须由用户点确认”的同义词，而是要求所有 Draft 都进入可信的服务端 commit gate：
 
-> 模型始终只生成 Draft，并且模型不获得正式 Write Tool。`requires_confirmation=True` 表示 Draft 必须进入服务端 commit gate：`draft_then_confirm` 始终等待真实用户决定；`draft_then_policy` 只有在离散意图证据、当前成员/家庭授权、动作白名单、版本、限制和已注册撤销适配器全部通过时，才由服务端策略直接提交。其他情况降级人工确认。
+> 模型始终只生成 Draft，并且模型不获得正式 Write Tool。`requires_confirmation=True` 表示 Draft 必须进入服务端 commit gate：`draft_then_confirm` 始终等待真实用户决定；`draft_then_policy` 只有在离散意图证据、有效 membership、服务端默认开放的动作白名单、版本、限制和已注册撤销适配器全部通过时，才由服务端策略直接提交。其他情况降级人工确认。
 
 `draft_then_confirm` 与 `draft_then_policy` 在模型侧拥有完全相同的最小权限；两者都不能看见或调用正式 Write Tool。`draft_then_policy` 不是模型自批，也不能由 Skill 文案、模型置信度或前端开关直接绕过 gate。`Composite 与 Continuation 始终人工确认`：`composite_operation`、带 continuation 的 Draft、做菜、删除、媒体或其他外部副作用均不得走免确认路径。
 
@@ -291,7 +291,7 @@ Script 约束：
   -> WorkspaceGraphRunner 持久化 AITaskDraft
   -> route_draft 取得并锁定 Run，执行服务端 policy preflight
   -> 不满足策略：创建唯一 AIApprovalRequest，等待真实用户决定
-  -> 满足策略：锁定授权与目标并复核，标记本消息的单次门禁
+  -> 满足策略：复核 catalog 授权与目标，标记本消息的单次门禁
   -> 两条路径统一进入 DraftCommitCoordinator
   -> 领域 Service 在事务内写入，记录 AIOperation
   -> 以同一 Draft key 原位写入 operation_result 卡片
@@ -303,7 +303,7 @@ Script 约束：
 
 - `committed_payload_json`、Draft ID/version/payload hash 和执行模式；
 - `actor_user_id`、`approval_request_id` 或策略授权来源；
-- member preference、family policy、consent notice、catalog 和 policy 的版本快照；
+- `catalog_default` 授权来源、action key、catalog 和 policy 的版本快照；
 - `policy_key`、`policy_version`、reason codes、operation idempotency key 与结果。
 
 同一 Draft/version 不得切换人工/策略语义，也不得提交不同 payload。审批失败或 stale `baseUpdatedAt` 冲突时，应返回结构化 `currentValue` 和 `recoveryHint`；不要静默重建草稿、覆盖原审批事实或自动改写用户提交值。
@@ -338,13 +338,13 @@ Script 约束：
 
 | Action key | 允许范围与硬限制 | 额外排除 | 授权 | Revert adapter / cache scopes |
 | --- | --- | --- | --- | --- |
-| `food.set_favorite` | 一个既有食物，只设置 `favorite` 布尔值 | 不修改食物资料或图片；必须匹配 `baseUpdatedAt` | 当前成员 opt-in | `food.favorite.v1` / `food`, `ai_conversation` |
-| `meal_log.rate_food` | 一次评分或取消评分最多 5 个餐食 food entry；评分为 `0.5..5` 或 `null` | 只允许记录创建者或参与者；不修改餐食组成、参与人或图片 | 当前成员 opt-in | `meal_log.rating.v1` / `meal_log`, `ai_conversation` |
-| `shopping_list.safe_write` | 新增或恢复待买最多 5 项；修改恰好 1 项 | 不删除、不标记买到、不入库；只允许既有食材或 readyMade/instant/packaged 食物，并校验数量模式与版本 | 当前成员 opt-in + 当前家庭 Owner 开启 family policy | `shopping_list.safe_write.v1` / `shopping_list`, `ai_conversation` |
-| `meal_log.simple_create` | 使用最多 5 个既有食物新增一餐，参与者只能是当前执行人 | 不扣库存、不关联计划、不添加媒体；食物 ID/name/type 必须由服务端重读 | 当前成员 opt-in | `meal_log.simple_create.v1` / `meal_log`, `ai_conversation` |
-| `meal_plan.simple_create` | 使用最多 5 个既有食物新增 planned 项 | 不更新状态、不联动购物清单；日期/餐别/food/recipe 必须由服务端复核 | 当前成员 opt-in | `meal_plan.simple_create.v1` / `meal_plan`, `ai_conversation` |
+| `food.set_favorite` | 一个既有食物，只设置 `favorite` 布尔值 | 不修改食物资料或图片；必须匹配 `baseUpdatedAt` | catalog 默认开放 | `food.favorite.v1` / `food`, `ai_conversation` |
+| `meal_log.rate_food` | 一次评分或取消评分最多 5 个餐食 food entry；评分为 `0.5..5` 或 `null` | 只允许记录创建者或参与者；不修改餐食组成、参与人或图片 | catalog 默认开放 | `meal_log.rating.v1` / `meal_log`, `ai_conversation` |
+| `shopping_list.safe_write` | 新增或恢复待买最多 5 项；修改恰好 1 项 | 不删除、不标记买到、不入库；只允许既有食材或 readyMade/instant/packaged 食物，并校验数量模式与版本 | catalog 默认开放 | `shopping_list.safe_write.v1` / `shopping_list`, `ai_conversation` |
+| `meal_log.simple_create` | 使用最多 5 个既有食物新增一餐，参与者只能是当前执行人 | 不扣库存、不关联计划、不添加媒体；食物 ID/name/type 必须由服务端重读 | catalog 默认开放 | `meal_log.simple_create.v1` / `meal_log`, `ai_conversation` |
+| `meal_plan.simple_create` | 使用最多 5 个既有食物新增 planned 项 | 不更新状态、不联动购物清单；日期/餐别/food/recipe 必须由服务端复核 | catalog 默认开放 | `meal_plan.simple_create.v1` / `meal_plan`, `ai_conversation` |
 
-五项能力全部要求当前家庭的有效 membership 和当前用户自己的 member preference；Owner 也不能跳过自己的 opt-in。`shopping_list.safe_write` 还要求当前家庭 policy 已由当前 Owner 开启，普通 Member 只读该 family switch。开启 preference/policy 必须提交当前 consent notice version；旧 notice 使 `effective_enabled=false` 并要求重新同意。commit 前按固定顺序锁 family policy、member preference、Operation 与领域目标，并复核 row version、catalog version、policy version、notice version 和授权快照；任一变化都关闭免确认。
+五项能力由服务端 catalog 默认开放，授权来源固定为 `catalog_default`，不读取成员 preference、家庭 policy 或 consent notice。旧设置行即使关闭或版本过期也不能阻止、扩大或改变免确认范围。commit 前仍须确认当前家庭的有效 membership，并复核 action key、catalog version、policy version、Operation、领域权限与目标版本；任何不在 catalog 的动作都返回 `action_not_allowed` 并降级人工确认。
 
 策略还会统一拒绝 external side effect、Continuation、Composite、重复自动执行、缺失已注册 revert adapter、部分目标已满足但部分未满足，以及动作自身的数量、身份、版本或领域限制失败。完全已满足的目标必须在领域锁下再次证明，才返回 `policy_no_change`；无法锁定或锁后变化则降级人工确认。
 
@@ -429,7 +429,7 @@ continuation 只恢复能力和上下文，Runtime 不得自动生成或提交�
 - `operation_result` 的安全投影、Draft-keyed 卡片/part/artifact ID、fresh `server_now`、`cache_scopes` 和审批失败恢复信息中的 `currentValue`、`recoveryHint`
 - `recipe`、`ingredient_profile`、`shopping_list`、`shopping_intake`、`meal_plan`、`meal_log`、`food_profile`、`recipe_cook`、`inventory_operation`、`composite_operation` 草稿类型
 - `AIChatResponse`、消息 parts、`human_input_request`、SSE `message_delta` 和 progress 事件格式
-- `approval_policy` 的 `none`、`draft_then_confirm`、`draft_then_policy` 语义，以及 member preference、family policy、consent notice 与五个 action key
+- `approval_policy` 的 `none`、`draft_then_confirm`、`draft_then_policy` 语义，以及 `catalog_default` 与五个 action key
 - `POST /api/ai/operations/{operation_id}/revert` 的幂等请求、HTTP 结果替换、稳定错误和一小时 inclusive 边界
 - 人工审批、服务端策略提交、`pending_retry`、拒绝和正式写入行为
 

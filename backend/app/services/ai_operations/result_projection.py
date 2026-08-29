@@ -42,7 +42,7 @@ PUBLIC_RESULT_ENTITY_FIELDS = (
 
 EXECUTION_EXPLANATIONS = {
     "manual_approval": "已按你的确认执行。",
-    "policy_auto": "你明确要求执行此操作，且它符合已开启的低风险规则。",
+    "policy_auto": "你明确要求执行此操作，且它符合服务端开放的低风险规则。",
     "policy_no_change": "相关内容已经是你要求的状态。",
     "pending": "操作正在处理中。",
     "reverted": "已撤销该操作。",

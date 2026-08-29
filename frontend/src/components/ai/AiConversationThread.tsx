@@ -30,6 +30,7 @@ import {
   extractRunActivitySkillName,
   isDraftRunActivityEvent,
   isPendingHumanInputPart,
+  operationResultDisplayParts,
   preferredRunActivityEvent,
   runActivityCollapseKey,
 } from './aiWorkspaceHelpers';
@@ -707,7 +708,8 @@ export function MessageBubble({
   const userName = user?.display_name || user?.username || '我';
   const userAvatarUrl = resolveAiAvatarUrl(user?.avatar_image?.url);
   const messageTime = formatMessageTime(message.created_at);
-  const hasRenderableParts = message.parts.some((part) => {
+  const displayParts = operationResultDisplayParts(message.parts);
+  const hasRenderableParts = displayParts.some((part) => {
     if (part.type === 'text') return Boolean(part.text?.trim());
     if (part.type === 'run_activity') return Boolean(part.activity);
     if (part.type === 'image') return Boolean(part.image);
@@ -724,8 +726,8 @@ export function MessageBubble({
     && !hasSpecificProgressCue
     && isThinking;
   const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
-  const timelineItems = createMessageTimelineItems(message.parts, runEventEntries);
-  const firstPendingApprovalId = message.parts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
+  const timelineItems = createMessageTimelineItems(displayParts, runEventEntries);
+  const firstPendingApprovalId = displayParts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
   const fallbackCode = isUser ? null : modelUsageFallbackCodeFromMessageMetadata(message.metadata);
 
   const [messageCopied, setMessageCopied] = useState(false);
@@ -733,7 +735,7 @@ export function MessageBubble({
   const showFooter = isMessageFooterReady(message, isAssistantResponseActive, runEvents);
 
   const copyMessageText = async () => {
-    const textContent = message.parts
+    const textContent = displayParts
       .filter((part) => part.type === 'text')
       .map((part) => part.text ?? '')
       .join('\n\n') || message.content || '';

@@ -372,7 +372,7 @@ describe('FamilySettings activity overlay control', () => {
     expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'modelUsage' });
   });
 
-  it('opens AI auto execution from the dedicated desktop and mobile family shortcuts', () => {
+  it('does not expose automatic-execution settings on desktop or mobile', () => {
     const onNavigate = vi.fn();
     const view = renderSettings({
       overlayMode: null,
@@ -383,9 +383,7 @@ describe('FamilySettings activity overlay control', () => {
     const desktopEntry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
       (button) => button.textContent?.includes('AI 自动执行'),
     );
-    expect(desktopEntry).toBeTruthy();
-    act(() => desktopEntry?.click());
-    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'ai', view: 'autoExecution' });
+    expect(desktopEntry).toBeUndefined();
 
     rerenderSettings({
       overlayMode: null,
@@ -395,9 +393,8 @@ describe('FamilySettings activity overlay control', () => {
     const mobileEntry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
       (button) => button.textContent?.includes('AI 自动执行'),
     );
-    expect(mobileEntry).toBeTruthy();
-    act(() => mobileEntry?.click());
-    expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'ai', view: 'autoExecution' });
+    expect(mobileEntry).toBeUndefined();
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('shows AI 服务 beside 模型用量 only to the Owner', () => {

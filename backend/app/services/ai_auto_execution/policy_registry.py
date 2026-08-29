@@ -69,7 +69,7 @@ class AutoExecutionPolicyRegistry:
         reason_codes.extend(context.evidence.reason_codes)
         reason_codes.extend(context.authorization.reason_codes)
         if not context.authorization.enabled and not context.authorization.reason_codes:
-            reason_codes.append("member_authorization_missing")
+            reason_codes.append("action_not_allowed")
         if policy.revert_adapter_key not in context.registered_revert_adapters:
             reason_codes.append("revert_adapter_missing")
         if context.has_external_side_effect:

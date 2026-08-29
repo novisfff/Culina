@@ -748,9 +748,16 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 approval_resume_payload_from_metadata({"afterApproval": {"continue": True}}),
                 {"instruction": "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。"},
             )
-            self.assertEqual(
-                approval_resume_payload_from_metadata({}),
-                {"instruction": "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。"},
+            self.assertIsNone(approval_resume_payload_from_metadata({}))
+            self.assertIsNone(
+                approval_resume_payload_from_metadata(
+                    {
+                        "afterApproval": {
+                            "continue": False,
+                            "instruction": "不应继续。",
+                        }
+                    }
+                )
             )
 
             artifact = approval_resume_artifact(
@@ -2502,6 +2509,68 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             )
             self.assertIn("餐食", injected_instructions)
             self.assertIn("购物", injected_instructions)
+
+        def test_resumed_orchestrator_round_uses_a_distinct_usage_operation(self) -> None:
+            class UsageCapturingProvider(BaseChatProvider):
+                model_name = "orchestrator-usage-phase-model"
+
+                def __init__(self) -> None:
+                    self.usage_attribution = None
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                    usage_attribution=None,
+                ) -> ChatProviderResult:
+                    del system, user, tools, tool_handler, max_rounds
+                    self.usage_attribution = usage_attribution
+                    text = "续跑完成。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = UsageCapturingProvider()
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-orchestrator-usage-phase",
+                run_id="run-orchestrator-usage-phase",
+                conversation=[],
+                current_message="继续处理",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-orchestrator-usage-phase",
+                        run_id="run-orchestrator-usage-phase",
+                    ),
+                ),
+                trace_round_index=2,
+            )
+
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(context)
+
+            self.assertEqual(result.status, "completed")
+            self.assertIsNotNone(provider.usage_attribution)
+            self.assertEqual(
+                provider.usage_attribution.logical_operation_id,
+                "run-orchestrator-usage-phase:orchestrator:2",
+            )
 
         def test_orchestrator_returns_structured_error_for_unknown_skill_injection(self) -> None:
             class UnknownSkillProvider(BaseChatProvider):
@@ -5144,6 +5213,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
                 def __init__(self) -> None:
                     self.calls = 0
+                    self.usage_attributions: list[Any] = []
 
                 def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
@@ -5157,9 +5227,11 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     tool_handler,
                     message_handler=None,
                     max_rounds: int = 8,
+                    usage_attribution=None,
                 ) -> ChatProviderResult:
                     del system, tools, max_rounds
                     self.calls += 1
+                    self.usage_attributions.append(usage_attribution)
                     if self.calls == 1:
                         tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排餐食计划"})
                         tool_handler(
@@ -5222,6 +5294,10 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(resumed["run"]["status"], "completed")
             self.assertEqual(resumed["message"]["content"], "你想安排几天晚餐？\n\n好的，我按三天继续整理。")
             self.assertEqual(provider.calls, 2)
+            self.assertEqual(
+                [item.logical_operation_id for item in provider.usage_attributions if item is not None],
+                [response["run"]["id"], f"{response['run']['id']}:orchestrator:2"],
+            )
             self.assertIsNotNone(run)
             self.assertIsNotNone(message)
             assert run is not None

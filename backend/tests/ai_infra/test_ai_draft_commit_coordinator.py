@@ -192,6 +192,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
             policy_version="food.set_favorite.v1",
             for_update=True,
         )
+        assert authorization.source is not None
         request = DraftCommitRequest(
             family_id=self.family.id,
             actor_user_id=self.user.id,
@@ -201,7 +202,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
             draft_version=draft.version,
             committed_payload=payload,
             execution_mode="policy_auto",
-            authorization_source="member_preference",
+            authorization_source=authorization.source,
             authorization_snapshot=dict(authorization.snapshot),
             approval_request_id=None,
             policy_key="food.set_favorite",
@@ -896,8 +897,8 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                 "请重新生成新的草稿后再提交",
             )
 
-    def test_policy_retry_rechecks_original_actor_membership_authorization_target_and_attempt(self) -> None:
-        scenarios = ("actor", "membership", "authorization", "target", "attempt")
+    def test_policy_retry_rechecks_original_actor_membership_target_and_attempt(self) -> None:
+        scenarios = ("actor", "membership", "target", "attempt")
         for scenario in scenarios:
             with self.subTest(scenario=scenario), self.SessionLocal() as db:
                 run, draft, request = self._seed_transient_retry(db, suffix=f"gate-{scenario}")
@@ -908,17 +909,6 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                     membership = db.get(Membership, self.membership.id)
                     assert membership is not None
                     membership.status = MembershipStatus.INVITED
-                    db.flush()
-                elif scenario == "authorization":
-                    preference = db.scalar(
-                        select(AIAutoExecutionPreference).where(
-                            AIAutoExecutionPreference.family_id == self.family.id,
-                            AIAutoExecutionPreference.user_id == self.user.id,
-                            AIAutoExecutionPreference.action_key == "food.set_favorite",
-                        )
-                    )
-                    assert preference is not None
-                    preference.enabled = False
                     db.flush()
                 elif scenario == "target":
                     food = db.get(Food, "food-tomato")
@@ -1145,6 +1135,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                     action_key="food.set_favorite",
                     policy_version="food.set_favorite.v1",
                 )
+                assert authorization.source is not None
                 operation = AIOperation(
                     id="operation-concurrent-retry",
                     family_id=family.id,
@@ -1154,7 +1145,7 @@ class AIDraftCommitCoordinatorTestCase(AIAgentInfraTestCase):
                     operation_type="food.favorite",
                     status="failed",
                     execution_mode="policy_auto",
-                    authorization_source="member_preference",
+                    authorization_source=authorization.source,
                     authorization_snapshot_json=dict(authorization.snapshot),
                     policy_key="food.set_favorite",
                     policy_version="food.set_favorite.v1",

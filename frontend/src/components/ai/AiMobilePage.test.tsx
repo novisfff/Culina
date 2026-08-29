@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanupTestDomAndMocks, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
 import { AiMobileChrome } from './AiMobileChrome';
 import { AiMobilePage } from './AiMobilePage';
-import { AiAutoExecutionMobilePage } from '../../features/ai-auto-execution/AiAutoExecutionMobilePage';
 
 function mockVisualViewport({ height, offsetTop }: { height: number; offsetTop: number }) {
   const originalDescriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport');
@@ -113,7 +112,7 @@ describe('AiMobilePage viewport', () => {
 });
 
 describe('AiMobileChrome touch targets', () => {
-  it('gives automatic-execution settings an independent mobile target', async () => {
+  it('keeps conversation controls without exposing automatic-execution settings', async () => {
     const rendered = await renderWithQuery(
       <AiMobileChrome
         conversations={[]}
@@ -129,7 +128,6 @@ describe('AiMobileChrome touch targets', () => {
         onSelectConversation={() => undefined}
         onChangeVisibility={() => undefined}
         onDeleteConversation={() => undefined}
-        onOpenAutoExecution={() => undefined}
       />,
     );
 
@@ -139,26 +137,8 @@ describe('AiMobileChrome touch targets', () => {
     const history = rendered.container.querySelector<HTMLButtonElement>(
       'button[aria-label="打开历史记录"]',
     );
-    expect(settings?.classList.contains('ai-mobile-auto-execution-trigger')).toBe(true);
-    expect(history?.classList.contains('ai-mobile-auto-execution-trigger')).toBe(false);
-    rendered.unmount();
-  });
-});
-
-describe('AiAutoExecutionMobilePage', () => {
-  it('keeps settings in a labelled phone surface and returns to the conversation', async () => {
-    const onBack = vi.fn();
-    const rendered = await renderWithQuery(
-      <AiAutoExecutionMobilePage familyId="family-1" isOwner onBack={onBack} />,
-    );
-
-    expect(rendered.container.querySelector('section[aria-label="AI 自动执行设置"]')).not.toBeNull();
-    const back = Array.from(rendered.container.querySelectorAll('button')).find(
-      (button) => button.textContent === '返回',
-    );
-    expect(back).toBeTruthy();
-    back?.click();
-    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(settings).toBeNull();
+    expect(history).not.toBeNull();
     rendered.unmount();
   });
 });

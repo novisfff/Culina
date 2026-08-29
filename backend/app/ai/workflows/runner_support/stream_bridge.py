@@ -130,13 +130,33 @@ def handle_stream_worker_exception(
     *,
     event_queue: Queue[Any],
     is_disconnected: Callable[[], bool],
-    on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None,
+    on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], bool | None] | None,
+    perf_context: dict[str, Any] | None = None,
+    enqueue: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> None:
     reported_exc = exc
+    handled = False
     try:
         worker_runner.db.rollback()
         if on_worker_exception is not None:
-            on_worker_exception(worker_runner, exc)
+            handled = bool(on_worker_exception(worker_runner, exc))
+        if handled:
+            context = perf_context or {}
+            conversation_id = context.get("conversation_id")
+            run_id = context.get("run_id")
+            if (
+                enqueue is None
+                or not isinstance(conversation_id, str)
+                or not conversation_id
+                or not isinstance(run_id, str)
+                or not run_id
+            ):
+                raise RuntimeError("已吸收的 AI 流错误缺少最终响应上下文")
+            # The persister has already committed a durable success.  Return
+            # that snapshot through the normal SSE response event so clients
+            # do not interpret the swallowed provider error as a failed request.
+            enqueue("response", worker_runner._chat_response(conversation_id, run_id))
+            return
     except Exception as persistence_exc:
         logger.exception("AI graph background worker failed while recording stream error")
         reported_exc = persistence_exc
@@ -161,7 +181,7 @@ def consume_stream_graph_worker(
     is_disconnected: Callable[[], bool],
     before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
     after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None,
-    on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None,
+    on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], bool | None] | None,
     runner_factory: Callable[[], "WorkspaceGraphRunner"] | None,
     perf_context: dict[str, Any] | None,
     stream_done_marker: object,
@@ -197,6 +217,8 @@ def consume_stream_graph_worker(
             event_queue=event_queue,
             is_disconnected=is_disconnected,
             on_worker_exception=on_worker_exception,
+            perf_context=perf_context,
+            enqueue=enqueue,
         )
     finally:
         worker_runner._direct_stream_sink = previous_sink

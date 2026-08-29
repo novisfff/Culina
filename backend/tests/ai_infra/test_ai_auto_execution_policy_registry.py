@@ -84,8 +84,8 @@ def base_context() -> AutoExecutionPolicyContext:
         ),
         authorization=EffectiveAuthorization(
             enabled=True,
-            source="member_preference",
-            snapshot={"member_preference_version": 1},
+            source="catalog_default",
+            snapshot={"source": "catalog_default", "catalog_version": "auto-execution.v1"},
             reason_codes=(),
         ),
         auto_execution_attempted=False,
@@ -113,11 +113,8 @@ def base_context() -> AutoExecutionPolicyContext:
             "explicit_complete", {}, frozenset(), {}, ("source_value_mismatch",),
         )}, "source_value_mismatch"),
         ({"authorization": EffectiveAuthorization(
-            False, None, {}, ("member_authorization_missing",),
-        )}, "member_authorization_missing"),
-        ({"authorization": EffectiveAuthorization(
-            False, None, {}, ("family_policy_disabled",),
-        )}, "family_policy_disabled"),
+            False, None, {}, ("action_not_allowed",),
+        )}, "action_not_allowed"),
         ({"registered_revert_adapters": frozenset()}, "revert_adapter_missing"),
         ({"has_continuation": True}, "continuation_not_allowed"),
         ({"is_composite": True}, "composite_not_allowed"),
@@ -153,7 +150,7 @@ def test_unauthorized_already_satisfied_target_still_requires_confirmation(
     context = replace(
         base_context,
         authorization=EffectiveAuthorization(
-            False, None, {}, ("member_authorization_missing",),
+            False, None, {}, ("action_not_allowed",),
         ),
         payload={"action": "safe_action", "target_state": "already_satisfied"},
     )
@@ -161,7 +158,7 @@ def test_unauthorized_already_satisfied_target_still_requires_confirmation(
     decision = registry.evaluate(context)
 
     assert decision.route == "manual_confirmation"
-    assert decision.reason_codes == ("member_authorization_missing",)
+    assert decision.reason_codes == ("action_not_allowed",)
 
 
 def test_only_fully_authorized_satisfied_target_returns_no_change(
@@ -186,7 +183,7 @@ def test_allowed_unsatisfied_target_returns_auto_execute(
     assert decision.route == "auto_execute"
     assert decision.policy_key == _FakeActionPolicy.key
     assert decision.policy_version == _FakeActionPolicy.version
-    assert decision.authorization_source == "member_preference"
+    assert decision.authorization_source == "catalog_default"
 
 
 def test_partial_satisfaction_is_manual(
@@ -217,7 +214,7 @@ def test_reason_codes_are_deduplicated_without_losing_gate_order(
         enabled=False,
         source=None,
         snapshot={},
-        reason_codes=("source_quote_mismatch", "member_authorization_missing"),
+        reason_codes=("source_quote_mismatch", "action_not_allowed"),
     )
     decision = registry.evaluate(replace(
         base_context,
@@ -229,14 +226,14 @@ def test_reason_codes_are_deduplicated_without_losing_gate_order(
         auto_execution_attempted=True,
         payload={
             "action": "safe_action",
-            "policy_reasons": ("member_authorization_missing", "target_stale"),
+            "policy_reasons": ("action_not_allowed", "target_stale"),
         },
     ))
 
     assert decision.reason_codes == (
         "intent_not_explicit",
         "source_quote_mismatch",
-        "member_authorization_missing",
+        "action_not_allowed",
         "revert_adapter_missing",
         "continuation_not_allowed",
         "composite_not_allowed",
@@ -307,7 +304,7 @@ def test_resolve_then_validate_uses_policy_requirements_before_global_gates(
 
 
 class AIAutoExecutionAuthorizationResolverTestCase(AIAgentInfraTestCase):
-    def test_read_decision_does_not_create_missing_setting_rows(self) -> None:
+    def test_catalog_action_is_enabled_by_default_without_creating_setting_rows(self) -> None:
         with self.SessionLocal() as db:
             authorization = resolve_effective_authorization(
                 db,
@@ -317,40 +314,35 @@ class AIAutoExecutionAuthorizationResolverTestCase(AIAgentInfraTestCase):
                 policy_version="shopping_list.safe_write.v1",
                 for_update=False,
             )
-            self.assertFalse(authorization.enabled)
-            self.assertEqual(authorization.reason_codes, (
-                "member_authorization_missing",
-                "family_policy_disabled",
-            ))
+            self.assertTrue(authorization.enabled)
+            self.assertEqual(authorization.source, "catalog_default")
+            self.assertEqual(authorization.reason_codes, ())
             self.assertEqual(authorization.snapshot, {
-                "source": None,
-                "member_preference_version": 0,
-                "member_notice_version": None,
-                "family_policy_version": 0,
-                "family_notice_version": None,
+                "source": "catalog_default",
+                "action_key": "shopping_list.safe_write",
                 "catalog_version": "auto-execution.v1",
                 "policy_version": "shopping_list.safe_write.v1",
             })
             self.assertEqual(db.scalar(select(func.count(AIAutoExecutionPreference.id))), 0)
             self.assertEqual(db.scalar(select(func.count(AIFamilyAutoExecutionPolicy.id))), 0)
 
-    def test_current_member_and_shopping_family_rows_enable_authorization(self) -> None:
+    def test_legacy_disabled_rows_do_not_override_catalog_default(self) -> None:
         with self.SessionLocal() as db:
             db.add_all([
                 AIAutoExecutionPreference(
                     family_id=self.family.id,
                     user_id=self.user.id,
                     action_key="shopping_list.safe_write",
-                    enabled=True,
-                    consent_notice_version="auto-execution-consent.v1",
+                    enabled=False,
+                    consent_notice_version="auto-execution-consent.v0",
                     created_by=self.user.id,
                     updated_by=self.user.id,
                 ),
                 AIFamilyAutoExecutionPolicy(
                     family_id=self.family.id,
                     action_key="shopping_list.safe_write",
-                    enabled=True,
-                    consent_notice_version="auto-execution-consent.v1",
+                    enabled=False,
+                    consent_notice_version="auto-execution-consent.v0",
                     consented_by=self.user.id,
                     created_by=self.user.id,
                     updated_by=self.user.id,
@@ -368,49 +360,34 @@ class AIAutoExecutionAuthorizationResolverTestCase(AIAgentInfraTestCase):
             )
 
             self.assertTrue(authorization.enabled)
-            self.assertEqual(authorization.source, "member_and_family_policy")
+            self.assertEqual(authorization.source, "catalog_default")
             self.assertEqual(authorization.reason_codes, ())
-            self.assertEqual(authorization.snapshot["member_preference_version"], 1)
-            self.assertEqual(authorization.snapshot["family_policy_version"], 1)
+            self.assertEqual(authorization.snapshot, {
+                "source": "catalog_default",
+                "action_key": "shopping_list.safe_write",
+                "catalog_version": "auto-execution.v1",
+                "policy_version": "shopping_list.safe_write.v1",
+            })
 
-    def test_notice_mismatch_is_unauthorized_and_family_is_not_required_for_other_actions(self) -> None:
+    def test_action_outside_catalog_is_not_authorized(self) -> None:
         with self.SessionLocal() as db:
-            db.add(AIAutoExecutionPreference(
-                family_id=self.family.id,
-                user_id=self.user.id,
-                action_key="food.set_favorite",
-                enabled=True,
-                consent_notice_version="auto-execution-consent.v0",
-                created_by=self.user.id,
-                updated_by=self.user.id,
-            ))
-            db.flush()
-            stale = resolve_effective_authorization(
+            authorization = resolve_effective_authorization(
                 db,
                 family_id=self.family.id,
                 actor_user_id=self.user.id,
-                action_key="food.set_favorite",
-                policy_version="food.set_favorite.v1",
+                action_key="inventory.consume",
+                policy_version="inventory.consume.v1",
                 for_update=False,
             )
-            self.assertFalse(stale.enabled)
-            self.assertEqual(stale.reason_codes, ("member_authorization_missing",))
-
-            preference = db.scalar(select(AIAutoExecutionPreference))
-            assert preference is not None
-            preference.consent_notice_version = "auto-execution-consent.v1"
-            db.flush()
-            enabled = resolve_effective_authorization(
-                db,
-                family_id=self.family.id,
-                actor_user_id=self.user.id,
-                action_key="food.set_favorite",
-                policy_version="food.set_favorite.v1",
-                for_update=False,
-            )
-            self.assertTrue(enabled.enabled)
-            self.assertEqual(enabled.source, "member_preference")
-            self.assertIsNone(enabled.snapshot["family_policy_version"])
+            self.assertFalse(authorization.enabled)
+            self.assertIsNone(authorization.source)
+            self.assertEqual(authorization.reason_codes, ("action_not_allowed",))
+            self.assertEqual(authorization.snapshot, {
+                "source": None,
+                "action_key": "inventory.consume",
+                "catalog_version": "auto-execution.v1",
+                "policy_version": "inventory.consume.v1",
+            })
 
 
 def test_existing_draft_specs_default_to_manual_server_metadata() -> None:

@@ -13,7 +13,7 @@ from app.ai.errors import (
     ToolBudgetHardStop,
 )
 from app.ai.observability.llm_exchange import LLMExchangeRecorder
-from app.ai.runtime.provider import BaseChatProvider
+from app.ai.runtime.provider import BaseChatProvider, ChatProviderResult
 from app.ai.runtime.types import provider_control_flow_metadata
 from app.ai.skills.base import SkillContext, SkillResult
 from app.ai.skills.registry import SkillRegistry
@@ -49,6 +49,20 @@ __all__ = [
     "SkillInjectionManager",
     "WorkspaceOrchestratorAgent",
 ]
+
+
+def usage_logical_operation_id(context: SkillContext) -> str:
+    """Return a stable usage identity for one graph-level orchestrator round.
+
+    The first round keeps the historical run id.  Resumed/continued rounds use
+    a phase suffix so their provider rounds cannot collide with reservations
+    already settled by an earlier round of the same run.
+    """
+
+    round_index = int(context.trace_round_index or 0)
+    if round_index <= 1:
+        return context.run_id
+    return f"{context.run_id}:orchestrator:{round_index}"
 
 
 class WorkspaceOrchestratorAgent:
@@ -240,9 +254,24 @@ class WorkspaceOrchestratorAgent:
                     attribution_kind=ModelUsageAttributionKind.USER,
                     actor_user_id=context.user_id,
                     operation_source=ModelUsageOperationSource.INTERACTIVE,
-                    logical_operation_id=context.run_id,
+                    logical_operation_id=usage_logical_operation_id(context),
                 )
-            provider_result = self.provider.generate_with_tools(**provider_kwargs)
+            try:
+                provider_result = self.provider.generate_with_tools(**provider_kwargs)
+            except (ApprovalRequired, DraftRouted, HumanInputRequired, ToolBudgetHardStop, AIExecutionCancelled, AutoExecutionBlockRequired):
+                # These exceptions are control-flow signals raised by the
+                # tool gateway and must continue to the dedicated handlers
+                # below.  A Provider exception, on the other hand, is a
+                # recoverable model failure and should follow the same typed
+                # result path as a Provider returning ``status=failed``.
+                raise
+            except Exception as exc:
+                provider_result = ChatProviderResult(
+                    text=None,
+                    status="failed",
+                    model=model_name(context),
+                    error=str(exc),
+                )
             if provider_result.status in {"failed", "fallback"}:
                 result = self.result_assembler.failed_result(
                     provider_result,

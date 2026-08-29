@@ -359,14 +359,6 @@ export function FamilySettings(props: FamilySettingsProps) {
               </small>
             </span>
           </button>
-          <button
-            className="family-model-usage-entry"
-            type="button"
-            onClick={() => props.onNavigate({ workspace: 'ai', view: 'autoExecution' })}
-          >
-            <span className="family-model-usage-entry-icon" aria-hidden="true"><DashboardIcon name="shield" /></span>
-            <span className="family-model-usage-entry-copy"><strong>AI 自动执行</strong><small>查看并管理个人的低风险自动执行规则</small></span>
-          </button>
           {props.isOwner ? (
             <button
               className="family-model-usage-entry family-ai-services-entry"

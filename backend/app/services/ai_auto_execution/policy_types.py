@@ -19,6 +19,7 @@ DraftRouteStatus = Literal["waiting_approval", "auto_executed", "no_change", "ex
 ExecutionMode = Literal["manual_approval", "policy_auto", "policy_no_change"]
 AuthorizationSource = Literal[
     "approval_request",
+    "catalog_default",
     "member_preference",
     "member_and_family_policy",
 ]
@@ -72,10 +73,7 @@ class CriticalEvidenceRequirement:
 @dataclass(frozen=True, slots=True)
 class AuthorizationSnapshot:
     source: AuthorizationSource
-    member_preference_version: int
-    member_notice_version: str
-    family_policy_version: int | None
-    family_notice_version: str | None
+    action_key: str
     catalog_version: str
     policy_version: str
 

@@ -6,10 +6,12 @@ import type {
   AiHumanInputRequest,
   AiMessage,
   AiMessagePart,
+  AiResultCard,
   AiRunEvent,
 } from '../../api/types';
 import { isExpectedAiStreamAbort } from '../../lib/aiStreamAbort';
 import type { AiApprovalDecisionSubmit } from './AiConversationThread';
+import { isSuccessfulOperationResultCard } from './aiWorkspaceHelpers';
 
 type StreamProgressEvent = {
   id?: unknown;
@@ -61,6 +63,7 @@ type StreamMutationContext = {
   applyChatResponse: (response: AiChatResponse, conversationKey: string, runId: string) => void;
   streamFailureMessage: (error: unknown) => string;
   markStreamingAssistantStopped: (runId: string | null, text?: string) => void;
+  hasSuccessfulOperationResultForRun: (runId: string | null | undefined) => boolean;
   clearInaccessibleConversation: (conversationId: string) => void;
   refreshAfterApprovalSettled: () => Promise<void>;
   isApprovalDecisionSettledPart: (part: AiMessagePart, approvalId: string) => boolean;
@@ -118,6 +121,44 @@ function handleInaccessibleStreamError(
   return true;
 }
 
+/**
+ * An approval stream can continue briefly after the committed operation card
+ * has reached the client (for example while a continuation is being flushed).
+ * A later transport/provider error must not turn that already successful
+ * operation into a failed assistant message.  Legacy cards do not always
+ * carry the newer result-status fields, so the absence of an explicit failure
+ * is treated as successful once the approval id matches.
+ */
+function isSuccessfulApprovalOperationResultPart(part: AiMessagePart, approvalId: string) {
+  if (part.type !== 'result_card' || part.card?.type !== 'operation_result') return false;
+  return isSuccessfulApprovalOperationResultCard(part.card, approvalId);
+}
+
+function isSuccessfulApprovalOperationResultCard(
+  card: { type?: unknown; data?: unknown } | null | undefined,
+  approvalId: string,
+) {
+  if (!card || card.type !== 'operation_result') return false;
+  const data = card.data;
+  if (!data || typeof data !== 'object') return false;
+  const record = data as Record<string, unknown>;
+  const cardApprovalId = record.approvalId ?? record.approval_id;
+  if (String(cardApprovalId ?? '') !== approvalId) return false;
+  const resultStatus = String(record.result_status ?? record.resultStatus ?? '').toLowerCase();
+  const operationStatus = String(record.operation_status ?? record.operationStatus ?? '').toLowerCase();
+  if (resultStatus === 'failed' || operationStatus === 'failed') return false;
+  return isSuccessfulOperationResultCard(card as AiResultCard);
+}
+
+function responseHasSuccessfulApprovalOperationResult(response: AiChatResponse, approvalId: string) {
+  if (response.message?.parts?.some((part) => isSuccessfulApprovalOperationResultPart(part, approvalId))) {
+    return true;
+  }
+  return response.included?.result_cards?.some((card) => (
+    isSuccessfulApprovalOperationResultCard(card, approvalId)
+  )) ?? false;
+}
+
 export function useAiConversationStreams(context: StreamMutationContext): AiConversationStreams {
   const [submittingApprovalIds, setSubmittingApprovalIds] = useState<Set<string>>(() => new Set());
   const [submittingHumanInputRequestIds, setSubmittingHumanInputRequestIds] = useState<Set<string>>(() => new Set());
@@ -157,12 +198,23 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
       if (handleInaccessibleStreamError(context, error, conversationId)) {
         throw error;
       }
+      let operationResultPersisted = context.hasSuccessfulOperationResultForRun(payload.client_run_id);
+      if (!operationResultPersisted) {
+        try {
+          await context.refreshAfterApprovalSettled();
+          operationResultPersisted = context.hasSuccessfulOperationResultForRun(payload.client_run_id);
+        } catch {
+          // A failed refresh must not hide the original stream error.
+        }
+      }
       const message = context.streamFailureMessage(error);
       context.stopThinking(payload.client_run_id);
-      context.markStreamingAssistantStopped(
-        payload.client_run_id,
-        `AI 处理失败：${message}`,
-      );
+      if (!operationResultPersisted) {
+        context.markStreamingAssistantStopped(
+          payload.client_run_id,
+          `AI 处理失败：${message}`,
+        );
+      }
       throw error;
     } finally {
       context.stopThinking(payload.client_run_id);
@@ -214,6 +266,7 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
     let settleDecisionResult: (() => void) | null = null;
     let rejectDecisionResult: ((error: unknown) => void) | null = null;
     let isDecisionResultSettled = false;
+    let successfulOperationResultReceived = false;
     const decisionResultVisible = new Promise<void>((resolve, reject) => {
       settleDecisionResult = resolve;
       rejectDecisionResult = reject;
@@ -245,29 +298,69 @@ export function useAiConversationStreams(context: StreamMutationContext): AiConv
             context.upsertStreamProgressEvent(nextEvent);
           },
           onMessagePart: (event) => {
+            if (isSuccessfulApprovalOperationResultPart(event.part, approvalId)) {
+              successfulOperationResultReceived = true;
+            }
             context.applyStreamPart(event, conversationKey);
             if (context.isApprovalDecisionSettledPart(event.part, payload.approval.id)) {
               settleDecisionVisible();
             }
           },
           onMessageDelta: (event) => context.applyStreamDelta(event, conversationKey),
+          onResponse: (response) => {
+            if (responseHasSuccessfulApprovalOperationResult(response, approvalId)) {
+              successfulOperationResultReceived = true;
+            }
+          },
         },
       ).then((response) => {
         context.applyChatResponse(response, payload.approval.conversation_id, runId ?? response.run.id);
         settleDecisionVisible();
       }).catch(async (error) => {
         if (isExpectedAiStreamAbort(error, controller.signal)) {
-          await context.refreshAfterApprovalSettled();
-          rejectDecisionVisible(error);
+          try {
+            await context.refreshAfterApprovalSettled();
+          } catch {
+            // Refresh is best effort here; it must not leave the approval
+            // submit promise pending when the stream has already ended.
+          }
+          // The operation result is durable as soon as its result card reaches
+          // the client.  A user abort (or a disconnect observed as an abort)
+          // after that point must not make the approval panel report a failed
+          // submission or append an error message over the successful card.
+          const operationResultPersisted = successfulOperationResultReceived
+            || context.hasSuccessfulOperationResultForRun(runId);
+          if (operationResultPersisted) {
+            settleDecisionVisible();
+          } else {
+            rejectDecisionVisible(error);
+          }
           return;
         }
-        if (!handleInaccessibleStreamError(context, error, payload.approval.conversation_id)) {
+        let operationResultPersisted = successfulOperationResultReceived
+          || context.hasSuccessfulOperationResultForRun(runId);
+        if (!operationResultPersisted) {
+          try {
+            await context.refreshAfterApprovalSettled();
+            operationResultPersisted = context.hasSuccessfulOperationResultForRun(runId);
+          } catch {
+            // Refresh is best effort; retain the original stream error below.
+          }
+        }
+        const inaccessibleConversation = operationResultPersisted
+          ? false
+          : handleInaccessibleStreamError(context, error, payload.approval.conversation_id);
+        if (!inaccessibleConversation && !operationResultPersisted) {
           const message = context.streamFailureMessage(error);
           context.stopThinking(runId);
           context.markStreamingAssistantStopped(runId ?? null, `AI 处理失败：${message}`);
         }
         void context.refreshAfterApprovalSettled();
-        rejectDecisionVisible(error);
+        if (operationResultPersisted) {
+          settleDecisionVisible();
+        } else {
+          rejectDecisionVisible(error);
+        }
       }).finally(() => {
         if (runId) {
           context.stopThinking(runId);

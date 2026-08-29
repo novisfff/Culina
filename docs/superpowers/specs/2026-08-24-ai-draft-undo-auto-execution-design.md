@@ -2,9 +2,9 @@
 
 日期：2026-08-24
 
-状态：已确认，待书面复核
+状态：已确认；2026-08-28 按产品决定移除用户设置并改为 catalog 默认开启
 
-范围：AI Draft 捕获与路由、人工审批、低风险自动执行、AI Operation 审计、领域撤销、AI 工作区结果卡、成员与家庭授权设置
+范围：AI Draft 捕获与路由、人工审批、低风险自动执行、AI Operation 审计、领域撤销、AI 工作区结果卡、服务端默认授权
 
 ## 1. 背景
 
@@ -16,7 +16,7 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 本设计将两个问题成套处理：
 
 - 对已经提交的 AI Operation 提供有条件、可审计的一小时补偿式撤销；
-- 模型仍然只生成 Draft，由服务端基于明确意图证据、成员授权、家庭策略、动作白名单、批量限制、版本和撤销能力决定自动执行或人工确认。
+- 模型仍然只生成 Draft，由服务端基于明确意图证据、默认开放的动作白名单、有效 membership、批量限制、版本和撤销能力决定自动执行或人工确认。
 
 撤销能力和自动执行资格是两个独立维度。一个操作可以始终确认但支持撤销，也可以因为缺少可靠撤销适配器而永远不能自动执行。
 
@@ -48,13 +48,13 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 3. 只有用户明确发出操作指令时才可能自动执行；隐含或推断意图始终进入人工路径。
 4. 使用定义明确的意图清晰度档位，不使用未校准的连续 `confidence` 分数。
 5. 首批自动执行收藏、餐食评分、受限购物清单、安全的餐食记录新增和餐食计划新增。
-6. 所有自动执行都要求成员预先开启；购物清单还要求家庭 Owner 开放家庭能力。
+6. 五类白名单动作由服务端 catalog 默认开启，不再要求成员或 Owner 逐项配置。
 7. 自动执行前必须验证目标、关键字段来源、批量、版本、权限和撤销适配器。
 8. 人工确认和自动执行的结果都可以按实际适配器能力提供一小时撤销。
 9. 撤销是新的补偿操作，不改写真实审批事实，也不覆盖后续正常修改。
 10. 自动执行、执行失败和撤销都能从持久化消息、刷新和幂等重试恢复真实状态；活动 chat 请求中的自动结果继续使用既有 SSE，普通撤销请求使用 HTTP 响应更新发起端。
 11. 自动执行与撤销都正确更新活动日志、持久化消息、Artifact 和业务缓存，并使用各自真实存在的传输通道返回结果。
-12. 设置页和结果卡符合 Culina 的中文、移动优先、低维护和可访问性规范。
+12. 结果卡符合 Culina 的中文、移动优先、低维护和可访问性规范，且不暴露已移除的配置入口。
 
 ## 4. 非目标
 
@@ -83,8 +83,8 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 | 模型信号 | 使用离散 `intent_clarity` 和结构化证据，不使用 `confidence` |
 | 风险归属 | 风险白名单和最终执行权完全由服务端控制 |
 | 首批自动执行 | 收藏、餐食评分、受限购物清单、简单餐食记录新增、简单餐食计划新增 |
-| 个人授权 | 五类动作均要求当前成员个人开启 |
-| 家庭授权 | 购物清单还要求 Owner 开放家庭共享能力 |
+| 默认授权 | 五类动作均由服务端 catalog 默认开启，来源记为 `catalog_default` |
+| 用户设置 | 不提供个人或家庭开关；旧设置行不参与执行判定 |
 | 购物批量 | 新增或恢复最多 5 项；修改一次只允许 1 项 |
 | 餐食批量 | 评分最多 5 个食物项；新增记录最多 5 个 Food |
 | 计划批量 | 新增计划最多 5 项 |
@@ -148,7 +148,7 @@ Culina 当前对模型产生的所有正式业务写入统一采用 `draft -> ap
 - `DraftRoutingCoordinator`：返回人工确认、自动执行、无需变更或失败结果。
 - `DraftCommitCoordinator`：统一人工与自动正式写入。
 - `AIRevertAdapterRegistry`：按适配器 key 执行领域条件式补偿。
-- `AIAutoExecutionSettingsService`：读取和修改成员偏好及家庭策略。
+- `AutoExecutionAuthorizationResolver`：只按服务端 catalog 解析默认授权，不读取用户设置。
 - `AI operation result contract`：统一持久化卡片、SSE 与缓存标签。
 
 ## 8. 意图清晰度与证据
@@ -238,16 +238,15 @@ no_change
 4. `ambiguityCodes` 不含当前动作的阻断项。
 5. 没有使用关键默认值。
 6. 动作在服务端首批白名单内。
-7. 当前成员已开启对应动作。
-8. 购物清单家庭策略已由 Owner 开启。
-9. 当前成员仍具有领域写入权限。
-10. 目标属于当前家庭且身份唯一。
-11. 批量和字段变更不超过服务端硬限制。
-12. 正式写入前的版本仍有效。
-13. 已注册可靠撤销适配器。
-14. 不含媒体、外部副作用或未开放字段。
-15. 不属于 Composite 或 Continuation。
-16. 当前 Run 尚未尝试其他自动执行。
+7. 当前动作由服务端 catalog 默认开放。
+8. 当前成员仍具有领域写入权限。
+9. 目标属于当前家庭且身份唯一。
+10. 批量和字段变更不超过服务端硬限制。
+11. 正式写入前的版本仍有效。
+12. 已注册可靠撤销适配器。
+13. 不含媒体、外部副作用或未开放字段。
+14. 不属于 Composite 或 Continuation。
+15. 当前 Run 尚未尝试其他自动执行。
 
 所有目标已经处于所需状态时返回 `no_change`，不创建 AIOperation，也不伪造一次完成写入。批量 Draft 只有部分目标已经满足时不做静默的部分提交，首批统一降级人工确认。
 
@@ -263,8 +262,6 @@ no_change
 - `ambiguity_present`
 - `action_not_allowed`
 - `batch_limit_exceeded`
-- `member_authorization_missing`
-- `family_policy_disabled`
 - `revert_adapter_missing`
 - `composite_not_allowed`
 - `continuation_not_allowed`
@@ -286,7 +283,7 @@ no_change
 - 仅一个当前家庭已有 Food
 - payload 只含 `favorite: boolean`
 - `baseUpdatedAt` 和目标版本有效
-- 成员个人已开启
+- 动作存在于服务端 catalog
 
 状态已经一致时返回 `no_change`。Food 其他资料、媒体或库存字段出现时降级人工确认。
 
@@ -301,7 +298,7 @@ no_change
 - 一次最多 5 个食物项
 - 每个评分值或取消评分均由用户明确表达
 - 只修改评分，不修改组成、详情、参与人、媒体或库存
-- 成员个人已开启
+- 动作存在于服务端 catalog
 
 评分允许现有领域范围 `0.5..5`，取消评分使用明确的 `null` 语义。
 
@@ -334,7 +331,7 @@ no_change
 - 超过 5 项；
 - Composite、Continuation 或混合操作。
 
-授权要求为 Owner 开放家庭能力且成员本人开启。
+该动作与其硬限制由服务端 catalog 默认开放；仍按当前 membership 和购物清单领域权限校验。
 
 ### 10.4 简单餐食记录新增：`meal_log.simple_create`
 
@@ -349,7 +346,7 @@ no_change
 - 无媒体；
 - 无 `planItemId`，不完成或关联计划；
 - 无 Continuation；
-- 成员个人已开启。
+- 动作存在于服务端 catalog。
 
 用户明确表达的备注、心情或评分可以随新增一起保存；未表达时只使用领域固定空值。不得根据当前时钟猜测餐次，也不得把缺失份量补成 1。
 
@@ -367,55 +364,17 @@ no_change
 - 不更新、删除或改变计划状态；
 - 不联动购物清单；
 - 不带 Continuation；
-- 成员个人已开启。
+- 动作存在于服务端 catalog。
 
 完全相同的 `user + date + meal_type + food` 已存在时返回 `no_change`；同一餐次的不同 Food 可以作为多个计划项。
 
-## 11. 授权模型
+## 11. 默认授权模型
 
-### 11.1 成员偏好
+服务端代码目录是唯一的免确认授权来源。五个 action key 默认开启，resolver 对目录内动作返回 `enabled=true`、`source=catalog_default`；目录外动作返回 `action_not_allowed`。授权快照固定保存 `source`、`action_key`、`catalog_version` 和 `policy_version`，重试时重新解析并要求完全一致。
 
-新增 `AIAutoExecutionPreference`：
+默认授权不等于绕过权限。当前发言成员必须仍有有效 membership，领域 Service 继续校验家庭归属、操作者资格、Owner 能力（若领域本身要求）、目标版本和业务限制。catalog 只能缩小免确认范围，模型、请求体和数据库设置都不能新增动作或提高上限。
 
-| 字段 | 含义 |
-| --- | --- |
-| `id` | 偏好 ID |
-| `family_id` | 当前家庭 |
-| `user_id` | 当前成员用户 |
-| `action_key` | 服务端目录中的动作 key |
-| `enabled` | 是否开启 |
-| `row_version` | 乐观并发版本 |
-| `consent_notice_version` | 最近一次开启时确认的安全说明版本 |
-| `consented_at` | 最近一次确认开启说明的时间 |
-| 审计字段 | `created_at/by`、`updated_at/by` |
-
-唯一约束为 `family_id + user_id + action_key`。不存在的记录等价于关闭。所有动作默认关闭。
-
-### 11.2 家庭策略
-
-新增 `AIFamilyAutoExecutionPolicy`：
-
-| 字段 | 含义 |
-| --- | --- |
-| `id` | 策略 ID |
-| `family_id` | 当前家庭 |
-| `action_key` | 家庭共享动作 key |
-| `enabled` | Owner 是否允许 |
-| `row_version` | 乐观并发版本 |
-| `consent_notice_version` | Owner 开放该能力时确认的说明版本 |
-| `consented_at` | Owner 最近一次确认开放说明的时间 |
-| `consented_by` | 最近一次确认开放说明的 Owner |
-| 审计字段 | `created_at/by`、`updated_at/by` |
-
-唯一约束为 `family_id + action_key`。当前只有 `shopping_list.safe_write` 使用家庭策略。只有当前家庭 Owner 能修改。
-
-服务端代码目录保存硬上限，数据库设置不能新增动作或提高批量限制。启用请求必须携带当前 `consent_notice_version`；关闭不要求重新确认，并保留最近一次确认记录。
-
-安全说明发生实质变化时提升服务端 notice version。已保存行保留原始 `enabled` 和确认记录用于审计，但只要其 `consent_notice_version` 与当前版本不一致，策略层就把它视为未授权并降级人工确认。设置 API 同时返回 `effective_enabled=false` 和 `requires_reconsent=true`，前端开关按有效状态显示并在重新开启时再次展示说明；携带当前 notice version 的成功 PUT 才恢复有效授权。
-
-GET 中的 `consent_notice.acknowledged` 只表示当前登录成员是否曾在当前版本确认过说明，不代表任一动作已经开启。它可由当前成员的偏好确认记录，或该成员作为 Owner 写入的家庭策略 `consented_by` 记录确定。动作是否可执行仍逐行动作检查 `effective_enabled`，不能使用这个聚合展示字段授权。
-
-执行时将成员偏好版本、家庭策略版本、各自的 consent notice version 和规则版本写入授权快照。事务内发现用户已关闭授权、家庭策略已关闭或任一有效授权使用旧 notice version 时，尚未写业务数据的 Draft 降级人工确认。
+早期实现已经创建的 `AIAutoExecutionPreference`、`AIFamilyAutoExecutionPolicy` 及其设置接口暂时保留为兼容代码和历史数据，本次不做 schema 清理。策略解析和 commit/retry 都不读取或锁定这些行；旧行无论开启、关闭或 notice 过期均不影响执行，也不再提供用户可见入口。
 
 ## 12. 持久化模型
 
@@ -483,7 +442,7 @@ policy_no_change
 - `run_id`；
 - `actor_user_id`；
 - `execution_mode`：`manual_approval | policy_auto`；
-- `authorization_source`：`approval_request | member_preference | member_and_family_policy`；
+- `authorization_source`：`approval_request | catalog_default`；历史行仍可保留旧值；
 - `authorization_snapshot_json`；
 - `policy_key`、`policy_version`、`policy_reason_codes`；
 - `committed_payload_json`；
@@ -571,7 +530,7 @@ DraftRoutingCoordinator 在所有路径先持久化 Draft。Progressive Publishe
   -> 策略预判
   -> 持久化 Draft
   -> 锁 Run 与 Draft
-  -> 按固定顺序锁家庭策略和成员偏好并最终复核
+  -> 重新解析 catalog 默认授权并最终复核
   -> 标记 auto_execution_attempted
   -> 若全部目标已满足，持久化 no_change 结果并提交
   -> 创建 pending AIOperation
@@ -589,13 +548,11 @@ DraftRoutingCoordinator 在所有路径先持久化 Draft。Progressive Publishe
 AIAgentRun
   -> AIApprovalRequest（如存在）
   -> AITaskDraft
-  -> 家庭策略行
-  -> 成员偏好行
   -> AIOperation
   -> 领域 Service 固定锁顺序
 ```
 
-授权设置接口只锁设置行，不反向锁 AI 对象，避免形成锁环。
+默认授权不产生设置行锁；遗留设置接口不参与 AI commit 锁顺序。
 
 ### 13.5 幂等
 
@@ -603,7 +560,7 @@ AIAgentRun
 - AIOperation idempotency key 由 `draft_id + draft_version` 派生，与执行模式无关。
 - 同一版 Draft 最多正式提交一次。
 - `POST /api/ai/runs/{run_id}/retry` 在调用现有 prompt 重试前，先以原 Run 锁定并查找唯一关联 Draft。若 Draft 为策略自动路径的 `pending_retry`，必须在同一 Run 上直接恢复该 Draft，不调用模型、不创建新 Run、消息或 Draft。
-- 直接恢复只接受原执行人、当前有效 membership、完全相同的 Draft ID/version/payload hash，并重新检查取消、授权、目标版本和领域权限；随后使用同一 Operation idempotency key 调用 `DraftCommitCoordinator`。并发或重复请求最多产生一次领域写入。
+- 直接恢复只接受原执行人、当前有效 membership、完全相同的 Draft ID/version/payload hash，并重新检查取消、catalog/policy 版本、目标版本和领域权限；随后使用同一 Operation idempotency key 调用 `DraftCommitCoordinator`。并发或重复请求最多产生一次领域写入。
 - Runner 重试发现 completed/reverted Operation 或 `no_change` Draft 时，同样在进入模型前重放持久化结果，不重新调用领域 Service 或策略。
 - 只有临时数据库/连接失败进入上述 `pending_retry` 恢复；确定的目标版本或领域冲突保持 `execution_failed`，需要刷新业务数据并生成新 Draft/version，不能把原失败 Operation 换成一次新写入。
 - 人工审批路径的 `pending_retry` 继续使用现有 retry Approval 恢复，不进入策略自动恢复，也不得退回 prompt 重放。只有完全没有关联 `pending_retry` Draft 的普通 failed/fallback/cancelled Run 保留现有“重新调用模型并创建新 Run”的行为，三条路径不得混用。
@@ -660,7 +617,7 @@ POST /api/ai/operations/{operation_id}/revert
 - `revert_adapter_version_unsupported`
 - `revert_request_id_reused`
 
-关闭自动执行设置不影响已完成 Operation 的撤销资格。用户离开家庭后不能再访问；当前 Owner 仍可按领域条件撤销。
+默认授权策略的后续变化不影响已完成 Operation 的撤销资格。用户离开家庭后不能再访问；当前 Owner 仍可按领域条件撤销。
 
 ## 15. 首批撤销适配器
 
@@ -744,7 +701,7 @@ Composite 将来只有所有子步骤都产生可撤销上下文时，才能按�
 
 ## 17. API 契约
 
-### 17.1 设置
+### 17.1 遗留设置接口
 
 ```text
 GET /api/ai/auto-execution/settings
@@ -752,31 +709,7 @@ PUT /api/ai/auto-execution/preferences/{action_key}
 PUT /api/ai/auto-execution/family-policies/{action_key}
 ```
 
-GET 返回：
-
-```json
-{
-  "catalog_version": "auto-execution.v1",
-  "consent_notice": {
-    "version": "auto-execution-consent.v1",
-    "acknowledged": false
-  },
-  "member_preferences": [],
-  "family_policies": [],
-  "limits": {
-    "shopping_list.safe_write": {
-      "add_or_restore_items": 5,
-      "update_items": 1
-    },
-    "meal_log.rate_food": {"items": 5},
-    "meal_log.simple_create": {"foods": 5},
-    "meal_plan.simple_create": {"items": 5}
-  },
-  "server_now": "2026-08-24T00:00:00Z"
-}
-```
-
-每个偏好或策略条目至少返回 `action_key`、原始 `enabled`、`effective_enabled`、`row_version`、`consent_notice_version` 和 `requires_reconsent`。不存在的行按 `enabled=false, effective_enabled=false, row_version=0` 序列化。两个 PUT 成功后都返回与 GET 完全相同的完整 settings envelope，前端不自行拼装聚合授权状态。PUT 请求包含 `enabled` 和 `expected_row_version`；开启时还必须包含响应中的 `consent_notice.version`。版本冲突返回结构化 409。家庭策略接口要求 Owner，目前只接受购物动作 key。
+这些接口和原响应结构暂时保留，避免在本次产品调整中混入删表与 API 清理，但不再属于用户可见产品契约。任何 PUT 产生的偏好或家庭策略行都不参与自动执行判定；新前端不调用这些接口，也不展示对应页面或开关。后续删除须单独处理 schema、兼容和数据清理。
 
 ### 17.2 撤销
 
@@ -851,38 +784,18 @@ Result payload 携带服务端受控 `cache_scopes`。前端新增统一 `invali
 - Inventory；
 - AI conversation/messages/operations。
 
-SSE 重连只读取持久化结果，不触发 Coordinator。所有消息读取都为 result card 注入本次响应的新鲜 `server_now`。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。自动执行设置的 React Query key 必须包含当前 `family_id`，家庭切换不能复用上一家庭的设置缓存。
+SSE 重连只读取持久化结果，不触发 Coordinator。所有消息读取都为 result card 注入本次响应的新鲜 `server_now`。`no_change` 只刷新 AI conversation/messages，不失效业务查询；撤销后更新原消息 part，刷新页面仍显示“已撤销”。
 
-## 19. 前端设置体验
+## 19. 前端体验
 
-新增 `frontend/src/features/ai-auto-execution/`，承载 API、state、view model、桌面和移动视图。
+不提供自动执行配置页面、个人开关或家庭开关。以下用户可见入口全部移除：
 
-入口：
+- AI 工作区桌面标题栏“自动执行”；
+- AI 工作区手机顶部“设置”；
+- 家庭页面桌面和手机“AI 自动执行”；
+- Operation Result Card 的“管理自动执行设置”。
 
-- AI 工作区标题栏设置；
-- 家庭页面“AI 自动执行”快捷入口。
-
-个人设置不放入 Owner 专用“家庭 AI 服务”工作区。手机端使用独立全屏子页面；桌面端使用 AI 工作区内设置面板。
-
-页面分为：
-
-### 19.1 我的自动执行
-
-- 收藏状态
-- 餐食评分
-- 简单餐食记录
-- 简单餐食计划
-- 购物清单安全操作
-
-每行展示允许范围和不包含内容。当前成员第一次开启任一能力时显示一次当前版本说明：明确指令且符合规则时会直接执行，其他情况仍确认，可撤销操作在一小时内可恢复。服务端 notice version 升级后，下一次重新授权时再次展示。
-
-关闭立即生效，不二次确认。设置保存不做虚假乐观成功；仅禁用当前行。409 时刷新并提示设置已在其他页面更新。
-
-### 19.2 家庭共享操作
-
-Owner 可以切换“允许家庭成员在规则内自动维护购物清单”。普通成员只读。家庭未开放时，成员购物开关禁用并说明原因。
-
-开关使用 `role=switch`、`aria-checked` 和关联说明，点击区不小于 44px。
+旧持久化导航中的 `aiView=autoExecution` 必须安全回退到 AI 对话，且新导航不再持久化该子视图。遗留设置组件和 API client 可以暂留为未挂载兼容代码，但不能从任何产品路径访问。
 
 ## 20. Result Card 与撤销交互
 
@@ -898,9 +811,9 @@ AI Result 根据状态显示：
 
 自动结果卡使用服务端固定模板生成说明，不能直接展示模型自由文本。默认说明：
 
-> 你明确要求执行此操作，且它符合已开启的低风险规则。
+> 你明确要求执行此操作，且它符合服务端开放的低风险规则。
 
-并提供“管理自动执行设置”入口，不展示置信度或内部策略详情。
+不展示置信度、内部策略详情或配置入口。
 
 可撤销卡显示：
 
@@ -949,7 +862,7 @@ AI Result 根据状态显示：
 - Draft `confirmed -> executed`。
 - Draft `confirmation_failed -> execution_failed`。
 - 现有撤销截止时间不修改。
-- 所有偏好和家庭策略初始关闭。
+- 既有偏好和家庭策略数据不参与默认授权；本次产品调整无需新增 migration。
 
 不修改旧 migration。Migration 必须支持 MySQL upgrade/downgrade，并保持单一 Alembic head。
 
@@ -958,9 +871,9 @@ AI Result 根据状态显示：
 - 所有设置、Draft、Approval、Operation、撤销和领域查询必须以当前 membership 的 `family_id` 隔离。
 - 不信任请求体中的 family、actor、Owner 或权限字段。
 - 自动执行 actor 固定为当前用户消息/Run 创建人。
-- 公开会话不继承会话 Owner 的授权。
+- 公开会话的 actor 和领域权限始终取当前发言成员，不继承会话 Owner 身份。
 - 自动执行不会绕过领域 Service 的 membership、Owner、归属和版本检查。
-- 引用文本和模型声明不是授权；服务端规则和当前数据库状态才是授权。
+- 引用文本和模型声明不是授权；服务端 catalog、当前 membership 和领域状态才是授权依据。
 - 目标在策略判断后变化时必须失败，不按旧快照继续写。
 - 自动执行不包含媒体、文件生成、外部通知或第三方副作用。
 - 结果卡不能在提交前声称完成。
@@ -981,8 +894,8 @@ AI Result 根据状态显示：
 - 关键默认值；
 - 简单餐食/计划业务字段齐全但当前消息没有明确新增指令；
 - ambiguity code；
-- 成员与 Owner 授权；
-- consent notice 版本匹配、旧版本降级与重新授权；
+- catalog 内动作默认授权、目录外动作拒绝；
+- 缺少设置行以及旧关闭/旧 notice 设置行均不影响 catalog 默认授权；
 - 批量边界 1、5、6；
 - 缺少适配器；
 - Composite、Continuation；
@@ -1033,11 +946,8 @@ AI Result 根据状态显示：
 
 覆盖：
 
-- Owner/Member 设置差异；
-- 家庭购物策略禁用；
-- 第一次开启说明；
-- 设置 row version 409；
-- 家庭切换使用独立 settings query key；
+- 桌面与手机均不出现自动执行配置入口；
+- 旧 `aiView=autoExecution` 导航安全回退到对话且不再持久化；
 - 人工、自动、无需变更、失败、已撤销卡片；
 - available、expired、unsupported、blocked、reverted；
 - 请求期间不乐观成功；
@@ -1078,12 +988,12 @@ npm run frontend:e2e:p0
 
 - 数据模型、Alembic migration 和跨端契约；
 - 意图证据与策略注册表；
-- 成员偏好和家庭策略；
+- catalog 默认授权与遗留设置隔离；
 - Draft routing 与公共 Commit Coordinator；
 - 五类首批自动执行；
 - 收藏、评分、购物、简单餐食、简单计划撤销；
 - 库存入库、盘点、消耗、丢弃的 AI 撤销；
-- Result Card、设置页、SSE、消息和缓存；
+- Result Card、SSE、消息和缓存；
 - AI 标准、Skill contract 和测试。
 
 本次明确不实现第 4 节与第 16 节列出的非目标。
@@ -1094,15 +1004,15 @@ npm run frontend:e2e:p0
 
 满足以下条件才算完成：
 
-1. 未开启授权或授权的 consent notice 已过期时，所有现有 Draft 仍按人工确认工作。
-2. 明确、白名单、已授权且可撤销的首批动作不创建审批，恰好执行一次。
-3. 隐含、缺字段、超限、无授权、无适配器或连锁动作不自动执行。
+1. 五类 catalog 白名单动作无需任何设置行即获得 `catalog_default` 授权，旧关闭记录也不改变结果。
+2. 明确、白名单且可撤销的首批动作不创建审批，恰好执行一次。
+3. 隐含、缺字段、超限、目录外动作、无适配器或连锁动作不自动执行。
 4. 自动路径的数据库审计中不存在伪造用户批准。
 5. 人工与自动路径的领域写入和结果契约一致。
 6. 五类首批自动执行动作，以及始终确认但已纳入的库存操作，在一小时内且状态未变化时可以整笔撤销。
 7. 后续修改或依赖出现时撤销返回明确冲突，不覆盖数据。
 8. 刷新、重连、重试和重复撤销都不产生重复写入。
-9. 公开会话使用当前发言成员的授权和 actor。
+9. 公开会话使用当前发言成员的 membership、领域权限和 actor。
 10. 前端准确区分人工、自动、无需变更、失败、过期、阻塞和已撤销。
 11. 业务缓存不会因自动执行或撤销保持陈旧。
 12. MySQL migration、后端质量、前端质量、构建、样式检查和关键响应式验证均通过并有新鲜证据。
@@ -1111,7 +1021,7 @@ npm run frontend:e2e:p0
 
 本规格没有待定产品项：
 
-- 首批动作、档位、授权、批量限制均已确认；
+- 首批动作、档位、catalog 默认授权、批量限制均已确认；
 - 撤销窗口、权限和冲突语义已确认；
 - 首批撤销适配器和明确排除项已确认；
 - Runtime、事务、幂等、UI、API、迁移和测试边界已确认；

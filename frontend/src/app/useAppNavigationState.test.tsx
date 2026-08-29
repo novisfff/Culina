@@ -66,20 +66,19 @@ describe('useAppNavigationState', () => {
     });
   });
 
-  it('persists auto execution and safely defaults old V2 records to conversation', () => {
-    const { result } = renderHook(() => useAppNavigationState());
-    act(() => result.current.navigate({ workspace: 'ai', view: 'autoExecution' }));
-    expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).toMatchObject({
+  it('drops the removed auto execution view and does not persist an AI subview', () => {
+    localStorage.setItem('culina-navigation-v2', JSON.stringify({
       version: 2,
       primaryTab: 'ai',
+      eatBaseView: 'discover',
+      discoverSection: 'all',
       aiView: 'autoExecution',
-    });
-
-    localStorage.setItem('culina-navigation-v2', JSON.stringify({
-      version: 2, primaryTab: 'ai', eatBaseView: 'discover', discoverSection: 'all',
     }));
-    const restored = renderHook(() => useAppNavigationState());
-    expect(restored.result.current.state.ai.view).toBe('conversation');
+    const { result } = renderHook(() => useAppNavigationState());
+    expect(result.current.state.ai.view).toBe('conversation');
+
+    act(() => result.current.navigate({ workspace: 'ai' }));
+    expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).not.toHaveProperty('aiView');
   });
 
   function NavigationFocusHarness({ detachTriggerOnOpen = false }: { detachTriggerOnOpen?: boolean }) {

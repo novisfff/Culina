@@ -329,21 +329,20 @@ describe('AI operation result state', () => {
     expect(view.textContent).toContain('撤销时间已过，可前往页面修改');
   });
 
-  it('navigates to details and automatic execution settings with keyboard-operable buttons', async () => {
+  it('navigates to details with a keyboard-operable button and omits settings', async () => {
     vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
     const targets: unknown[] = [];
     const view = await renderCard(operationCard(), undefined, undefined, undefined, (target) => targets.push(target));
     const user = userEvent.setup();
-    const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置') as HTMLButtonElement;
-    settings.focus();
+    const detail = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情') as HTMLButtonElement;
+    detail.focus();
     await user.keyboard('{Enter}');
-    expect(targets).toContainEqual({ workspace: 'ai', view: 'autoExecution' });
-    expect(document.activeElement).toBe(settings);
-    await user.click(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情') as HTMLButtonElement);
     expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
+    expect(document.activeElement).toBe(detail);
+    expect(view.textContent).not.toContain('管理自动执行设置');
   });
 
-  it.each(['expired', 'blocked', 'unsupported'] as const)('keeps navigation actions for a non-revertible %s result', async (revert_availability) => {
+  it.each(['expired', 'blocked', 'unsupported'] as const)('keeps detail navigation for a non-revertible %s result', async (revert_availability) => {
     const targets: unknown[] = [];
     const view = await renderCard(
       operationCard({ revert_availability }),
@@ -356,9 +355,8 @@ describe('AI operation result state', () => {
     const detail = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情');
     const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置');
     expect(detail).toBeDefined();
-    expect(settings).toBeDefined();
+    expect(settings).toBeUndefined();
     expect(detail).toBeEnabled();
-    expect(settings).toBeEnabled();
 
     await userEvent.setup().click(detail!);
     expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
@@ -691,6 +689,56 @@ describe('AI query result cards', () => {
     expect(view.textContent).not.toContain('MealType.DINNER');
     expect(view.querySelector('.ai-query-reason')?.textContent).toBe('已按你的确认修改餐食计划。');
     expect(view.querySelector('.ai-operation-result-footer')).not.toBeNull();
+  });
+
+  it('does not repeat an execution explanation already shown as the action summary', async () => {
+    const view = await renderCard({
+      id: 'manual-operation-result-card',
+      type: 'operation_result',
+      title: '已收藏番茄炒蛋',
+      data: {
+        ...operationProjection({
+          execution_mode: 'manual_approval',
+          execution_explanation: '已按你的确认执行。',
+          revert_availability: 'unsupported',
+          revertible_until: null,
+        }),
+        actionSummary: '已按你的确认执行。',
+        entityCount: 1,
+        entityCountLabel: '1 项内容',
+        workspaceLabel: '对应页面',
+        workspaceHint: '可前往对应页面查看',
+      },
+    });
+
+    const reasons = Array.from(view.querySelectorAll<HTMLElement>('.ai-query-reason'))
+      .map((element) => element.textContent);
+    expect(reasons).toEqual(['已按你的确认执行。']);
+  });
+
+  it('does not repeat an execution explanation when legacy punctuation differs', async () => {
+    const view = await renderCard({
+      id: 'legacy-punctuation-operation-result-card',
+      type: 'operation_result',
+      title: '已收藏番茄炒蛋',
+      data: {
+        ...operationProjection({
+          execution_mode: 'manual_approval',
+          execution_explanation: '已按你的确认执行。',
+          revert_availability: 'unsupported',
+          revertible_until: null,
+        }),
+        actionSummary: '已按你的确认执行',
+        entityCount: 1,
+        entityCountLabel: '1 项内容',
+        workspaceLabel: '对应页面',
+        workspaceHint: '可前往对应页面查看',
+      },
+    });
+
+    const reasons = Array.from(view.querySelectorAll<HTMLElement>('.ai-query-reason'))
+      .map((element) => element.textContent);
+    expect(reasons).toEqual(['已按你的确认执行']);
   });
 
   it('renders inventory intake results as a meaningful completed checklist', async () => {

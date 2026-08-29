@@ -52,6 +52,8 @@ import {
   mergeRemoteAndLocalMessage,
   messagePartKey,
   mergeMessagePart,
+  hasSuccessfulOperationResult,
+  isSuccessfulOperationResultCard,
   preferredRunActivityEvent,
   runActivityCollapseKey,
 } from './aiWorkspaceHelpers';
@@ -63,8 +65,6 @@ import { AiOperationRevertProvider } from '../../features/ai-auto-execution/useA
 import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
-import { AiAutoExecutionDesktopPanel } from '../../features/ai-auto-execution/AiAutoExecutionDesktopPanel';
-import { AiAutoExecutionMobilePage } from '../../features/ai-auto-execution/AiAutoExecutionMobilePage';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
 type AiWorkspaceProps = {
   familyId?: string;
@@ -75,8 +75,6 @@ type AiWorkspaceProps = {
   createFoodPlanItem?: (payload: CreateFoodPlanItemPayload) => Promise<FoodPlanItem>;
   isCreatingFoodPlanItem?: boolean;
   onNavigate?: (target: AppNavigationTarget) => void;
-  view?: 'conversation' | 'autoExecution';
-  isOwner?: boolean;
 };
 export { ApprovalPanel } from './AiConversationThread';
 const AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH = 1280;
@@ -147,8 +145,9 @@ function isApprovalDecisionSettledPart(part: AiMessagePart, approvalId: string) 
   }
   if (part.type !== 'result_card' || part.card?.type !== 'operation_result') return false;
   const data = part.card.data;
-  if (!data || typeof data !== 'object' || !('approvalId' in data)) return false;
-  return String((data as { approvalId?: unknown }).approvalId ?? '') === approvalId;
+  if (!data || typeof data !== 'object' || (!('approvalId' in data) && !('approval_id' in data))) return false;
+  const record = data as { approvalId?: unknown; approval_id?: unknown };
+  return String(record.approvalId ?? record.approval_id ?? '') === approvalId;
 }
 
 function collectSettledApprovalIds(messages: AiMessage[]) {
@@ -160,8 +159,10 @@ function collectSettledApprovalIds(messages: AiMessage[]) {
       }
       if (part.type === 'result_card' && part.card?.type === 'operation_result') {
         const data = part.card.data;
-        const approvalId = data && typeof data === 'object' && 'approvalId' in data
-          ? String((data as { approvalId?: unknown }).approvalId ?? '')
+        const approvalId = data && typeof data === 'object' && ('approvalId' in data || 'approval_id' in data)
+          ? String((data as { approvalId?: unknown; approval_id?: unknown }).approvalId
+            ?? (data as { approval_id?: unknown }).approval_id
+            ?? '')
           : '';
         if (approvalId) settledApprovalIds.add(approvalId);
       }
@@ -179,8 +180,6 @@ export function AiWorkspace({
   createFoodPlanItem,
   isCreatingFoodPlanItem = false,
   onNavigate,
-  view = 'conversation',
-  isOwner = false,
 }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
@@ -853,6 +852,20 @@ export function AiWorkspace({
     if (!event.part?.id) return;
     const runId = event.run_id || activeStreamRunIdsByConversationKey[conversationKey] || 'pending';
     const activeRunId = activeStreamRunIdsByConversationKey[conversationKey];
+    const receivedSuccessfulOperationResult = (() => {
+      if (event.part.type !== 'result_card' || !isSuccessfulOperationResultCard(event.part.card)) return false;
+      // Only promote a live message to completed when the server supplied a
+      // canonical status. Legacy cards are still useful for suppressing a
+      // later error, but may be followed by continuation text/activity.
+      const data = event.part.card?.data as Record<string, unknown> | undefined;
+      const resultStatus = String(data?.result_status ?? data?.resultStatus ?? '').toLowerCase();
+      const operationStatus = String(data?.operation_status ?? data?.operationStatus ?? '').toLowerCase();
+      return resultStatus === 'completed'
+        || resultStatus === 'no_change'
+        || resultStatus === 'reverted'
+        || operationStatus === 'completed'
+        || operationStatus === 'reverted';
+    })();
     if (shouldStopThinkingForPart(event.part)) {
       stopThinking(runId);
       if (activeRunId && activeRunId !== runId) stopThinking(activeRunId);
@@ -863,8 +876,12 @@ export function AiWorkspace({
     const messageId = streamMessageTargetRef.current[runId] || event.message_id || `local-assistant-${runId}`;
     const resolveApprovalForResultCard = (parts: AiMessage['parts']) => {
       if (event.part.type !== 'result_card' || event.part.card?.type !== 'operation_result') return parts;
-      const approvalId = event.part.card.data && typeof event.part.card.data === 'object' && 'approvalId' in event.part.card.data
-        ? String((event.part.card.data as { approvalId?: unknown }).approvalId ?? '')
+      const approvalId = event.part.card.data
+        && typeof event.part.card.data === 'object'
+        && ('approvalId' in event.part.card.data || 'approval_id' in event.part.card.data)
+        ? String((event.part.card.data as { approvalId?: unknown; approval_id?: unknown }).approvalId
+          ?? (event.part.card.data as { approval_id?: unknown }).approval_id
+          ?? '')
         : '';
       if (!approvalId) return parts;
       return parts.map((part) => {
@@ -908,7 +925,7 @@ export function AiWorkspace({
               content_type: 'parts',
               parts: nextParts,
               run_id: runId,
-              status: 'running',
+              status: receivedSuccessfulOperationResult ? 'completed' : 'running',
             },
           ];
         }
@@ -922,7 +939,7 @@ export function AiWorkspace({
             content_type: 'parts',
             parts: [event.part],
             run_id: runId,
-            status: 'running',
+            status: receivedSuccessfulOperationResult ? 'completed' : 'running',
             metadata: {},
             created_at: new Date().toISOString(),
           },
@@ -938,6 +955,9 @@ export function AiWorkspace({
           content: messageTextFromParts(nextParts),
           content_type: 'parts',
           parts: nextParts,
+          ...(receivedSuccessfulOperationResult && item.status !== 'waiting_approval' && item.status !== 'waiting_input'
+            ? { status: 'completed' }
+            : {}),
         };
       });
     });
@@ -951,6 +971,12 @@ export function AiWorkspace({
     const markItems = (items: AiMessage[]) =>
       items.map((item) => {
         if (item.run_id !== runId && item.id !== `local-assistant-${runId}`) return item;
+        if (hasSuccessfulOperationResult(item)) {
+          if (item.status === 'failed' || item.status === 'cancelled') {
+            return { ...item, status: 'completed' };
+          }
+          return item;
+        }
         const textPart = item.parts.find((part) => part.type === 'text');
         const nextText = text === '已取消这次任务。' ? textPart?.text?.trim() || item.content || text : text;
         return {
@@ -967,6 +993,24 @@ export function AiWorkspace({
     for (const conversationId of conversationIds) {
       queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => markItems(items));
     }
+  }
+  function hasSuccessfulOperationResultForRun(runId: string | null | undefined) {
+    if (!runId) return false;
+    const cachedMessages = queryClient.getQueryCache()
+      .findAll({ queryKey: ['ai-messages'] })
+      .flatMap((query) => Array.isArray(query.state.data) ? query.state.data as AiMessage[] : []);
+    const candidates = [
+      ...displayedMessages,
+      ...messages,
+      ...Object.values(localMessagesByConversationKey).flat(),
+      ...cachedMessages,
+    ];
+    const seen = new Set<string>();
+    return candidates.some((message) => {
+      if (message.run_id !== runId || seen.has(message.id)) return false;
+      seen.add(message.id);
+      return hasSuccessfulOperationResult(message);
+    });
   }
   function streamFailureMessage(error: unknown) {
     return error instanceof Error && error.message.trim() ? error.message : 'AI 处理失败，请稍后重试。';
@@ -1034,6 +1078,7 @@ export function AiWorkspace({
     applyChatResponse,
     streamFailureMessage,
     markStreamingAssistantStopped,
+    hasSuccessfulOperationResultForRun,
     clearInaccessibleConversation,
     refreshAfterApprovalSettled,
     isApprovalDecisionSettledPart,
@@ -1483,10 +1528,6 @@ export function AiWorkspace({
     <AiResultCardReplacementProvider onResultCard={replaceOperationResultCard}>
     <AiOperationRevertProvider>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
-      {view === 'autoExecution' ? <>
-        <div className="ai-desktop-view"><AiAutoExecutionDesktopPanel familyId={familyId} isOwner={isOwner} onBack={() => onNavigate?.({ workspace: 'ai', view: 'conversation' })} /></div>
-        <AiAutoExecutionMobilePage familyId={familyId} isOwner={isOwner} onBack={() => onNavigate?.({ workspace: 'ai', view: 'conversation' })} />
-      </> : <>
       {planFeedback && (
         <div className="ai-plan-feedback" role="status">
           {planFeedback}
@@ -1612,7 +1653,7 @@ export function AiWorkspace({
                 )}
                 <span>AI 厨房助手</span>
               </div>
-              <div className="ai-workspace-header-actions"><button className="ghost-button ai-auto-execution-header-button" type="button" onClick={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}>自动执行</button><button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
+              <div className="ai-workspace-header-actions"><button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
                 <span />{aiStatusLabel}
               </button></div>
             </div>
@@ -1770,7 +1811,6 @@ export function AiWorkspace({
         )}
       </div>
       <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
-      </>}
     </main>
     </AiOperationRevertProvider>
     </AiResultCardReplacementProvider>

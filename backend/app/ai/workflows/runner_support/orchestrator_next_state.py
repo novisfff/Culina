@@ -45,12 +45,18 @@ class OrchestratorNextStateResolver:
             *result_artifacts("orchestrator", result),
             *runner._tool_call_artifacts(result),
         ]
+        # Every orchestrator invocation owns one provider usage phase.  A
+        # human-input interrupt is still the end of the current phase, even
+        # though no approval request is created, so the resumed invocation
+        # must receive a fresh phase identity as well.
+        next_agent_rounds = int(state.get("agent_rounds") or 0) + 1
         if result.status == "waiting_input":
             return self._waiting_input_patch(
                 result=result,
                 run_artifacts=run_artifacts,
                 injected_skill_keys=injected_skill_keys,
                 injection_history=injection_history,
+                next_agent_rounds=next_agent_rounds,
                 finish_graph_span=finish_graph_span,
             )
         pending_after_result = runner.db.scalar(
@@ -61,7 +67,6 @@ class OrchestratorNextStateResolver:
             )
             .order_by(AIApprovalRequest.created_at.asc(), AIApprovalRequest.id.asc())
         )
-        next_agent_rounds = int(state.get("agent_rounds") or 0) + 1
         routed_without_approval = self._has_persisted_routed_drafts(
             state,
             result=result,
@@ -138,6 +143,7 @@ class OrchestratorNextStateResolver:
         run_artifacts: list[dict[str, Any]],
         injected_skill_keys: list[str],
         injection_history: list[dict[str, Any]],
+        next_agent_rounds: int,
         finish_graph_span: Any,
     ) -> dict[str, Any]:
         pending_human_input = (
@@ -160,6 +166,7 @@ class OrchestratorNextStateResolver:
             "injection_history": injection_history,
             "pending_approval_id": "",
             "pending_human_input": pending_human_input,
+            "agent_rounds": next_agent_rounds,
             "status": "waiting_input",
         }
 

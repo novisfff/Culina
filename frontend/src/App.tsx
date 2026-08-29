@@ -1572,8 +1572,6 @@ function App() {
               currentUser={user}
               createFoodPlanItem={(payload) => createFoodPlanItemMutation.mutateAsync(payload)}
               isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
-              isOwner={isOwner}
-              view={navigation.state.ai.view}
               onBackHome={() => navigation.navigate({ workspace: 'home' })}
               onNavigate={navigation.navigate}
             />

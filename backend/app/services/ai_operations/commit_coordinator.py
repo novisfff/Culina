@@ -279,8 +279,8 @@ class DraftCommitCoordinator:
         if is_operation_completed(operation_snapshot.status):
             return cls._replay_result(db, operation=operation_snapshot, draft=locked_draft)
 
-        # Preserve the global lock order: authorization settings are locked
-        # before the Operation row and the domain service's own target locks.
+        # Re-resolve the server-owned catalog authorization before locking the
+        # Operation row and the domain service's own target locks.
         policy_key = str(operation_snapshot.policy_key or locked_draft.policy_key or "")
         policy_version = str(operation_snapshot.policy_version or locked_draft.policy_version or "")
         authorization = resolve_effective_authorization(

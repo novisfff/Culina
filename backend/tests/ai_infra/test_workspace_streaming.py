@@ -64,12 +64,14 @@ class EmptyApprovalFollowupProvider(BaseChatProvider):
 
     def __init__(self) -> None:
         self.usage_attribution = None
+        self.calls = 0
 
     def generate(self, *, system: str, user: str) -> ChatProviderResult:
         raise AssertionError("approval follow-up should use stream_generate")
 
     def stream_generate(self, *, system: str, user: str, usage_attribution=None):
         del system, user
+        self.calls += 1
         self.usage_attribution = usage_attribution
         if False:
             yield ""
@@ -85,6 +87,84 @@ class EmptyApprovalFollowupProvider(BaseChatProvider):
         max_rounds: int = 8,
     ) -> ChatProviderResult:
         raise AssertionError("approval follow-up test should not run the orchestrator loop")
+
+
+class ProviderFailureAfterApprovalProvider(BaseChatProvider):
+    """Commit the first approval, then return a normal provider failure."""
+
+    model_name = "provider-failure-after-approval-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, *, system: str, user: str) -> ChatProviderResult:
+        raise AssertionError("workspace orchestrator should use generate_with_tools")
+
+    def stream_generate(self, *, system: str, user: str):
+        raise AssertionError("this regression uses the orchestrator Provider path")
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        del system, user, message_handler, max_rounds
+        self.calls += 1
+        if self.calls > 1:
+            return ChatProviderResult(
+                text=None,
+                status="failed",
+                model=self.model_name,
+                error="provider unavailable after approval",
+            )
+        tool_handler("skill.inject", {"skills": ["food_profile"], "reason": "测试审批后 Provider 失败"})
+        assert "food_profile.create_draft" in _tool_names(tools)
+        tool_handler(
+            "food_profile.create_draft",
+            {
+                "draft": {
+                    "draftType": "food_profile",
+                    "schemaVersion": "food_profile.v1",
+                    "name": "审批后失败测试食物",
+                    "type": "readyMade",
+                    "category": "测试",
+                }
+            },
+        )
+        raise AssertionError("food_profile.create_draft should interrupt for approval")
+
+
+class ProviderExceptionAfterApprovalProvider(ProviderFailureAfterApprovalProvider):
+    """Raise from the continuation to cover the worker-exception path."""
+
+    model_name = "provider-exception-after-approval-model"
+
+    def generate_with_tools(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools,
+        tool_handler,
+        message_handler=None,
+        max_rounds: int = 8,
+    ) -> ChatProviderResult:
+        if self.calls == 0:
+            return super().generate_with_tools(
+                system=system,
+                user=user,
+                tools=tools,
+                tool_handler=tool_handler,
+                message_handler=message_handler,
+                max_rounds=max_rounds,
+            )
+        self.calls += 1
+        raise RuntimeError("provider disconnected after approval")
 
 
 class BlockingApprovalResumeProvider(BaseChatProvider):
@@ -348,6 +428,17 @@ class PreviewedRecipeDraftProvider(BaseChatProvider):
             event_id,
         )
         return ChatProviderResult(text="我先生成菜谱草稿。", status="waiting_approval", model=self.model_name)
+
+
+class SingleDraftOnlyProvider(PreviewedRecipeDraftProvider):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_with_tools(self, **kwargs) -> ChatProviderResult:
+        self.calls += 1
+        if self.calls > 1:
+            raise AssertionError("an approved draft without continuation must not start another model round")
+        return super().generate_with_tools(**kwargs)
 
 
 class RetrySameDraftProvider(BaseChatProvider):
@@ -1432,6 +1523,101 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertNotIn("afterApproval", drafts[0].ai_metadata)
                 self.assertNotIn("continuation", drafts[0].ai_metadata)
 
+        def test_approved_draft_without_continuation_finishes_without_another_model_round(self) -> None:
+            provider = SingleDraftOnlyProvider()
+            with patch_ai_workspace_provider(provider):
+                initial_response = self.client.post(
+                    "/api/ai/chat",
+                    json={
+                        "message": "生成一个番茄鸡蛋面菜谱",
+                        "client_run_id": "agent_run-no-continuation-approval",
+                    },
+                )
+                self.assertEqual(initial_response.status_code, 200, initial_response.text)
+                initial_data = initial_response.json()
+                approval = initial_data["included"]["approvals"][0]
+
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{initial_data['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as response:
+                    self.assertEqual(response.status_code, 200)
+                    body = "".join(response.iter_text())
+
+            self.assertEqual(provider.calls, 1)
+            self.assertNotIn("event: error", body)
+            final_response = _response_event(body)
+            self.assertEqual(final_response["run"]["status"], "completed")
+            self.assertEqual(final_response["message"]["status"], "completed")
+            completion_text = "已按你的确认完成处理。你可以继续告诉我需要调整的内容。"
+            text_parts = [
+                str(part.get("text") or "")
+                for part in final_response["message"]["parts"]
+                if part.get("type") == "text"
+            ]
+            self.assertEqual(text_parts.count(completion_text), 1)
+            delta_texts = [
+                str(data.get("delta") or "")
+                for event_name, data in _sse_events(body)
+                if event_name == "message_delta"
+            ]
+            self.assertEqual(delta_texts.count(completion_text), 1)
+
+        def test_fast_approved_draft_without_continuation_finishes_immediately(self) -> None:
+            provider = SingleDraftOnlyProvider()
+            with patch_ai_workspace_provider(provider):
+                initial_response = self.client.post(
+                    "/api/ai/chat",
+                    json={
+                        "message": "生成一个番茄鸡蛋面菜谱",
+                        "client_run_id": "agent_run-fast-no-continuation-approval",
+                    },
+                )
+                self.assertEqual(initial_response.status_code, 200, initial_response.text)
+                initial_data = initial_response.json()
+                approval = initial_data["included"]["approvals"][0]
+
+                decision_response = self.client.post(
+                    f"/api/ai/conversations/{initial_data['conversation_id']}/approvals/{approval['id']}/decision",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                )
+                self.assertEqual(decision_response.status_code, 200, decision_response.text)
+
+                with self.SessionLocal() as db:
+                    run = db.get(AIAgentRun, initial_data["run"]["id"])
+                    conversation = db.get(AIConversation, initial_data["conversation_id"])
+                    self.assertIsNotNone(run)
+                    self.assertIsNotNone(conversation)
+                    assert run is not None and conversation is not None
+                    self.assertEqual(run.status, "completed")
+                    self.assertEqual(conversation.last_run_status, "completed")
+                    self.assertNotIn("activeRunId", conversation.context or {})
+                    self.assertNotIn("fastApprovalDecisions", conversation.context or {})
+                    message = db.scalar(
+                        select(AIMessage).where(
+                            AIMessage.run_id == initial_data["run"]["id"],
+                            AIMessage.role == "assistant",
+                        )
+                    )
+                    self.assertIsNotNone(message)
+                    assert message is not None
+                    completion_parts = [
+                        part
+                        for part in message.parts
+                        if part.get("type") == "text"
+                        and "你可以继续告诉我需要调整的内容。" in str(part.get("text") or "")
+                    ]
+                    self.assertEqual(len(completion_parts), 1)
+
         def test_ai_workspace_approval_resume_generates_next_draft(self) -> None:
             provider = ProgressiveMultiDraftProvider()
             with patch_ai_workspace_provider(provider):
@@ -1445,6 +1631,19 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             response_event = _response_event(body)
             approval = response_event["included"]["approvals"][0]
+            # This fixture intentionally exercises the legacy compatibility
+            # path. New drafts use typed ``continuation``; only rows created by
+            # an older deployment may still carry ``afterApproval``.
+            with self.SessionLocal() as db:
+                draft = db.get(AITaskDraft, approval["draft_id"])
+                self.assertIsNotNone(draft)
+                assert draft is not None
+                draft.ai_metadata = {
+                    "afterApproval": {
+                        "instruction": "根据这次确认结果继续生成购物清单草稿。",
+                    },
+                }
+                db.commit()
             decision_response = self.client.post(
                 f"/api/ai/conversations/{response_event['conversation_id']}/approvals/{approval['id']}/decision",
                 json={
@@ -1577,6 +1776,19 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             response_event = _response_event(body)
             approval = response_event["included"]["approvals"][0]
+            # Preserve the old persisted metadata contract for this early
+            # commit/resume race test; current model-generated drafts must not
+            # write this field anymore.
+            with self.SessionLocal() as db:
+                draft = db.get(AITaskDraft, approval["draft_id"])
+                self.assertIsNotNone(draft)
+                assert draft is not None
+                draft.ai_metadata = {
+                    "afterApproval": {
+                        "instruction": "确认后继续处理图片生成任务。",
+                    },
+                }
+                db.commit()
 
             approval_commit_persisted = threading.Event()
             resume_started = threading.Event()
@@ -1804,6 +2016,105 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 events = list(db.scalars(select(AIRunEvent).where(AIRunEvent.run_id == run.id)))
                 self.assertEqual(events, [])
 
+        def test_ai_workspace_provider_failure_after_approval_keeps_success_card(self) -> None:
+            provider = ProviderFailureAfterApprovalProvider()
+            with patch_ai_workspace_provider(provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "新增审批后失败测试食物"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                initial = response.json()
+                approval = initial["included"]["approvals"][0]
+                # This fixture intentionally exercises the legacy compatibility
+                # continuation. Current generated drafts use typed
+                # ``continuation``; a persisted ``afterApproval`` record is
+                # still supported for drafts created by older deployments.
+                with self.SessionLocal() as db:
+                    draft = db.get(AITaskDraft, approval["draft_id"])
+                    self.assertIsNotNone(draft)
+                    assert draft is not None
+                    draft.ai_metadata = {
+                        "afterApproval": {
+                            "instruction": "确认后继续处理，随后给出简短总结。",
+                        },
+                    }
+                    db.commit()
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{initial['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as stream_response:
+                    self.assertEqual(stream_response.status_code, 200)
+                    body = "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.calls, 2)
+            self.assertNotIn("AI 工作台暂时无法完成这次请求，请稍后重试。", body)
+            response_event = _response_event(body)
+            self.assertEqual(response_event["run"]["status"], "completed")
+            self.assertEqual(
+                [card["type"] for card in response_event["included"]["result_cards"]],
+                ["operation_result"],
+            )
+            with self.SessionLocal() as db:
+                run = db.get(AIAgentRun, initial["run"]["id"])
+                message = db.scalar(
+                    select(AIMessage).where(
+                        AIMessage.run_id == initial["run"]["id"],
+                        AIMessage.role == "assistant",
+                    )
+                )
+                assert run is not None and message is not None
+                self.assertEqual(run.status, "completed")
+                self.assertIsNone(run.error)
+                self.assertEqual(message.status, "completed")
+                self.assertNotIn("AI 工作台暂时无法完成这次请求", message.content)
+
+        def test_ai_workspace_worker_exception_after_approval_keeps_success_card(self) -> None:
+            provider = ProviderExceptionAfterApprovalProvider()
+            with patch_ai_workspace_provider(provider):
+                response = self.client.post(
+                    "/api/ai/chat",
+                    json={"message": "新增审批后异常测试食物"},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                initial = response.json()
+                approval = initial["included"]["approvals"][0]
+                with self.SessionLocal() as db:
+                    draft = db.get(AITaskDraft, approval["draft_id"])
+                    self.assertIsNotNone(draft)
+                    assert draft is not None
+                    draft.ai_metadata = {
+                        "afterApproval": {
+                            "instruction": "确认后继续处理，随后给出简短总结。",
+                        },
+                    }
+                    db.commit()
+                with self.client.stream(
+                    "POST",
+                    f"/api/ai/conversations/{initial['conversation_id']}/approvals/{approval['id']}/decision/stream",
+                    json={
+                        "decision": "approved",
+                        "draft_version": approval["draft_version"],
+                        "values": approval["initial_values"],
+                    },
+                ) as stream_response:
+                    self.assertEqual(stream_response.status_code, 200)
+                    body = "".join(stream_response.iter_text())
+
+            self.assertEqual(provider.calls, 2)
+            self.assertNotIn("AI 服务暂时不可用，请稍后重试。", body)
+            response_event = _response_event(body)
+            self.assertEqual(response_event["run"]["status"], "completed")
+            self.assertEqual(
+                [card["type"] for card in response_event["included"]["result_cards"]],
+                ["operation_result"],
+            )
+
         def test_ai_workspace_cancel_running_run_stays_busy_until_worker_finalizes(self) -> None:
             with self.SessionLocal() as db:
                 conversation = AIConversation(
@@ -1915,34 +2226,45 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
                 provider = EmptyApprovalFollowupProvider()
                 runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
+                state = {
+                    "family_id": self.family.id,
+                    "user_id": self.user.id,
+                    "conversation_id": conversation.id,
+                    "run_id": run.id,
+                    "message": "确认更新菜谱",
+                    "status": "running",
+                    "error": None,
+                }
+                decision_result = {
+                    "approval": {
+                        "id": "approval-empty-followup",
+                        "message_id": message.id,
+                        "decision": "approved",
+                    },
+                    "operation": {
+                        "status": "completed",
+                        "action_summary": "已更新菜谱。",
+                    },
+                }
                 runner.approval_followup_streamer.stream_followup(
-                    {
-                        "family_id": self.family.id,
-                        "user_id": self.user.id,
-                        "conversation_id": conversation.id,
-                        "run_id": run.id,
-                        "message": "确认更新菜谱",
-                        "status": "running",
-                        "error": None,
-                    },
-                    {
-                        "approval": {
-                            "id": "approval-empty-followup",
-                            "message_id": message.id,
-                            "decision": "approved",
-                        },
-                        "operation": {
-                            "status": "completed",
-                            "action_summary": "已更新菜谱。",
-                        },
-                    },
+                    state,
+                    decision_result,
+                    terminal_status="completed",
+                )
+                runner.approval_followup_streamer.stream_followup(
+                    state,
+                    decision_result,
                     terminal_status="completed",
                 )
                 db.commit()
+                self.assertEqual(provider.calls, 1)
                 self.assertIsNotNone(provider.usage_attribution)
                 self.assertEqual(provider.usage_attribution.family_id, self.family.id)
                 self.assertEqual(provider.usage_attribution.actor_user_id, self.user.id)
-                self.assertEqual(provider.usage_attribution.logical_operation_id, run.id)
+                self.assertEqual(
+                    provider.usage_attribution.logical_operation_id,
+                    f"{run.id}:approval-followup:approval-empty-followup",
+                )
 
             with self.SessionLocal() as db:
                 message = db.get(AIMessage, "message-empty-followup")
@@ -1950,6 +2272,12 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 assert message is not None
                 self.assertIn("已更新菜谱。", message.content)
                 self.assertIn("你可以继续告诉我需要调整的内容。", message.content)
+                completion_parts = [
+                    part
+                    for part in message.parts
+                    if part.get("id") == "approval-summary:approval-empty-followup"
+                ]
+                self.assertEqual(len(completion_parts), 1)
                 self.assertEqual(message.status, "completed")
                 self.assertNotIn("liveStreaming", message.message_metadata or {})
                 conversation = db.get(AIConversation, "conversation-empty-followup")
@@ -1957,6 +2285,108 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 assert conversation is not None
                 self.assertEqual(conversation.last_run_status, "completed")
                 self.assertNotIn("activeRunId", conversation.context or {})
+
+        def test_deterministic_approval_completion_is_idempotent_per_approval(self) -> None:
+            """A replayed approval is a no-op, while another approval keeps its own text part."""
+
+            with self.SessionLocal() as db:
+                conversation = AIConversation(
+                    id="conversation-deterministic-completion-idempotency",
+                    family_id=self.family.id,
+                    owner_user_id=self.user.id,
+                    visibility=AIConversationVisibility.PRIVATE,
+                    mode=AiMode.RECOMMENDATION,
+                    prompt="确认多个操作",
+                    response="",
+                    context={"activeRunId": "run-deterministic-completion-idempotency", "workspace": True},
+                    last_run_status="running",
+                    created_by=self.user.id,
+                )
+                run = AIAgentRun(
+                    id="run-deterministic-completion-idempotency",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    message_id=None,
+                    agent_key="workspace_orchestrator",
+                    feature_key="ai_workspace_chat",
+                    intent="general_chat",
+                    input_summary="确认多个操作",
+                    context_summary={},
+                    output_summary="",
+                    status="running",
+                    model="rules",
+                    input={"prompt": "确认多个操作"},
+                    output={},
+                    tool_calls=[],
+                    duration_ms=0,
+                    created_by=self.user.id,
+                )
+                message = AIMessage(
+                    id="message-deterministic-completion-idempotency",
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="请确认操作。",
+                    content_type="parts",
+                    parts=[{"id": "text-before-deterministic-completion", "type": "text", "text": "请确认操作。"}],
+                    run_id=run.id,
+                    status="running",
+                    message_metadata={},
+                    created_by=self.user.id,
+                )
+                db.add_all([conversation, run, message])
+                db.flush()
+                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
+                state = {
+                    "family_id": self.family.id,
+                    "user_id": self.user.id,
+                    "conversation_id": conversation.id,
+                    "run_id": run.id,
+                    "message": conversation.prompt,
+                    "status": "running",
+                    "error": None,
+                }
+
+                def decision(approval_id: str) -> dict[str, Any]:
+                    return {
+                        "approval": {
+                            "id": approval_id,
+                            "message_id": message.id,
+                            "decision": "approved",
+                        },
+                        "operation": {"status": "completed"},
+                    }
+
+                runner.approval_followup_streamer.append_deterministic_completion(
+                    state,
+                    decision("approval-deterministic-a"),
+                    terminal_status="completed",
+                )
+                # Replaying the same approval must not append a second text part.
+                runner.approval_followup_streamer.append_deterministic_completion(
+                    state,
+                    decision("approval-deterministic-a"),
+                    terminal_status="completed",
+                )
+                # A different approval may legitimately produce the same fallback
+                # sentence and therefore needs a distinct, stable part id.
+                runner.approval_followup_streamer.append_deterministic_completion(
+                    state,
+                    decision("approval-deterministic-b"),
+                    terminal_status="completed",
+                )
+                db.flush()
+
+                completion_parts = [
+                    part
+                    for part in message.parts
+                    if part.get("type") == "text"
+                    and "你可以继续告诉我需要调整的内容。" in str(part.get("text") or "")
+                ]
+                self.assertEqual(
+                    [part.get("id") for part in completion_parts],
+                    ["approval-summary:approval-deterministic-a", "approval-summary:approval-deterministic-b"],
+                )
 
         def test_finalize_terminal_run_clears_stale_live_state_and_empty_text(self) -> None:
             from app.ai.workflows.runner import WorkspaceGraphRunner

@@ -63,6 +63,10 @@ function navigateTargetForOperationEntity(entity: AiOperationResultEntity): AppN
   return targetForAiEntity({ type: inferred, id: entity.id });
 }
 
+function comparableOperationResultText(value: string) {
+  return value.replace(/\s+/g, '').replace(/[，。！？；：,.!?;:]+$/g, '');
+}
+
 export function ResultImage({ asset, alt }: { asset?: MediaAsset | null; alt: string }) {
   const imageSrc = resolveMediaUrl(asset, 'thumb');
   if (!imageSrc) {
@@ -406,8 +410,8 @@ function OperationResultCard({
   const workspaceLabel = typeof currentCard.data.workspaceLabel === 'string' ? currentCard.data.workspaceLabel : '对应页面';
   const workspaceHint = typeof currentCard.data.workspaceHint === 'string' ? currentCard.data.workspaceHint : `可前往${workspaceLabel}查看`;
   const displayTitle = localizeInventoryOperationText(currentCard.title);
-  const normalizedTitle = displayTitle.replace(/\s+/g, '');
-  const normalizedSummary = actionSummary.replace(/\s+/g, '');
+  const normalizedTitle = comparableOperationResultText(displayTitle);
+  const normalizedSummary = comparableOperationResultText(actionSummary);
   const shouldShowActionSummary = Boolean(actionSummary) && normalizedSummary !== normalizedTitle;
   const shouldShowEntityCount = entities.length > 0 || (typeof currentCard.data.entityCount === 'number' && currentCard.data.entityCount > 0);
   const destinationText = workspaceHint.trim();
@@ -429,6 +433,15 @@ function OperationResultCard({
       ? projection.result_status === 'reverted' || projection.revert_availability === 'reverted' ? '已撤销' : '无法撤销'
       : '撤销';
   const displayedStatus = showRevert && !isOnline ? '联网后可重试撤销' : viewModel.statusText;
+  const executionExplanation = projection.execution_explanation
+    ? localizeInventoryOperationText(projection.execution_explanation)
+    : '';
+  const normalizedExecutionExplanation = comparableOperationResultText(executionExplanation);
+  const normalizedDisplayedStatus = comparableOperationResultText(displayedStatus);
+  const shouldShowExecutionExplanation = Boolean(executionExplanation)
+    && normalizedExecutionExplanation !== normalizedSummary
+    && normalizedExecutionExplanation !== normalizedTitle
+    && normalizedExecutionExplanation !== normalizedDisplayedStatus;
 
   return (
     <article className="ai-result-card ai-query-result-card ai-operation-result-card">
@@ -446,9 +459,7 @@ function OperationResultCard({
         )}
       </header>
       {shouldShowActionSummary && <p className="ai-query-reason">{actionSummary}</p>}
-      {projection.execution_explanation && projection.execution_explanation !== displayedStatus && (
-        <p className="ai-query-reason">{localizeInventoryOperationText(projection.execution_explanation)}</p>
-      )}
+      {shouldShowExecutionExplanation && <p className="ai-query-reason">{executionExplanation}</p>}
       {entities.length > 0 && (
         <div className="ai-query-recommendation-list" aria-label="已完成内容">
           {entities.map((item) => {
@@ -522,14 +533,6 @@ function OperationResultCard({
             onClick={() => detailTarget && onNavigate?.(detailTarget)}
           >
             查看详情
-          </button>
-          <button
-            className="ghost-button ai-operation-settings-button"
-            type="button"
-            disabled={!onNavigate}
-            onClick={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}
-          >
-            管理自动执行设置
           </button>
         </div>
       )}

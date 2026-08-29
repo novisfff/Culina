@@ -11,6 +11,79 @@ from app.services.serializers import serialize_ai_approval_request, serialize_ai
 ROUTED_WITHOUT_APPROVAL_STATUSES = {"auto_executed", "no_change", "execution_failed"}
 
 
+def operation_result_card_identity(card: dict[str, Any]) -> dict[str, str]:
+    data = card.get("data") if isinstance(card.get("data"), dict) else {}
+    return {
+        "approval_id": str(data.get("approval_id") or data.get("approvalId") or ""),
+        "draft_id": str(data.get("draft_id") or data.get("draftId") or ""),
+        "operation_id": str(data.get("operation_id") or data.get("operationId") or ""),
+    }
+
+
+def operation_result_decision_identity(decision: dict[str, Any] | None) -> dict[str, str]:
+    record = decision if isinstance(decision, dict) else {}
+    approval = record.get("approval") if isinstance(record.get("approval"), dict) else {}
+    draft = record.get("draft") if isinstance(record.get("draft"), dict) else {}
+    operation = record.get("operation") if isinstance(record.get("operation"), dict) else {}
+    return {
+        "approval_id": str(approval.get("id") or record.get("sourceApprovalId") or ""),
+        "draft_id": str(
+            draft.get("id")
+            or approval.get("draft_id")
+            or record.get("sourceDraftId")
+            or ""
+        ),
+        "operation_id": str(operation.get("id") or record.get("sourceOperationId") or ""),
+    }
+
+
+def is_successful_operation_result_card(card: dict[str, Any]) -> bool:
+    if card.get("type") != "operation_result":
+        return False
+    data = card.get("data") if isinstance(card.get("data"), dict) else {}
+    result_status = str(data.get("result_status") or data.get("resultStatus") or "").lower()
+    operation_status = str(data.get("operation_status") or data.get("operationStatus") or "").lower()
+    if result_status == "failed" or operation_status in {"failed", "pending"}:
+        return False
+    if result_status in {"completed", "no_change", "reverted"}:
+        return True
+    if operation_status in {"completed", "reverted"}:
+        return True
+    # Legacy trusted result cards did not carry canonical status aliases.  A
+    # caller that supplies an expected identity still has to match at least one
+    # durable approval/draft/operation id before this can be treated as success.
+    return not result_status and not operation_status
+
+
+def matching_successful_operation_result_card(
+    parts: list[dict[str, Any]],
+    *,
+    expected_identity: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    expected = {
+        key: str(value or "")
+        for key, value in (expected_identity or {}).items()
+        if str(value or "")
+    }
+    for part in parts:
+        if not isinstance(part, dict) or part.get("type") != "result_card":
+            continue
+        card = part.get("card") if isinstance(part.get("card"), dict) else {}
+        if not is_successful_operation_result_card(card):
+            continue
+        if not expected:
+            return card
+        actual = operation_result_card_identity(card)
+        comparable_keys = [key for key, value in expected.items() if actual.get(key)]
+        if not comparable_keys:
+            continue
+        if any(actual[key] != expected[key] for key in comparable_keys):
+            continue
+        if any(actual[key] == expected[key] for key in comparable_keys):
+            return card
+    return None
+
+
 def draft_route_status(draft_payload: dict[str, Any]) -> str:
     status = str(draft_payload.get("route_status") or "")
     if status:
