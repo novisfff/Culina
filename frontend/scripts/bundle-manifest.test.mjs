@@ -114,6 +114,22 @@ describe('frontend health manifest', () => {
     expect(manifest.manifestErrors).toEqual([]);
   });
 
+  it('maps route-owned CSS sources to their logical route entry', () => {
+    const config = {
+      version: 1,
+      entries: {
+        main: { source: 'src/main.tsx', dynamic: false },
+        home: {
+          source: 'src/features/home/HomeDashboard.tsx',
+          dynamic: true,
+          styleSources: ['src/features/home/home-route.css'],
+        },
+      },
+    };
+
+    expect(resolveLogicalEntry('src/features/home/home-route.css', config)).toBe('home');
+  });
+
   it('associates an HTML entry facade through its source module', () => {
     const manifest = createFrontendHealthManifest({
       bundle: completeBundle(),
