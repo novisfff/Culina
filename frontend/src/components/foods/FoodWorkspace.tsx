@@ -105,7 +105,13 @@ import {
 } from './FoodWorkspaceModel';
 import { useFoodPlanState } from './useFoodPlanState';
 import { useFoodSceneState } from './useFoodSceneState';
-import { getMobileDefaultFoodSceneCardMedia, getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
+import { getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
+import {
+  buildMobileFilterResetKey,
+  buildMobileSceneExploreCards,
+  filterMobileLibraryFoods,
+  paginateMobileSceneCards,
+} from './FoodMobileLibraryModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { useFoodWorkspaceSearch } from './useFoodWorkspaceSearch';
 import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './FoodQuickRecordState';
@@ -507,36 +513,14 @@ export function FoodWorkspace(props: Props) {
     setGovernanceIssueFilter(nextFilters.governanceIssueFilter);
   }
 
-  const mobileDefaultSceneCards = MOBILE_DEFAULT_FOOD_SCENES.map((scene) => ({
-    key: scene.key,
-    title: scene.title,
-    ...getMobileDefaultFoodSceneCardMedia(scene.title, props.foods, sceneCards, scene.fallbackIndex),
-    onClick: () => selectMobileFoodScene(scene.title),
-  }));
-  const mobileSceneExploreCards = [
-    ...mobileDefaultSceneCards,
-    ...sceneCards
-      .filter((scene) => !mobileDefaultSceneCards.some((card) => card.title === scene.name))
-      .map((scene) => ({
-        key: `scene-${scene.name}`,
-        title: scene.name,
-        count: scene.count,
-        imageFood: props.foods.find((food) => getFoodSceneTags(food).includes(scene.name)) ?? props.foods[0],
-        imageUrl: scene.imageUrl,
-        imageAsset: scene.imageAsset,
-        onClick: () => selectMobileFoodScene(scene.name),
-      })),
-  ];
-  const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 2) || 1 }, (_, index) =>
-    mobileSceneExploreCards.slice(index * 2, index * 2 + 2)
-  );
-  const mobileLibraryFoods = filteredFoods.filter((food) => {
-    if (mobileCookingFilter === 'all') return true;
-    const summary = getFoodCookingSummary(food);
-    if (!summary) return false;
-    return mobileCookingFilter === 'ready' ? summary.isReady : summary.shortagePreview.length > 0;
-  });
-  const mobileLibraryResetKey = [appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter, mobileCookingFilter].join('|');
+  const mobileSceneExploreCards = buildMobileSceneExploreCards({
+    foods: props.foods,
+    sceneCards,
+    defaultScenes: MOBILE_DEFAULT_FOOD_SCENES,
+  }).map((card) => ({ ...card, onClick: () => selectMobileFoodScene(card.title) }));
+  const mobileScenePages = paginateMobileSceneCards(mobileSceneExploreCards);
+  const mobileLibraryFoods = filterMobileLibraryFoods(filteredFoods, mobileCookingFilter, getFoodCookingSummary);
+  const mobileLibraryResetKey = buildMobileFilterResetKey([appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter, mobileCookingFilter]);
   const mobileFilterTabs = [
     {
       label: '全部',
