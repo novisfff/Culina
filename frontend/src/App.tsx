@@ -32,7 +32,7 @@ import type {
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
-import { addDateKeyDays, getWeekRange } from './lib/date';
+import { getWeekRange } from './lib/date';
 import { businessDateKey } from './lib/date';
 import { tracksIngredientQuantity } from './lib/ingredientTracking';
 import {
@@ -67,6 +67,7 @@ import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
 import { useAppCookNavigation } from './app/useAppCookNavigation';
 import { useAppHomeInventoryActions } from './app/useAppHomeInventoryActions';
 import { useAppPlanRecipeNavigation } from './app/useAppPlanRecipeNavigation';
+import { useAppFoodPlanWeekNavigation } from './app/useAppFoodPlanWeekNavigation';
 
 function App() {
   const {
@@ -244,6 +245,11 @@ function App() {
     setSelectedRecipePlanDate(planDate);
     requestFoodPlanWeek(planDate);
   }, [requestFoodPlanWeek]);
+  const foodPlanWeekNavigation = useAppFoodPlanWeekNavigation({
+    weekRange: foodPlanWeekRange,
+    today: todayKey(),
+    setSelectedDate: setSelectedRecipePlanDate,
+  });
 
   const { startRecipeCook, startCookWithFood } = useAppCookNavigation({
     foods,
@@ -1029,9 +1035,9 @@ function App() {
             onOpenFullWeek={openFoodPlanWeek}
             onRetryHighlights={retryHomeHighlights}
             onOpenReconciliation={openReconciliation}
-            onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-            onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-            onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+            onFoodPlanPreviousWeek={foodPlanWeekNavigation.previousWeek}
+            onFoodPlanCurrentWeek={foodPlanWeekNavigation.currentWeek}
+            onFoodPlanNextWeek={foodPlanWeekNavigation.nextWeek}
           />
           </WorkspaceRouteBoundary>
         )}
@@ -1174,9 +1180,9 @@ function App() {
                   onStartRecipe={startRecipeCook}
                   navigate={navigation.navigate}
                   onOpenLogs={() => navigation.navigate({ workspace: 'eat', view: 'history' })}
-                  onFoodPlanPreviousWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.start, -7))}
-                  onFoodPlanCurrentWeek={() => setSelectedRecipePlanDate(todayKey())}
-                  onFoodPlanNextWeek={() => setSelectedRecipePlanDate(addDateKeyDays(foodPlanWeekRange.end, 1))}
+                  onFoodPlanPreviousWeek={foodPlanWeekNavigation.previousWeek}
+                  onFoodPlanCurrentWeek={foodPlanWeekNavigation.currentWeek}
+                  onFoodPlanNextWeek={foodPlanWeekNavigation.nextWeek}
                   isSavingFood={createFoodMutation.isPending || updateFoodMutation.isPending}
                   isCreatingRecipe={createRecipeMutation.isPending}
                   isUpdatingRecipe={updateRecipeMutation.isPending}
