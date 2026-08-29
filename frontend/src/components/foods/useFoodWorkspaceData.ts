@@ -61,5 +61,19 @@ export function buildFoodWorkspaceData(args: FoodWorkspaceDataArgs) {
 }
 
 export function useFoodWorkspaceData(args: FoodWorkspaceDataArgs) {
-  return useMemo(() => buildFoodWorkspaceData(args), [args]);
+  return useMemo(() => buildFoodWorkspaceData(args), [
+    args.appliedFoodSearch,
+    args.foods,
+    args.governanceIssueFilter,
+    args.ingredients,
+    args.inventoryItems,
+    args.lensFilter,
+    args.matchedFoodIds,
+    args.mealFilter,
+    args.mealLogs,
+    args.recipes,
+    args.sceneFilter,
+    args.searchAwareFoods,
+    args.typeFilter,
+  ]);
 }
