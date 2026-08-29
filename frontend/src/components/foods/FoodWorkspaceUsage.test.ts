@@ -10,6 +10,15 @@ function readSource(fileName: string) {
 }
 
 describe('FoodWorkspace navigation usage', () => {
+  it('delegates remote food search to a data hook', () => {
+    const workspaceSource = readSource('FoodWorkspace.tsx');
+
+    expect(workspaceSource).toContain('useFoodWorkspaceSearch');
+    expect(workspaceSource).not.toContain("from '@tanstack/react-query'");
+    expect(workspaceSource).not.toContain("from '../../api/client'");
+    expect(workspaceSource).not.toContain("from '../../api/queryKeys'");
+  });
+
   it('supports edit and quick-meal navigation requests from other workspaces', () => {
     const appNavigationSource = readFileSync(resolve(repoRoot, 'src/app/useAppGlobalSearchNavigation.ts'), 'utf8');
     const stateSource = readFileSync(resolve(repoRoot, 'src/components/foods/useFoodWorkspaceState.ts'), 'utf8');

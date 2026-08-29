@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
 import { isApiError } from '../../api/request';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
-import { queryKeys } from '../../api/queryKeys';
 import type {
   Food,
   FoodPlanItem,
@@ -81,7 +78,6 @@ import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
 } from '../../hooks/useImageComposer';
-import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { useNotice } from '../../hooks/useNotice';
 import { buildRecipeCards } from '../recipes/workspaceModel';
 import { RecipeEditorView } from '../recipes/RecipeEditorView';
@@ -127,6 +123,7 @@ import '../../features/eat/recipe-route.css';
 import { useFoodSceneState } from './useFoodSceneState';
 import { getMobileDefaultFoodSceneCardMedia, getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
+import { useFoodWorkspaceSearch } from './useFoodWorkspaceSearch';
 import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './FoodQuickRecordState';
 import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
@@ -450,37 +447,14 @@ export function FoodWorkspace(props: Props) {
     onStartRecipe: props.onStartRecipe,
   });
   const recipeEditor = useRecipeEditorState({ ingredients: props.ingredients });
-  const normalizedFoodSearch = search.trim();
-  const foodSearchComposition = useSearchCompositionState();
-  const foodSearchValue = useDebouncedSearchValue(search, { isComposing: foodSearchComposition.isComposing });
-  const foodSearchQuery = useQuery({
-    queryKey: queryKeys.foodSearch(foodSearchValue),
-    queryFn: () => api.getFoods({ q: foodSearchValue, limit: 100 }),
-    enabled: Boolean(foodSearchValue),
-    placeholderData: keepPreviousData,
-  });
-  const [appliedFoodSearch, setAppliedFoodSearch] = useState('');
-  const [appliedFoodResults, setAppliedFoodResults] = useState<Food[]>([]);
-  useEffect(() => {
-    if (!normalizedFoodSearch) {
-      setAppliedFoodSearch('');
-      setAppliedFoodResults([]);
-      return;
-    }
-    if (foodSearchValue && !foodSearchQuery.isPlaceholderData && foodSearchQuery.data) {
-      setAppliedFoodSearch(foodSearchValue);
-      setAppliedFoodResults(foodSearchQuery.data);
-    }
-  }, [foodSearchQuery.data, foodSearchQuery.isPlaceholderData, foodSearchValue, normalizedFoodSearch]);
-  const matchedFoodIds = useMemo(
-    () => (appliedFoodSearch ? Array.from(new Set(appliedFoodResults.map((food) => food.id))) : []),
-    [appliedFoodResults, appliedFoodSearch]
-  );
-  const searchAwareFoods = appliedFoodSearch ? appliedFoodResults : props.foods;
-  const isFoodSearchFetching =
-    Boolean(normalizedFoodSearch) &&
-    !foodSearchComposition.isComposing &&
-    (appliedFoodSearch !== normalizedFoodSearch || foodSearchQuery.isFetching);
+  const {
+    appliedSearch: appliedFoodSearch,
+    matchedFoodIds,
+    searchAwareFoods: remoteSearchFoods,
+    isFetching: isFoodSearchFetching,
+    composition: foodSearchComposition,
+  } = useFoodWorkspaceSearch(search);
+  const searchAwareFoods = remoteSearchFoods ?? props.foods;
 
   const foodUsageCards = useMemo(
     () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
