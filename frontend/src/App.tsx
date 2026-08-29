@@ -1497,9 +1497,7 @@ function App() {
           }}
           home={homeDashboardDialogProps}
           inventory={inventoryMaintenanceDialogProps}
-        >
-
-        </AppOverlayHost>
+        />
       </AppWorkspaceRouter>
     </AppShell>
   );
