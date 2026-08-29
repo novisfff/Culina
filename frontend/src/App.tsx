@@ -18,6 +18,8 @@ import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppAiWorkspaceRoute } from './app/AppAiWorkspaceRoute';
+import { AppFoodWorkspaceRoute } from './app/AppFoodWorkspaceRoute';
+import { AppIngredientWorkspaceRoute } from './app/AppIngredientWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
@@ -25,8 +27,6 @@ import {
   AppEatWorkspace as EatWorkspace,
   AppHomeDashboard as HomeDashboard,
   AppMealLogWorkspace as MealLogWorkspace,
-  AppFoodWorkspace as FoodWorkspace,
-  AppIngredientWorkspace as IngredientWorkspace,
 } from './app/AppWorkspaceEntries';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
@@ -1225,7 +1225,7 @@ function App() {
                 onCookResumePromptChange: setCookResumePromptOpen,
               }}
               discoverContent={
-                <FoodWorkspace
+                <AppFoodWorkspaceRoute
                   recipes={recipes}
                   ingredients={ingredients}
                   foods={foods}
@@ -1338,7 +1338,7 @@ function App() {
         ) : null}
 
         {navigation.state.primaryTab === 'ingredients' && (
-            <IngredientWorkspace
+            <AppIngredientWorkspaceRoute
               ingredients={ingredients}
               foods={foods}
               inventoryItems={inventoryItems}

@@ -13,6 +13,8 @@ describe('AppWorkspaceRouter route contract', () => {
     expect(appSource).not.toContain('fallback={<WorkspaceLoadingFallback />');
     expect(appSource).not.toContain('<WorkspaceRouteBoundary>');
     expect(appSource).not.toContain('<AiWorkspace');
+    expect(appSource).not.toContain('<FoodWorkspace');
+    expect(appSource).not.toContain('<IngredientWorkspace');
     expect(routerSource).toContain('WorkspaceLoadingFallback');
     expect(routerSource).toContain('WorkspaceRouteBoundary');
     expect(appSource).not.toContain("import('./features/eat/EatWorkspace')");
