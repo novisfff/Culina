@@ -62,6 +62,7 @@ import {
   selectRecentBannerOperationWithOverride,
 } from './features/inventory/InventoryOperationBanner';
 import { useReconciliationController } from './features/inventory/useReconciliationController';
+import { useInventoryOperationLoaders } from './features/inventory/useInventoryOperationLoaders';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
@@ -362,6 +363,7 @@ function App() {
 
   // Stable identity so compact record effects do not re-fetch/reset target on every App render.
   const loadMealCandidates = useMealCandidateLoader();
+  const { fetchReconciliation, getOperationDetail } = useInventoryOperationLoaders();
 
   const shoppingIntakeState = useShoppingIntakeController({
     shoppingItems,
@@ -390,11 +392,7 @@ function App() {
     familyId: family?.id ?? '',
     userId: user?.id ?? '',
     referenceDate: homeBusinessDateKey,
-    fetchReconciliation: async ({ scope, storageLocation }) =>
-      api.getInventoryReconciliation({
-        scope,
-        storage_location: storageLocation,
-      }),
+    fetchReconciliation,
     submitReconciliation: (payload) => submitInventoryReconciliationMutation.mutateAsync(payload),
     invalidateAfterInventoryOperation: async () => {
       await invalidateAfterInventoryOperation(queryClient);
@@ -425,7 +423,7 @@ function App() {
   const [recentBannerOverride, setRecentBannerOverride] = useState<InventoryOperationResult | null>(null);
 
   const operationHistory = useAppInventoryOperationHistory({
-    getDetail: api.getInventoryOperation,
+    getDetail: getOperationDetail,
     errorMessage: (reason) => messageFromApiError(reason, '加载变更详情失败'),
     isRevertPending: revertInventoryOperationMutation.isPending,
   });
@@ -447,7 +445,7 @@ function App() {
     setReconciliationResult: (result, familyId, userId) => reconciliationState.setResultAndClearDraft({ result, familyId, userId }),
     familyId: family?.id ?? '',
     userId: user?.id ?? '',
-    getDetail: api.getInventoryOperation,
+    getDetail: getOperationDetail,
     setRecentBannerOverride,
     showNotice,
     errorMessage: messageFromApiError,
