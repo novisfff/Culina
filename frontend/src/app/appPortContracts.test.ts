@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   assertUniqueOwner,
   type AsyncState,
@@ -8,6 +10,12 @@ import { queryOwnership } from './appQueryOwnership';
 import { mutationOwnership } from './appMutationOwnership';
 
 describe('app workspace port contracts', () => {
+  it('keeps meal candidate loading outside App composition', () => {
+    const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
+    expect(appSource).not.toContain('api.getMealCandidates');
+    expect(appSource).toContain('useMealCandidateLoader');
+  });
+
   it('rejects duplicate query owners', () => {
     expect(() => assertUniqueOwner(['home.foodPlan', 'home.foodPlan'])).toThrow(
       'Duplicate owner: home.foodPlan',

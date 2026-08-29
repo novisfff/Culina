@@ -36,7 +36,6 @@ import type {
   InventoryOperationDetail,
   InventoryOperationResult,
   MealLog,
-  MealType,
   UpdateMealLogPayload,
 } from './api/types';
 import { useAuth } from './auth/AuthContext';
@@ -52,6 +51,7 @@ import {
   todayKey,
 } from './lib/ui';
 import { useMealRecordResultState } from './features/meals/useMealRecordResultState';
+import { useMealCandidateLoader } from './features/meals/useMealCandidateLoader';
 import { useFamilySettingsState } from './features/family/useFamilySettingsState';
 import { useHomeDashboardState } from './features/home/useHomeDashboardState';
 import { useHomeDashboardActions } from './features/home/useHomeDashboardActions';
@@ -361,10 +361,7 @@ function App() {
   });
 
   // Stable identity so compact record effects do not re-fetch/reset target on every App render.
-  const loadMealCandidates = useCallback(
-    (date: string, mealType: MealType) => api.getMealCandidates(date, mealType),
-    [],
-  );
+  const loadMealCandidates = useMealCandidateLoader();
 
   const shoppingIntakeState = useShoppingIntakeController({
     shoppingItems,
