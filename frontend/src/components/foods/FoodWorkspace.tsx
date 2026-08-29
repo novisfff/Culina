@@ -57,23 +57,16 @@ import { FoodHubView } from './FoodHubView';
 import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import {
-  buildRecordMealPayload,
-  canSubmitWithCandidateResolution,
   createMealBusinessDate,
   createMealRecordDateOptions,
-  deriveCandidatePresentation,
   type MealCandidateResolution,
 } from '../../features/meals/MealComposerModel';
-import {
-  extractMealRecordErrorCode,
-  messageFromMealRecordReason,
-} from '../../features/meals/mealRecordErrors';
 import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
@@ -163,6 +156,7 @@ import {
 import { useFoodWorkspaceData } from './useFoodWorkspaceData';
 import { useFoodGovernanceData } from './useFoodGovernanceData';
 import { useFoodQuickRecordCandidates } from './useFoodQuickRecordCandidates';
+import { useFoodQuickRecordSubmit } from './useFoodQuickRecordSubmit';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -975,117 +969,16 @@ export function FoodWorkspace(props: Props) {
     loadMealCandidates: props.loadMealCandidates,
   });
 
-  async function submitCompactRecord() {
-    if (!quickRecord || quickRecord.busy) return;
-    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error:
-                current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
-                  : '正在查找可加入的餐食…',
-            }
-          : current,
-      );
-      return;
-    }
-    const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
-    let payload: RecordMealPayload;
-    try {
-      payload = buildRecordMealPayload({
-        clientRequestId: quickRecord.clientRequestId,
-        date: quickRecord.date,
-        mealType: quickRecord.mealType,
-        target: quickRecord.target,
-        foods: [
-          {
-            kind: 'existing',
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            servings: 1,
-            cover,
-          },
-        ],
-      });
-    } catch (reason) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error: reason instanceof Error && reason.message.trim()
-                ? reason.message
-                : '餐食记录失败，请重试',
-            }
-          : current,
-      );
-      return;
-    }
-
-    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
-    try {
-      const response = await props.recordMeal(payload);
-      setQuickRecord(null);
-      props.onRecordSuccess?.(response);
-      setFeedback(
-        `${quickRecord.food.name} 已记入${
-          quickRecord.date === mealBusinessDate ? '今天' : formatDate(quickRecord.date)
-        }${MEAL_TYPE_LABELS[quickRecord.mealType]}`,
-      );
-    } catch (reason) {
-      const code = extractMealRecordErrorCode(reason);
-      if (code === 'meal_log_stale' && props.loadMealCandidates) {
-        try {
-          const refreshed = await props.loadMealCandidates(quickRecord.date, quickRecord.mealType);
-          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
-          setQuickRecord((current) =>
-            current
-              ? {
-                  ...current,
-                  busy: false,
-                  candidates: refreshed,
-                  candidateMode: presentation.mode,
-                  candidateResolution: { status: 'ready' },
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                  targetTouchedByUser: false,
-                  error: '这顿饭刚被家人更新，请重新确认',
-                }
-              : current,
-          );
-          return;
-        } catch {
-          // fall through
-        }
-      }
-      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
-        setQuickRecord((current) =>
-          current
-            ? {
-                ...current,
-                busy: false,
-                clientRequestId: createFoodRecordClientRequestId(),
-                error:
-                  code === 'record_operation_reverted'
-                    ? '上次记录已撤销，请再试一次'
-                    : '记录内容已变化，请再试一次',
-              }
-            : current,
-        );
-        return;
-      }
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
-            }
-          : current,
-      );
-    }
-  }
+  const { submitCompactRecord } = useFoodQuickRecordSubmit({
+    quickRecord,
+    setQuickRecord,
+    recordMeal: props.recordMeal,
+    recipes: props.recipes,
+    setFeedback,
+    mealBusinessDate,
+    loadMealCandidates: props.loadMealCandidates,
+    onRecordSuccess: props.onRecordSuccess,
+  });
 
   function handleFoodCardPrimaryAction(food: Food, mealType: MealType) {
     const initialMealType = getQuickDefaultMealType(food, suggestedMealType);
