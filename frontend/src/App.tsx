@@ -960,9 +960,9 @@ function App() {
         });
       }}
     >
-      <AppWorkspaceRouter navigationState={navigation.state}>
+      <AppWorkspaceRouter navigationState={navigation.state} routes={{
 
-          {navigation.state.primaryTab === 'home' && (
+          home: (
           <WorkspaceRouteBoundary>
           <AppHomeWorkspaceRoute
             sidebarFamilyName={sidebarFamilyName}
@@ -1039,9 +1039,9 @@ function App() {
             onFoodPlanNextWeek={foodPlanWeekNavigation.nextWeek}
           />
           </WorkspaceRouteBoundary>
-        )}
+        ),
 
-        {navigation.state.primaryTab === 'eat' ? (
+        eat: (
           <WorkspaceRouteBoundary>
             <AppEatWorkspaceRoute
               navigation={navigation}
@@ -1242,9 +1242,9 @@ function App() {
               }
             />
           </WorkspaceRouteBoundary>
-        ) : null}
+        ),
 
-        {navigation.state.primaryTab === 'ingredients' && (
+        ingredients: (
           <WorkspaceRouteBoundary>
             <AppIngredientWorkspaceRoute
               ingredients={ingredients}
@@ -1311,9 +1311,9 @@ function App() {
               isUpdatingShopping={updateShoppingMutation.isPending || deleteShoppingMutation.isPending}
             />
           </WorkspaceRouteBoundary>
-        )}
+        ),
 
-        {navigation.state.primaryTab === 'ai' && (
+        ai: (
           <WorkspaceRouteBoundary>
             <AppAiWorkspaceRoute
               familyId={family?.id ?? ''}
@@ -1326,9 +1326,9 @@ function App() {
               onNavigate={navigation.navigate}
             />
           </WorkspaceRouteBoundary>
-        )}
+        ),
 
-        {navigation.state.primaryTab === 'family' && (
+        family: (
           <AppFamilyWorkspaceRoute
             state={navigation.state}
             isOwner={isOwner}
@@ -1375,9 +1375,11 @@ function App() {
             onPasswordSubmit={submitPassword}
             onFamilySubmit={submitFamily}
           />
-        )}
+        ),
 
-        <AppOverlayHost
+      }} />
+
+      <AppOverlayHost
           state={appOverlayState}
           global={{
             search: {
@@ -1400,8 +1402,7 @@ function App() {
           }}
           home={homeDashboardDialogProps}
           inventory={inventoryMaintenanceDialogProps}
-        />
-      </AppWorkspaceRouter>
+      />
     </AppShell>
   );
 }

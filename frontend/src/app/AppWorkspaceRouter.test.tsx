@@ -32,4 +32,12 @@ describe('AppWorkspaceRouter route contract', () => {
       expect(resolveWorkspaceRoute(state).workspace).toBe(workspace);
     }
   });
+
+  it('selects from a typed workspace route map instead of rendering every route child', () => {
+    const routerSource = readFileSync(resolve(__dirname, './AppWorkspaceRouter.tsx'), 'utf8');
+    const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8');
+    expect(routerSource).toContain('routes?: Partial<Record<WorkspaceRoute[\'workspace\'], ReactNode>>');
+    expect(routerSource).toContain('routes?.[route.workspace]');
+    expect(appSource).toContain('routes={{');
+  });
 });
