@@ -157,6 +157,7 @@ import { useFoodGovernanceData } from './useFoodGovernanceData';
 import { useFoodQuickRecordCandidates } from './useFoodQuickRecordCandidates';
 import { useFoodQuickRecordSubmit } from './useFoodQuickRecordSubmit';
 import { createFoodShoppingSubmit } from './useFoodShoppingActions';
+import { submitFoodRecipeEditorAction } from './useFoodRecipeEditorActions';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -791,36 +792,26 @@ export function FoodWorkspace(props: Props) {
     imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
   }
 
-  async function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const payload = buildRecipePayload(
-      recipeEditor.form,
-      recipeEditor.ingredientRows,
-      props.ingredients,
-      getPendingImageJobId(recipeEditor.form.images)
-    );
-    if (!payload.title || payload.ingredient_items.length === 0) {
-      showNotice({ tone: 'warning', title: '暂时无法保存菜谱', message: '家常菜谱至少要有名称和一种食材。' });
-      return;
-    }
-    try {
-      const recipeId = recipeEditor.selectedRecipeId || form.recipeId;
-      if (recipeId) {
-        await props.updateRecipe(recipeId, payload);
-        setForm((current) => ({ ...current, recipeId, name: current.name || payload.title }));
-      } else {
-        const created = await props.createRecipe(payload);
-        setForm((current) => ({ ...current, recipeId: created.id, name: current.name || created.title }));
-        if (view === 'create' && isSelfMade) {
-          setView('list');
-        }
-      }
-      setIsFoodRecipeEditorOpen(false);
-      recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      showNotice({ tone: 'success', title: '菜谱已保存', message: `${payload.title} 的用料和步骤已保存。` });
-    } catch (reason) {
-      showNotice({ tone: 'danger', title: '保存菜谱失败', message: resolveErrorMessage(reason, '保存菜谱失败') });
-    }
+  function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
+    void submitFoodRecipeEditorAction(event, {
+      form,
+      recipeForm: recipeEditor.form,
+      ingredientRows: recipeEditor.ingredientRows,
+      ingredients: props.ingredients,
+      selectedRecipeId: recipeEditor.selectedRecipeId,
+      updateRecipe: props.updateRecipe,
+      createRecipe: props.createRecipe,
+      showNotice,
+      setForm,
+      setView,
+      view: view === 'list' ? 'create' : view,
+      isSelfMade,
+      closeEditor: () => {
+        setIsFoodRecipeEditorOpen(false);
+        recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+      },
+      resetImageState: () => imageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+    });
   }
 
   function openCookConfirmDialog(food: Food, mealType: MealType, options?: { date?: string }) {
