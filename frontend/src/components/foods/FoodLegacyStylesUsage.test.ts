@@ -152,7 +152,7 @@ describe('Food legacy style cleanup', () => {
   });
 
   it('does not keep obsolete food filter toolbar action overrides', () => {
-    const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodWorkspace.tsx'), 'utf8');
+    const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodLibraryFilters.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
     expect(foodSource).toContain('food-library-head-actions');

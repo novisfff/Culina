@@ -34,8 +34,6 @@ import {
   ActionButton,
   EmptyState,
   FormActions,
-  OptionChipGroup,
-  SearchField,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../ui-kit';
@@ -83,9 +81,6 @@ import {
   FOOD_QUICK_VIEW_OPTIONS,
   MOBILE_DEFAULT_FOOD_SCENES,
   FOOD_LENS_COPY,
-  FOOD_TYPE_OPTIONS,
-  MEAL_OPTIONS,
-  type FoodGovernanceIssue,
   type FoodWorkspaceLens,
 } from './FoodWorkspaceOptions';
 import {
@@ -120,6 +115,7 @@ import { FoodEditorForm } from './FoodEditorForm';
 import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
 import { FoodMobileView } from './FoodMobileView';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
+import { FoodLibraryFilters } from './FoodLibraryFilters';
 import {
   FoodCardLibrary,
   type FoodLibraryCardActions,
@@ -876,94 +872,30 @@ export function FoodWorkspace(props: Props) {
             </ActionButton>
           </div>
         }
-        filtersSection={<section className="food-filter-shell">
-          <div className="food-library-main">
-            <div className="food-library-head">
-              <div className="workspace-toolbar-copy">
-                <h3>食物库</h3>
-              </div>
-              <div className="food-library-search-row">
-                <SearchField
-                  className="food-search-field"
-                  ariaLabel="搜索食物"
-                  placeholder="搜索食物、来源、口味或备注…"
-                  value={search}
-                  loading={isFoodSearchFetching}
-                  leadingIcon={<FoodUiIcon name="search" />}
-                  onChange={setSearch}
-                  onClear={() => setSearch('')}
-                  onCompositionStart={foodSearchComposition.onCompositionStart}
-                  onCompositionEnd={foodSearchComposition.onCompositionEnd}
-                />
-                <div className="food-library-head-actions">
-                  <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 项食物</p>
-                  {hasFoodFilters && (
-                    <button className="food-clear-filters-button" type="button" onClick={clearFoodFilters}>
-                      <FoodUiIcon name="refresh" />
-                      <span>清空筛选</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-              <div className="food-toolbar-controls">
-                <div className="food-filter-group">
-                  <span>类型</span>
-                  <OptionChipGroup
-                    ariaLabel="食物类型"
-                    size="small"
-                    className="food-filter-chip-group"
-                    options={[{ value: 'all', label: '全部' }, ...FOOD_TYPE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))]}
-                    value={typeFilter}
-                    onChange={(value) => setTypeFilter(value)}
-                  />
-                </div>
-                <div className="food-filter-group">
-                  <span>餐别</span>
-                  <OptionChipGroup
-                    ariaLabel="适合餐别"
-                    size="small"
-                    className="food-filter-chip-group"
-                    options={[{ value: 'all', label: '全餐别' }, ...MEAL_OPTIONS.map((item) => ({ value: item.value, label: item.label }))]}
-                    value={mealFilter}
-                    onChange={(value) => setMealFilter(value)}
-                  />
-                </div>
-              </div>
-              {lensFilter === 'needsInfo' && (
-                <section className="food-governance-panel" aria-label="需要完善的信息">
-                  <div className="food-governance-head">
-                    <div>
-                      <span className="eyebrow">补充信息</span>
-                      <h4>{governanceQueue.length > 0 ? `还有 ${governanceQueue.length} 项食物需要完善信息` : '信息已补齐'}</h4>
-                      <p>{nextGovernanceFood ? nextGovernanceSummary : '当前没有需要完善信息的食物。'}</p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={governanceQueue.length === 0}
-                      onClick={openNextGovernanceFood}
-                    >
-                      下一条
-                    </button>
-                  </div>
-                  <OptionChipGroup
-                    ariaLabel="需要完善的类型"
-                    value={governanceIssueFilter}
-                    className="food-governance-options"
-                    options={[
-                      { value: 'all', label: '全部需要完善', description: `${needsInfoFoods.length}` },
-                      ...governanceIssueSummaries.map((item) => ({
-                        value: item.value,
-                        label: item.label,
-                        description: `${item.count}`,
-                      })),
-                    ]}
-                    onChange={(issue) => openGovernanceIssue(issue as 'all' | FoodGovernanceIssue)}
-                  />
-                </section>
-              )}
-          </div>
-      </section>}
+        filtersSection={<FoodLibraryFilters
+          search={search}
+          searchLoading={isFoodSearchFetching}
+          typeFilter={typeFilter}
+          mealFilter={mealFilter}
+          lensFilter={lensFilter}
+          governanceIssueFilter={governanceIssueFilter}
+          hasFoodFilters={hasFoodFilters}
+          filteredCount={filteredFoods.length}
+          totalCount={props.foods.length}
+          governanceQueueLength={governanceQueue.length}
+          needsInfoCount={needsInfoFoods.length}
+          nextGovernanceSummary={nextGovernanceSummary}
+          governanceIssueSummaries={governanceIssueSummaries}
+          onSearchChange={setSearch}
+          onSearchClear={() => setSearch('')}
+          onSearchCompositionStart={foodSearchComposition.onCompositionStart}
+          onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
+          onTypeFilterChange={setTypeFilter}
+          onMealFilterChange={setMealFilter}
+          onClearFilters={clearFoodFilters}
+          onOpenNextGovernanceFood={openNextGovernanceFood}
+          onGovernanceIssueChange={(issue) => openGovernanceIssue(issue)}
+        />}
         feedbackSection={feedback ? (
           <div className="food-feedback">
             <span>{feedback}</span>
