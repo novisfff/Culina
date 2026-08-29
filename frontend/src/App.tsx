@@ -20,12 +20,12 @@ import { AppWorkspaceRouter } from './app/AppWorkspaceRouter';
 import { AppAiWorkspaceRoute } from './app/AppAiWorkspaceRoute';
 import { AppFoodWorkspaceRoute } from './app/AppFoodWorkspaceRoute';
 import { AppIngredientWorkspaceRoute } from './app/AppIngredientWorkspaceRoute';
+import { AppHomeWorkspaceRoute } from './app/AppHomeWorkspaceRoute';
+import { AppEatWorkspaceRoute } from './app/AppEatWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
 import {
-  AppEatWorkspace as EatWorkspace,
-  AppHomeDashboard as HomeDashboard,
   AppMealLogWorkspace as MealLogWorkspace,
 } from './app/AppWorkspaceEntries';
 import type { AppOverlayState } from './app/appOverlayState';
@@ -1060,7 +1060,7 @@ function App() {
       <AppWorkspaceRouter navigationState={navigation.state}>
 
           {navigation.state.primaryTab === 'home' && (
-          <HomeDashboard
+          <AppHomeWorkspaceRoute
             sidebarFamilyName={sidebarFamilyName}
             sidebarMotto={sidebarMotto}
             sidebarLocation={sidebarLocation}
@@ -1137,7 +1137,7 @@ function App() {
         )}
 
         {navigation.state.primaryTab === 'eat' ? (
-            <EatWorkspace
+            <AppEatWorkspaceRoute
               navigation={navigation}
               taskResolutionArgs={{
                 task: navigation.state.eat.task,
