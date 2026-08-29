@@ -40,12 +40,11 @@ import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodQuickMealDialog } from './FoodQuickMealDialog';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
-import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
-import { FoodWorkspaceDetailOverlay } from './FoodWorkspaceDetailOverlay';
 import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
 import { FoodWorkspaceQuickRecordOverlay } from './FoodWorkspaceQuickRecordOverlay';
+import { FoodWorkspaceDialogController } from './FoodWorkspaceDialogController';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { type FoodPlanSurfaceProps } from './FoodPlanSurface';
@@ -1257,22 +1256,24 @@ export function FoodWorkspace(props: Props) {
         );
       })()}
 
-      <FoodWorkspaceDetailOverlay
-        food={detailFood}
-        recipes={props.recipes}
-        mealLogs={props.mealLogs}
-        recipeCards={recipeCards}
-        todayDate={todayDate}
-        isQuickAdding={props.isQuickAdding}
-        onClose={closeDetail}
-        onEdit={handleOpenEdit}
-        onEditRecipe={handleOpenRecipeEditorDirectly}
-        onOpenPlanDialog={openPlanDialog}
-        onStartCook={() => {
-          if (detailFood) openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
+      <FoodWorkspaceDialogController
+        detail={{
+          food: detailFood,
+          recipes: props.recipes,
+          mealLogs: props.mealLogs,
+          recipeCards,
+          todayDate,
+          isQuickAdding: props.isQuickAdding,
+          onClose: closeDetail,
+          onEdit: handleOpenEdit,
+          onEditRecipe: handleOpenRecipeEditorDirectly,
+          onOpenPlanDialog: openPlanDialog,
+          onStartCook: () => {
+            if (detailFood) openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
+          },
+          onQuickAdd: (food, mealType) => openQuickMealDialog(food, mealType, 'eat'),
+          resolveAssetUrl: resolveFoodAssetUrl,
         }}
-        onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
-        resolveAssetUrl={resolveFoodAssetUrl}
       />
 
       <FoodWorkspacePlanOverlays
@@ -1333,22 +1334,25 @@ export function FoodWorkspace(props: Props) {
         formId="food-plan-meal-enrichment-form"
       />
 
-      <FoodSceneDialogs
-        isSceneManagerOpen={isSceneManagerOpen}
-        sceneFormMode={sceneFormMode}
-        sceneCards={sceneCards}
-        sceneDraft={sceneDraft}
-        sceneImageState={sceneImageState}
-        isUpdatingScene={props.isUpdatingScene}
-        onCloseManager={() => setIsSceneManagerOpen(false)}
-        onOpenCreateScene={() => openCreateScene()}
-        onOpenEditScene={openEditScene}
-        onDeleteScene={(sceneId) => void deleteScene(sceneId)}
-        onCloseSceneForm={closeSceneForm}
-        onSubmitScene={submitScene}
-        onGenerateSceneImage={() => void generateFoodSceneImage()}
-        onSceneDraftChange={setSceneDraft}
-        resolveFoodAssetUrl={resolveFoodAssetUrl}
+      <FoodWorkspaceDialogController
+        detail={undefined}
+        scenes={{
+          isSceneManagerOpen,
+          sceneFormMode,
+          sceneCards,
+          sceneDraft,
+          sceneImageState,
+          isUpdatingScene: props.isUpdatingScene,
+          onCloseManager: () => setIsSceneManagerOpen(false),
+          onOpenCreateScene: () => openCreateScene(),
+          onOpenEditScene: openEditScene,
+          onDeleteScene: (sceneId) => void deleteScene(sceneId),
+          onCloseSceneForm: closeSceneForm,
+          onSubmitScene: submitScene,
+          onGenerateSceneImage: () => void generateFoodSceneImage(),
+          onSceneDraftChange: setSceneDraft,
+          resolveFoodAssetUrl: resolveFoodAssetUrl,
+        }}
       />
     </main>
   );

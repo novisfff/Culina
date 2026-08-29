@@ -10,6 +10,17 @@ function readSource(fileName: string) {
 }
 
 describe('FoodWorkspace navigation usage', () => {
+  it('keeps overlay composition in the dialog controller', () => {
+    const workspaceSource = readSource('FoodWorkspace.tsx');
+    const controllerSource = readSource('FoodWorkspaceDialogController.tsx');
+
+    expect(workspaceSource).toContain('<FoodWorkspaceDialogController');
+    expect(workspaceSource).not.toContain('<FoodWorkspaceDetailOverlay');
+    expect(workspaceSource).not.toContain('<FoodSceneDialogs');
+    expect(controllerSource).toContain('<FoodWorkspaceDetailOverlay');
+    expect(controllerSource).toContain('<FoodSceneDialogs');
+  });
+
   it('delegates remote food search to a data hook', () => {
     const workspaceSource = readSource('FoodWorkspace.tsx');
 
