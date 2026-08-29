@@ -1,8 +1,4 @@
 import { lazy, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { api } from './api/client';
-import { invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from './api/cacheInvalidation';
-import { queryKeys } from './api/queryKeys';
 import { AppNotificationCenter, AppShell } from './app/AppShell';
 import { type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
@@ -63,6 +59,7 @@ import {
 } from './features/inventory/InventoryOperationBanner';
 import { useReconciliationController } from './features/inventory/useReconciliationController';
 import { useInventoryOperationLoaders } from './features/inventory/useInventoryOperationLoaders';
+import { useInventoryRefreshSources } from './features/inventory/useInventoryRefreshSources';
 import { useShoppingIntakeController } from './features/inventory/useShoppingIntakeController';
 import { useNotice } from './hooks/useNotice';
 import { useAiImageJobMonitor } from './hooks/useAiImageJobMonitor';
@@ -90,7 +87,6 @@ function App() {
   const [homeMealEnrichmentRequest, setHomeMealEnrichmentRequest] = useState<HomeMealEnrichmentOpenRequest | null>(null);
   const [cookResumePromptOpen, setCookResumePromptOpen] = useState(false);
   const { notice, showNotice, clearNotice } = useNotice();
-  const queryClient = useQueryClient();
   const aiImageJobMonitor = useAiImageJobMonitor(isAuthenticated, { onNotice: showNotice });
 
   useAppNavigationEffects({
@@ -367,6 +363,7 @@ function App() {
   // Stable identity so compact record effects do not re-fetch/reset target on every App render.
   const loadMealCandidates = useMealCandidateLoader();
   const { fetchReconciliation, getOperationDetail } = useInventoryOperationLoaders();
+  const inventoryRefreshSources = useInventoryRefreshSources();
 
   const shoppingIntakeState = useShoppingIntakeController({
     shoppingItems,
@@ -375,20 +372,9 @@ function App() {
     inventoryStates,
     referenceDate: homeBusinessDateKey,
     submitShoppingIntake: (payload) => submitShoppingIntakeMutation.mutateAsync(payload),
-    invalidateAfterInventoryOperation: async () => {
-      await invalidateAfterInventoryOperation(queryClient);
-    },
+    invalidateAfterInventoryOperation: inventoryRefreshSources.invalidateOperation,
     showNotice,
-    refreshSources: async () => {
-      const latest = await Promise.all([
-        queryClient.fetchQuery({ queryKey: queryKeys.shoppingList, queryFn: api.getShoppingList }),
-        queryClient.fetchQuery({ queryKey: queryKeys.ingredients, queryFn: () => api.getIngredients() }),
-        queryClient.fetchQuery({ queryKey: queryKeys.foods, queryFn: () => api.getFoods() }),
-        queryClient.fetchQuery({ queryKey: queryKeys.inventoryStates, queryFn: () => api.listInventoryStates() }),
-        queryClient.fetchQuery({ queryKey: queryKeys.inventory, queryFn: () => api.getInventory() }),
-      ]);
-      return { shoppingItems: latest[0], ingredients: latest[1], foods: latest[2], inventoryStates: latest[3] };
-    },
+    refreshSources: inventoryRefreshSources.refreshSources,
   });
 
   const reconciliationController = useReconciliationController({
@@ -397,9 +383,7 @@ function App() {
     referenceDate: homeBusinessDateKey,
     fetchReconciliation,
     submitReconciliation: (payload) => submitInventoryReconciliationMutation.mutateAsync(payload),
-    invalidateAfterInventoryOperation: async () => {
-      await invalidateAfterInventoryOperation(queryClient);
-    },
+    invalidateAfterInventoryOperation: inventoryRefreshSources.invalidateOperation,
     showNotice,
   });
   const { state: reconciliationState, actions: reconciliationActions } = reconciliationController;
@@ -723,12 +707,12 @@ function App() {
 
   async function refreshInventoryActions() {
     return refreshHomeInventoryActions({
-      invalidateChanged: () => invalidateAfterInventoryChanged(queryClient),
-      invalidateShopping: () => queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList }),
-      fetchInventory: () => queryClient.fetchQuery({ queryKey: queryKeys.inventory, queryFn: () => api.getInventory() }),
-      fetchStates: () => queryClient.fetchQuery({ queryKey: queryKeys.inventoryStates, queryFn: () => api.listInventoryStates() }),
-      fetchIngredients: () => queryClient.fetchQuery({ queryKey: queryKeys.ingredients, queryFn: () => api.getIngredients() }),
-      fetchShopping: () => queryClient.fetchQuery({ queryKey: queryKeys.shoppingList, queryFn: () => api.getShoppingList() }),
+      invalidateChanged: inventoryRefreshSources.invalidateChanged,
+      invalidateShopping: inventoryRefreshSources.invalidateShopping,
+      fetchInventory: inventoryRefreshSources.fetchInventory,
+      fetchStates: inventoryRefreshSources.fetchStates,
+      fetchIngredients: inventoryRefreshSources.fetchIngredients,
+      fetchShopping: inventoryRefreshSources.fetchShopping,
       referenceDate: homeBusinessDateKey,
     });
   }
