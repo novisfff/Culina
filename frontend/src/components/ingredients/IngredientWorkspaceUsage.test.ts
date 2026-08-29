@@ -142,6 +142,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
       readFileSync(sourcePath, 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
     ].join('\n');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
@@ -175,6 +176,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
       readFileSync(sourcePath, 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
     ].join('\n');
 
     // Record payloads must not include stock/plan fields.
@@ -242,13 +244,14 @@ describe('IngredientWorkspace shared overlay usage', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodLookup.ts'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
     ].join('\n');
 
     expect(workspaceSource).toContain('const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null)');
     expect(workspaceSource).toContain('async function handleAddFoodShopping(foodId: string)');
     expect(workspaceSource).toContain('api.getFoods({ q: title, limit: 20 })');
     expect(workspaceSource).toContain('return candidates.find((candidate) => candidate.id === foodId) ?? null');
-    expect(workspaceSource).toContain('setTransientShoppingFood(food)');
+    expect(workspaceSource).toContain('setTransientShoppingFood?.(food)');
     expect(workspaceSource).toContain("openShoppingOverlay({ food, reason: '补充成品库存' })");
   });
 });
