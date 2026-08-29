@@ -23,7 +23,7 @@ import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
-import type { AppOverlayState } from './app/appOverlayState';
+import { resolveAppOverlayState } from './app/appOverlayState';
 import type {
   InventoryOperationDetail,
   InventoryOperationResult,
@@ -729,13 +729,12 @@ function App() {
       onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
     />
   );
-  const appOverlayState: AppOverlayState = globalSearchOpen
-    ? { kind: 'global-search' }
-    : homeShoppingState.open
-      ? { kind: 'ingredient-shopping', ingredientId: 'home' }
-      : shoppingIntakeState.open || reconciliationState.open || operationHistory.open
-        ? { kind: 'inventory-maintenance', busy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending }
-        : { kind: 'none' };
+  const appOverlayState = resolveAppOverlayState({
+    globalSearchOpen,
+    homeShoppingOpen: homeShoppingState.open,
+    inventoryMaintenanceOpen: shoppingIntakeState.open || reconciliationState.open || operationHistory.open,
+    inventoryBusy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending,
+  });
 
   const inventoryMaintenanceDialogProps: AppInventoryMaintenanceDialogsProps = {
     shoppingIntake: shoppingIntakeState.open
