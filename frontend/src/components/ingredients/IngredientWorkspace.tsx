@@ -16,7 +16,6 @@ import type {
   InventoryOverviewItem,
   InventoryStatus,
   MealType,
-  RecordMealPayload,
   RecordMealResponse,
   Recipe,
   ShoppingListItem,
@@ -37,16 +36,10 @@ import {
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
 import {
-  buildRecordMealPayload,
   canSubmitWithCandidateResolution,
   createMealBusinessDate,
   createMealRecordDateOptions,
-  deriveCandidatePresentation,
 } from '../../features/meals/MealComposerModel';
-import {
-  extractMealRecordErrorCode,
-  messageFromMealRecordReason,
-} from '../../features/meals/mealRecordErrors';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
 import { IngredientInventoryCard } from './IngredientInventoryCard';
@@ -130,6 +123,7 @@ import {
   useIngredientInventoryOperationInvalidation,
 } from './useIngredientInventoryRefresh';
 import { useIngredientFoodLookup } from './useIngredientFoodLookup';
+import { useIngredientFoodStockMealRecord } from './useIngredientFoodStockMealRecord';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -945,193 +939,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   }
 
 
-  // Load candidates for compact Food record.
-  useEffect(() => {
-    if (!quickRecord) return;
-    let cancelled = false;
-    const { date, mealType } = quickRecord;
-    const loader = props.loadMealCandidates;
-    if (!loader) {
-      setQuickRecord((current) =>
-        current && current.date === date && current.mealType === mealType
-          ? {
-              ...current,
-              candidates: [],
-              candidateMode: 'none',
-              candidateResolution: { status: 'ready' },
-            }
-          : current,
-      );
-      return;
-    }
-    setQuickRecord((current) =>
-      current && current.date === date && current.mealType === mealType
-        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
-        : current,
-    );
-    void (async () => {
-      try {
-        const candidates = await loader(date, mealType);
-        if (cancelled) return;
-        const presentation = deriveCandidatePresentation(candidates, mealType);
-        setQuickRecord((current) => {
-          if (!current || current.date !== date || current.mealType !== mealType) return current;
-          return {
-            ...current,
-            candidates,
-            candidateMode: presentation.mode,
-            candidateResolution: { status: 'ready' },
-            ...(current.targetTouchedByUser
-              ? {}
-              : {
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                }),
-          };
-        });
-      } catch (reason) {
-        if (cancelled) return;
-        const message =
-          reason instanceof Error && reason.message.trim()
-            ? reason.message
-            : '暂时无法加载可选餐食，请重试';
-        setQuickRecord((current) =>
-          current && current.date === date && current.mealType === mealType
-            ? {
-                ...current,
-                candidateResolution: { status: 'error', message },
-                error: message,
-              }
-            : current,
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, props.loadMealCandidates]);
-
-  async function submitCompactFoodRecord() {
-    if (!quickRecord || quickRecord.busy) return;
-    if (!props.recordMeal) {
-      setQuickRecord((current) =>
-        current ? { ...current, error: '记录功能暂不可用，请稍后再试。' } : current,
-      );
-      return;
-    }
-    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error:
-                current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
-                  : '正在查找可加入的餐食…',
-            }
-          : current,
-      );
-      return;
-    }
-    const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
-    let payload: RecordMealPayload;
-    try {
-      payload = buildRecordMealPayload({
-        clientRequestId: quickRecord.clientRequestId,
-        date: quickRecord.date,
-        mealType: quickRecord.mealType,
-        target: quickRecord.target,
-        foods: [
-          {
-            kind: 'existing',
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            servings: 1,
-            cover,
-          },
-        ],
-      });
-    } catch (reason) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error:
-                reason instanceof Error && reason.message.trim()
-                  ? reason.message
-                  : '餐食记录失败，请重试',
-            }
-          : current,
-      );
-      return;
-    }
-
-    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
-    try {
-      const response = await props.recordMeal(payload);
-      const followUpItem = quickRecord.item;
-      setQuickRecord(null);
-      props.onRecordSuccess?.(response);
-      // Offer independent inventory follow-up; cancelling it does not roll back the meal.
-      setInventoryFollowUp({
-        item: followUpItem,
-        stockQuantity: followUpItem.quantity && followUpItem.quantity > 0 ? '1' : '',
-        error: null,
-      });
-    } catch (reason) {
-      const code = extractMealRecordErrorCode(reason);
-      if (code === 'meal_log_stale' && props.loadMealCandidates) {
-        try {
-          const refreshed = await props.loadMealCandidates(quickRecord.date, quickRecord.mealType);
-          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
-          setQuickRecord((current) =>
-            current
-              ? {
-                  ...current,
-                  busy: false,
-                  candidates: refreshed,
-                  candidateMode: presentation.mode,
-                  candidateResolution: { status: 'ready' },
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                  targetTouchedByUser: false,
-                  error: '这顿饭刚被家人更新，请重新确认',
-                }
-              : current,
-          );
-          return;
-        } catch {
-          // fall through
-        }
-      }
-      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
-        setQuickRecord((current) =>
-          current
-            ? {
-                ...current,
-                busy: false,
-                clientRequestId: createClientRequestId(),
-                error:
-                  code === 'record_operation_reverted'
-                    ? '上次记录已撤销，请再试一次'
-                    : '记录内容已变化，请再试一次',
-              }
-            : current,
-        );
-        return;
-      }
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
-            }
-          : current,
-      );
-    }
-  }
+  const { submitCompactFoodRecord } = useIngredientFoodStockMealRecord({
+    quickRecord,
+    setQuickRecord,
+    setInventoryFollowUp,
+    loadMealCandidates: props.loadMealCandidates,
+    recordMeal: props.recordMeal,
+    recipes: props.recipes,
+    onRecordSuccess: props.onRecordSuccess,
+  });
 
   const { submitInventoryFollowUp, submitFoodStockDeductDialog, submitFoodStockAdjustDialog } = useIngredientFoodStockActions({
     foodStockSubmitting,
