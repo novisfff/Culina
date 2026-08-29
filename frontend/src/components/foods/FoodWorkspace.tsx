@@ -42,7 +42,7 @@ import {
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
-import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
+import { FoodQuickMealDialog } from './FoodQuickMealDialog';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodSceneDialogs } from './FoodSceneDialogs';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
@@ -57,7 +57,6 @@ import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import {
   createMealBusinessDate,
   createMealRecordDateOptions,
-  type MealCandidateResolution,
 } from '../../features/meals/MealComposerModel';
 import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
@@ -77,7 +76,7 @@ import {
   getRecipeDraftGenerationButtonLabel,
 } from '../recipes/RecipeWorkspaceModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
-import { getFoodEditorProfile, getQuickDefaultMealType } from './FoodWorkspaceHelpers';
+import { getFoodEditorProfile } from './FoodWorkspaceHelpers';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   FOOD_GOVERNANCE_ISSUE_OPTIONS,
@@ -114,8 +113,8 @@ import {
 } from './FoodMobileLibraryModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { useFoodWorkspaceSearch } from './useFoodWorkspaceSearch';
-import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './FoodQuickRecordState';
 import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
+import { useFoodQuickMealActions } from './useFoodQuickMealActions';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
 import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
@@ -504,6 +503,17 @@ export function FoodWorkspace(props: Props) {
     () => createMealRecordDateOptions(mealBusinessDate),
     [mealBusinessDate]
   );
+  const {
+    openQuickMealDialog,
+    updateQuickMealDialog,
+    handleFoodCardPrimaryAction,
+  } = useFoodQuickMealActions({
+    recipes: props.recipes,
+    mealBusinessDate,
+    suggestedMealType,
+    setQuickMealDialog,
+    setQuickRecord,
+  });
   function selectMobileFoodScene(sceneName: string) {
     const nextFilters = getMobileFoodSceneFilterState(sceneName);
     setSearch(nextFilters.search);
@@ -771,58 +781,6 @@ export function FoodWorkspace(props: Props) {
     });
   }
 
-  function openCookConfirmDialog(food: Food, mealType: MealType, options?: { date?: string }) {
-    const recipeId = food.recipe_id ?? undefined;
-    const recipeServings =
-      recipeId != null
-        ? props.recipes.find((recipe) => recipe.id === recipeId)?.servings
-        : undefined;
-    setQuickMealDialog({
-      action: 'cook',
-      date: options?.date ?? mealBusinessDate,
-      food,
-      mealType,
-      recipeId,
-      servings: recipeServings && recipeServings > 0 ? recipeServings : 1,
-    });
-  }
-
-  function openCompactRecord(
-    food: Food,
-    fallbackMealType?: MealType,
-    options?: { date?: string },
-  ) {
-    const mealType = getQuickDefaultMealType(food, fallbackMealType ?? suggestedMealType);
-    setQuickRecord({
-      food,
-      date: options?.date ?? mealBusinessDate,
-      mealType,
-      target: { kind: 'new' },
-      selectedCandidateId: null,
-      candidateMode: 'none',
-      candidates: [],
-      candidateResolution: { status: 'loading' },
-      targetTouchedByUser: false,
-      clientRequestId: createFoodRecordClientRequestId(),
-      busy: false,
-      error: null,
-    });
-  }
-
-  /** Recipe foods open cook confirm; ordinary foods open compact recordMeal. */
-  function openQuickMealDialog(
-    food: Food,
-    mealType: MealType,
-    action: FoodQuickMealDialogState['action'],
-    options?: { date?: string },
-  ) {
-    if (action === 'cook' && food.recipe_id) {
-      openCookConfirmDialog(food, mealType, options);
-      return;
-    }
-    openCompactRecord(food, mealType, options);
-  }
-
   function openFoodShoppingDialog(food: Food) {
     if (!isReadyLikeFood(food)) return;
     setFoodShoppingError(null);
@@ -852,12 +810,6 @@ export function FoodWorkspace(props: Props) {
     updateShoppingItem: props.updateShoppingItem,
     showNotice,
   });
-  function updateQuickMealDialog(
-    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings'>>,
-  ) {
-    setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
-  }
-
   function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
     void submitFoodCookConfirmAction({
       event,
@@ -885,15 +837,6 @@ export function FoodWorkspace(props: Props) {
     loadMealCandidates: props.loadMealCandidates,
     onRecordSuccess: props.onRecordSuccess,
   });
-
-  function handleFoodCardPrimaryAction(food: Food, mealType: MealType) {
-    const initialMealType = getQuickDefaultMealType(food, suggestedMealType);
-    if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
-      openQuickMealDialog(food, initialMealType, 'cook');
-      return;
-    }
-    openQuickMealDialog(food, initialMealType, 'eat');
-  }
 
   const foodLibraryCardActionsRef = useRef<FoodLibraryCardActions>({
     onOpenDetail: openDetail,
