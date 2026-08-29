@@ -19,6 +19,12 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain('props.correctInventoryExpiryDate ??');
   });
 
+  it('delegates ready-food lookup to a data hook', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).toContain('useIngredientFoodLookup');
+    expect(workspaceSource).not.toContain('api.getFoods({ q: item.title, limit: 20 })');
+  });
+
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
     const source = [
       readFileSync(sourcePath, 'utf8'),
@@ -226,12 +232,15 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('loads a missing food before opening the unified food shopping overlay', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodLookup.ts'), 'utf8'),
+    ].join('\n');
 
     expect(workspaceSource).toContain('const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null)');
     expect(workspaceSource).toContain('async function handleAddFoodShopping(foodId: string)');
-    expect(workspaceSource).toContain('const candidates = await api.getFoods({ q: item.title, limit: 20 })');
-    expect(workspaceSource).toContain('food = candidates.find((candidate) => candidate.id === foodId) ?? null');
+    expect(workspaceSource).toContain('api.getFoods({ q: title, limit: 20 })');
+    expect(workspaceSource).toContain('return candidates.find((candidate) => candidate.id === foodId) ?? null');
     expect(workspaceSource).toContain('setTransientShoppingFood(food)');
     expect(workspaceSource).toContain("openShoppingOverlay({ food, reason: '补充成品库存' })");
   });

@@ -130,6 +130,7 @@ import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
 import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
 import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
 import { useIngredientInventoryRefresh } from './useIngredientInventoryRefresh';
+import { useIngredientFoodLookup } from './useIngredientFoodLookup';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -279,6 +280,7 @@ const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string 
 
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const queryClient = useQueryClient();
+  const lookupFood = useIngredientFoodLookup();
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   const foodStockRecordDateOptions = useMemo(
@@ -910,8 +912,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         return;
       }
       try {
-        const candidates = await api.getFoods({ q: item.title, limit: 20 });
-        food = candidates.find((candidate) => candidate.id === foodId) ?? null;
+        food = await lookupFood(item.title, foodId);
       } catch (error) {
         showNotice({
           tone: 'warning',
