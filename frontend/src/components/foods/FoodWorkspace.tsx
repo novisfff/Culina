@@ -118,6 +118,7 @@ import { createFoodRecordClientRequestId, type FoodQuickRecordState } from './Fo
 import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
+import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
 import { FoodMobileView } from './FoodMobileView';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import {
@@ -604,9 +605,10 @@ export function FoodWorkspace(props: Props) {
   const currentRecipeCard = currentRecipe ? recipeCards.find((card) => card.recipe.id === currentRecipe.id) ?? null : null;
   const isSelfMade = form.type === 'selfMade';
   const editorProfile = getFoodEditorProfile(form.type);
-  const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
-  const editorCompletedCount = editorCompletionItems.filter((item) => item.done).length;
-  const editorCompletionPercent = Math.round((editorCompletedCount / editorCompletionItems.length) * 100);
+  const editorCompletion = buildFoodEditorCompletionState({ form, editingFood, recipes: props.recipes });
+  const editorCompletionItems = editorCompletion.items;
+  const editorCompletedCount = editorCompletion.completedCount;
+  const editorCompletionPercent = editorCompletion.percent;
   const sceneTagOptions = useMemo(() => {
     const names = new Set<string>();
     props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
@@ -617,8 +619,15 @@ export function FoodWorkspace(props: Props) {
   const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
   const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
   const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 种食材 · ${currentRecipe.steps.length} 步` : '还没有菜谱';
-  const recipeEditorIngredientCount = recipeEditor.ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
-  const recipeEditorStepCount = recipeEditor.form.steps.filter((step) => step.text.trim()).length;
+  const recipeEditorCompletion = buildRecipeEditorCompletionState({
+    title: recipeEditor.form.title,
+    servings: recipeEditor.form.servings,
+    ingredientRows: recipeEditor.ingredientRows,
+    steps: recipeEditor.form.steps,
+    hasCover: Boolean(getImagePreview(recipeEditor.form.images)),
+  });
+  const recipeEditorIngredientCount = recipeEditorCompletion.ingredientCount;
+  const recipeEditorStepCount = recipeEditorCompletion.stepCount;
   const canSaveRecipeEditorDraft = Boolean(recipeEditor.form.title.trim() && recipeEditorIngredientCount > 0);
   const canSubmit = !props.isSavingFood && !props.isCreatingRecipe && !props.isUpdatingRecipe && (!isSelfMade || Boolean(form.recipeId) || canSaveRecipeEditorDraft);
   const foodEditorSubmitLabel = isSelfMade
@@ -631,15 +640,8 @@ export function FoodWorkspace(props: Props) {
   const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
   const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
   const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
-  const recipeEditorCompletionItems = [
-    { label: '已填写基础信息', done: Boolean(recipeEditor.form.title.trim() && Number(recipeEditor.form.servings) > 0) },
-    { label: '已添加食材', done: recipeEditorIngredientCount > 0 },
-    { label: '已添加步骤', done: recipeEditorStepCount > 0 },
-    { label: '已设置封面', done: Boolean(recipeEditorCoverAsset) },
-  ];
-  const recipeEditorCompletionPercent = Math.round(
-    (recipeEditorCompletionItems.filter((item) => item.done).length / recipeEditorCompletionItems.length) * 100
-  );
+  const recipeEditorCompletionItems = recipeEditorCompletion.items;
+  const recipeEditorCompletionPercent = recipeEditorCompletion.percent;
   const recipeEditorSceneSelectOptions = useMemo(() => {
     const names = new Set<string>();
     props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
