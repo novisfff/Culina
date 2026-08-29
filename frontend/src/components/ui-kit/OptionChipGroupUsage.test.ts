@@ -13,7 +13,7 @@ describe('OptionChipGroup usages', () => {
     expect(source).not.toContain(' segmented-tab');
   });
   it('uses small OptionChipGroup controls for food library type and meal filters', () => {
-    const source = readFileSync(resolve(repoRoot, 'src/components/foods/FoodWorkspace.tsx'), 'utf8');
+    const source = readFileSync(resolve(repoRoot, 'src/components/foods/FoodLibraryFilters.tsx'), 'utf8');
     expect(source).toContain('ariaLabel="食物类型"');
     expect(source).toContain('ariaLabel="适合餐别"');
     expect(source.match(/size="small"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
