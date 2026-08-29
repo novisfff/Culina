@@ -556,11 +556,13 @@ export function AppShell({
               </button>
             <div className="sidebar-user-main">
               <Avatar label={userName} seed={userSeed} imageUrl={userImageUrl} large={!sidebarCollapsed} />
-              <div className="sidebar-user-copy">
+              {!sidebarCollapsed && (
+                <div className="sidebar-user-copy">
                   <strong>{userName}</strong>
                   <p className="subtle">{userMeta}</p>
                   <p className="sidebar-user-note">{userNote}</p>
                 </div>
+              )}
               </div>
             </div>
             <button className="ghost-button sidebar-logout" type="button" onClick={onLogout} title="退出登录">
