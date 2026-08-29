@@ -28,8 +28,7 @@ import type {
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
-import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
+import { getPendingImageJobId } from '../../lib/aiImages';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import {
   ActionButton,
@@ -75,9 +74,7 @@ import { RecipeEditorView } from '../recipes/RecipeEditorView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
   buildRecipeImagePayload,
-  buildRecipePayload,
   getRecipeDraftGenerationButtonLabel,
-  resolveErrorMessage,
 } from '../recipes/RecipeWorkspaceModel';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import { getFoodEditorProfile, getQuickDefaultMealType } from './FoodWorkspaceHelpers';
@@ -158,6 +155,7 @@ import { useFoodQuickRecordCandidates } from './useFoodQuickRecordCandidates';
 import { useFoodQuickRecordSubmit } from './useFoodQuickRecordSubmit';
 import { createFoodShoppingSubmit } from './useFoodShoppingActions';
 import { submitFoodRecipeEditorAction } from './useFoodRecipeEditorActions';
+import { submitFoodFormAction } from './useFoodFormActions';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
@@ -743,53 +741,26 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
-    event.preventDefault();
-    if (!canSubmit) return;
-    if (isReadyLikeType(form.type)) {
-      const stockQuantity = parseOptionalFoodStockQuantity(form.stockQuantity, '剩余数量');
-      if (stockQuantity.error) {
-        showNotice({ tone: 'warning', title: '库存数量格式不对', message: stockQuantity.error });
-        return;
-      }
-    }
-    if (isSelfMade) {
-      const recipePayload = buildRecipePayload(
-        recipeEditor.form,
-        recipeEditor.ingredientRows,
-        props.ingredients,
-        getPendingImageJobId(recipeEditor.form.images)
-      );
-      if (!recipePayload.title || recipePayload.ingredient_items.length === 0) {
-        showNotice({ tone: 'warning', title: '暂时无法保存菜谱', message: '家常菜谱至少要有名称和一种食材。' });
-        return;
-      }
-      try {
-        let recipeId = form.recipeId || recipeEditor.selectedRecipeId;
-        if (recipeId) {
-          await props.updateRecipe(recipeId, recipePayload);
-          const payload = buildFoodPayloadFromForm(
-            { ...form, recipeId, name: recipePayload.title },
-            props.recipes,
-            getMediaIds(form.images),
-            getPendingImageJobId(form.images)
-          );
-          await submitFood(event, true, payload);
-          showNotice({ tone: 'success', title: '家常菜谱已更新', message: `${recipePayload.title} 的菜谱和食物信息已保存。` });
-        } else {
-          await props.createRecipe(recipePayload);
-          setView('list');
-          showNotice({ tone: 'success', title: '家常菜谱已保存', message: `${recipePayload.title} 已出现在食物库。` });
-        }
-        imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-        recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      } catch (reason) {
-        showNotice({ tone: 'danger', title: '保存菜谱失败', message: resolveErrorMessage(reason, '保存菜谱失败') });
-      }
-      return;
-    }
-    await submitFood(event, true);
-    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+  function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
+    void submitFoodFormAction({
+      event,
+      canSubmit,
+      form,
+      isReadyLike: isReadyLikeType(form.type),
+      isSelfMade,
+      recipeForm: recipeEditor.form,
+      ingredientRows: recipeEditor.ingredientRows,
+      ingredients: props.ingredients,
+      recipes: props.recipes,
+      selectedRecipeId: recipeEditor.selectedRecipeId,
+      submitFood,
+      updateRecipe: props.updateRecipe,
+      createRecipe: props.createRecipe,
+      setView,
+      resetFoodImage: () => imageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+      resetRecipeImage: () => recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+      showNotice,
+    });
   }
 
   function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
