@@ -2,11 +2,16 @@ import type { Food, Ingredient, IngredientInventoryState, InventoryItem, Recipe,
 import {
   buildIngredientCategoryFilters,
   buildIngredientSummaries,
+  buildInventoryStorageOverview,
   buildStorageGroups,
   filterIngredientSummaries,
+  filterIngredientSummariesForInventory,
+  isSeasoningIngredient,
+  sortInventorySummariesByExpiry,
   type IngredientSummaryViewModel,
 } from './workspaceModel';
-import type { CatalogStatusFilter } from './useIngredientWorkspaceState';
+import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
+import type { CatalogStatusFilter, InventoryQuickFilter } from './useIngredientWorkspaceState';
 
 export function buildIngredientWorkspaceViewModel(args: { ingredients: Ingredient[]; inventoryItems: InventoryItem[]; inventoryStates: IngredientInventoryState[]; shoppingItems: ShoppingListItem[]; recipes: Recipe[]; foods: Food[]; referenceDate: string; selectedId?: string | null }) {
   const selected = args.selectedId ? args.ingredients.find((item) => item.id === args.selectedId) ?? null : null;
@@ -46,5 +51,44 @@ export function buildIngredientCatalogViewModel(args: {
     filteredSummaries,
     countLabel: hasActiveFilter ? `当前筛选 ${filteredSummaries.length} 项` : `共 ${args.summaries.length} 项`,
     statusCounts,
+  };
+}
+
+export function buildIngredientInventoryViewModel(args: {
+  summaries: IngredientSummaryViewModel[];
+  quickFilter: InventoryQuickFilter;
+  search: string;
+  searchMatchedIngredientIds?: readonly string[];
+  storageFocus: InventoryStorageFocus;
+  sortMode: 'default' | 'expiry';
+  actionableIngredientIds: ReadonlySet<string>;
+  filterForSearch?: (
+    summaries: IngredientSummaryViewModel[],
+    search: string,
+    matchedIngredientIds?: readonly string[],
+  ) => IngredientSummaryViewModel[];
+}) {
+  const sourceSummaries = args.quickFilter === 'alerted'
+    ? args.summaries.filter((item) => args.actionableIngredientIds.has(item.ingredient.id))
+    : args.quickFilter === 'expiring'
+      ? args.summaries.filter((item) => item.alerts.some((alert) => alert.kind === 'expiry'))
+      : args.quickFilter === 'seasoning'
+        ? args.summaries.filter((item) => isSeasoningIngredient(item.ingredient))
+        : args.summaries;
+  const searchFilter = args.filterForSearch ?? filterIngredientSummariesForInventory;
+  const filteredInventorySummaries = searchFilter(sourceSummaries, args.search, args.searchMatchedIngredientIds);
+  const focusedInventorySummaries = args.storageFocus === 'all'
+    ? filteredInventorySummaries
+    : filteredInventorySummaries.filter((item) => item.primaryStorage === args.storageFocus);
+  const inventoryGroups = buildStorageGroups(focusedInventorySummaries).map((group) => ({
+    ...group,
+    items: args.sortMode === 'expiry' ? sortInventorySummariesByExpiry(group.items) : group.items,
+  }));
+  return {
+    sourceSummaries,
+    filteredInventorySummaries,
+    focusedInventorySummaries,
+    inventoryStorageOverview: buildInventoryStorageOverview(filteredInventorySummaries),
+    inventoryGroups,
   };
 }

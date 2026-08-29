@@ -9,12 +9,9 @@ import {
   buildShoppingCardGroups,
   buildShoppingCards,
   buildShoppingOverview,
-  buildStorageGroups,
   filterShoppingCards,
   filterIngredientSummaries,
-  filterIngredientSummariesForInventory,
   isSeasoningIngredient,
-  sortInventorySummariesByExpiry,
   type IngredientSummaryViewModel,
   type ShoppingOverviewViewModel,
 } from './workspaceModel';
@@ -27,6 +24,7 @@ import type {
   MobileIngredientFilter,
 } from './useIngredientWorkspaceState';
 import { buildIngredientCatalogViewModel } from './IngredientWorkspaceViewModel';
+import { buildIngredientInventoryViewModel } from './IngredientWorkspaceViewModel';
 
 type UseIngredientWorkspaceDataArgs = {
   ingredients: Ingredient[];
@@ -93,26 +91,6 @@ export function filterMobileCatalogSummaries(args: {
   });
 }
 
-function filterInventorySummariesByQuickFilter(
-  summaries: IngredientSummaryViewModel[],
-  quickFilter: InventoryQuickFilter,
-  actionableIngredientIds: ReadonlySet<string>
-) {
-  if (quickFilter === 'alerted') {
-    return summaries.filter((item) => actionableIngredientIds.has(item.ingredient.id));
-  }
-  if (quickFilter === 'food') {
-    return [];
-  }
-  if (quickFilter === 'expiring') {
-    return summaries.filter((item) => item.alerts.some((alert) => alert.kind === 'expiry'));
-  }
-  if (quickFilter === 'seasoning') {
-    return summaries.filter((item) => isSeasoningIngredient(item.ingredient));
-  }
-  return summaries;
-}
-
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
   return useMemo(() => {
     const referenceDate = args.referenceDate ?? businessDateKey();
@@ -149,25 +127,21 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       countLabel: catalogCountLabel,
       statusCounts: catalogStatusCounts,
     } = catalogProjection;
-    const inventorySourceSummaries = filterInventorySummariesByQuickFilter(
+    const inventoryProjection = buildIngredientInventoryViewModel({
       summaries,
-      args.inventoryQuickFilter,
-      actionableIngredientIds
-    );
-    const filteredInventorySummaries = filterIngredientSummariesForInventory(
-      inventorySourceSummaries,
-      args.inventorySearch,
-      args.inventorySearchMatchedIngredientIds
-    );
-    const inventoryStorageOverview = buildInventoryStorageOverview(filteredInventorySummaries);
-    const focusedInventorySummaries =
-      args.inventoryStorageFocus === 'all'
-        ? filteredInventorySummaries
-        : filteredInventorySummaries.filter((item) => item.primaryStorage === args.inventoryStorageFocus);
-    const inventoryGroups = buildStorageGroups(focusedInventorySummaries).map((group) => ({
-      ...group,
-      items: args.inventorySortMode === 'expiry' ? sortInventorySummariesByExpiry(group.items) : group.items,
-    }));
+      quickFilter: args.inventoryQuickFilter,
+      search: args.inventorySearch,
+      searchMatchedIngredientIds: args.inventorySearchMatchedIngredientIds,
+      storageFocus: args.inventoryStorageFocus,
+      sortMode: args.inventorySortMode,
+      actionableIngredientIds,
+    });
+    const {
+      filteredInventorySummaries,
+      focusedInventorySummaries,
+      inventoryStorageOverview,
+      inventoryGroups,
+    } = inventoryProjection;
     const selectedIngredient =
       summaries.find((item) => item.ingredient.id === args.selectedIngredientId) ?? summaries[0] ?? null;
     const allAlerts = summaries.flatMap((item) => item.alerts);
