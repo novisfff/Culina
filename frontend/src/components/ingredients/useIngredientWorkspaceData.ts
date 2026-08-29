@@ -4,7 +4,6 @@ import {
   buildIngredientPriorityActionGroups,
   buildInventoryCardStatus,
   buildInventoryStorageOverview,
-  buildIngredientCategoryFilters,
   buildIngredientSummaries,
   buildPrioritySurfaceRows,
   buildShoppingCardGroups,
@@ -27,6 +26,7 @@ import type {
   InventoryQuickFilter,
   MobileIngredientFilter,
 } from './useIngredientWorkspaceState';
+import { buildIngredientCatalogViewModel } from './IngredientWorkspaceViewModel';
 
 type UseIngredientWorkspaceDataArgs = {
   ingredients: Ingredient[];
@@ -134,27 +134,21 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       shoppingItems: args.shoppingItems,
       inventoryStates,
     });
-    const catalogCategories = buildIngredientCategoryFilters(args.ingredients);
-    const catalogBaseSummaries = filterIngredientSummaries(
+    const catalogProjection = buildIngredientCatalogViewModel({
       summaries,
-      args.catalogSearch,
-      args.catalogCategoryFilter,
-      args.catalogSearchMatchedIngredientIds
-    );
-    const filteredSummaries = args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, args.catalogStatusFilter);
-    const catalogHasActiveFilter =
-      Boolean(args.catalogSearch.trim()) || args.catalogCategoryFilter !== 'all' || args.catalogStatusFilter !== 'all';
-    const catalogCountLabel = catalogHasActiveFilter
-      ? `当前筛选 ${filteredSummaries.length} 项`
-      : `共 ${summaries.length} 项`;
-    const catalogStatusCounts = {
-      all: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'all').length,
-      actionNeeded: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'actionNeeded').length,
-      expired: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'expired').length,
-      expiring: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'expiring').length,
-      lowStock: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'lowStock').length,
-      stable: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'stable').length,
-    } as const;
+      ingredients: args.ingredients,
+      search: args.catalogSearch,
+      categoryFilter: args.catalogCategoryFilter,
+      statusFilter: args.catalogStatusFilter,
+      searchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
+      filterByStatus: args.filterIngredientSummariesByCatalogStatus,
+    });
+    const {
+      catalogCategories,
+      filteredSummaries,
+      countLabel: catalogCountLabel,
+      statusCounts: catalogStatusCounts,
+    } = catalogProjection;
     const inventorySourceSummaries = filterInventorySummariesByQuickFilter(
       summaries,
       args.inventoryQuickFilter,
