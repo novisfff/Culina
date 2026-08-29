@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest';
 const sourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
 
 describe('IngredientWorkspace shared overlay usage', () => {
+  it('delegates inventory action refresh orchestration to a controller hook', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).toContain('useIngredientInventoryRefresh');
+    expect(workspaceSource).not.toContain('queryClient.fetchQuery');
+  });
+
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
     const source = [
       readFileSync(sourcePath, 'utf8'),

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from '../../api/cacheInvalidation';
+import { invalidateAfterFoodChanged, invalidateAfterInventoryOperation } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   CorrectInventoryExpiryDateRequest,
@@ -67,7 +67,6 @@ import { IngredientCatalogCard as ExtractedIngredientCatalogCard } from './Ingre
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import {
   buildIngredientSummaries,
-  buildIngredientPriorityActionGroups,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
   buildInventorySummaryLine,
@@ -110,7 +109,6 @@ import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
 import { useIngredientActionState } from './useIngredientActionState';
 import {
-  resolveExpiryInventoryActionGroup,
   useIngredientOverlayState,
 } from './useIngredientOverlayState';
 import {
@@ -131,6 +129,7 @@ import {
 import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
 import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
 import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
+import { useIngredientInventoryRefresh } from './useIngredientInventoryRefresh';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -659,51 +658,11 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     storageShelfMaxDisplayColumns: STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   });
 
-  async function refreshInventoryActionGroup(ingredientId: string): Promise<ExpiryInventoryActionGroup | null> {
-    await invalidateAfterInventoryChanged(queryClient);
-    await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
-    const [freshInventory, freshStates, freshIngredients, freshShopping] = await Promise.all([
-      queryClient.fetchQuery({
-        queryKey: queryKeys.inventory,
-        queryFn: () => api.getInventory(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.inventoryStates,
-        queryFn: () => api.listInventoryStates(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.ingredients,
-        queryFn: () => api.getIngredients(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.shoppingList,
-        queryFn: () => api.getShoppingList(),
-      }),
-    ]);
-    const groups = buildIngredientPriorityActionGroups({
-      inventoryItems: freshInventory,
-      ingredients: freshIngredients,
-      shoppingItems: freshShopping,
-      inventoryStates: freshStates,
-      referenceDate: inventoryActionReferenceDate,
-    });
-    const freshSummaries = buildIngredientSummaries({
-      ingredients: freshIngredients,
-      inventoryItems: freshInventory,
-      inventoryStates: freshStates,
-      recipes: props.recipes,
-      referenceDate: inventoryActionReferenceDate,
-      shoppingItems: freshShopping,
-    });
-    // Include dispose-only (future-snoozed expired) batches so 409 recovery does not
-    // mis-close dialogs that were opened from inventory detail disposal.
-    return resolveExpiryInventoryActionGroup({
-      ingredientId,
-      inventoryActionGroups: groups,
-      summaries: freshSummaries,
-      referenceDate: inventoryActionReferenceDate,
-    });
-  }
+  const refreshInventoryActionGroup = useIngredientInventoryRefresh({
+    queryClient,
+    recipes: props.recipes,
+    referenceDate: inventoryActionReferenceDate,
+  });
 
   const {
     submitInventory,
