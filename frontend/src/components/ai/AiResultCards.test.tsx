@@ -329,7 +329,7 @@ describe('AI operation result state', () => {
     expect(view.textContent).toContain('撤销时间已过，可前往页面修改');
   });
 
-  it('navigates to details with a keyboard-operable button and omits settings', async () => {
+  it('navigates to details and settings with keyboard-operable buttons', async () => {
     vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
     const targets: unknown[] = [];
     const view = await renderCard(operationCard(), undefined, undefined, undefined, (target) => targets.push(target));
@@ -339,7 +339,10 @@ describe('AI operation result state', () => {
     await user.keyboard('{Enter}');
     expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
     expect(document.activeElement).toBe(detail);
-    expect(view.textContent).not.toContain('管理自动执行设置');
+    const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置') as HTMLButtonElement;
+    expect(settings).toBeDefined();
+    await user.click(settings);
+    expect(targets).toContainEqual({ workspace: 'ai', view: 'autoExecution' });
   });
 
   it.each(['expired', 'blocked', 'unsupported'] as const)('keeps detail navigation for a non-revertible %s result', async (revert_availability) => {
@@ -355,7 +358,7 @@ describe('AI operation result state', () => {
     const detail = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情');
     const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置');
     expect(detail).toBeDefined();
-    expect(settings).toBeUndefined();
+    expect(settings).toBeDefined();
     expect(detail).toBeEnabled();
 
     await userEvent.setup().click(detail!);

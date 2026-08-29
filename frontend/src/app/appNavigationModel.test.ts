@@ -63,24 +63,15 @@ describe('appNavigationModel', () => {
     });
   });
 
-  it('drops the removed automatic-execution view from legacy persisted navigation', () => {
-    const restored = parsePersistedNavigation(JSON.stringify({
-      version: 2,
-      primaryTab: 'ai',
-      eatBaseView: 'discover',
-      discoverSection: 'all',
-      aiView: 'autoExecution',
-    }));
+  it('navigates to and persists the AI automatic-execution settings view', () => {
     const next = reduceNavigation(initialNavigationState, {
       type: 'navigate',
-      target: { workspace: 'ai' },
+      target: { workspace: 'ai', view: 'autoExecution' },
     });
 
-    expect(restored.primaryTab).toBe('ai');
-    expect(restored.ai.view).toBe('conversation');
     expect(next.primaryTab).toBe('ai');
-    expect(next.ai.view).toBe('conversation');
-    expect(persistedNavigationFromState(next)).not.toHaveProperty('aiView');
+    expect(next.ai.view).toBe('autoExecution');
+    expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(next))).ai.view).toBe('autoExecution');
   });
 
   it('falls back to home for corrupt v2 input', () => {

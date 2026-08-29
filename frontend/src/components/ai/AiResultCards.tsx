@@ -534,6 +534,14 @@ function OperationResultCard({
           >
             查看详情
           </button>
+          <button
+            className="ghost-button ai-operation-settings-button"
+            type="button"
+            disabled={!onNavigate}
+            onClick={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}
+          >
+            管理自动执行设置
+          </button>
         </div>
       )}
       <div

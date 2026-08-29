@@ -1,7 +1,7 @@
 import type { MealType } from '../api/types';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
-export type AiView = 'conversation';
+export type AiView = 'conversation' | 'autoExecution';
 export type EatBaseView = 'discover' | 'plan' | 'history';
 export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests' | 'aiServices';
 
@@ -112,7 +112,7 @@ const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set([
   'modelUsageRequests',
   'aiServices',
 ]);
-const AI_VIEWS: ReadonlySet<AiView> = new Set(['conversation']);
+const AI_VIEWS: ReadonlySet<AiView> = new Set(['conversation', 'autoExecution']);
 
 const EMPTY_QUERY_SCOPE: AppQueryScope = {
   needsMembers: false,
@@ -403,6 +403,7 @@ export function persistedNavigationFromState(state: AppNavigationState): Persist
     primaryTab: state.primaryTab,
     eatBaseView: state.eat.baseView,
     discoverSection: state.eat.discoverSection,
+    ...(state.ai.view === 'autoExecution' ? { aiView: state.ai.view } : {}),
     familyView: state.family.view,
   };
 }

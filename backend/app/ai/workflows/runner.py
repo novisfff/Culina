@@ -1400,7 +1400,13 @@ class WorkspaceGraphRunner:
                 return True
 
         draft_record = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
-        return str(draft_record.get("draft_type") or draft_record.get("draftType") or "") == "meal_plan"
+        # A shopping-list draft can be the second leg of a product loop (for
+        # example, a recipe shortage flow). Resume the orchestrator so it can
+        # emit the final acknowledgement when no typed continuation survived.
+        return str(draft_record.get("draft_type") or draft_record.get("draftType") or "") in {
+            "meal_plan",
+            "shopping_list",
+        }
 
     def _pop_fast_approval_decision(self, state: WorkspaceGraphState, approval_id: str) -> dict[str, Any] | None:
         if not approval_id:

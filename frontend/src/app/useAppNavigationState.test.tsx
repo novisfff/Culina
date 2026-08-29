@@ -66,7 +66,7 @@ describe('useAppNavigationState', () => {
     });
   });
 
-  it('drops the removed auto execution view and does not persist an AI subview', () => {
+  it('restores the auto execution view and persists it until returning to conversation', () => {
     localStorage.setItem('culina-navigation-v2', JSON.stringify({
       version: 2,
       primaryTab: 'ai',
@@ -75,9 +75,9 @@ describe('useAppNavigationState', () => {
       aiView: 'autoExecution',
     }));
     const { result } = renderHook(() => useAppNavigationState());
-    expect(result.current.state.ai.view).toBe('conversation');
+    expect(result.current.state.ai.view).toBe('autoExecution');
 
-    act(() => result.current.navigate({ workspace: 'ai' }));
+    act(() => result.current.navigate({ workspace: 'ai', view: 'conversation' }));
     expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).not.toHaveProperty('aiView');
   });
 

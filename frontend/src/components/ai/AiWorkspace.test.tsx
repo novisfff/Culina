@@ -138,13 +138,14 @@ async function advanceTimers(ms: number) {
 }
 
 describe('AiWorkspace pending approval restore', () => {
-  it('does not expose an automatic-execution settings entry', async () => {
-    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
-    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
-    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+  it('renders the desktop auto-execution panel and returns through navigation', async () => {
+    const onNavigate = vi.fn();
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} view="autoExecution" onNavigate={onNavigate} />);
     await flushAsync();
-    expect(rendered.container.textContent).not.toContain('自动执行设置');
-    expect(Array.from(rendered.container.querySelectorAll('button')).some((button) => button.textContent === '自动执行')).toBe(false);
+    const back = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '返回对话');
+    expect(back).toBeTruthy();
+    await act(async () => back?.click());
+    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'ai', view: 'conversation' });
     rendered.unmount();
   });
   it('defaults to collapsed history on iPad width even when desktop preference is expanded', async () => {
