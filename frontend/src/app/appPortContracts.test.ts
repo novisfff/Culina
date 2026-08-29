@@ -16,6 +16,7 @@ describe('app workspace port contracts', () => {
     expect(appSource).not.toContain('api.snoozeStateExpiryAlert');
     expect(appSource).not.toContain('api.correctStateExpiryDate');
     expect(appSource).not.toContain('api.setInventoryStateAbsent');
+    expect(appSource).not.toContain('queryClient.fetchQuery');
     expect(appSource).toContain('useMealCandidateLoader');
   });
 
