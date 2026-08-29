@@ -18,7 +18,7 @@ import { useAppInventoryOperationHistory } from './app/useAppInventoryOperations
 import { useAppInventoryRevert } from './app/useAppInventoryRevert';
 import { AppWorkspaceRouter, WorkspaceRouteBoundary } from './app/AppWorkspaceRouter';
 import { AppOverlayHost } from './app/AppOverlayHost';
-import { AppHomeDashboardDialogs } from './app/AppHomeDashboardDialogs';
+import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import { AppInventoryMaintenanceDialogs } from './app/AppInventoryMaintenanceDialogs';
 import {
   AppAiWorkspace as AiWorkspace,
@@ -822,6 +822,74 @@ function App() {
         ? { kind: 'inventory-maintenance', busy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending }
         : { kind: 'none' };
 
+  const homeDashboardDialogProps: AppHomeDashboardDialogsProps = {
+    recipes: recipes,
+    ingredients: ingredients,
+    homePlanDetailItem: homePlanDetailItem,
+    homePlanDetailFood: homePlanDetailFood,
+    homePlanDetailForm: homePlanDetailForm,
+    isHomePlanDetailEditing: isHomePlanDetailEditing,
+    setHomePlanDetailForm: setHomePlanDetailForm,
+    setIsHomePlanDetailEditing: setIsHomePlanDetailEditing,
+    resetHomePlanDetailForm: resetHomePlanDetailForm,
+    submitHomePlanDetail: submitHomePlanDetail,
+    startHomePlanDetailCook: startHomePlanDetailCook,
+    openHomeMealRecord: (item) => {
+      closeHomePlanDetail();
+      setHomeMealEnrichmentRequest({ mealLogId: item.meal_log_id ?? undefined, planItem: item });
+    },
+    deleteHomePlanDetail: deleteHomePlanDetail,
+    closeHomePlanDetail: closeHomePlanDetail,
+    isUpdatingHomePlanDetail: updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending,
+    isCompletingHomePlanDetail: cookRecipeMutation.isPending || completeFoodPlanItemMutation.isPending,
+    homeMealEnrichmentMeal: homeMealEnrichmentMeal,
+    homeMealEnrichmentMembers: members,
+    foodPlanItems: foodPlanItems,
+    foods: foods,
+    recordMeal: (payload) => recordMealMutation.mutateAsync(payload),
+    revertMealRecord: (operationId) => revertMealRecordMutation.mutateAsync(operationId),
+    onHomeMealEnrichmentMealChanged: (meal) => setHomeMealEnrichmentRequest((current) => ({
+      mealLog: meal,
+      planItem: current?.planItem,
+    })),
+    closeHomeMealEnrichment: () => setHomeMealEnrichmentRequest(null),
+    updateMealLog: (mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload),
+    onInvalidMealEnrichmentSave: () => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、备注或照片，再保存这顿饭。' }),
+    isUpdatingMeal: updateMealMutation.isPending,
+    isHomePlanAddDialogOpen: isHomePlanAddDialogOpen,
+    homePlanAddFood: homePlanAddFood,
+    homePlanAddFoodSearch: homePlanAddFoodSearch,
+    setHomePlanAddFoodSearch: setHomePlanAddFoodSearch,
+    homePlanAddFoodOptions: homePlanAddFoodOptions,
+    selectHomePlanAddFood: selectHomePlanAddFood,
+    setHomePlanAddFoodId: setHomePlanAddFoodId,
+    homePlanAddForm: homePlanAddForm,
+    setHomePlanAddForm: setHomePlanAddForm,
+    dashboardPlanDays: dashboardPlanDays,
+    submitHomePlanAdd: submitHomePlanAdd,
+    closeHomePlanAddDialog: closeHomePlanAddDialog,
+    isCreatingFoodPlanItem: createFoodPlanItemMutation.isPending,
+    homeMealDetail: homeMealDetail,
+    homeMealDetailParticipants: homeMealDetailParticipants,
+    closeHomeMealDetail: closeHomeMealDetail,
+    selectedActionGroup: selectedActionGroup,
+    businessDateKey: today,
+    actionDialogBusy: actionDialogBusy,
+    actionDialogError: actionDialogError,
+    actionDialogConflict: actionDialogConflict,
+    closeActionGroup: closeActionGroup,
+    disposeSelectedInventoryBatches: disposeSelectedInventoryBatches,
+    snoozeSelectedInventoryAlerts: snoozeSelectedInventoryAlerts,
+    correctSelectedInventoryExpiryDate: correctSelectedInventoryExpiryDate,
+    completionSummary: completionSummary,
+    nextGroupId: nextGroupId,
+    nextGroupLabel: nextGroupLabel,
+    openNextActionGroup: handleOpenNextActionGroup,
+    dismissCompletionSummary: dismissCompletionSummary,
+    onCompletionSecondaryAction: openIngredientShopping,
+    resolveAssetUrl: resolveDashboardAssetUrl,
+  };
+
   return (
     <AppShell
       activeTab={navigation.state.primaryTab}
@@ -1295,75 +1363,8 @@ function App() {
               isCreatingShopping: createShoppingMutation.isPending,
             },
           }}
+          home={homeDashboardDialogProps}
         >
-
-        <AppHomeDashboardDialogs
-            recipes={recipes}
-            ingredients={ingredients}
-            homePlanDetailItem={homePlanDetailItem}
-            homePlanDetailFood={homePlanDetailFood}
-            homePlanDetailForm={homePlanDetailForm}
-            isHomePlanDetailEditing={isHomePlanDetailEditing}
-            setHomePlanDetailForm={setHomePlanDetailForm}
-            setIsHomePlanDetailEditing={setIsHomePlanDetailEditing}
-            resetHomePlanDetailForm={resetHomePlanDetailForm}
-            submitHomePlanDetail={submitHomePlanDetail}
-            startHomePlanDetailCook={startHomePlanDetailCook}
-            openHomeMealRecord={(item) => {
-              closeHomePlanDetail();
-              setHomeMealEnrichmentRequest({ mealLogId: item.meal_log_id ?? undefined, planItem: item });
-            }}
-            deleteHomePlanDetail={deleteHomePlanDetail}
-            closeHomePlanDetail={closeHomePlanDetail}
-            isUpdatingHomePlanDetail={updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending}
-            isCompletingHomePlanDetail={cookRecipeMutation.isPending || completeFoodPlanItemMutation.isPending}
-            homeMealEnrichmentMeal={homeMealEnrichmentMeal}
-            homeMealEnrichmentMembers={members}
-            foodPlanItems={foodPlanItems}
-            foods={foods}
-            recordMeal={(payload) => recordMealMutation.mutateAsync(payload)}
-            revertMealRecord={(operationId) => revertMealRecordMutation.mutateAsync(operationId)}
-            onHomeMealEnrichmentMealChanged={(meal) => setHomeMealEnrichmentRequest((current) => ({
-              mealLog: meal,
-              planItem: current?.planItem,
-            }))}
-            closeHomeMealEnrichment={() => setHomeMealEnrichmentRequest(null)}
-            updateMealLog={(mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload)}
-            onInvalidMealEnrichmentSave={() => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、备注或照片，再保存这顿饭。' })}
-            isUpdatingMeal={updateMealMutation.isPending}
-            isHomePlanAddDialogOpen={isHomePlanAddDialogOpen}
-            homePlanAddFood={homePlanAddFood}
-            homePlanAddFoodSearch={homePlanAddFoodSearch}
-            setHomePlanAddFoodSearch={setHomePlanAddFoodSearch}
-            homePlanAddFoodOptions={homePlanAddFoodOptions}
-            selectHomePlanAddFood={selectHomePlanAddFood}
-            setHomePlanAddFoodId={setHomePlanAddFoodId}
-            homePlanAddForm={homePlanAddForm}
-            setHomePlanAddForm={setHomePlanAddForm}
-            dashboardPlanDays={dashboardPlanDays}
-            submitHomePlanAdd={submitHomePlanAdd}
-            closeHomePlanAddDialog={closeHomePlanAddDialog}
-            isCreatingFoodPlanItem={createFoodPlanItemMutation.isPending}
-            homeMealDetail={homeMealDetail}
-            homeMealDetailParticipants={homeMealDetailParticipants}
-            closeHomeMealDetail={closeHomeMealDetail}
-            selectedActionGroup={selectedActionGroup}
-            businessDateKey={today}
-            actionDialogBusy={actionDialogBusy}
-            actionDialogError={actionDialogError}
-            actionDialogConflict={actionDialogConflict}
-            closeActionGroup={closeActionGroup}
-            disposeSelectedInventoryBatches={disposeSelectedInventoryBatches}
-            snoozeSelectedInventoryAlerts={snoozeSelectedInventoryAlerts}
-            correctSelectedInventoryExpiryDate={correctSelectedInventoryExpiryDate}
-            completionSummary={completionSummary}
-            nextGroupId={nextGroupId}
-            nextGroupLabel={nextGroupLabel}
-            openNextActionGroup={handleOpenNextActionGroup}
-            dismissCompletionSummary={dismissCompletionSummary}
-            onCompletionSecondaryAction={openIngredientShopping}
-            resolveAssetUrl={resolveDashboardAssetUrl}
-        />
 
         <AppInventoryMaintenanceDialogs
           shoppingIntake={

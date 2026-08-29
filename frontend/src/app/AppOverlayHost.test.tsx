@@ -10,6 +10,7 @@ describe('AppOverlayHost overlay contract', () => {
     const homeEntrySource = readFileSync(resolve(__dirname, './AppHomeDashboardDialogs.tsx'), 'utf8');
     const inventoryEntrySource = readFileSync(resolve(__dirname, './AppInventoryMaintenanceDialogs.tsx'), 'utf8');
     expect(appSource).not.toContain("import('./features/home/HomeDashboardDialogs')");
+    expect(appSource).not.toContain('<AppHomeDashboardDialogs');
     expect(hostSource).toContain('AppHomeDashboardDialogs');
     expect(appSource).not.toContain("import('./features/inventory/InventoryMaintenanceDialogs')");
     expect(hostSource).toContain('AppInventoryMaintenanceDialogs');
