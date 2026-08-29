@@ -66,6 +66,7 @@ import { useAppShellLayoutState } from './app/useAppShellLayoutState';
 import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
 import { useAppCookNavigation } from './app/useAppCookNavigation';
 import { useAppHomeInventoryActions } from './app/useAppHomeInventoryActions';
+import { useAppPlanRecipeNavigation } from './app/useAppPlanRecipeNavigation';
 
 function App() {
   const {
@@ -452,19 +453,10 @@ function App() {
   });
 
   // Prefer latest foodPlanDetail.updated_at when cook originates from an open plan item.
-  const startPlanRecipe = useCallback(
-    (input: Parameters<typeof startPlanRecipeRaw>[0]) => {
-      const latest =
-        foodPlanDetail && foodPlanDetail.id === input.foodPlanItemId ? foodPlanDetail : null;
-      startPlanRecipeRaw({
-        ...input,
-        planDate: latest?.plan_date ?? input.planDate,
-        mealType: latest?.meal_type ?? input.mealType,
-        planItemBaseUpdatedAt: latest?.updated_at ?? input.planItemBaseUpdatedAt,
-      });
-    },
-    [foodPlanDetail, startPlanRecipeRaw],
-  );
+  const startPlanRecipe = useAppPlanRecipeNavigation({
+    foodPlanDetail,
+    startPlanRecipe: startPlanRecipeRaw,
+  });
 
   // Plan-detail task (including global search) focuses the week after detail fetch.
   useEffect(() => {
