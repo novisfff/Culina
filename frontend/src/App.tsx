@@ -27,8 +27,6 @@ import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
-import {
-} from './app/AppWorkspaceEntries';
 import type { AppOverlayState } from './app/appOverlayState';
 import {
   relatedSelfMadeFoods,
