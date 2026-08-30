@@ -105,7 +105,7 @@ import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFood
 import { useFoodQuickMealActions } from './useFoodQuickMealActions';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
-import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
+import { buildFoodWorkspaceEditorViewModel } from './FoodWorkspaceEditorViewModel';
 import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
 import { FoodWorkspaceDiscoverDesktop, FoodWorkspaceDiscoverMobile } from './FoodWorkspaceDiscoverDesktop';
 import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
@@ -439,48 +439,45 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
   });
   const currentRecipe = props.recipes.find((recipe) => recipe.id === form.recipeId);
   const currentRecipeCard = currentRecipe ? recipeCards.find((card) => card.recipe.id === currentRecipe.id) ?? null : null;
-  const isSelfMade = form.type === 'selfMade';
-  const editorProfile = getFoodEditorProfile(form.type);
-  const editorCompletion = buildFoodEditorCompletionState({ form, editingFood, recipes: props.recipes });
-  const editorCompletionItems = editorCompletion.items;
-  const editorCompletedCount = editorCompletion.completedCount;
-  const editorCompletionPercent = editorCompletion.percent;
-  const sceneTagOptions = buildFoodEditorSceneTagOptions({
-    foodScenes: props.foodScenes,
-    foods: props.foods,
-    editorSceneTags,
-  });
-  const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
-  const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
-  const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 种食材 · ${currentRecipe.steps.length} 步` : '还没有菜谱';
-  const recipeEditorCompletion = buildRecipeEditorCompletionState({
-    title: recipeEditor.form.title,
-    servings: recipeEditor.form.servings,
-    ingredientRows: recipeEditor.ingredientRows,
-    steps: recipeEditor.form.steps,
-    hasCover: Boolean(getImagePreview(recipeEditor.form.images)),
-  });
-  const recipeEditorIngredientCount = recipeEditorCompletion.ingredientCount;
-  const recipeEditorStepCount = recipeEditorCompletion.stepCount;
-  const canSaveRecipeEditorDraft = Boolean(recipeEditor.form.title.trim() && recipeEditorIngredientCount > 0);
-  const canSubmit = !props.isSavingFood && !props.isCreatingRecipe && !props.isUpdatingRecipe && (!isSelfMade || Boolean(form.recipeId) || canSaveRecipeEditorDraft);
-  const foodEditorSubmitLabel = isSelfMade
-    ? view === 'create'
-      ? '保存家常菜谱'
-      : '保存菜谱及食物信息'
-    : view === 'create'
-      ? '保存食物'
-      : '保存修改';
-  const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
-  const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
-  const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
-  const recipeEditorCompletionItems = recipeEditorCompletion.items;
-  const recipeEditorCompletionPercent = recipeEditorCompletion.percent;
-  const recipeEditorSceneSelectOptions = buildRecipeEditorSceneTagOptions({
-    foodScenes: props.foodScenes,
+  const editorViewModel = buildFoodWorkspaceEditorViewModel({
+    form,
+    editingFood,
     recipes: props.recipes,
+    foods: props.foods,
+    foodScenes: props.foodScenes,
+    editorSceneTags,
+    recipeForm: recipeEditor.form,
+    ingredientRows: recipeEditor.ingredientRows,
+    ingredients: props.ingredients,
+    view,
+    isSavingFood: Boolean(props.isSavingFood),
+    isCreatingRecipe: Boolean(props.isCreatingRecipe),
+    isUpdatingRecipe: Boolean(props.isUpdatingRecipe),
   });
-  const recipeEditorImagePayload = buildRecipeImagePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
+  const {
+    currentRecipe: editorCurrentRecipe,
+    isSelfMade,
+    editorProfile,
+    editorCompletionItems,
+    editorCompletedCount,
+    editorCompletionPercent,
+    availableSceneTagOptions,
+    editorRecipeCover,
+    editorRecipeMeta,
+    canSubmit,
+    foodEditorSubmitLabel,
+    recipeEditorSceneTags,
+    recipeEditorCoverAsset,
+    recipeEditorCoverUrl,
+    recipeEditorCompletionItems,
+    recipeEditorCompletionPercent,
+    recipeEditorIngredientCount,
+    recipeEditorStepCount,
+    recipeEditorSceneSelectOptions,
+    recipeEditorImagePayload,
+    recipeEditorSubmitDisabled,
+  } = editorViewModel;
+  const currentRecipeForEditor = editorCurrentRecipe;
   const recipeEditorImageComposer = useImageComposer({
     value: recipeEditor.form.images,
     payload: recipeEditorImagePayload,
@@ -488,7 +485,6 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
     uploadErrorMessage: '参考图上传或 AI 主图生成失败',
     generateErrorMessage: 'AI 主图生成失败',
   });
-  const recipeEditorSubmitDisabled = Boolean(props.isCreatingRecipe || props.isUpdatingRecipe);
 
   const {
     handleOpenCreate,
