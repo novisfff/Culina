@@ -12,7 +12,7 @@
 
 ## 实施状态（2026-08-28）
 
-Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、Eat task body 和 reconciliation Review/Summary 的真实迁移，并保留独立回滚提交。App、Ingredient/Food 聚合职责、`api/types.ts` 物理拆分及最终 Definition of Done 仍未完成；以下 checklist 不将 facade 或 re-export 视为真实拆分。
+Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、Eat task body 和 reconciliation Review/Summary 的真实迁移，并保留独立回滚提交。2026-08-30 继续完成 Ingredient catalog/inventory/shopping/mobile catalog 的纯 ViewModel 投影，并将成品记餐、库存 follow-up 与成品库存弹层移入独立 record controller；这些迁移已通过 Ingredient 定向测试、全量 quality、build 和 P0。App、Ingredient/Food 聚合职责、`api/types.ts` 物理拆分及最终 Definition of Done 仍未完成；以下 checklist 不将 facade 或 re-export 视为真实拆分。
 
 2026-08-29 增量：`api/types.ts` 已收敛为 11 行纯 type barrel，AI、inventory、recipe、food、meal、search、shell、media、model-usage 合约已物理迁出；App 提取了错误、路由和壳布局模型；Ingredient 提取了策略/表单模型。Ingredient/Food 主 workspace 的 View 组合仍需继续迁移。
 
