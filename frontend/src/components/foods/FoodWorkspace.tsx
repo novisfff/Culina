@@ -27,11 +27,9 @@ import type {
 } from '../../api/types/meal';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
-import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
+import { buildMediaSizes, resolveAssetUrl } from '../../lib/assets';
 import { getPendingImageJobId } from '../../lib/aiImages';
 import {
-  ActionButton,
-  EmptyState,
   FormActions,
   WorkspaceModal,
   WorkspaceOverlayFrame,
@@ -47,7 +45,6 @@ import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
 import { FoodWorkspaceQuickRecordOverlay } from './FoodWorkspaceQuickRecordOverlay';
 import { FoodWorkspaceDialogController } from './FoodWorkspaceDialogController';
-import { FoodHubView } from './FoodHubView';
 import { type FoodPlanSurfaceProps } from './FoodPlanSurface';
 import { buildFoodWorkspacePlanSurfaceProps } from './FoodWorkspacePlanSurfaceModel';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
@@ -55,7 +52,6 @@ import {
   createMealBusinessDate,
   createMealRecordDateOptions,
 } from '../../features/meals/MealComposerModel';
-import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
@@ -70,7 +66,6 @@ import {
   buildRecipeImagePayload,
   getRecipeDraftGenerationButtonLabel,
 } from '../recipes/RecipeWorkspaceModel';
-import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import { getFoodEditorProfile } from './FoodWorkspaceHelpers';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
@@ -113,14 +108,10 @@ import { FoodEditorForm } from './FoodEditorForm';
 import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
 import { FoodMobileView } from './FoodMobileView';
 import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
+import { FoodWorkspaceDiscoverDesktop } from './FoodWorkspaceDiscoverDesktop';
 import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
-import { FoodLibraryFilters } from './FoodLibraryFilters';
-import { FoodDesktopSidebar } from './FoodDesktopSidebar';
-import {
-  FoodCardLibrary,
-  type FoodLibraryCardActions,
-} from './FoodLibraryCard';
+import { type FoodLibraryCardActions } from './FoodLibraryCard';
 import {
   buildFoodShoppingDialogState,
   buildFoodShoppingWrite,
@@ -722,130 +713,51 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
     });
 
     const discoverDesktopContent = (
-      <FoodHubView
-        heroActions={
-          <div className="hero-actions">
-            <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>
-              <FoodUiIcon name="plus" />
-              <span>新增食物</span>
-            </ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
-              <FoodUiIcon name="receipt" />
-              <span>用餐记录</span>
-            </ActionButton>
-          </div>
-        }
-        filtersSection={<FoodLibraryFilters
-          search={search}
-          searchLoading={isFoodSearchFetching}
-          typeFilter={typeFilter}
-          mealFilter={mealFilter}
-          lensFilter={lensFilter}
-          governanceIssueFilter={governanceIssueFilter}
-          hasFoodFilters={hasFoodFilters}
-          filteredCount={filteredFoods.length}
-          totalCount={props.foods.length}
-          governanceQueueLength={governanceQueue.length}
-          needsInfoCount={needsInfoFoods.length}
-          nextGovernanceSummary={nextGovernanceSummary}
-          governanceIssueSummaries={governanceIssueSummaries}
-          onSearchChange={setSearch}
-          onSearchClear={() => setSearch('')}
-          onSearchCompositionStart={foodSearchComposition.onCompositionStart}
-          onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
-          onTypeFilterChange={setTypeFilter}
-          onMealFilterChange={setMealFilter}
-          onClearFilters={clearFoodFilters}
-          onOpenNextGovernanceFood={openNextGovernanceFood}
-          onGovernanceIssueChange={(issue) => openGovernanceIssue(issue)}
-        />}
-        feedbackSection={feedback ? (
-          <div className="food-feedback">
-            <span>{feedback}</span>
-            <button type="button" onClick={props.onOpenLogs}>查看记录</button>
-          </div>
-        ) : null}
-        gridSection={filteredFoods.length > 0 ? (
-          <FoodCardLibrary
-            models={foodCardViewModels}
-            resetKey={foodCardResetKey}
-            actionsRef={foodLibraryCardActionsRef}
-            isUpdatingFavorite={Boolean(props.isUpdatingFavorite)}
-            isQuickAdding={Boolean(props.isQuickAdding)}
-          />
-        ) : (
-          <EmptyState
-            title={currentLensCopy.emptyTitle}
-            description={search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? '没有符合条件的食物，可以清空筛选后再试。' : currentLensCopy.emptyDescription}
-            action={
-              search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? (
-                <ActionButton tone="secondary" type="button" onClick={clearFoodFilters}>清空筛选</ActionButton>
-              ) : lensFilter === 'selfMade' ? (
-                <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('selfMade')}>添加家常菜谱</ActionButton>
-              ) : (
-                <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>新增食物</ActionButton>
-              )
-            }
-          />
-        )}
-        sidebar={<>
-        <FoodDesktopSidebar
-          repeatFoods={repeatFoods}
-          repeatFoodCount={repeatFoodCount}
-          managementIssueCount={managementIssueCount}
-          needsInfoCount={needsInfoFoods.length}
-          foodScenes={props.foodScenes}
-          sceneCards={sceneCards}
-          sceneFilter={sceneFilter}
-          nextGovernanceFood={nextGovernanceFood}
-          nextGovernanceSummary={nextGovernanceSummary}
-          plan={planSurfaceProps}
-          onSetLensFavorite={() => setLensFilter('favorite')}
-          onSetLensExpiring={() => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all'))}
-          onOpenGovernanceIssue={() => openGovernanceIssue('all')}
-          onOpenSceneManager={() => setIsSceneManagerOpen(true)}
-          onOpenNextGovernanceFood={openNextGovernanceFood}
-          onToggleScene={(sceneName) => setSceneFilter(sceneFilter === sceneName ? 'all' : sceneName)}
-        />
-        <FoodTabletSupportSurface
-          metrics={[
-            {
-              label: '常吃清单',
-              value: repeatFoodCount,
-              title: repeatFoods.map(({ food }) => food.name).join('、') || '常吃清单',
-              onClick: () => setLensFilter('favorite'),
-            },
-            {
-              label: '临期或需要完善信息',
-              value: managementIssueCount,
-              onClick: () => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all')),
-            },
-            {
-              label: '需要完善',
-              value: needsInfoFoods.length,
-              onClick: () => openGovernanceIssue('all'),
-            },
-            {
-              label: '场景管理',
-              value: props.foodScenes.filter((scene) => !scene.hidden).length,
-              onClick: () => setIsSceneManagerOpen(true),
-            },
-          ]}
-          nextTaskLabel={nextGovernanceFood ? '下一项需要完善' : '需要完善'}
-          nextTaskSummary={nextGovernanceSummary}
-          canOpenNextTask={Boolean(nextGovernanceFood)}
-          onOpenNextTask={openNextGovernanceFood}
-          plan={planSurfaceProps}
-          scenes={sceneCards.map((scene) => ({
-            name: scene.name,
-            description: scene.description || (scene.count > 0 ? `${scene.count} 种食物` : '浏览这个场景'),
-            imageUrl: resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined),
-            imageSrcSet: buildMediaSrcSet(scene.imageAsset),
-            active: sceneFilter === scene.name,
-            onSelect: () => setSceneFilter(sceneFilter === scene.name ? 'all' : scene.name),
-          }))}
-        />
-        </>}
+      <FoodWorkspaceDiscoverDesktop
+        search={search}
+        searchLoading={isFoodSearchFetching}
+        typeFilter={typeFilter}
+        mealFilter={mealFilter}
+        lensFilter={lensFilter}
+        governanceIssueFilter={governanceIssueFilter}
+        hasFoodFilters={hasFoodFilters}
+        filteredFoods={filteredFoods}
+        totalFoods={props.foods.length}
+        governanceQueueLength={governanceQueue.length}
+        needsInfoCount={needsInfoFoods.length}
+        nextGovernanceSummary={nextGovernanceSummary}
+        governanceIssueSummaries={governanceIssueSummaries}
+        feedback={feedback}
+        currentLensCopy={currentLensCopy}
+        foodCardViewModels={foodCardViewModels}
+        foodCardResetKey={foodCardResetKey}
+        foodLibraryCardActionsRef={foodLibraryCardActionsRef}
+        repeatFoods={repeatFoods}
+        repeatFoodCount={repeatFoodCount}
+        managementIssueCount={managementIssueCount}
+        foodScenes={props.foodScenes}
+        sceneCards={sceneCards}
+        sceneFilter={sceneFilter}
+        nextGovernanceFood={nextGovernanceFood}
+        planSurfaceProps={planSurfaceProps}
+        onCreateFood={handleOpenCreate}
+        onOpenLogs={props.onOpenLogs}
+        onSearchChange={setSearch}
+        onSearchClear={() => setSearch('')}
+        onSearchCompositionStart={foodSearchComposition.onCompositionStart}
+        onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
+        onTypeFilterChange={setTypeFilter}
+        onMealFilterChange={setMealFilter}
+        onClearFilters={clearFoodFilters}
+        onOpenNextGovernanceFood={openNextGovernanceFood}
+        onGovernanceIssueChange={openGovernanceIssue}
+        onSetLensFavorite={() => setLensFilter('favorite')}
+        onSetLensExpiring={() => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all'))}
+        onOpenGovernanceIssue={() => openGovernanceIssue('all')}
+        onOpenSceneManager={() => setIsSceneManagerOpen(true)}
+        onToggleScene={(sceneName) => setSceneFilter(sceneFilter === sceneName ? 'all' : sceneName)}
+        isUpdatingFavorite={Boolean(props.isUpdatingFavorite)}
+        isQuickAdding={Boolean(props.isQuickAdding)}
       />
     );
 

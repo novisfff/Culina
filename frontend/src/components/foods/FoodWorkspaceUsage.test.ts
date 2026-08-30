@@ -60,6 +60,7 @@ describe('FoodWorkspace navigation usage', () => {
     const discoverSource = readSource('FoodDiscoverSurface.tsx');
     const planSource = readSource('FoodPlanSurface.tsx');
     const desktopSidebarSource = readSource('FoodDesktopSidebar.tsx');
+    const desktopDiscoverSource = readSource('FoodWorkspaceDiscoverDesktop.tsx');
     const workspaceSource = readSource('FoodWorkspace.tsx');
     const hubSource = readSource('FoodHubView.tsx');
     const mobileSource = readSource('FoodMobileView.tsx');
@@ -68,7 +69,8 @@ describe('FoodWorkspace navigation usage', () => {
     expect(discoverSource).toContain('export function FoodDiscoverSurface');
     expect(planSource).toContain('export function FoodPlanSurface');
     expect(workspaceSource).toContain('<FoodWorkspaceDiscoverView');
-    expect(workspaceSource).toContain('<FoodDesktopSidebar');
+    expect(workspaceSource).toContain('<FoodWorkspaceDiscoverDesktop');
+    expect(desktopDiscoverSource).toContain('<FoodDesktopSidebar');
     expect(workspaceSource).not.toContain('<FoodPlanSurface');
     expect(desktopSidebarSource).toContain('<FoodPlanSurface');
     expect(desktopSidebarSource).toContain('resolveFoodAssetUrl(scene.imageUrl)');

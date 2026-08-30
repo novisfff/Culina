@@ -1074,9 +1074,11 @@ describe('FoodWorkspace discovery composition', () => {
 
   it('keeps FoodWorkspace focused on the unified discovery surface', () => {
     const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
+    const discoverSource = readFileSync('src/components/foods/FoodWorkspaceDiscoverDesktop.tsx', 'utf8');
     const desktopSidebarSource = readFileSync('src/components/foods/FoodDesktopSidebar.tsx', 'utf8');
     expect(source).toContain('<FoodWorkspaceDiscoverView');
-    expect(source).toContain('<FoodDesktopSidebar');
+    expect(source).toContain('<FoodWorkspaceDiscoverDesktop');
+    expect(discoverSource).toContain('<FoodDesktopSidebar');
     expect(source).not.toContain('<FoodPlanSurface');
     expect(desktopSidebarSource).toContain('<FoodPlanSurface');
     expect(source).not.toContain("surface?: 'discover' | 'plan'");
