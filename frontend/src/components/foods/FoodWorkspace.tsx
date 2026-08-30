@@ -40,7 +40,7 @@ import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodWorkspaceQuickMealDialog } from './FoodWorkspaceQuickMealDialog';
 import { FoodWorkspaceNotice } from './FoodWorkspaceNotice';
-import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
+import { FoodWorkspaceRecipeEditorOverlay } from './FoodWorkspaceRecipeEditorOverlay';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
@@ -65,7 +65,6 @@ import {
   useImageComposer,
 } from '../../hooks/useImageComposer';
 import { useNotice } from '../../hooks/useNotice';
-import { RecipeEditorView } from '../recipes/RecipeEditorView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
   buildRecipeImagePayload,
@@ -1154,69 +1153,70 @@ export function FoodWorkspace(props: Props) {
       />
 
       {isFoodRecipeEditorOpen && (
-        <FoodRecipeEditorDialog
-          currentRecipeTitle={currentRecipe?.title}
-          isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
-          isSaving={Boolean(props.isCreatingRecipe || props.isUpdatingRecipe)}
-          onClose={closeFoodRecipeEditor}
-        >
-          <RecipeEditorView
-            isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
-            entityLabel="菜谱"
-            submitLabel="保存菜谱"
-            previewLabel="回到食物"
-            summaryCreateHint="保存后回到食物库"
-            backLabel="回到食物"
-            isRecipeAiApplied={false}
-            selectedRecipeId={recipeEditor.selectedRecipeId}
-            form={recipeEditor.form}
-            setForm={recipeEditor.setForm}
-            ingredientRows={recipeEditor.ingredientRows}
-            ingredients={props.ingredients}
-            sceneTagDraft={recipeEditor.sceneTagDraft}
-            setSceneTagDraft={recipeEditor.setSceneTagDraft}
-            sceneSelectOptions={recipeEditorSceneSelectOptions}
-            editorSceneTags={recipeEditorSceneTags}
-            visibleStepTips={recipeEditor.visibleStepTips}
-            editorCoverUrl={recipeEditorCoverUrl}
-            editorCoverAsset={recipeEditorCoverAsset}
-            editorIngredientCount={recipeEditorIngredientCount}
-            editorStepCount={recipeEditorStepCount}
-            editorCompletionItems={recipeEditorCompletionItems}
-            editorCompletionPercent={recipeEditorCompletionPercent}
-            recipeDraftError={recipeEditor.recipeDraftError}
-            isRecipeDraftBusy={false}
-            recipeImageState={recipeEditorImageComposer.state}
-            recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
-            submitDisabled={recipeEditorSubmitDisabled}
-            isCreatingRecipe={props.isCreatingRecipe}
-            isUpdatingRecipe={props.isUpdatingRecipe}
-            showAiDraftAction={false}
-            showDeleteAction={false}
-            compactHeader
-            onBack={closeFoodRecipeEditorIfAllowed}
-            onSubmit={(event) => void submitFoodRecipeEditor(event)}
-            onDelete={() => undefined}
-            onOpenDraftDialog={() => undefined}
-            updateIngredientRow={recipeEditor.updateIngredientRow}
-            selectIngredientRow={recipeEditor.selectIngredientRow}
-            updateIngredientNote={recipeEditor.updateIngredientNote}
-            updateIngredientRequirement={recipeEditor.updateIngredientRequirement}
-            addIngredientRow={recipeEditor.addIngredientRow}
-            removeIngredientRow={recipeEditor.removeIngredientRow}
-            updateStepDraft={recipeEditor.updateStepDraft}
-            getStepKeyPointValues={recipeEditor.getStepKeyPointValues}
-            getStepKeyPointRowCount={recipeEditor.getStepKeyPointRowCount}
-            addStepTip={recipeEditor.addStepTip}
-            addStepKeyPoint={recipeEditor.addStepKeyPoint}
-            updateStepKeyPoint={recipeEditor.updateStepKeyPoint}
-            removeStepKeyPoint={recipeEditor.removeStepKeyPoint}
-            commitSceneTagDraft={recipeEditor.commitSceneTagDraft}
-            handleRecipeImageUpload={(files) => recipeEditorImageComposer.upload(files)}
-            handleRecipeImageGenerate={(mode) => recipeEditorImageComposer.generate(mode)}
-            resetRecipeImageInput={recipeEditorImageComposer.reset}
-          />
-        </FoodRecipeEditorDialog>
+        <FoodWorkspaceRecipeEditorOverlay
+          dialog={{
+          currentRecipeTitle: currentRecipe?.title,
+          isEditing: Boolean(recipeEditor.selectedRecipeId || form.recipeId),
+          isSaving: Boolean(props.isCreatingRecipe || props.isUpdatingRecipe),
+          onClose: closeFoodRecipeEditor,
+          }}
+          view={{
+            isEditing: Boolean(recipeEditor.selectedRecipeId || form.recipeId),
+            entityLabel: "菜谱",
+            submitLabel: "保存菜谱",
+            previewLabel: "回到食物",
+            summaryCreateHint: "保存后回到食物库",
+            backLabel: "回到食物",
+            isRecipeAiApplied: false,
+            selectedRecipeId: recipeEditor.selectedRecipeId,
+            form: recipeEditor.form,
+            setForm: recipeEditor.setForm,
+            ingredientRows: recipeEditor.ingredientRows,
+            ingredients: props.ingredients,
+            sceneTagDraft: recipeEditor.sceneTagDraft,
+            setSceneTagDraft: recipeEditor.setSceneTagDraft,
+            sceneSelectOptions: recipeEditorSceneSelectOptions,
+            editorSceneTags: recipeEditorSceneTags,
+            visibleStepTips: recipeEditor.visibleStepTips,
+            editorCoverUrl: recipeEditorCoverUrl,
+            editorCoverAsset: recipeEditorCoverAsset,
+            editorIngredientCount: recipeEditorIngredientCount,
+            editorStepCount: recipeEditorStepCount,
+            editorCompletionItems: recipeEditorCompletionItems,
+            editorCompletionPercent: recipeEditorCompletionPercent,
+            recipeDraftError: recipeEditor.recipeDraftError,
+            isRecipeDraftBusy: false,
+            recipeImageState: recipeEditorImageComposer.state,
+            recipeDraftButtonLabel: getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage),
+            submitDisabled: recipeEditorSubmitDisabled,
+            isCreatingRecipe: props.isCreatingRecipe,
+            isUpdatingRecipe: props.isUpdatingRecipe,
+            showAiDraftAction: false,
+            showDeleteAction: false,
+            compactHeader: true,
+            onBack: closeFoodRecipeEditorIfAllowed,
+            onSubmit: (event) => void submitFoodRecipeEditor(event),
+            onDelete: () => undefined,
+            onOpenDraftDialog: () => undefined,
+            updateIngredientRow: recipeEditor.updateIngredientRow,
+            selectIngredientRow: recipeEditor.selectIngredientRow,
+            updateIngredientNote: recipeEditor.updateIngredientNote,
+            updateIngredientRequirement: recipeEditor.updateIngredientRequirement,
+            addIngredientRow: recipeEditor.addIngredientRow,
+            removeIngredientRow: recipeEditor.removeIngredientRow,
+            updateStepDraft: recipeEditor.updateStepDraft,
+            getStepKeyPointValues: recipeEditor.getStepKeyPointValues,
+            getStepKeyPointRowCount: recipeEditor.getStepKeyPointRowCount,
+            addStepTip: recipeEditor.addStepTip,
+            addStepKeyPoint: recipeEditor.addStepKeyPoint,
+            updateStepKeyPoint: recipeEditor.updateStepKeyPoint,
+            removeStepKeyPoint: recipeEditor.removeStepKeyPoint,
+            commitSceneTagDraft: recipeEditor.commitSceneTagDraft,
+            handleRecipeImageUpload: (files) => recipeEditorImageComposer.upload(files),
+            handleRecipeImageGenerate: (mode) => recipeEditorImageComposer.generate(mode),
+            resetRecipeImageInput: recipeEditorImageComposer.reset,
+          }}
+        />
       )}
 
       {/* Shared ordinary-record result bar from App props (no local mutation state). */}
