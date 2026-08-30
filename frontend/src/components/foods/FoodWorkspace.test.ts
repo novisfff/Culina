@@ -415,7 +415,7 @@ describe('FoodWorkspace meal recording ownership', () => {
     expect(workspaceSource).toContain('recordMeal');
     expect(workspaceSource).toContain('completeFoodPlanItem');
     expect(workspaceSource).toContain('MealQuickRecordView');
-    expect(workspaceSource).toContain('MealRecordResultBar');
+    expect(workspaceSource).toContain('FoodWorkspaceMealOverlays');
   });
 
   it('opens compact prefilled Food record without stock controls', async () => {
@@ -1075,7 +1075,7 @@ describe('FoodWorkspace discovery composition', () => {
   it('keeps FoodWorkspace focused on the unified discovery surface', () => {
     const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
     const desktopSidebarSource = readFileSync('src/components/foods/FoodDesktopSidebar.tsx', 'utf8');
-    expect(source).toContain('<FoodDiscoverSurface');
+    expect(source).toContain('<FoodWorkspaceDiscoverView');
     expect(source).toContain('<FoodDesktopSidebar');
     expect(source).not.toContain('<FoodPlanSurface');
     expect(desktopSidebarSource).toContain('<FoodPlanSurface');
