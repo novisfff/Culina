@@ -13,7 +13,7 @@
 - `node frontend/scripts/bundle-manifest.mjs --check frontend/dist/.vite/frontend-health-manifest.json`：14 entries。
 - `npm run frontend:e2e:p0`：52/52 通过，覆盖固定移动/平板/桌面路径。
 
-2026-08-30 增量：Food workspace 新增 discover surface 与 meal-record/quick-record/quick-meal overlay 组合边界，`FoodWorkspace.tsx` 当前 1208 行；Food 目录定向测试 39 个文件、176 项通过。最新完整 quality 为 307 个测试文件、2031 项通过；生产构建转换 820 个 modules 并生成 health/rollout manifest。所有入口仍保持 ratchet，bundle target gaps 继续按预期报告。
+2026-08-30 增量：Food workspace 新增 discover surface 与 meal-record/quick-record/quick-meal overlay 组合边界，`FoodWorkspace.tsx` 当前 1208 行；Food 目录定向测试 39 个文件、176 项通过。最新完整 quality 为 307 个测试文件、2031 项通过；生产构建转换 820 个 modules 并生成 health/rollout manifest；随后 `npm run frontend:e2e:p0` 在 phone、tablet、desktop 及 375×812/390×844/430×932/768×1024/1024×768/1440×900 路径上 52/52 通过。所有入口仍保持 ratchet，bundle target gaps 继续按预期报告。
 
 尚未达到最终规格的项目：App/Ingredient/Food workspace 仍保留大块组合文件；AI controller 虽已拆出 selection、stream、approval、human-input、composer 等边界，但 `AiWorkspace.tsx` 仍需进一步收敛；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
