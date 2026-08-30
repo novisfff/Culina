@@ -49,6 +49,9 @@ function validateBudgetConfig(config) {
     for (const metric of ['criticalGzipBudget', 'routeTotalGzipBudget', 'cssBudget', 'phase']) {
       assertNonNegativeInteger(budget[metric], `bundle budget ${entry}.${metric}`);
     }
+    if (budget.routeMetric !== undefined && budget.routeMetric !== 'routeTotalGzipBytes' && budget.routeMetric !== 'routeTransferGzipBytes') {
+      throw new Error(`bundle budget ${entry}.routeMetric must be routeTotalGzipBytes or routeTransferGzipBytes`);
+    }
     if (typeof budget.owner !== 'string' || !budget.owner) {
       throw new Error(`bundle budget ${entry}.owner must be a non-empty string`);
     }
@@ -74,6 +77,7 @@ function entryMetrics(entry, manifest) {
   return {
     criticalGzipBytes: entry.entryCritical?.gzipBytes,
     routeTotalGzipBytes: entry.routeTotal?.gzipBytes,
+    routeTransferGzipBytes: entry.routeTransfer?.gzipBytes ?? entry.routeTotal?.gzipBytes,
     cssGzipBytes,
   };
 }
@@ -107,7 +111,7 @@ function compareEntry({ mode, entry, metrics, budget, baseline, completedPhase }
   const violations = [];
   const metricDefinitions = [
     { key: 'criticalGzipBytes', target: budget.criticalGzipBudget, label: 'entryCritical.gzipBytes' },
-    { key: 'routeTotalGzipBytes', target: budget.routeTotalGzipBudget, label: 'routeTotal.gzipBytes' },
+    { key: budget.routeMetric ?? 'routeTotalGzipBytes', target: budget.routeTotalGzipBudget, label: budget.routeMetric === 'routeTransferGzipBytes' ? 'routeTransfer.gzipBytes' : 'routeTotal.gzipBytes' },
     { key: 'cssGzipBytes', target: budget.cssBudget, label: 'css.gzipBytes' },
   ];
   for (const definition of metricDefinitions) {

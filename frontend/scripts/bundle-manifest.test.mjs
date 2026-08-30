@@ -162,6 +162,11 @@ describe('frontend health manifest', () => {
       + manifest.assets['opaque-markdown.js'].gzipBytes
       + manifest.assets['shared.js'].gzipBytes,
     );
+    expect(manifest.entries.ai.routeTransfer.assets).toEqual(['opaque-ai.js', 'opaque-markdown.js']);
+    expect(manifest.entries.ai.routeTransfer.gzipBytes).toBe(
+      manifest.assets['opaque-ai.js'].gzipBytes
+      + manifest.assets['opaque-markdown.js'].gzipBytes,
+    );
     expect(manifest.shared).toContainEqual({
       asset: 'shared.js',
       entries: ['ai', 'main'],

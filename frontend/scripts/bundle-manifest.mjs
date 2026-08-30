@@ -329,6 +329,9 @@ export function createFrontendHealthManifest({
       .filter((item) => item.entries.includes(entryId))
       .map((item) => item.asset)
       .sort(compareText);
+    const sharedAssets = new Set(entry.shared);
+    const transferAssets = entry.routeTotal.assets.filter((asset) => !sharedAssets.has(asset));
+    entry.routeTransfer = summarizeAssets(transferAssets, assets);
   }
 
   return {

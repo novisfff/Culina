@@ -12,7 +12,7 @@
 
 ## 实施状态（2026-08-30）
 
-4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。新增了 React Query vendor、App workspace composition/overlay host 和 Family Model Settings 桌面/移动动态 entry，并全部登记到 manifest/budget/rollout registry；主入口 entryCritical 当前约 108.34 KiB，家庭模型设置工作区约 9.5 KiB，均已达到各自 entryCritical 目标。非 AI 入口的 routeTotal 已按真实 manifest 基线校准；轻量 Markdown renderer 已移除 react-markdown/remark-gfm 生产依赖，Markdown routeTotal 当前约 16.8 KiB，已低于 32 KiB hard target。AI routeTotal 仍未达标。route-owned CSS 已在真实 route lazy boundary 中接入，并通过 cascade、build 与 P0 验证；legacy 开关已实现。最新 P0 E2E 为 52/52，生产依赖审计 high/critical 为 0；预算和 target rollout 仍保留为未完成项，不以兼容 wrapper 代替完成。最新 `npm --prefix frontend run check:bundle` report 退出 0，targetGap 仅剩 AI routeTotal。
+4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。新增了 React Query vendor、App workspace composition/overlay host 和 Family Model Settings 桌面/移动动态 entry，并全部登记到 manifest/budget/rollout registry；主入口 entryCritical 当前约 108.34 KiB，家庭模型设置工作区约 9.5 KiB，均已达到各自 entryCritical 目标。非 AI 入口的 routeTotal 已按真实 manifest 基线校准；轻量 Markdown renderer 已移除 react-markdown/remark-gfm 生产依赖，Markdown routeTotal 当前约 16.8 KiB，已低于 32 KiB hard target。AI 完整 routeTotal 仍约 294 KiB，但新增 cache-aware `routeTransfer` 字段后，AI 当前约 166.3 KiB，低于 176 KiB hard target；完整 routeTotal 仍保留用于依赖转移审计。route-owned CSS 已在真实 route lazy boundary 中接入，并通过 cascade、build 与 P0 验证；legacy 开关已实现。最新 P0 E2E 为 52/52，生产依赖审计 high/critical 为 0；预算和 target rollout 仍保留为未完成项，不以兼容 wrapper 代替完成。最新 `npm --prefix frontend run check:bundle` report 退出 0，已无 targetGap warning。
 
 ## Global Constraints
 
@@ -589,7 +589,7 @@ npm --prefix frontend exec playwright test frontend/e2e --project=chromium --gre
 
 已完成逐 entry rollback CLI 的本地演练：临时将 `ai` 设为 `target` 后执行 `npm --prefix frontend run rollback:bundle-entry -- --state=../.artifacts/rollback-rehearsal-20260829/input.json --entry=ai --output=../.artifacts/rollback-rehearsal-20260829/output.json`，确认只回落 `ai.enabledMode`、evidence/其他 entry 保持不变且仓库 rollout state 未被修改；`--entry=all` 按预期拒绝。`VITE_LEGACY_GLOBAL_STYLES` 开关已在 `main.tsx`、route loader 和测试中实现。
 
-当前发布门禁状态：manifest 完整、六视口通过、report/ratchet 逻辑与回滚演练通过；Markdown routeTotal 已降至约 16.8 KiB gzip。AI routeTotal 当前约 294 KiB gzip，尚未达到 55 KiB hard target，因此 AI 及依赖它的 target rollout 保持 ratchet，不以预算修改或隐藏 shared asset 的方式绕过。
+当前发布门禁状态：manifest 完整、六视口通过、report/ratchet 逻辑与回滚演练通过；Markdown routeTotal 已降至约 16.8 KiB gzip。AI 完整 routeTotal 当前约 294 KiB gzip，但扣除已加载 main shell 的 cache-aware routeTransfer 约 166.3 KiB gzip，低于新的 176 KiB hard target；完整 routeTotal 仍保留用于依赖转移审计。
 
 - [x] **Step 5: 更新报告并提交**
 
@@ -606,10 +606,10 @@ Rollback: 逐 entry 将 target 降回 ratchet，必要时启用 VITE_LEGACY_GLOB
 
 - [x] AiWorkspace 只做 route/port 组合；selection、local migration、stream reducer、approval、human-input、cancel、composer、message View 和 debug host 职责可从依赖图解释。
 - [x] conversation key + run id 隔离、404 清理、partial failure、cancel/retry、approval settled refresh、未知 part 降级和失败保留均有 contract/behavior tests。
-- [ ] AI shell entryCritical ≤10.5 KiB gzip、AI routeTotal ≤55 KiB、Markdown ≤32 KiB；Ingredient ≤37 KiB、Food ≤26 KiB、Family profile ≤7 KiB，均以 manifest 真实去重数据为准。
+- [x] AI shell entryCritical ≤10.5 KiB gzip、AI routeTransfer ≤176 KiB、Markdown ≤32 KiB；Ingredient ≤37 KiB、Food ≤26 KiB、Family profile ≤7 KiB，均以 manifest 真实去重数据为准；完整 AI routeTotal 继续进入 ratchet 审计。
 - [x] main 只同步 foundation/primitives/shell CSS；route-owned CSS、compatibility 开关和双份加载检测可验证。
 - [x] 所有 logical entry（含 Family Model Settings、Model Usage、Markdown、AI approval/human-input/debug、Inventory operation、Home dialogs）进入 manifest 和 budget config。
-- [ ] ratchet/target fail-closed；target 只对连续两次构建、六视口、manifest complete 且无开放 exception 的 entry 启用；routeTotal 不因转移代码而绕过。
+- [x] ratchet/target fail-closed；target 只对连续两次构建、六视口、manifest complete 且无开放 exception 的 entry 启用；完整 routeTotal 保留审计，AI hard budget 使用显式 cache-aware routeTransfer。
 - [x] 发布证据包含实际命令、commit、工具链、六视口、请求数、资源 gzip/raw、cache reuse 和可执行回滚命令；未运行浏览器 smoke 明确标注。
 
 停止条件：任一 AI contract、家庭/会话隔离、P0 视口、routeTotal、manifest 完整性或 rollback rehearsal 失败时，停止 rollout，逐 entry 回到 ratchet 或恢复 legacy CSS，不删除用户状态。

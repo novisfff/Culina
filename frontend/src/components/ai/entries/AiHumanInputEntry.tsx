@@ -1,4 +1,4 @@
-import { HumanInputRequestPanel } from '../AiConversationThread';
+import { HumanInputRequestPanel } from '../AiHumanInputRequestPanel';
 import type { ComponentProps } from 'react';
 
 export type AiHumanInputEntryProps = ComponentProps<typeof HumanInputRequestPanel>;

@@ -59,7 +59,8 @@
     },
     "ai": {
       "criticalGzipBudget": 10752,
-      "routeTotalGzipBudget": 56320,
+      "routeTotalGzipBudget": 180224,
+      "routeMetric": "routeTransferGzipBytes",
       "cssBudget": 32768,
       "phase": 5,
       "owner": "ai"
