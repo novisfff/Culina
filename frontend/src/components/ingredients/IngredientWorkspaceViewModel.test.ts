@@ -4,6 +4,7 @@ import type { IngredientSummaryViewModel } from './workspaceModel';
 import {
   buildIngredientCatalogViewModel,
   buildIngredientInventoryViewModel,
+  filterIngredientMobileCatalogSummaries,
   buildIngredientShoppingViewModel,
 } from './IngredientWorkspaceViewModel';
 
@@ -68,5 +69,22 @@ describe('Ingredient catalog view model', () => {
     expect(model.visiblePendingShoppingCards).toHaveLength(1);
     expect(model.visiblePendingShoppingCards[0]?.title).toBe('番茄');
     expect(model.visibleCompletedShoppingCards).toHaveLength(0);
+  });
+
+  it('keeps mobile catalog filters composable with remote search matches', () => {
+    const summary = {
+      ingredient: { id: 'i-1', name: '番茄' },
+      alerts: [{ kind: 'expiry' }],
+      primaryStorage: '冷藏',
+      quantitySummaries: [],
+    } as unknown as IngredientSummaryViewModel;
+    expect(filterIngredientMobileCatalogSummaries({
+      summaries: [summary],
+      search: '番茄',
+      searchMatchedIngredientIds: ['i-1'],
+      ingredientFilter: 'expiring',
+      inventoryEntryFilter: 'pending',
+      storageFocus: '冷藏',
+    })).toEqual([summary]);
   });
 });

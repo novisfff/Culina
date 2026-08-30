@@ -17,7 +17,7 @@ import {
   type ShoppingOverviewViewModel,
 } from './workspaceModel';
 import type { InventoryStorageFocus } from './ingredientWorkspaceForms';
-import type { CatalogStatusFilter, InventoryQuickFilter } from './useIngredientWorkspaceState';
+import type { CatalogStatusFilter, InventoryQuickFilter, MobileIngredientFilter } from './useIngredientWorkspaceState';
 
 export function buildIngredientWorkspaceViewModel(args: { ingredients: Ingredient[]; inventoryItems: InventoryItem[]; inventoryStates: IngredientInventoryState[]; shoppingItems: ShoppingListItem[]; recipes: Recipe[]; foods: Food[]; referenceDate: string; selectedId?: string | null }) {
   const selected = args.selectedId ? args.ingredients.find((item) => item.id === args.selectedId) ?? null : null;
@@ -122,4 +122,33 @@ export function buildIngredientShoppingViewModel(args: {
     visiblePendingShoppingGroups: buildShoppingCardGroups(filterShoppingCards(pendingShoppingCards, args.search, args.focus)),
     activeShoppingOverview: shoppingOverview.find((item: ShoppingOverviewViewModel) => item.key === args.focus) ?? shoppingOverview[0] ?? null,
   };
+}
+
+export function filterIngredientMobileCatalogSummaries(args: {
+  summaries: IngredientSummaryViewModel[];
+  search: string;
+  searchMatchedIngredientIds?: readonly string[];
+  ingredientFilter: MobileIngredientFilter;
+  inventoryEntryFilter: 'all' | 'pending' | 'stocked';
+  storageFocus: InventoryStorageFocus;
+  actionableIngredientIds?: ReadonlySet<string>;
+}) {
+  return filterIngredientSummaries(
+    args.summaries,
+    args.search,
+    'all',
+    args.searchMatchedIngredientIds,
+  ).filter((summary) => {
+    if (args.storageFocus !== 'all' && summary.primaryStorage !== args.storageFocus) return false;
+    const isActionable = args.actionableIngredientIds?.has(summary.ingredient.id) ?? summary.alerts.length > 0;
+    const quickMatches = args.ingredientFilter === 'all'
+      || args.ingredientFilter === 'ingredient'
+      || (args.ingredientFilter === 'alerted' && isActionable)
+      || (args.ingredientFilter === 'expiring' && summary.alerts.some((alert) => alert.kind === 'expiry'))
+      || (args.ingredientFilter === 'seasoning' && isSeasoningIngredient(summary.ingredient));
+    const entryMatches = args.inventoryEntryFilter === 'all'
+      || (args.inventoryEntryFilter === 'pending' && summary.quantitySummaries.length === 0)
+      || (args.inventoryEntryFilter === 'stocked' && summary.quantitySummaries.length > 0);
+    return quickMatches && entryMatches;
+  });
 }

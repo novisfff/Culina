@@ -7,8 +7,6 @@ import {
   buildIngredientSummaries,
   buildPrioritySurfaceRows,
   buildShoppingCardGroups,
-  filterIngredientSummaries,
-  isSeasoningIngredient,
   type IngredientSummaryViewModel,
   type ShoppingOverviewViewModel,
 } from './workspaceModel';
@@ -24,7 +22,29 @@ import {
   buildIngredientCatalogViewModel,
   buildIngredientInventoryViewModel,
   buildIngredientShoppingViewModel,
+  filterIngredientMobileCatalogSummaries,
 } from './IngredientWorkspaceViewModel';
+
+// Compatibility export for existing model tests and callers during the workspace migration.
+export function filterMobileCatalogSummaries(args: {
+  summaries: IngredientSummaryViewModel[];
+  catalogSearch: string;
+  catalogSearchMatchedIngredientIds?: readonly string[];
+  mobileIngredientFilter: MobileIngredientFilter;
+  mobileInventoryEntryFilter: InventoryEntryFilter;
+  mobileStorageFocus: InventoryStorageFocus;
+  actionableIngredientIds?: ReadonlySet<string>;
+}) {
+  return filterIngredientMobileCatalogSummaries({
+    summaries: args.summaries,
+    search: args.catalogSearch,
+    searchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
+    ingredientFilter: args.mobileIngredientFilter,
+    inventoryEntryFilter: args.mobileInventoryEntryFilter,
+    storageFocus: args.mobileStorageFocus,
+    actionableIngredientIds: args.actionableIngredientIds,
+  });
+}
 
 type UseIngredientWorkspaceDataArgs = {
   ingredients: Ingredient[];
@@ -56,40 +76,6 @@ type UseIngredientWorkspaceDataArgs = {
   isPendingShopping: (item: ShoppingListItem) => boolean;
   referenceDate?: string;
 };
-
-export function filterMobileCatalogSummaries(args: {
-  summaries: IngredientSummaryViewModel[];
-  catalogSearch: string;
-  catalogSearchMatchedIngredientIds?: readonly string[];
-  mobileIngredientFilter: MobileIngredientFilter;
-  mobileInventoryEntryFilter: InventoryEntryFilter;
-  mobileStorageFocus: InventoryStorageFocus;
-  actionableIngredientIds?: ReadonlySet<string>;
-}) {
-  return filterIngredientSummaries(
-    args.summaries,
-    args.catalogSearch,
-    'all',
-    args.catalogSearchMatchedIngredientIds
-  ).filter((summary) => {
-    if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
-      return false;
-    }
-    const isActionable =
-      args.actionableIngredientIds?.has(summary.ingredient.id) ?? summary.alerts.length > 0;
-    const quickMatches =
-      args.mobileIngredientFilter === 'all' ||
-      args.mobileIngredientFilter === 'ingredient' ||
-      (args.mobileIngredientFilter === 'alerted' && isActionable) ||
-      (args.mobileIngredientFilter === 'expiring' && summary.alerts.some((alert) => alert.kind === 'expiry')) ||
-      (args.mobileIngredientFilter === 'seasoning' && isSeasoningIngredient(summary.ingredient));
-    const entryMatches =
-      args.mobileInventoryEntryFilter === 'all' ||
-      (args.mobileInventoryEntryFilter === 'pending' && summary.quantitySummaries.length === 0) ||
-      (args.mobileInventoryEntryFilter === 'stocked' && summary.quantitySummaries.length > 0);
-    return quickMatches && entryMatches;
-  });
-}
 
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
   return useMemo(() => {
@@ -181,13 +167,13 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
       ['冷藏', '冷冻', '常温'].includes(item.key)
     );
-    const mobileCatalogSummaries = filterMobileCatalogSummaries({
+    const mobileCatalogSummaries = filterIngredientMobileCatalogSummaries({
       summaries,
-      catalogSearch: args.catalogSearch,
-      catalogSearchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
-      mobileIngredientFilter: args.mobileIngredientFilter,
-      mobileInventoryEntryFilter: args.mobileInventoryEntryFilter,
-      mobileStorageFocus: args.mobileStorageFocus,
+      search: args.catalogSearch,
+      searchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
+      ingredientFilter: args.mobileIngredientFilter,
+      inventoryEntryFilter: args.mobileInventoryEntryFilter,
+      storageFocus: args.mobileStorageFocus,
       actionableIngredientIds,
     });
     const mobileShoppingCards = pendingShoppingCards;
