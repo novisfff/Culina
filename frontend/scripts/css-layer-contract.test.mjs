@@ -65,6 +65,11 @@ describe('CSS cascade layer contract', () => {
     expect(shell).not.toMatch(/\.workspace-modal\s*\{/);
   });
 
+  it('pins responsive layers above lazy domain route styles', async () => {
+    const foundation = await readFrontend('src/styles/foundation.css');
+    expect(foundation).toContain('@layer reset, tokens, primitives, shell, domain, responsive, compatibility;');
+  });
+
   it('rejects duplicate, reordered, and forbidden business layers', () => {
     expect(assertCssLayerOrder('@layer reset, tokens, domain;')).toMatchObject({
       violations: expect.arrayContaining([expect.stringMatching(/canonical layer order/)]),
