@@ -12,7 +12,7 @@
 
 ## 总体实施状态（2026-08-30）
 
-Phase 0、Phase 1、Phase 2/3 的代码与治理基础设施已落地；Phase 4/5 的 manifest、route-owned CSS、secondary entries、rollback CLI、release evidence 和 Markdown hard target 已完成。当前尚未完成的验收项集中在 AI routeTotal hard target（当前约 294 KiB gzip，目标 55 KiB）、逐 entry target rollout，以及全量 frontend quality 的稳定退出证据。
+Phase 0、Phase 1、Phase 2/3 的代码与治理基础设施已落地；Phase 4/5 的 manifest、route-owned CSS、secondary entries、rollback CLI、release evidence 和 Markdown hard target 已完成。2026-08-30 已补齐稳定的全量 `frontend:quality` 证据（308 个测试文件、2033 个测试通过）。当前尚未完成的验收项集中在 AI routeTotal hard target（当前约 294 KiB gzip，目标 55 KiB）和逐 entry target rollout。
 
 ## Global Constraints
 
