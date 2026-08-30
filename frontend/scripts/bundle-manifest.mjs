@@ -207,7 +207,14 @@ function manifestCommit(rootDir, commit) {
     if (!SHA_PATTERN.test(commit)) throw new Error(`manifest commit must be a 40-character SHA: ${commit}`);
     return commit.toLowerCase();
   }
-  return execFileSync('git', ['-C', rootDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  try {
+    return execFileSync('git', ['-C', rootDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch (error) {
+    const sourceCommit = process.env.GITHUB_SHA ?? process.env.SOURCE_COMMIT;
+    if (sourceCommit && SHA_PATTERN.test(sourceCommit)) return sourceCommit.toLowerCase();
+    if (error?.code === 'ENOENT') return '0000000000000000000000000000000000000000';
+    throw error;
+  }
 }
 
 

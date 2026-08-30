@@ -17,7 +17,7 @@ test('@release-evidence captures six viewport request and performance evidence',
     await page.setViewportSize({ width, height });
     await page.goto('/', { waitUntil: 'networkidle' });
     await expect(page.getByRole('heading', { name: '今天吃什么' })).toBeVisible();
-    const nav = (name) => page.locator('.mobile-bottom-nav:visible, .sidebar-nav:visible').getByRole('button', { name, exact: true }).first();
+    const nav = (name) => page.locator('.mobile-bottom-nav:visible, .sidebar-nav:visible, .tabbar:visible').getByRole('button', { name, exact: true }).first();
     await nav('食材').click();
     await expect(page.getByRole('heading', { name: '食材' })).toBeVisible();
     await nav('吃什么').click();
