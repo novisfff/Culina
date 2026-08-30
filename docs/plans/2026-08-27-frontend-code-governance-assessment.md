@@ -395,3 +395,5 @@ CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一�
 在后续 App 组合收敛批次中，提交 `500544f8` 修正 Inventory reconciliation ownership 静态契约，提交 `2bab0a86` 将 Home dashboard dialog props 迁入 `useAppHomeDashboardDialogProps`，提交 `e7333ac9` 将 toast、移动通知中心和 overlay visibility 组合迁入 `useAppOverlayComposition`。本批定向测试 131/131 通过（含 Home、Inventory、App overlay contract），typecheck 通过；随后全量 `npm run frontend:quality` 为 302 个测试文件 / 2022 项测试通过，`npm run frontend:build` 转换 805 modules、manifest 无错误，`npm run frontend:e2e:p0` 为 52/52 通过。App 当前约 1278 行，仍未达到 ≤850 的阶段目标；Ingredient/Food 及 bundle target rollout 仍保持未完成，不以 facade 或 warning 代替验收。
 
 随后提交 `b8ccb693` 将 Eat task body adapter 按 data/pending/actions 三类 typed port 组装，并提交 `1512b735` 修正 Ingredient workspace 的 App overlay ownership 断言。定向 Eat 测试 40/40 通过；全量 `npm run frontend:quality` 随后为 304 个测试文件 / 2024 项测试通过，typecheck 和 style-token gate 通过。该批仍未改变 API、导航或业务行为。
+
+提交 `8ee9519d` 进一步将 Eat task resolution 的 query settle 状态映射迁入 `useAppEatTaskResolutionArgs`，与 task body adapter 分离。定向 Eat/App 测试 20/20 通过，typecheck 和 `git diff --check` 通过；该边界只转换查询状态，不增加请求或改变导航。
