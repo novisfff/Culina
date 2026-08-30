@@ -25,6 +25,8 @@ CSS lazy-loading 实验记录：尝试将 `05-workspace-overlays.css` 从同步 
 
 共享 chunk 进展：新增 `route-overlays` lazy style entry，所有 route loader 复用同一 `05-workspace-overlays.css` 异步 asset；`route-shell` 不再同步包含 overlay CSS。manifest 已登记该 logical entry，bundle/manifest 定向测试 23/23 通过，production build 通过且不再出现 orphan/unregistered dynamic-entry 错误；该共享 entry 仍保持 ratchet，并如实报告当前 routeTotal gap。
 
+治理聚合器复核：使用当前 health artifact 与最新 production manifest 执行 `node frontend/scripts/check-frontend-governance.mjs --health=.artifacts/frontend-health-current.json --manifest=frontend/dist/.vite/frontend-health-manifest.json --mode=report`，结果 `exit 0`；默认路径失败仅因默认 artifact 是旧工作目录产物，不作为代码失败证据。
+
 尚未达到最终规格的项目：App/Ingredient/Food workspace 仍保留大块组合文件；AI controller 虽已拆出 selection、stream、approval、human-input、composer 等边界，但 `AiWorkspace.tsx` 仍需进一步收敛；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
 ## 1. 范围与基线
