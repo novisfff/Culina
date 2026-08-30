@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Fragment, useState, type ReactNode } from 'react';
 
-function CodeBlock({ className, children, ...props }: any) {
+function CodeBlock({ className, children, ...props }: { className?: string; children: ReactNode }) {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : '';
@@ -55,18 +53,83 @@ function CodeBlock({ className, children, ...props }: any) {
   );
 }
 
+function inlineMarkdown(value: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|~~[^~]+~~|\[[^\]]+\]\([^\s)]+\))/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value))) {
+    if (match.index > cursor) nodes.push(value.slice(cursor, match.index));
+    const token = match[0];
+    if (token.startsWith('`')) nodes.push(<code key={`${match.index}-code`}>{token.slice(1, -1)}</code>);
+    else if (token.startsWith('**') || token.startsWith('__')) nodes.push(<strong key={`${match.index}-strong`}>{token.slice(2, -2)}</strong>);
+    else if (token.startsWith('~~')) nodes.push(<del key={`${match.index}-del`}>{token.slice(2, -2)}</del>);
+    else if (token.startsWith('*') || token.startsWith('_')) nodes.push(<em key={`${match.index}-em`}>{token.slice(1, -1)}</em>);
+    else {
+      const link = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(token);
+      if (link && /^(https?:|mailto:)/.test(link[2])) nodes.push(<a key={`${match.index}-link`} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>);
+      else nodes.push(token);
+    }
+    cursor = match.index + token.length;
+  }
+  if (cursor < value.length) nodes.push(value.slice(cursor));
+  return nodes;
+}
+
+function renderMarkdownBlocks(text: string): ReactNode[] {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const blocks: ReactNode[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) { index += 1; continue; }
+    if (line.startsWith('```')) {
+      const language = line.slice(3).trim();
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].startsWith('```')) code.push(lines[index++]);
+      if (index < lines.length) index += 1;
+      blocks.push(<CodeBlock key={`code-${index}`} className={language ? `language-${language}` : undefined}>{`${code.join('\n')}\n`}</CodeBlock>);
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const Tag = `h${heading[1].length}` as keyof JSX.IntrinsicElements;
+      blocks.push(<Tag key={`heading-${index}`}>{inlineMarkdown(heading[2])}</Tag>);
+      index += 1;
+      continue;
+    }
+    if (/^[-*_]{3,}\s*$/.test(line)) { blocks.push(<hr key={`hr-${index}`} />); index += 1; continue; }
+    if (/^>\s?/.test(line)) {
+      const quote: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^>\s?/, ''));
+      blocks.push(<blockquote key={`quote-${index}`}>{inlineMarkdown(quote.join('\n'))}</blockquote>);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line) || /^\s*\d+[.)]\s+/.test(line)) {
+      const ordered = /^\s*\d+[.)]\s+/.test(line);
+      const items: ReactNode[] = [];
+      while (index < lines.length) {
+        const item = ordered ? /^\s*\d+[.)]\s+(.+)$/.exec(lines[index]) : /^\s*[-*+]\s+(.+)$/.exec(lines[index]);
+        if (!item) break;
+        items.push(<li key={`li-${index}`}>{inlineMarkdown(item[1])}</li>);
+        index += 1;
+      }
+      blocks.push(ordered ? <ol key={`ol-${index}`}>{items}</ol> : <ul key={`ul-${index}`}>{items}</ul>);
+      continue;
+    }
+    const paragraph: string[] = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !/^(#{1,6})\s|^```|^\s*[-*+]\s+|^\s*\d+[.)]\s+|^>\s?/.test(lines[index])) paragraph.push(lines[index++]);
+    blocks.push(<p key={`p-${index}`}>{inlineMarkdown(paragraph.join('\n'))}</p>);
+  }
+  return blocks;
+}
+
 export default function MarkdownMessage({ text }: { text: string }) {
   return (
     <div className="ai-message-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code: CodeBlock,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
+      {renderMarkdownBlocks(text).map((node, index) => <Fragment key={index}>{node}</Fragment>)}
     </div>
   );
 }
-
