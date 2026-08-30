@@ -26,6 +26,8 @@ Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、E
 
 继续增量：新增 `buildFoodMobileFilterTabs` 纯 projection，并补充 mutually-exclusive/reset 行为测试；按 frontend 项目脚本定向测试 9/9 通过，typecheck 通过。mobile filter 的筛选组合不再直接堆在 Workspace JSX 中。
 
+继续增量：新增 `buildFoodGovernanceSummary` projection，集中管理待完善去重、下一项摘要和 filters 状态；新增行为测试后定向测试 10/10 通过，typecheck 通过。
+
 ## Global Constraints
 
 - 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
