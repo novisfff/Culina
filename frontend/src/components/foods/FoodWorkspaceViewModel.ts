@@ -2,6 +2,14 @@ import type { Food, FoodScene, Recipe, FoodType, MealType } from '../../api/type
 import type { MealLog } from '../../api/types/meal';
 import type { FoodWorkspaceLens } from './FoodWorkspaceOptions';
 import { getFoodSceneTags, isFoodExpiring, isFoodMissingDecisionInfo, isOutsideFood, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
+import {
+  buildMobileFilterResetKey,
+  buildMobileSceneExploreCards,
+  filterMobileLibraryFoods,
+  paginateMobileSceneCards,
+  type MobileCookingFilter,
+} from './FoodMobileLibraryModel';
+import type { FoodSceneCardView } from './useFoodSceneState';
 
 export function buildFoodWorkspaceViewModel(args: { foods: Food[]; recipes: Recipe[]; mealLogs: MealLog[]; search: string; typeFilter?: 'all' | FoodType; mealFilter?: 'all' | MealType; lensFilter?: FoodWorkspaceLens; matchedFoodIds?: readonly string[] }) {
   const keyword = args.search.trim().toLowerCase();
@@ -48,4 +56,39 @@ export function buildRecipeEditorSceneTagOptions(args: {
     ...args.foodScenes.filter((scene) => !scene.hidden).map((scene) => scene.name),
     ...args.recipes.flatMap((recipe) => recipe.scene_tags ?? []),
   ]);
+}
+
+export function buildFoodMobileWorkspaceViewModel(args: {
+  foods: Food[];
+  filteredFoods: Food[];
+  sceneCards: FoodSceneCardView[];
+  defaultScenes: Array<{ key: string; title: string; fallbackIndex: number }>;
+  cookingFilter: MobileCookingFilter;
+  appliedSearch: string;
+  typeFilter: string;
+  mealFilter: string;
+  lensFilter: string;
+  sceneFilter: string;
+  governanceIssueFilter: string;
+  getCookingSummary: (food: Food) => { isReady: boolean; shortagePreview: unknown[] } | null;
+}) {
+  const mobileSceneCards = buildMobileSceneExploreCards({
+    foods: args.foods,
+    sceneCards: args.sceneCards,
+    defaultScenes: args.defaultScenes,
+  });
+  return {
+    mobileSceneCards,
+    mobileScenePages: paginateMobileSceneCards(mobileSceneCards),
+    mobileLibraryFoods: filterMobileLibraryFoods(args.filteredFoods, args.cookingFilter, args.getCookingSummary),
+    mobileLibraryResetKey: buildMobileFilterResetKey([
+      args.appliedSearch,
+      args.typeFilter,
+      args.mealFilter,
+      args.lensFilter,
+      args.sceneFilter,
+      args.governanceIssueFilter,
+      args.cookingFilter,
+    ]),
+  };
 }

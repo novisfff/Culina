@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildFoodEditorSceneTagOptions, buildRecipeEditorSceneTagOptions } from './FoodWorkspaceViewModel';
+import {
+  buildFoodEditorSceneTagOptions,
+  buildFoodMobileWorkspaceViewModel,
+  buildRecipeEditorSceneTagOptions,
+} from './FoodWorkspaceViewModel';
 
 describe('FoodWorkspaceViewModel scene options', () => {
   it('returns visible food and current editor tags once in locale order', () => {
@@ -22,5 +26,26 @@ describe('FoodWorkspaceViewModel scene options', () => {
     });
 
     expect(result).toEqual(['家常', '快手']);
+  });
+
+  it('projects mobile scene cards and library filters without React state', () => {
+    const result = buildFoodMobileWorkspaceViewModel({
+      foods: [{ id: 'f-1', name: '番茄炒蛋', scene: '晚餐', scene_tags: [], suitable_meal_types: [], favorite: false } as never],
+      filteredFoods: [{ id: 'f-1', name: '番茄炒蛋', scene: '晚餐', scene_tags: [], suitable_meal_types: [], favorite: false } as never],
+      sceneCards: [],
+      defaultScenes: [],
+      cookingFilter: 'all',
+      appliedSearch: '',
+      typeFilter: 'all',
+      mealFilter: 'all',
+      lensFilter: 'all',
+      sceneFilter: 'all',
+      governanceIssueFilter: 'all',
+      getCookingSummary: () => null,
+    });
+
+    expect(result.mobileLibraryFoods).toHaveLength(1);
+    expect(result.mobileLibraryResetKey).toContain('all');
+    expect(result.mobileScenePages).toEqual([[]]);
   });
 });

@@ -98,12 +98,10 @@ import { useFoodPlanState } from './useFoodPlanState';
 import { useFoodSceneState } from './useFoodSceneState';
 import { getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
 import {
-  buildMobileFilterResetKey,
-  buildMobileSceneExploreCards,
-  filterMobileLibraryFoods,
-  paginateMobileSceneCards,
-} from './FoodMobileLibraryModel';
-import { buildFoodEditorSceneTagOptions, buildRecipeEditorSceneTagOptions } from './FoodWorkspaceViewModel';
+  buildFoodEditorSceneTagOptions,
+  buildFoodMobileWorkspaceViewModel,
+  buildRecipeEditorSceneTagOptions,
+} from './FoodWorkspaceViewModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
 import { useFoodWorkspaceSearch } from './useFoodWorkspaceSearch';
 import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
@@ -492,14 +490,29 @@ export function FoodWorkspace(props: Props) {
     setGovernanceIssueFilter(nextFilters.governanceIssueFilter);
   }
 
-  const mobileSceneExploreCards = buildMobileSceneExploreCards({
+  const mobileWorkspaceViewModel = buildFoodMobileWorkspaceViewModel({
     foods: props.foods,
+    filteredFoods,
     sceneCards,
     defaultScenes: MOBILE_DEFAULT_FOOD_SCENES,
-  }).map((card) => ({ ...card, onClick: () => selectMobileFoodScene(card.title) }));
-  const mobileScenePages = paginateMobileSceneCards(mobileSceneExploreCards);
-  const mobileLibraryFoods = filterMobileLibraryFoods(filteredFoods, mobileCookingFilter, getFoodCookingSummary);
-  const mobileLibraryResetKey = buildMobileFilterResetKey([appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter, mobileCookingFilter]);
+    cookingFilter: mobileCookingFilter,
+    appliedSearch: appliedFoodSearch,
+    typeFilter,
+    mealFilter,
+    lensFilter,
+    sceneFilter,
+    governanceIssueFilter,
+    getCookingSummary: getFoodCookingSummary,
+  });
+  const mobileSceneExploreCards = mobileWorkspaceViewModel.mobileSceneCards.map((card) => ({
+    ...card,
+    onClick: () => selectMobileFoodScene(card.title),
+  }));
+  const mobileScenePages = mobileWorkspaceViewModel.mobileScenePages.map((page) =>
+    page.map((card) => ({ ...card, onClick: () => selectMobileFoodScene(card.title) })),
+  );
+  const mobileLibraryFoods = mobileWorkspaceViewModel.mobileLibraryFoods;
+  const mobileLibraryResetKey = mobileWorkspaceViewModel.mobileLibraryResetKey;
   const mobileFilterTabs = [
     {
       label: '全部',
