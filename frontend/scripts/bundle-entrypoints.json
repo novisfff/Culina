@@ -10,6 +10,8 @@
     "ai": { "source": "src/app/routeEntries/ai.ts", "dynamic": true, "additionalSources": ["src/components/ai/AiWorkspace.tsx"], "styleSources": ["src/components/ai/ai-route.css"] },
     "family-profile": { "source": "src/app/routeEntries/family.ts", "dynamic": true, "additionalSources": ["src/features/family/FamilySettings.tsx"], "styleSources": ["src/features/family/family-route.css"] },
     "family-model-settings": { "source": "src/features/family-model-settings/FamilyModelSettingsWorkspace.tsx", "dynamic": true, "styleSources": ["src/features/family-model-settings/family-model-settings-route.css"] },
+    "family-model-settings-desktop": { "source": "src/features/family-model-settings/FamilyModelSettingsDesktopView.tsx", "dynamic": true },
+    "family-model-settings-mobile": { "source": "src/features/family-model-settings/FamilyModelSettingsMobilePage.tsx", "dynamic": true },
     "model-usage": { "source": "src/app/routeEntries/modelUsage.ts", "dynamic": true, "additionalSources": ["src/features/model-usage/ModelUsageWorkspace.tsx"], "styleSources": ["src/features/model-usage/model-usage-route.css"] },
     "model-usage-requests": { "source": "src/features/model-usage/ModelUsageRequestLogsPage.tsx", "dynamic": true },
     "search": { "source": "src/features/search/GlobalSearchOverlay.tsx", "dynamic": true, "styleSources": ["src/features/search/search-route.css"] },

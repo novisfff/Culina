@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
@@ -13,12 +13,13 @@ import {
   type FamilyModelSettingsDraft,
 } from './familyModelSettingsModel';
 import { deriveFamilyModelSettingsOverview } from './familyModelSettingsOverviewModel';
-import { FamilyModelSettingsDesktopView } from './FamilyModelSettingsDesktopView';
-import { FamilyModelSettingsMobilePage } from './FamilyModelSettingsMobilePage';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
 import { useFamilyModelSettingsQueries } from './useFamilyModelSettingsQueries';
 import { useFamilyModelSettingsState } from './useFamilyModelSettingsState';
+
+const FamilyModelSettingsDesktopView = lazy(() => import('./FamilyModelSettingsDesktopView').then((module) => ({ default: module.FamilyModelSettingsDesktopView })));
+const FamilyModelSettingsMobilePage = lazy(() => import('./FamilyModelSettingsMobilePage').then((module) => ({ default: module.FamilyModelSettingsMobilePage })));
 
 export type FamilyModelSettingsWorkspaceProps = {
   familyId: string;
@@ -386,9 +387,13 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     },
   };
 
-  return props.isPhoneViewport
-    ? <FamilyModelSettingsMobilePage {...surfaceProps} />
-    : <FamilyModelSettingsDesktopView {...surfaceProps} />;
+  return (
+    <Suspense fallback={<main className="family-model-settings-fallback" aria-label="家庭 AI 服务"><StateBlock status="loading" title="正在准备家庭 AI 服务" description="正在加载设置界面。" /></main>}>
+      {props.isPhoneViewport
+        ? <FamilyModelSettingsMobilePage {...surfaceProps} />
+        : <FamilyModelSettingsDesktopView {...surfaceProps} />}
+    </Suspense>
+  );
 }
 
 /**

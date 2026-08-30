@@ -8,6 +8,8 @@
     "eat": { "enabledMode": "ratchet", "owner": "eat", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "meal-log": { "enabledMode": "ratchet", "owner": "meal", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "family-model-settings": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "family-model-settings-desktop": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "family-model-settings-mobile": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "family-profile": { "enabledMode": "ratchet", "owner": "family", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "food": { "enabledMode": "ratchet", "owner": "food", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "home": { "enabledMode": "ratchet", "owner": "home", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },

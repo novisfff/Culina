@@ -64,6 +64,20 @@
       "phase": 5,
       "owner": "family-model-settings"
     },
+    "family-model-settings-desktop": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 49152,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "family-model-settings"
+    },
+    "family-model-settings-mobile": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 49152,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "family-model-settings"
+    },
     "model-usage": {
       "criticalGzipBudget": 16384,
       "routeTotalGzipBudget": 32768,
