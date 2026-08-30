@@ -119,7 +119,7 @@
   top: 18px;
   max-width: 160px;
   overflow: hidden;
-  color: var(--text-secondary);
+  color: var(--text-soft);
   font-size: var(--text-sm);
   font-weight: 600;
   text-overflow: ellipsis;
