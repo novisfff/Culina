@@ -48,7 +48,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('uses the shared overlay frame for the mobile ingredient detail popover', () => {
-    const source = readFileSync(sourcePath, 'utf8');
+    const source = readFileSync(
+      resolve(__dirname, 'IngredientWorkspaceMobileDetailPopover.tsx'),
+      'utf8',
+    );
 
     expect(source).toContain('rootClassName="ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"');
     expect(source).toContain('backdropClassName="mobile-ingredient-detail-popover-backdrop"');

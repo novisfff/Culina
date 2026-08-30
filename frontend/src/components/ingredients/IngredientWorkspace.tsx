@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { invalidateAfterFoodChanged } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
@@ -29,8 +28,6 @@ import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
-  WorkspaceDrawer,
-  WorkspaceOverlayFrame,
 } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
@@ -73,6 +70,7 @@ import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
 import { IngredientWorkspaceHubRoute } from './IngredientWorkspaceHubRoute';
 import type { IngredientHubPageProps } from './IngredientHubPage';
+import { IngredientWorkspaceMobileDetailPopover } from './IngredientWorkspaceMobileDetailPopover';
 import {
   IngredientStorageIcon,
   IngredientStorageIllustration,
@@ -932,23 +930,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
             pageProps={{
               ...hubPageProps,
               mobileDetailPopover: (
-                <WorkspaceOverlayFrame
-              rootClassName="ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"
-              backdropClassName="mobile-ingredient-detail-popover-backdrop"
-              onClose={goBackToWorkspace}
-            >
-              <WorkspaceDrawer
-                eyebrow={selectedIngredient.ingredient.category || '食材'}
-                title={selectedIngredient.ingredient.name}
-                description={selectedIngredient.ingredient.notes || `适合做${selectedIngredient.recipeReferences.slice(0, 2).map((recipe) => recipe.title).join('、') || '日常菜'}`}
-                closeLabel="关闭"
-                closeAriaLabel="关闭食材详情"
-                className="mobile-ingredient-detail-popover-panel ingredient-detail-drawer"
-                onClose={goBackToWorkspace}
-              >
-                <IngredientDetailView {...detailViewProps} />
-              </WorkspaceDrawer>
-                </WorkspaceOverlayFrame>
+                <IngredientWorkspaceMobileDetailPopover
+                  detailViewProps={detailViewProps}
+                  onClose={goBackToWorkspace}
+                />
               ),
             }}
           />
