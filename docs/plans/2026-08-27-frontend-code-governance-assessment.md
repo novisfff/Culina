@@ -2,7 +2,7 @@
 
 状态：基线体检及治理实施跟踪；基线数字仍基于 `origin/main`，下方实施记录来自独立 worktree `codex/frontend-code-governance-implementation`。
 
-## 0. 治理实施跟踪（2026-08-28）
+## 0. 治理实施跟踪（2026-08-30）
 
 已落地并独立提交的阶段性边界包括：Phase 0 度量/manifest/ratchet/fail-closed gates；Phase 1 CSS layer、token、selector ownership、响应式迁移；Phase 2 App query/mutation ownership、router/overlay/controller ports；Phase 3 Ingredient/Food/Eat 与 Inventory reconciliation 的部分 view-model/step 边界；Phase 4 AI selection/migration、run/stream/approval/composer/cancellation 状态模型、workspace shell/overlay hosts、secondary entry 与 manifest 注册。
 
@@ -12,6 +12,8 @@
 - `npm run frontend:build`：生产构建成功，bundle manifest 未报告 orphan/unregistered/missing entry。
 - `node frontend/scripts/bundle-manifest.mjs --check frontend/dist/.vite/frontend-health-manifest.json`：14 entries。
 - `npm run frontend:e2e:p0`：52/52 通过，覆盖固定移动/平板/桌面路径。
+
+2026-08-30 增量：Food workspace 新增 discover surface 与 meal-record/quick-record/quick-meal overlay 组合边界，`FoodWorkspace.tsx` 当前 1208 行；Food 目录定向测试 39 个文件、176 项通过。最新完整 quality 为 307 个测试文件、2031 项通过；生产构建转换 820 个 modules 并生成 health/rollout manifest。所有入口仍保持 ratchet，bundle target gaps 继续按预期报告。
 
 尚未达到最终规格的项目：App/Ingredient/Food workspace 仍保留大块组合文件；AI controller 虽已拆出 selection、stream、approval、human-input、composer 等边界，但 `AiWorkspace.tsx` 仍需进一步收敛；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
