@@ -49,6 +49,14 @@ npm run frontend:e2e:p0
 
 当前 GitHub Actions workflow 位于 `.github/workflows/quality-gates.yml`。`Frontend E2E P0` 不使用 `continue-on-error`，失败会阻止回归合并；其 HTML 报告通过受信任的发布工作流提供 PR 固定入口。
 
+## PR 门禁分类
+
+`quality-gates.yml` 的 `Classify PR Gates` 会根据 PR 改动路径选择业务域门禁：文档改动不运行业务测试；前端 helper/model 运行域测试和 typecheck；页面/状态改动补 build；Search、AI、MySQL、migration 和 deployment 只运行对应分组。响应式、导航和移动端改动补 P0 E2E；共享配置、跨前后端、未知路径和 CI 规则改动 fail-closed 到全量相关门禁。
+
+分类结果由始终运行的 `PR Gate` 汇总。未选中的 Job 必须明确为 skipped，选中的 Job 必须成功；GitHub Ruleset 应只将 `PR Gate` 设为 required。`main` push、merge queue 和手动 workflow 仍运行全量门禁。
+
+分类规则和 fail-closed 行为由 `.github/scripts/classify-pr-gates.test.mjs` 覆盖；本地可用 `node --test .github/scripts/classify-pr-gates.test.mjs` 验证。域级前端测试通过 `FRONTEND_TEST_SCOPES` 传递已选中的目录范围，不在第一阶段推断到单个测试文件。
+
 ## 测试环境默认值
 
 普通后端测试默认不应访问真实 AI、search、media provider 或外部向量服务。默认策略：
