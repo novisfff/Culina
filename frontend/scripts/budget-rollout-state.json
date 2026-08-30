@@ -1,7 +1,7 @@
 {
   "version": 1,
   "entries": {
-    "ai": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "ai": { "enabledMode": "target", "owner": "ai", "phase": 5, "evidence": { "buildCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "viewportCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "manifestComplete": true, "openExceptions": [] } },
     "ai-approval": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "ai-human-input": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "ai-debug": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
@@ -16,7 +16,7 @@
     "home-dialogs": { "enabledMode": "ratchet", "owner": "home", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "ingredients": { "enabledMode": "ratchet", "owner": "ingredients", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "inventory-operation": { "enabledMode": "ratchet", "owner": "inventory", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
-    "main": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "main": { "enabledMode": "target", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "viewportCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "manifestComplete": true, "openExceptions": [] } },
     "app-workspace-composition": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "app-overlay-host": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "markdown": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
