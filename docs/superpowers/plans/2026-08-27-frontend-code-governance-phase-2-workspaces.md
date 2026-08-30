@@ -30,6 +30,8 @@ Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、E
 
 继续增量：新增 `buildFoodGovernanceSummary` projection，集中管理待完善去重、下一项摘要和 filters 状态；新增行为测试后定向测试 10/10 通过，typecheck 通过。
 
+继续增量：`FoodWorkspaceProps` 及其跨域 mutation/navigation typed port 已迁至 `FoodWorkspaceTypes.ts`，主 Workspace 当前 1213 行；Food usage/plan/view 定向测试 21/21 通过，typecheck 通过。Food 仍需继续拆 discover/editor controller。
+
 ## Global Constraints
 
 - 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
