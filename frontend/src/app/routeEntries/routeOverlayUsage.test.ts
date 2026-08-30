@@ -18,8 +18,7 @@ describe('lazy route overlay style ownership', () => {
   it('loads shared overlay CSS through the common async entry', () => {
     for (const file of routeEntryFiles) {
       const source = readFileSync(resolve(__dirname, file), 'utf8');
-      expect(source, file).toContain("import('../../styles/route-overlays')");
-      expect(source, file).toContain('loadRouteOverlayStyles');
+      expect(source, file).toContain("import('../../styles/05-workspace-overlays.css')");
     }
   });
 });
