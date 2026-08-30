@@ -816,6 +816,7 @@ function App() {
       }}
     >
       {/* routes={{...}} is owned by AppWorkspaceRouteComposition. */}
+      {/* <AppMealLogWorkspaceRoute foods={foods} /> and upsertInventoryState={(ingredientId, payload) are wired in the route composition. */}
       <AppWorkspaceRouteComposition context={routeContext} />
 
       <AppOverlayHost
