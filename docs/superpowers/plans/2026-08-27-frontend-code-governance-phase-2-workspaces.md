@@ -16,6 +16,8 @@ Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、E
 
 2026-08-29 增量：`api/types.ts` 已收敛为 11 行纯 type barrel，AI、inventory、recipe、food、meal、search、shell、media、model-usage 合约已物理迁出；App 提取了错误、路由和壳布局模型；Ingredient 提取了策略/表单模型。Ingredient/Food 主 workspace 的 View 组合仍需继续迁移。
 
+2026-08-30 增量：Ingredient 新增 `IngredientWorkspaceHubRoute` 与 `IngredientWorkspaceMobileDetailPopover`，将库存 context、hub route 和移动详情 overlay 的组合边界移出主 Workspace；`IngredientWorkspace.tsx` 当前 998 行。最新 typecheck、定向 Ingredient 契约测试、全量 quality 与 production build 均通过。主 Workspace 尚未达到 ≤900 行，Food/App 仍需继续拆分。
+
 ## Global Constraints
 
 - 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
