@@ -336,7 +336,7 @@ describe('IngredientWorkspace atomic shopping intake cutover', () => {
     expect(actionSource).not.toContain('pendingShoppingToComplete');
     expect(workspaceSource).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
     expect(workspaceSource).toContain('openShoppingIntake');
-    expect(appSource).toContain('InventoryMaintenanceDialogs');
+    expect(appSource).toContain('useAppInventoryMaintenanceDialogProps');
     expect(appSource).toContain('openShoppingIntake');
     expect(appSource).toContain('useShoppingIntakeController');
     const shoppingControllerSource = readFileSync(resolve(__dirname, '../../features/inventory/useShoppingIntakeController.ts'), 'utf8');
