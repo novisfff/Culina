@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AppShell } from './app/AppShell';
 import { type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
@@ -21,18 +21,11 @@ import { AppEatWorkspaceRoute } from './app/AppEatWorkspaceRoute';
 import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
 import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
-import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
-import type {
-  InventoryOperationDetail,
-  InventoryOperationResult,
-  MealLog,
-  UpdateMealLogPayload,
-} from './api/types';
+import type { InventoryOperationResult, MealLog, UpdateMealLogPayload } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
 import { getWeekRange } from './lib/date';
 import { businessDateKey } from './lib/date';
-import { tracksIngredientQuantity } from './lib/ingredientTracking';
 import {
   buildInventoryActionGroups,
   selectHomeEligibleInventoryActionGroups,
