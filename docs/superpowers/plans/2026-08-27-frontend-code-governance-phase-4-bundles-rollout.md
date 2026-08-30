@@ -12,7 +12,7 @@
 
 ## 实施状态（2026-08-28）
 
-4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown vendor 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。route-owned CSS 已在真实 route lazy boundary 中接入，并通过 cascade、build 与 P0 验证；legacy 开关已实现。预算和 target rollout 仍保留为未完成项，不以兼容 wrapper 代替完成。
+4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown vendor 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。route-owned CSS 已在真实 route lazy boundary 中接入，并通过 cascade、build 与 P0 验证；legacy 开关已实现。预算和 target rollout 仍保留为未完成项，不以兼容 wrapper 代替完成。最新 `npm --prefix frontend run check:bundle` report 退出 0，targetGap 仍集中在 main entryCritical/routeTotal、AI/Eat/Food/Ingredients routeTotal 及多个二级 entry。
 
 ## Global Constraints
 
