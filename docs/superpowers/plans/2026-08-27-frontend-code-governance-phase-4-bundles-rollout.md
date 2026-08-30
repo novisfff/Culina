@@ -583,11 +583,13 @@ npm --prefix frontend exec playwright test frontend/e2e --project=chromium --gre
 
 已在 frontend 工作目录运行 `npx playwright test --grep @p0`，52/52 通过；release evidence Playwright 另覆盖六固定视口并采集请求/cache/long-task 数据。
 
-- [ ] **Step 4: 做回滚演练**
+- [x] **Step 4: 做回滚演练**
 
 在 staging/本地分别设置 VITE_LEGACY_GLOBAL_STYLES=1、关闭一个 entry target、恢复上一 manifest，确认不删除 localStorage、AI draft、run、cook session 或服务端数据；记录恢复时间和命令。
 
 已完成逐 entry rollback CLI 的本地演练：临时将 `ai` 设为 `target` 后执行 `npm --prefix frontend run rollback:bundle-entry -- --state=../.artifacts/rollback-rehearsal-20260829/input.json --entry=ai --output=../.artifacts/rollback-rehearsal-20260829/output.json`，确认只回落 `ai.enabledMode`、evidence/其他 entry 保持不变且仓库 rollout state 未被修改；`--entry=all` 按预期拒绝。`VITE_LEGACY_GLOBAL_STYLES` 开关已在 `main.tsx`、route loader 和测试中实现。
+
+当前发布门禁状态：manifest 完整、六视口通过、report/ratchet 逻辑与回滚演练通过；Markdown routeTotal 已降至约 16.8 KiB gzip。AI routeTotal 当前约 294 KiB gzip，尚未达到 55 KiB hard target，因此 AI 及依赖它的 target rollout 保持 ratchet，不以预算修改或隐藏 shared asset 的方式绕过。
 
 - [x] **Step 5: 更新报告并提交**
 
