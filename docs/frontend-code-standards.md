@@ -142,18 +142,20 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 
 ## 9. 测试与验证
 
-按变更范围选择验证：
+测试按需执行：优先运行与改动直接相关的测试，并根据影响范围逐步增加验证；只有改动风险或影响范围确实需要，或用户明确要求时，才运行全量测试。`frontend:quality`、`frontend:build` 和 E2E 不是所有前端改动的默认门槛。
 
 - 文档或注释变更不要求跑完整前端测试。
 - model/helper 变更至少跑对应单测。
-- 页面结构、工作区编排、`app/` 组合或状态流变更至少跑 `frontend:quality`、`frontend:build`。
-- 响应式、移动端或导航变更应补跑 `frontend:e2e:p0`。
+- 页面结构、工作区编排、`app/` 组合或状态流变更，先跑相关测试和必要的 `frontend:typecheck`；只有改动影响范围或风险确实需要时，再补跑 `frontend:build` 或 `frontend:quality`。
+- 响应式、移动端或导航关键路径变更，应补跑对应的 `frontend:e2e:p0`。
 - 修改 CSS、ui-kit 或样式 token 时运行 `check:style-tokens`；该脚本是报告型检查，发现命中后必须人工判断是否为新增漂移，不能把退出码 0 当作样式验收通过。
 - 修改 AI message part、结果卡片、草稿类型或其他跨端 AI contract 时，补跑 `aiWorkspaceContracts.test.ts`，并按风险运行对应页面测试。
 
-推荐命令：
+按本次改动选择以下命令，不要求全部执行：
 
 ```bash
+npm run frontend:typecheck
+npm run frontend:test -- <相关测试文件或过滤条件>
 npm run frontend:quality
 npm run frontend:build
 npm run frontend:e2e:p0
