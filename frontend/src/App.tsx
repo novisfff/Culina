@@ -62,6 +62,7 @@ import { useAppFoodPlanWeekNavigation } from './app/useAppFoodPlanWeekNavigation
 import { useAppInventoryMaintenanceDialogProps } from './app/useAppInventoryMaintenanceDialogProps';
 import { useAppHomeDashboardDialogProps } from './app/useAppHomeDashboardDialogProps';
 import { useAppOverlayComposition } from './app/useAppOverlayComposition';
+import { useAppEatTaskBodyArgs } from './app/useAppEatTaskBodyArgs';
 
 function App() {
   const {
@@ -926,7 +927,8 @@ function App() {
                 || deleteFoodPlanItemMutation.isPending
               }
               cookResumePromptOpen={cookResumePromptOpen}
-              taskBodyArgs={{
+              taskBodyArgs={useAppEatTaskBodyArgs({
+                data: {
                 recipes,
                 foods,
                 ingredients,
@@ -938,6 +940,8 @@ function App() {
                   user?.id && membership?.family_id
                     ? { userId: user.id, familyId: membership.family_id }
                     : null,
+                },
+                pending: {
                 isRecordingMeal: recordMealMutation.isPending,
                 isCompletingPlan: completeFoodPlanItemMutation.isPending,
                 isUpdatingPlan:
@@ -949,6 +953,8 @@ function App() {
                 isSavingFood: updateFoodMutation.isPending,
                 isUpdatingRecipe: updateRecipeMutation.isPending,
                 isUpdatingMeal: updateMealMutation.isPending,
+                },
+                actions: {
                 cookRecipe: (recipeId, payload) =>
                   cookRecipeMutation.mutateAsync({ recipeId, payload }),
                 previewCookRecipe: (recipeId, payload) =>
@@ -990,7 +996,8 @@ function App() {
                   navigation.navigate({ workspace: 'eat', view: 'history', mealLogId });
                 },
                 onCookResumePromptChange: setCookResumePromptOpen,
-              }}
+                },
+              })}
               discoverContent={
                 <AppFoodWorkspaceRoute
                   recipes={recipes}
