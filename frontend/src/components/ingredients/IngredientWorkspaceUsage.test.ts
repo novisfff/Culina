@@ -263,16 +263,19 @@ describe('IngredientWorkspace navigation consumption', () => {
   it('consumes shopping and priority navigation once by requestId', () => {
     const workspaceSource = readFileSync(sourcePath, 'utf8');
     const stateSource = readFileSync(resolve(__dirname, 'useIngredientWorkspaceState.ts'), 'utf8');
+    const navigationEffectsSource = readFileSync(resolve(__dirname, 'useIngredientWorkspaceNavigationEffects.ts'), 'utf8');
     const mobileSource = readFileSync(resolve(__dirname, 'IngredientMobileView.tsx'), 'utf8');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
 
     expect(stateSource).toContain('handledNavigationRequestIdRef');
     expect(stateSource).toContain("setCatalogStatusFilter('actionNeeded')");
     expect(stateSource).not.toContain("setCatalogStatusFilter('expired')");
-    expect(workspaceSource).toContain('handledSideEffectNavigationRequestIdRef');
-    expect(workspaceSource).toContain("openShoppingOverlay({ ingredient, reason: '库存不足' })");
-    expect(workspaceSource).toContain("request.target === 'priority'");
-    expect(workspaceSource).toContain("document.getElementById('mobile-ingredient-priority')");
+    expect(workspaceSource).toContain('useIngredientWorkspaceNavigationEffects');
+    expect(workspaceSource).not.toContain('handledSideEffectNavigationRequestIdRef');
+    expect(navigationEffectsSource).toContain('handledRequestIdRef');
+    expect(navigationEffectsSource).toContain("openShoppingOverlay({ ingredient, reason: '库存不足' })");
+    expect(navigationEffectsSource).toContain("request.target !== 'priority'");
+    expect(navigationEffectsSource).toContain("document.getElementById('mobile-ingredient-priority')");
     expect(mobileSource).toContain('id="mobile-ingredient-priority"');
     expect(panelsSource).toContain('id="ingredient-priority-list"');
     expect(workspaceSource).toContain("label: '需要处理'");

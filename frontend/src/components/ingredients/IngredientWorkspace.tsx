@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { invalidateAfterFoodChanged } from '../../api/cacheInvalidation';
 import type {
@@ -118,6 +118,7 @@ import {
 import { useIngredientFoodLookup } from './useIngredientFoodLookup';
 import { useIngredientFoodStockMealRecord } from './useIngredientFoodStockMealRecord';
 import { useIngredientFoodStockNavigation } from './useIngredientFoodStockNavigation';
+import { useIngredientWorkspaceNavigationEffects } from './useIngredientWorkspaceNavigationEffects';
 
 type IngredientWorkspaceProps = {
   ingredients: Ingredient[];
@@ -559,61 +560,13 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   });
 
   // Consume shopping/priority navigation once by requestId; do not keep shopping form state in home.
-  const handledSideEffectNavigationRequestIdRef = useRef<number | null>(null);
-  useEffect(() => {
-    const request = props.navigationRequest;
-    if (!request || handledSideEffectNavigationRequestIdRef.current === request.requestId) {
-      return;
-    }
-
-    if (request.target === 'shopping') {
-      const ingredient = props.ingredients.find((item) => item.id === request.ingredientId);
-      if (!ingredient) {
-        // Wait until the real ingredient is available; shopping always requires ingredientId.
-        return;
-      }
-      handledSideEffectNavigationRequestIdRef.current = request.requestId;
-      openShoppingOverlay({ ingredient, reason: '库存不足' });
-      props.onNavigationRequestConsumed?.(request.requestId);
-      return;
-    }
-
-    if (request.target === 'create') {
-      handledSideEffectNavigationRequestIdRef.current = request.requestId;
-      editorState.openCreateView();
-      props.onNavigationRequestConsumed?.(request.requestId);
-      return;
-    }
-
-    if (request.target === 'priority') {
-      handledSideEffectNavigationRequestIdRef.current = request.requestId;
-      // Desktop: focus the complete priority list under the shared 需处理 catalog filter.
-      // Mobile: scroll/focus the existing 今天先处理 section.
-      const focusPrioritySurface = () => {
-        const mobileSection = document.getElementById('mobile-ingredient-priority');
-        if (mobileSection) {
-          mobileSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          if (typeof mobileSection.focus === 'function') {
-            mobileSection.focus({ preventScroll: true });
-          }
-          return;
-        }
-        const desktopList =
-          document.getElementById('ingredient-priority-list') ??
-          document.querySelector('.ingredients-catalog-grid, .ingredient-grid-catalog');
-        if (desktopList instanceof HTMLElement) {
-          desktopList.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          if (typeof desktopList.focus === 'function') {
-            desktopList.focus({ preventScroll: true });
-          }
-        }
-      };
-      window.requestAnimationFrame(() => {
-        window.setTimeout(focusPrioritySurface, 0);
-      });
-      props.onNavigationRequestConsumed?.(request.requestId);
-    }
-  }, [props.navigationRequest?.requestId, props.ingredients, props.onNavigationRequestConsumed]);
+  useIngredientWorkspaceNavigationEffects({
+    ingredients: props.ingredients,
+    navigationRequest: props.navigationRequest,
+    onNavigationRequestConsumed: props.onNavigationRequestConsumed,
+    openCreateView: editorState.openCreateView,
+    openShoppingOverlay,
+  });
   const selectedInventoryIngredient =
     ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
 
