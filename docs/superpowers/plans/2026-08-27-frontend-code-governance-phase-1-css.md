@@ -10,6 +10,10 @@
 
 **Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
+## 实施状态（2026-08-30）
+
+Phase 1 已落地：canonical token、CSS layer、selector ownership、dead-selector/media/important 检查、route-owned CSS loader、legacy global CSS 回滚开关和六视口 P0 验证均已实现。当前 CSS drift 仍有 50 个 baseline-gated matches，但 gate 通过且未新增未登记变量。
+
 ## Global Constraints
 
 - 视觉事实源为 .agents/skills/frontend-ui-style/references/visual-system.md 与 responsive-and-overlays.md；源码旧值与规范冲突时记录为 drift，不反向修改规范。

@@ -20,6 +20,8 @@ Phase 2/3 已完成 query/mutation、App consumer、domain type barrel、Eat tas
 
 后续增量：`IngredientWorkspaceProps`/mutation port 已迁至 `IngredientWorkspaceTypes.ts`，主 Workspace 当前 867 行，达到阶段目标 ≤900；Ingredient 目录定向测试 28 个文件、138 项通过，typecheck 通过。View/data/action 组合仍需继续做最终集成审计。
 
+最新校准（2026-08-30）：FoodWorkspace 当前 880 行、IngredientWorkspace 当前 867 行、App.tsx 当前 854 行，均已达到本阶段的大文件行数目标；Food discover/editor、Ingredient overlay 和 App route composition 已完成独立 projection/port/host 拆分。剩余工作转入 Phase 4/5 的 hard bundle target 与全量 quality 稳定退出证据。
+
 同日 Food 增量：新增 `FoodWorkspaceQuickMealDialog` 与 `FoodWorkspaceNotice`，将 quick-meal confirmation 和 workspace notice 的可见 View 从主 Workspace 移出；dialog/usage 定向测试通过，`FoodWorkspace.tsx` 当前 1365 行。该拆分不改变 mutation、busy 或关闭语义。
 
 继续增量：新增 `FoodWorkspaceRecipeEditorOverlay`，将 recipe editor dialog 与 `RecipeEditorView` 组合移出主 Workspace；editor/usage 定向测试 14/14 通过，typecheck 通过。当前 Food workspace 仍需继续拆 discover、plan 和 editor state/controller，尚未达到阶段目标。

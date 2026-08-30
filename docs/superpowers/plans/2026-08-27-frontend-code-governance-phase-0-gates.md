@@ -10,6 +10,10 @@
 
 **Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
+## 实施状态（2026-08-30）
+
+Phase 0 已落地：health baseline、logical entry manifest、report/ratchet/target 三态预算检查、fail-closed CI 聚合、coverage topology、fixture/contract tests 和 artifact 上传均已实现并通过定向验证。生成物仍只保留在本地 `.artifacts/`，不进入提交。
+
 ## Global Constraints
 
 - 基线源码提交固定为 b559246669dd3fd9ec463658ce2ed4504df2a1ba；任何 baseline JSON 必须通过 Git 命令取得提交号，禁止手填 latest。
