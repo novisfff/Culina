@@ -12,7 +12,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('requires expiry actions from the app mutation port', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientWorkspaceTypes.ts'), 'utf8'),
+    ].join('\n');
     expect(workspaceSource).toContain('snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest)');
     expect(workspaceSource).toContain('correctInventoryExpiryDate: (');
     expect(workspaceSource).not.toContain('props.snoozeInventoryExpiryAlerts ??');
@@ -30,6 +33,16 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).not.toContain("from '@tanstack/react-query'");
     expect(workspaceSource).not.toContain("from '../../api/client'");
     expect(workspaceSource).not.toContain("from '../../api/queryKeys'");
+  });
+
+  it('keeps the public workspace port in the dedicated type module', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const typeSource = readFileSync(resolve(__dirname, 'IngredientWorkspaceTypes.ts'), 'utf8');
+    expect(workspaceSource).toContain("from './IngredientWorkspaceTypes'");
+    expect(workspaceSource).not.toContain('type IngredientWorkspaceProps = {');
+    expect(typeSource).toContain('export type IngredientWorkspaceProps = {');
+    expect(typeSource).toContain('createIngredient:');
+    expect(typeSource).toContain('updateShoppingItem:');
   });
 
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
