@@ -140,6 +140,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
   it('handles unified food-stock actions inside the ingredient workspace', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockRecordController.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
@@ -174,6 +175,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
   it('splits ingredient Food record from independent inventory mutation', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockRecordController.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
@@ -209,6 +211,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
   it('makes the food restock dialog a fuller quick-entry flow without storage editing', () => {
     const workspaceSource = [
       readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockRecordController.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
       readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
     ].join('\n');

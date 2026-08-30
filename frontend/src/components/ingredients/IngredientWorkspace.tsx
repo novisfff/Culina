@@ -21,7 +21,7 @@ import type {
   ShoppingListItem,
   UpsertIngredientInventoryStateRequest,
 } from '../../api/types';
-import { getFoodCoverAsset, todayKey } from '../../lib/ui';
+import { todayKey } from '../../lib/ui';
 import { businessDateKey } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
@@ -35,13 +35,7 @@ import {
 } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
-import {
-  canSubmitWithCandidateResolution,
-  createMealBusinessDate,
-  createMealRecordDateOptions,
-} from '../../features/meals/MealComposerModel';
-import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
-import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
+import { createMealBusinessDate, createMealRecordDateOptions } from '../../features/meals/MealComposerModel';
 import { IngredientInventoryCard } from './IngredientInventoryCard';
 import { ShoppingHistoryRow as IngredientShoppingHistoryRow } from './ShoppingHistoryRow';
 import { ShoppingWorkRow } from './ShoppingWorkRow';
@@ -113,7 +107,7 @@ import { ScrollableChipRail } from './ScrollableChipRail';
 import {
   useIngredientFoodStockState,
 } from './useIngredientFoodStockState';
-import { IngredientFoodStockDialogs } from './IngredientFoodStockDialogs';
+import { IngredientFoodStockRecordController } from './IngredientFoodStockRecordController';
 import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
 import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
 import {
@@ -1174,108 +1168,35 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         </WorkspaceOverlayFrame>
       )}
 
-      {/* Shared ordinary-record result bar; preserved if inventory follow-up is dismissed/fails. */}
-      <MealRecordResultBar
-        result={props.recordResult ?? null}
-        isReverting={props.isRevertingRecord}
-        revertError={props.recordRevertError}
-        rateError={props.recordRateError}
-        onRevert={props.onRevertRecord}
-        onView={props.onViewRecord}
-        onRate={props.onRateRecord}
-        onDismiss={props.onDismissRecord}
-      />
-
-      {quickRecord ? (
-        <MealQuickRecordView
-          open
-          prefilledFood={{
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            cover: getFoodCoverAsset(quickRecord.food, props.recipes) ?? null,
-            servings: 1,
-          }}
-          date={quickRecord.date}
-          mealType={quickRecord.mealType}
-          dateOptions={foodStockRecordDateOptions}
-          candidates={quickRecord.candidates}
-          selectedCandidateId={quickRecord.selectedCandidateId}
-          candidateMode={quickRecord.candidateMode}
-          target={quickRecord.target}
-          busy={quickRecord.busy || Boolean(props.isRecordingMeal)}
-          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
-          error={quickRecord.error}
-          overlayRootClassName="ingredient-workspace-overlay-root"
-          onClose={() => {
-            if (!quickRecord.busy) setQuickRecord(null);
-          }}
-          onDateChange={(date) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    date,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onMealTypeChange={(mealType) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    mealType,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onTargetChange={(target, selectedCandidateId) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    target,
-                    selectedCandidateId:
-                      selectedCandidateId ??
-                      (target.kind === 'existing' ? target.meal_log_id : null),
-                    targetTouchedByUser: true,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onSubmit={() => {
-            void submitCompactFoodRecord();
-          }}
-        />
-      ) : null}
-
-      <IngredientFoodStockDialogs
+      <IngredientFoodStockRecordController
+        recipes={props.recipes}
         todayDate={todayDate}
-        inventoryFollowUp={inventoryFollowUp}
-        foodStockDeductDialog={foodStockDeductDialog}
-        foodStockAdjustDialog={foodStockAdjustDialog}
-        foodStockSubmitting={foodStockSubmitting}
-        setInventoryFollowUp={setInventoryFollowUp}
-        setFoodStockDeductDialog={setFoodStockDeductDialog}
-        setFoodStockAdjustDialog={setFoodStockAdjustDialog}
-        setFoodStockRestockQuantity={setFoodStockRestockQuantity}
-        setFoodStockRestockExpiryDays={setFoodStockRestockExpiryDays}
-        setFoodStockRestockSource={setFoodStockRestockSource}
+        dateOptions={foodStockRecordDateOptions}
+        state={{
+          quickRecord,
+          setQuickRecord,
+          inventoryFollowUp,
+          setInventoryFollowUp,
+          foodStockDeductDialog,
+          setFoodStockDeductDialog,
+          foodStockAdjustDialog,
+          setFoodStockAdjustDialog,
+          foodStockSubmitting,
+          setFoodStockSubmitting,
+          setFoodStockRestockQuantity,
+          setFoodStockRestockExpiryDays,
+          setFoodStockRestockSource,
+        }}
+        recordResult={props.recordResult}
+        isRevertingRecord={props.isRevertingRecord}
+        recordRevertError={props.recordRevertError}
+        recordRateError={props.recordRateError}
+        onRevertRecord={props.onRevertRecord}
+        onViewRecord={props.onViewRecord}
+        onRateRecord={props.onRateRecord}
+        onDismissRecord={props.onDismissRecord}
+        isRecordingMeal={props.isRecordingMeal}
+        submitCompactFoodRecord={submitCompactFoodRecord}
         submitInventoryFollowUp={submitInventoryFollowUp}
         submitFoodStockDeductDialog={submitFoodStockDeductDialog}
         submitFoodStockAdjustDialog={submitFoodStockAdjustDialog}
