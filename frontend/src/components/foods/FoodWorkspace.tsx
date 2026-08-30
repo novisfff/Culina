@@ -49,6 +49,7 @@ import { FoodWorkspaceDialogController } from './FoodWorkspaceDialogController';
 import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { type FoodPlanSurfaceProps } from './FoodPlanSurface';
+import { buildFoodWorkspacePlanSurfaceProps } from './FoodWorkspacePlanSurfaceModel';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
 import {
   createMealBusinessDate,
@@ -831,7 +832,7 @@ export function FoodWorkspace(props: Props) {
     onQuickMeal: openQuickMealDialog,
   });
 
-  const planSurfaceProps: FoodPlanSurfaceProps = {
+  const planSurfaceProps: FoodPlanSurfaceProps = buildFoodWorkspacePlanSurfaceProps({
       weekRange: props.foodPlanWeekRange,
       days: foodPlanDays,
       getPlanItemCoverAsset: (item) => {
@@ -864,7 +865,7 @@ export function FoodWorkspace(props: Props) {
       onStartPlanItem: (item: FoodPlanItem) => {
         void completePlanItem(item);
       },
-    };
+    });
 
     const discoverDesktopContent = (
       <FoodHubView
