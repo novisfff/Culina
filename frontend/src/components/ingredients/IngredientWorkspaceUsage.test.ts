@@ -61,12 +61,12 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('uses the shared overlay frame for the ingredient editor modal', () => {
-    const source = readFileSync(sourcePath, 'utf8');
+    const source = readFileSync(resolve(__dirname, 'IngredientWorkspaceEditorOverlay.tsx'), 'utf8');
 
     expect(source).toContain('WorkspaceOverlayFrame');
     expect(source).toContain('rootClassName="ingredient-workspace-overlay-root"');
-    expect(source).toContain('closeOnBackdrop={!isIngredientFormSubmitting}');
-    expect(source).toContain('onClose={closeIngredientFormIfAllowed}');
+    expect(source).toContain('closeOnBackdrop={!isSubmitting}');
+    expect(source).toContain('onClose={props.onClose}');
     expect(source).not.toContain(
       `<div className="workspace-overlay-root ingredient-workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={goBackFromIngredientForm} />`,

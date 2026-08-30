@@ -30,7 +30,6 @@ import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
   WorkspaceDrawer,
-  WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../ui-kit';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
@@ -40,6 +39,7 @@ import { IngredientInventoryCard } from './IngredientInventoryCard';
 import { ShoppingHistoryRow as IngredientShoppingHistoryRow } from './ShoppingHistoryRow';
 import { ShoppingWorkRow } from './ShoppingWorkRow';
 import { IngredientWorkspaceIcon, type IngredientWorkspaceIconName } from './IngredientWorkspaceIcon';
+import { IngredientWorkspaceEditorOverlay } from './IngredientWorkspaceEditorOverlay';
 import {
   isPendingShopping,
   resolveErrorMessage,
@@ -69,7 +69,6 @@ import {
 } from './ingredientWorkspaceForms';
 import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
-import { IngredientEditorView } from './IngredientEditorView';
 import { IngredientHubPage } from './IngredientHubPage';
 import {
   IngredientStorageIcon,
@@ -716,35 +715,12 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const openEditView = editorState.openEditView;
   const goBackFromIngredientForm = editorState.goBackFromIngredientForm;
   const applyIngredientCategoryPreset = editorState.applyIngredientCategoryPreset;
-  const submitIngredient = editorState.submitIngredient;
-  const handleCreateSubmit = editorState.handleCreateSubmit;
-  const isEditingIngredient = editorState.isEditingIngredient;
   const isIngredientFormSubmitting = Boolean(props.isCreatingIngredient || props.isUpdatingIngredient);
   const closeIngredientFormIfAllowed = () => {
     if (!isIngredientFormSubmitting) {
       goBackFromIngredientForm();
     }
   };
-  const ingredientVisibleCategoryPresets = editorState.ingredientVisibleCategoryPresets;
-  const ingredientCategoryIsVisiblePreset = editorState.ingredientCategoryIsVisiblePreset;
-  const showIngredientCategoryCustomInput = editorState.showIngredientCategoryCustomInput;
-  const ingredientUnitAdvancedOpen = editorState.ingredientUnitAdvancedOpen;
-  const setIngredientUnitAdvancedOpen = editorState.setIngredientUnitAdvancedOpen;
-  const setIngredientCustomCategoryOpen = editorState.setIngredientCustomCategoryOpen;
-  const ingredientUsesCustomUnit = editorState.ingredientUsesCustomUnit;
-  const ingredientUnitOptions = editorState.ingredientUnitOptions;
-  const ingredientUsesCustomStorage = editorState.ingredientUsesCustomStorage;
-  const ingredientDefaultExpiryRangeValue = editorState.ingredientDefaultExpiryRangeValue;
-  const ingredientLowStockEnabled = editorState.ingredientLowStockEnabled;
-  const ingredientLowStockValue = editorState.ingredientLowStockValue;
-  const ingredientLowStockStep = editorState.ingredientLowStockStep;
-  const ingredientLowStockQuickValues = editorState.ingredientLowStockQuickValues;
-  const ingredientImageComposer = editorState.ingredientImageComposer;
-  const ingredientPreviewImage = editorState.ingredientPreviewImage;
-  const createSummaryItems = editorState.createSummaryItems;
-  const createChecklistItems = editorState.createChecklistItems;
-  const createCanSubmit = editorState.createCanSubmit;
-  const trimmedIngredientUnit = editorState.trimmedIngredientUnit;
   const overlayLayerProps = {
     overlayMode,
     closeOverlay,
@@ -1031,69 +1007,16 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     <>
       {renderIngredientHubPage()}
 
-      {workspaceView === 'create' && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root"
-          closeOnBackdrop={!isIngredientFormSubmitting}
-          onClose={closeIngredientFormIfAllowed}
-        >
-          <WorkspaceModal
-            title={isEditingIngredient ? '编辑食材' : '新增食材'}
-            description={isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存食材信息。' : '填写基础信息、图片和备注后，就能继续加入库存。'}
-            eyebrow="食材信息"
-            className="ingredient-editor-modal"
-            closeLabel="关闭"
-            onClose={closeIngredientFormIfAllowed}
-          >
-            <IngredientEditorView
-              embedded
-              activePanelBackLabel={activePanelBackLabel}
-              isEditingIngredient={isEditingIngredient}
-              ingredientForm={ingredientForm}
-              setIngredientForm={setIngredientForm}
-              ingredientVisibleCategoryPresets={ingredientVisibleCategoryPresets}
-              ingredientCategoryIsVisiblePreset={ingredientCategoryIsVisiblePreset}
-              showIngredientCategoryCustomInput={showIngredientCategoryCustomInput}
-              setIngredientCustomCategoryOpen={setIngredientCustomCategoryOpen}
-              applyIngredientCategoryPreset={applyIngredientCategoryPreset}
-              ingredientUnitAdvancedOpen={ingredientUnitAdvancedOpen}
-              setIngredientUnitAdvancedOpen={setIngredientUnitAdvancedOpen}
-              ingredientUnitOptions={ingredientUnitOptions}
-              ingredientUsesCustomUnit={ingredientUsesCustomUnit}
-              ingredientUsesCustomStorage={ingredientUsesCustomStorage}
-              trimmedIngredientUnit={trimmedIngredientUnit}
-              ingredientDefaultExpiryRangeValue={ingredientDefaultExpiryRangeValue}
-              ingredientLowStockEnabled={ingredientLowStockEnabled}
-              ingredientLowStockValue={ingredientLowStockValue}
-              ingredientLowStockStep={ingredientLowStockStep}
-              ingredientLowStockQuickValues={ingredientLowStockQuickValues}
-              ingredientPreviewImage={ingredientPreviewImage}
-              createSummaryItems={createSummaryItems}
-              createChecklistItems={createChecklistItems}
-              createCanSubmit={createCanSubmit}
-              ingredientImageState={ingredientImageComposer.state}
-              trackingTransitionDraft={editorState.trackingTransitionDraft}
-              trackingTransitionBusy={editorState.trackingTransitionBusy}
-              trackingTransitionError={editorState.trackingTransitionError}
-              onCancelTrackingTransition={editorState.cancelTrackingTransition}
-              onUpdatePresenceResolution={editorState.updatePresenceResolution}
-              onUpdateExactResolution={editorState.updateExactResolution}
-              onConfirmTrackingTransition={() => void editorState.confirmTrackingTransition()}
-              onUploadImage={(files) => void ingredientImageComposer.upload(files)}
-              onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
-              onResetImage={ingredientImageComposer.reset}
-              onSubmit={handleCreateSubmit}
-              onSaveWithoutRestock={() => void submitIngredient(false)}
-              onBack={closeIngredientFormIfAllowed}
-              isCreatingIngredient={props.isCreatingIngredient}
-              isUpdatingIngredient={props.isUpdatingIngredient}
-              renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-              renderStorageIcon={(storage) => <IngredientStorageIcon storage={storage} />}
-              ScrollableChipRail={ScrollableChipRail}
-            />
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
+      <IngredientWorkspaceEditorOverlay
+        open={workspaceView === 'create'}
+        activePanelBackLabel={activePanelBackLabel}
+        ingredientForm={ingredientForm}
+        setIngredientForm={setIngredientForm}
+        editorState={editorState}
+        isCreatingIngredient={props.isCreatingIngredient}
+        isUpdatingIngredient={props.isUpdatingIngredient}
+        onClose={closeIngredientFormIfAllowed}
+      />
 
       <IngredientFoodStockRecordController
         recipes={props.recipes}
