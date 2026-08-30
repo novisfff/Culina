@@ -19,6 +19,8 @@
 
 逐 entry rollback CLI 复核：使用临时 state 将 `ai.enabledMode` 从 `target` 回落为 `ratchet`，输出中其他 entry 与输入完全一致，仓库 `frontend/scripts/budget-rollout-state.json` 保持不变。
 
+release evidence checker 复核：将 evidence 的 `buildCommit` 对齐当前 production manifest 的 `sourceCommit` 后，使用真实 manifest、budget、六视口、request/cache/long-task 和 rollback evidence 执行 `node frontend/scripts/release-governance-check.mjs ...`，结果 `exit 0`，`missing=[]`、`violations=[]`。
+
 尚未达到最终规格的项目：App/Ingredient/Food workspace 仍保留大块组合文件；AI controller 虽已拆出 selection、stream、approval、human-input、composer 等边界，但 `AiWorkspace.tsx` 仍需进一步收敛；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
 ## 1. 范围与基线
