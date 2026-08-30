@@ -21,7 +21,6 @@ import { AppEatWorkspaceRoute } from './app/AppEatWorkspaceRoute';
 import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
 import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
-import type { AppHomeDashboardDialogsProps } from './app/AppHomeDashboardDialogs';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
 import { resolveAppOverlayState } from './app/appOverlayState';
 import type {
@@ -69,6 +68,7 @@ import { useAppHomeInventoryActions } from './app/useAppHomeInventoryActions';
 import { useAppPlanRecipeNavigation } from './app/useAppPlanRecipeNavigation';
 import { useAppFoodPlanWeekNavigation } from './app/useAppFoodPlanWeekNavigation';
 import { useAppInventoryMaintenanceDialogProps } from './app/useAppInventoryMaintenanceDialogProps';
+import { useAppHomeDashboardDialogProps } from './app/useAppHomeDashboardDialogProps';
 
 function App() {
   const {
@@ -726,7 +726,7 @@ function App() {
     loadOperationDetail,
   });
 
-  const homeDashboardDialogProps: AppHomeDashboardDialogsProps = {
+  const homeDashboardDialogProps = useAppHomeDashboardDialogProps({
     recipes: recipes,
     ingredients: ingredients,
     homePlanDetailItem: homePlanDetailItem,
@@ -738,28 +738,22 @@ function App() {
     resetHomePlanDetailForm: resetHomePlanDetailForm,
     submitHomePlanDetail: submitHomePlanDetail,
     startHomePlanDetailCook: startHomePlanDetailCook,
-    openHomeMealRecord: (item) => {
-      closeHomePlanDetail();
-      setHomeMealEnrichmentRequest({ mealLogId: item.meal_log_id ?? undefined, planItem: item });
-    },
     deleteHomePlanDetail: deleteHomePlanDetail,
     closeHomePlanDetail: closeHomePlanDetail,
-    isUpdatingHomePlanDetail: updateFoodPlanItemMutation.isPending || deleteFoodPlanItemMutation.isPending,
-    isCompletingHomePlanDetail: cookRecipeMutation.isPending || completeFoodPlanItemMutation.isPending,
+    updateFoodPlanItemPending: updateFoodPlanItemMutation.isPending,
+    deleteFoodPlanItemPending: deleteFoodPlanItemMutation.isPending,
+    cookRecipePending: cookRecipeMutation.isPending,
+    completeFoodPlanItemPending: completeFoodPlanItemMutation.isPending,
     homeMealEnrichmentMeal: homeMealEnrichmentMeal,
     homeMealEnrichmentMembers: members,
     foodPlanItems: foodPlanItems,
     foods: foods,
     recordMeal: (payload) => recordMealMutation.mutateAsync(payload),
     revertMealRecord: (operationId) => revertMealRecordMutation.mutateAsync(operationId),
-    onHomeMealEnrichmentMealChanged: (meal) => setHomeMealEnrichmentRequest((current) => ({
-      mealLog: meal,
-      planItem: current?.planItem,
-    })),
-    closeHomeMealEnrichment: () => setHomeMealEnrichmentRequest(null),
-    updateMealLog: (mealLogId, payload) => saveHomeMealEnrichment(homeMealEnrichmentMeal ?? { id: mealLogId } as MealLog, payload),
-    onInvalidMealEnrichmentSave: () => showNotice({ tone: 'warning', title: '还没有补充内容', message: '请先填写评分、家人、备注或照片，再保存这顿饭。' }),
-    isUpdatingMeal: updateMealMutation.isPending,
+    setHomeMealEnrichmentRequest,
+    saveHomeMealEnrichment,
+    showNotice,
+    updateMealPending: updateMealMutation.isPending,
     isHomePlanAddDialogOpen: isHomePlanAddDialogOpen,
     homePlanAddFood: homePlanAddFood,
     homePlanAddFoodSearch: homePlanAddFoodSearch,
@@ -772,7 +766,7 @@ function App() {
     dashboardPlanDays: dashboardPlanDays,
     submitHomePlanAdd: submitHomePlanAdd,
     closeHomePlanAddDialog: closeHomePlanAddDialog,
-    isCreatingFoodPlanItem: createFoodPlanItemMutation.isPending,
+    createFoodPlanItemPending: createFoodPlanItemMutation.isPending,
     homeMealDetail: homeMealDetail,
     homeMealDetailParticipants: homeMealDetailParticipants,
     closeHomeMealDetail: closeHomeMealDetail,
@@ -792,7 +786,7 @@ function App() {
     dismissCompletionSummary: dismissCompletionSummary,
     onCompletionSecondaryAction: openIngredientShopping,
     resolveAssetUrl: resolveDashboardAssetUrl,
-  };
+  });
 
   if (authInitializing) {
     return (
