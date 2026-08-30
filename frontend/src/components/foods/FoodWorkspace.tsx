@@ -38,7 +38,7 @@ import {
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
-import { FoodQuickMealDialog } from './FoodQuickMealDialog';
+import { FoodWorkspaceQuickMealDialog } from './FoodWorkspaceQuickMealDialog';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
@@ -1253,14 +1253,12 @@ export function FoodWorkspace(props: Props) {
       />
 
       {quickMealDialog && (() => {
-        const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
-        const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
-
         return (
-          <FoodQuickMealDialog
+          <FoodWorkspaceQuickMealDialog
             dialog={quickMealDialog}
             dateOptions={quickMealDateOptions}
-            isSubmitting={isSubmitting}
+            isQuickAdding={props.isQuickAdding}
+            isUpdatingPlan={props.isUpdatingPlan}
             recipes={props.recipes}
             onChange={updateQuickMealDialog}
             onClose={() => setQuickMealDialog(null)}
