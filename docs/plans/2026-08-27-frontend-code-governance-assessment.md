@@ -399,3 +399,5 @@ CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一�
 提交 `8ee9519d` 进一步将 Eat task resolution 的 query settle 状态映射迁入 `useAppEatTaskResolutionArgs`，与 task body adapter 分离。定向 Eat/App 测试 20/20 通过，typecheck 和 `git diff --check` 通过；该边界只转换查询状态，不增加请求或改变导航。
 
 提交 `90b4ef6d` 将 Ingredient workspace 的 shopping/create/priority 一次性导航副作用迁入 `useIngredientWorkspaceNavigationEffects`，统一 requestId 去重、overlay 打开和 priority DOM focus/scroll。Ingredient 主文件从约 1180 行降至约 1133 行；Ingredient/Inventory 定向测试 28 个文件 / 159 项通过，typecheck 和 `git diff --check` 通过。
+
+提交 `6dd71ec7` 将 Ingredient editor modal、图片操作和 tracking transition projection 迁入 `IngredientWorkspaceEditorOverlay`，主文件降至约 1056 行；提交 `88b3c173` 将桌面 panel action bar 迁入 `IngredientWorkspaceDesktopActions`，主文件降至约 1021 行；提交 `885ec721` 将 notice toast 迁入 `IngredientWorkspaceNotice`，主文件降至约 1009 行。三批定向测试与 typecheck 均通过，未改变库存/OCC 或移动端交互契约。
