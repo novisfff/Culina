@@ -40,6 +40,7 @@ import { ShoppingHistoryRow as IngredientShoppingHistoryRow } from './ShoppingHi
 import { ShoppingWorkRow } from './ShoppingWorkRow';
 import { IngredientWorkspaceIcon, type IngredientWorkspaceIconName } from './IngredientWorkspaceIcon';
 import { IngredientWorkspaceEditorOverlay } from './IngredientWorkspaceEditorOverlay';
+import { IngredientWorkspaceDesktopActions } from './IngredientWorkspaceDesktopActions';
 import {
   isPendingShopping,
   resolveErrorMessage,
@@ -645,51 +646,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   });
 
   const desktopActions = (
-    <div className="ingredients-actions">
-      {activePanel === 'catalog' && (
-        <ActionButton tone="primary" type="button" onClick={editorState.openCreateView}>
-          新增食材
-        </ActionButton>
-      )}
-      {activePanel === 'inventory' && (
-        <>
-          <ActionButton
-            tone="primary"
-            type="button"
-            onClick={() => props.openReconciliation?.({ scope: 'suggested' })}
-          >
-            快速盘点
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={() => openInventoryOverlay()}>
-            快速加入库存
-          </ActionButton>
-          {props.openOperationHistory ? (
-            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
-              变更记录
-            </ActionButton>
-          ) : null}
-        </>
-      )}
-      {activePanel === 'shopping' && (
-        <>
-          <ActionButton
-            tone="primary"
-            type="button"
-            onClick={() => props.openShoppingIntake?.()}
-          >
-            记录本次购买
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
-            新增采购内容
-          </ActionButton>
-          {props.openOperationHistory ? (
-            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
-              变更记录
-            </ActionButton>
-          ) : null}
-        </>
-      )}
-    </div>
+    <IngredientWorkspaceDesktopActions
+      activePanel={activePanel}
+      onCreateIngredient={editorState.openCreateView}
+      onReconciliation={() => props.openReconciliation?.({ scope: 'suggested' })}
+      onInventoryOverlay={openInventoryOverlay}
+      onShoppingIntake={() => props.openShoppingIntake?.()}
+      onShoppingOverlay={openShoppingOverlay}
+      onOperationHistory={props.openOperationHistory ? () => props.openOperationHistory?.() : undefined}
+    />
   );
   const activePanelBackLabel =
     activePanel === 'inventory' ? '返回库存' : activePanel === 'shopping' ? '返回采购' : '返回食材库';
