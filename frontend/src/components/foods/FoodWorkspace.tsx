@@ -58,7 +58,6 @@ import {
 import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
-import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import { FOOD_TYPE_LABELS, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
@@ -114,6 +113,7 @@ import { FoodEditorForm } from './FoodEditorForm';
 import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
 import { FoodMobileView } from './FoodMobileView';
 import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
+import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import { FoodLibraryFilters } from './FoodLibraryFilters';
 import { FoodDesktopSidebar } from './FoodDesktopSidebar';
@@ -1074,41 +1074,36 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
         />
       )}
 
-      {/* Shared ordinary-record result bar from App props (no local mutation state). */}
-      <MealRecordResultBar
-        result={props.recordResult ?? null}
-        isReverting={props.isRevertingRecord}
-        revertError={props.recordRevertError}
-        rateError={props.recordRateError}
-        onRevert={props.onRevertRecord}
-        onView={props.onViewRecord}
-        onRate={props.onRateRecord}
-        onDismiss={props.onDismissRecord}
+      <FoodWorkspaceMealOverlays
+        resultBar={{
+          result: props.recordResult ?? null,
+          isReverting: props.isRevertingRecord,
+          revertError: props.recordRevertError,
+          rateError: props.recordRateError,
+          onRevert: props.onRevertRecord,
+          onView: props.onViewRecord,
+          onRate: props.onRateRecord,
+          onDismiss: props.onDismissRecord,
+        }}
+        quickRecord={{
+          record: quickRecord,
+          recipes: props.recipes,
+          dateOptions: quickMealDateOptions,
+          isRecording: props.isQuickAdding,
+          setRecord: setQuickRecord,
+          onSubmit: () => void submitCompactRecord(),
+        }}
+        quickMeal={quickMealDialog ? {
+          dialog: quickMealDialog,
+          dateOptions: quickMealDateOptions,
+          isQuickAdding: props.isQuickAdding,
+          isUpdatingPlan: props.isUpdatingPlan,
+          recipes: props.recipes,
+          onChange: updateQuickMealDialog,
+          onClose: () => setQuickMealDialog(null),
+          onSubmit: submitCookConfirmDialog,
+        } : null}
       />
-
-      <FoodWorkspaceQuickRecordOverlay
-        record={quickRecord}
-        recipes={props.recipes}
-        dateOptions={quickMealDateOptions}
-        isRecording={props.isQuickAdding}
-        setRecord={setQuickRecord}
-        onSubmit={() => void submitCompactRecord()}
-      />
-
-      {quickMealDialog && (() => {
-        return (
-          <FoodWorkspaceQuickMealDialog
-            dialog={quickMealDialog}
-            dateOptions={quickMealDateOptions}
-            isQuickAdding={props.isQuickAdding}
-            isUpdatingPlan={props.isUpdatingPlan}
-            recipes={props.recipes}
-            onChange={updateQuickMealDialog}
-            onClose={() => setQuickMealDialog(null)}
-            onSubmit={submitCookConfirmDialog}
-          />
-        );
-      })()}
 
       <FoodWorkspaceDialogController
         detail={{
