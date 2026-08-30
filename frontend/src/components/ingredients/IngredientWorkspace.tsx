@@ -41,6 +41,7 @@ import { ShoppingWorkRow } from './ShoppingWorkRow';
 import { IngredientWorkspaceIcon, type IngredientWorkspaceIconName } from './IngredientWorkspaceIcon';
 import { IngredientWorkspaceEditorOverlay } from './IngredientWorkspaceEditorOverlay';
 import { IngredientWorkspaceDesktopActions } from './IngredientWorkspaceDesktopActions';
+import { IngredientWorkspaceNotice } from './IngredientWorkspaceNotice';
 import {
   isPendingShopping,
   resolveErrorMessage,
@@ -662,20 +663,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     '--ingredients-catalog-columns': String(catalogColumns),
     '--ingredients-catalog-card-width': `${catalogCardWidth}px`,
   } as CSSProperties;
-  const noticeToast = notice ? (
-    <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
-      <span className="recipe-notice-icon">
-        <IngredientWorkspaceIcon name={notice.tone === 'success' ? 'check' : 'exclamation'} />
-      </span>
-      <span className="recipe-notice-copy">
-        <strong>{notice.title}</strong>
-        <small>{notice.message}</small>
-      </span>
-      <button type="button" onClick={clearNotice} aria-label="关闭提示">
-        ×
-      </button>
-    </div>
-  ) : null;
+  const noticeToast = <IngredientWorkspaceNotice notice={notice} onClose={clearNotice} />;
   const openCreateView = editorState.openCreateView;
   const openEditView = editorState.openEditView;
   const goBackFromIngredientForm = editorState.goBackFromIngredientForm;
