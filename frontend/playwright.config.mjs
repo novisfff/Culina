@@ -6,6 +6,9 @@ const expectTimeout = Number(process.env.PLAYWRIGHT_EXPECT_TIMEOUT || 5_000);
 const outputDir = process.env.PLAYWRIGHT_OUTPUT_DIR || 'test-results';
 const reportDir = process.env.PLAYWRIGHT_HTML_OUTPUT_DIR || 'playwright-report';
 const retainFailureEvidence = process.env.PLAYWRIGHT_DISABLE_FAILURE_EVIDENCE !== '1';
+// Hosted Chromium uses overlay scrollbars, so its raster output matches the
+// scrollbar-free baseline rather than the legacy Linux classic-scrollbar set.
+const snapshotPlatform = process.env.CI ? 'darwin' : '{platform}';
 const modelUsageGovernanceSpec = /model-usage-governance\.spec\.mjs/;
 const familyModelSettingsSpec = /family-model-settings\.spec\.mjs/;
 const authSessionMultitabSpec = /auth-session-multitab\.spec\.mjs/;
@@ -50,7 +53,7 @@ export default defineConfig({
     [process.env.CI ? 'line' : 'list'],
     ['html', { outputFolder: reportDir, open: 'never' }],
   ],
-  snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}-{projectName}-{platform}{ext}',
+  snapshotPathTemplate: `{testDir}/__screenshots__/{testFilePath}/{arg}-{projectName}-${snapshotPlatform}{ext}`,
   expect: {
     timeout: expectTimeout,
     toHaveScreenshot: {
