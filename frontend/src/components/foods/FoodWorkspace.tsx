@@ -106,9 +106,8 @@ import { useFoodQuickMealActions } from './useFoodQuickMealActions';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
 import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
-import { FoodMobileView } from './FoodMobileView';
 import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
-import { FoodWorkspaceDiscoverDesktop } from './FoodWorkspaceDiscoverDesktop';
+import { FoodWorkspaceDiscoverDesktop, FoodWorkspaceDiscoverMobile } from './FoodWorkspaceDiscoverDesktop';
 import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import { type FoodLibraryCardActions } from './FoodLibraryCard';
@@ -762,7 +761,7 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
     );
 
     const discoverMobileContent = (
-      <FoodMobileView
+      <FoodWorkspaceDiscoverMobile
         recipes={props.recipes}
         mealLogs={props.mealLogs}
         managementIssueCount={managementIssueCount}

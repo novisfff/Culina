@@ -12,6 +12,7 @@ import type { FoodSceneCardView } from './useFoodSceneState';
 import type { FoodGovernanceIssue } from './FoodWorkspaceOptions';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';
 import { resolveFoodAssetUrl } from './FoodWorkspaceModel';
+import { FoodMobileView } from './FoodMobileView';
 
 type RepeatFood = { food: Food };
 type GovernanceSummary = { value: FoodGovernanceIssue; label: string; count: number }[];
@@ -100,6 +101,48 @@ export function FoodWorkspaceDiscoverDesktop(props: FoodWorkspaceDiscoverDesktop
         ]} nextTaskLabel={props.nextGovernanceFood ? '下一项需要完善' : '需要完善'} nextTaskSummary={props.nextGovernanceSummary} canOpenNextTask={Boolean(props.nextGovernanceFood)} onOpenNextTask={props.onOpenNextGovernanceFood}
           plan={props.planSurfaceProps} scenes={props.sceneCards.map((scene) => ({ name: scene.name, description: scene.description || (scene.count > 0 ? `${scene.count} 种食物` : '浏览这个场景'), imageUrl: resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined), imageSrcSet: buildMediaSrcSet(scene.imageAsset), active: props.sceneFilter === scene.name, onSelect: () => props.onToggleScene(scene.name) }))} />
       </>}
+    />
+  );
+}
+
+export type FoodWorkspaceDiscoverMobileProps = ComponentProps<typeof FoodMobileView>;
+
+export function FoodWorkspaceDiscoverMobile(props: FoodWorkspaceDiscoverMobileProps) {
+  return (
+    <FoodMobileView
+      recipes={props.recipes}
+      mealLogs={props.mealLogs}
+      managementIssueCount={props.managementIssueCount}
+      mobileScenePages={props.mobileScenePages}
+      mobileLibraryFoods={props.mobileLibraryFoods}
+      mobileLibraryResetKey={props.mobileLibraryResetKey}
+      hasFoodFilters={props.hasFoodFilters}
+      search={props.search}
+      isSearchFetching={props.isSearchFetching}
+      emptyTitle={props.emptyTitle}
+      isQuickAdding={props.isQuickAdding}
+      isUpdatingFavorite={props.isUpdatingFavorite}
+      notificationCenter={props.notificationCenter}
+      weekPage={props.weekPage}
+      resolveFoodAssetUrl={props.resolveFoodAssetUrl}
+      getFoodCardPrimaryActionLabel={props.getFoodCardPrimaryActionLabel}
+      getDefaultMealType={props.getDefaultMealType}
+      getFoodSceneTags={props.getFoodSceneTags}
+      getFoodCookingSummary={props.getFoodCookingSummary}
+      onSearchChange={props.onSearchChange}
+      onSearchCompositionStart={props.onSearchCompositionStart}
+      onSearchCompositionEnd={props.onSearchCompositionEnd}
+      onOpenGovernanceIssue={props.onOpenGovernanceIssue}
+      onOpenSceneManager={props.onOpenSceneManager}
+      onOpenDetail={props.onOpenDetail}
+      onOpenPlanDialog={props.onOpenPlanDialog}
+      onHandleFoodCardPrimaryAction={props.onHandleFoodCardPrimaryAction}
+      onToggleFavorite={props.onToggleFavorite}
+      onOpenShopping={props.onOpenShopping}
+      onOpenCreate={props.onOpenCreate}
+      onOpenLogs={props.onOpenLogs}
+      onClearFoodFilters={props.onClearFoodFilters}
+      filterTabs={props.filterTabs}
     />
   );
 }
