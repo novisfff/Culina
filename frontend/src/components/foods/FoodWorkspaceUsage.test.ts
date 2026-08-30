@@ -106,4 +106,14 @@ describe('FoodWorkspace navigation usage', () => {
       /@media \(min-width: 1024px\)[\s\S]*?\.food-content-main\s*\{[^}]*overflow-anchor:\s*none;/,
     );
   });
+
+  it('keeps the public workspace port in the dedicated type module', () => {
+    const workspaceSource = readSource('FoodWorkspace.tsx');
+    const typeSource = readSource('FoodWorkspaceTypes.ts');
+    expect(workspaceSource).toContain("from './FoodWorkspaceTypes'");
+    expect(workspaceSource).not.toContain('type Props = {');
+    expect(typeSource).toContain('export type FoodWorkspaceProps = {');
+    expect(typeSource).toContain('createFood:');
+    expect(typeSource).toContain('completeFoodPlanItem:');
+  });
 });
