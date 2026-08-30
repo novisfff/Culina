@@ -23,7 +23,7 @@ release evidence checker 复核：将 evidence 的 `buildCommit` 对齐当前 pr
 
 CSS lazy-loading 实验记录：尝试将 `05-workspace-overlays.css` 从同步 `route-shell.css` 移到所有 route-owned CSS 后，main CSS gzip 约从 44.77 KiB 降至 31.62 KiB，但 routeTotal 因重复传输上升（例如 food 约 290.9 KiB → 303.7 KiB），触发 duplicate-transfer 风险，已回滚该实验；当前保持原有共享加载，待共享 chunk 方案完成后再重做。
 
-共享 chunk 进展：新增 `route-overlays` lazy style entry，所有 route loader 复用同一 `05-workspace-overlays.css` 异步 asset；`route-shell` 不再同步包含 overlay CSS。manifest 已登记该 logical entry，bundle/manifest 定向测试 23/23 通过，production build 通过且不再出现 orphan/unregistered dynamic-entry 错误；该共享 entry 仍保持 ratchet，并如实报告当前 routeTotal gap。
+共享 chunk 进展：新增 CSS-owned `route-overlays` lazy style entry，所有 route loader 直接复用同一 `05-workspace-overlays.css` 异步 asset；`route-shell` 不再同步包含 overlay CSS。manifest 已登记该 logical entry，bundle/manifest 定向测试 20/20 通过，production build 通过且不再出现 orphan/unregistered dynamic-entry 错误；该共享 entry 仍保持 ratchet，并如实报告当前 routeTotal gap。
 
 治理聚合器复核：使用当前 health artifact 与最新 production manifest 执行 `node frontend/scripts/check-frontend-governance.mjs --health=.artifacts/frontend-health-current.json --manifest=frontend/dist/.vite/frontend-health-manifest.json --mode=report`，结果 `exit 0`；默认路径失败仅因默认 artifact 是旧工作目录产物，不作为代码失败证据。
 
