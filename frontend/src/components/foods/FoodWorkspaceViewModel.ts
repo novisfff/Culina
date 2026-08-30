@@ -1,7 +1,7 @@
 import type { Food, FoodScene, Recipe, FoodType, MealType } from '../../api/types/food';
 import type { MealLog } from '../../api/types/meal';
 import type { FoodWorkspaceLens, FoodGovernanceIssue } from './FoodWorkspaceOptions';
-import { getFoodSceneTags, isFoodExpiring, isFoodMissingDecisionInfo, isOutsideFood, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
+import { getFoodGovernanceIssueLabels, getFoodSceneTags, isFoodExpiring, isFoodMissingDecisionInfo, isOutsideFood, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
 import {
   buildMobileFilterResetKey,
   buildMobileSceneExploreCards,
@@ -10,6 +10,24 @@ import {
   type MobileCookingFilter,
 } from './FoodMobileLibraryModel';
 import type { FoodSceneCardView } from './useFoodSceneState';
+
+export function buildFoodGovernanceSummary(args: {
+  expiringFoods: Food[];
+  needsInfoFoods: Food[];
+  governanceQueue: Food[];
+  recipes: Recipe[];
+  hasFilters: boolean;
+}) {
+  const nextGovernanceFood = args.governanceQueue[0] ?? null;
+  return {
+    managementIssueCount: new Set([...args.expiringFoods, ...args.needsInfoFoods].map((food) => food.id)).size,
+    nextGovernanceFood,
+    nextGovernanceSummary: nextGovernanceFood
+      ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, args.recipes).join('、')}`
+      : '信息已补齐',
+    hasFoodFilters: args.hasFilters,
+  };
+}
 
 export function buildFoodMobileFilterTabs(args: {
   lensFilter: string;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFoodEditorSceneTagOptions,
+  buildFoodGovernanceSummary,
   buildFoodMobileFilterTabs,
   buildFoodMobileWorkspaceViewModel,
   buildRecipeEditorSceneTagOptions,
@@ -71,5 +72,25 @@ describe('FoodWorkspaceViewModel scene options', () => {
     expect(tabs.find((tab) => tab.label === '收藏')?.active).toBe(true);
     tabs.find((tab) => tab.label === '可做')?.onClick();
     expect(calls).toEqual(['cooking:ready', 'lens:all', 'type:all', 'meal:all', 'scene:all', 'issue:all']);
+  });
+
+  it('deduplicates governance issues and describes the next queued food', () => {
+    const food = {
+      id: 'f-1', name: '番茄', type: 'takeout', source_name: '外卖', purchase_source: '',
+      images: [], suitable_meal_types: [], routine_note: '', notes: '', scene: '',
+      stock_quantity: null, stock_unit: '',
+    } as never;
+    const result = buildFoodGovernanceSummary({
+      expiringFoods: [food],
+      needsInfoFoods: [food],
+      governanceQueue: [food],
+      recipes: [],
+      hasFilters: true,
+    });
+
+    expect(result.managementIssueCount).toBe(1);
+    expect(result.nextGovernanceFood).toBe(food);
+    expect(result.nextGovernanceSummary).toContain('番茄');
+    expect(result.hasFoodFilters).toBe(true);
   });
 });

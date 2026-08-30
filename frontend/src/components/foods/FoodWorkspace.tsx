@@ -102,6 +102,7 @@ import {
   buildFoodEditorSceneTagOptions,
   buildFoodMobileWorkspaceViewModel,
   buildFoodMobileFilterTabs,
+  buildFoodGovernanceSummary,
   buildRecipeEditorSceneTagOptions,
 } from './FoodWorkspaceViewModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
@@ -450,10 +451,14 @@ export function FoodWorkspace(props: Props) {
   const suggestedMealType = useMemo(() => getSuggestedMealTypeForHour(), []);
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
-  const managementIssueCount = new Set([...expiringFoods, ...needsInfoFoods].map((food) => food.id)).size;
-  const nextGovernanceFood = governanceQueue[0] ?? null;
-  const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '信息已补齐';
-  const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
+  const governanceSummary = buildFoodGovernanceSummary({
+    expiringFoods,
+    needsInfoFoods,
+    governanceQueue,
+    recipes: props.recipes,
+    hasFilters: Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all',
+  });
+  const { managementIssueCount, nextGovernanceFood, nextGovernanceSummary, hasFoodFilters } = governanceSummary;
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   // Recipe cook confirmation still uses FoodQuickMealDialog (no stock fields).
