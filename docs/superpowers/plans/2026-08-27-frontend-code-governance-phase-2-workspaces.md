@@ -22,6 +22,8 @@ Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、E
 
 继续增量：新增 `FoodWorkspaceRecipeEditorOverlay`，将 recipe editor dialog 与 `RecipeEditorView` 组合移出主 Workspace；editor/usage 定向测试 14/14 通过，typecheck 通过。当前 Food workspace 仍需继续拆 discover、plan 和 editor state/controller，尚未达到阶段目标。
 
+继续增量：新增 `FoodWorkspacePlanSurfaceModel`，将周计划 surface props 的组装和回调边界收敛到独立 projection；按 frontend 项目脚本运行的 plan/view/usage 定向测试 18/18 通过，typecheck 通过。主文件仍需继续拆 discover 与 dialog controller。
+
 ## Global Constraints
 
 - 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
