@@ -47,7 +47,6 @@ import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
 import { FoodWorkspaceQuickRecordOverlay } from './FoodWorkspaceQuickRecordOverlay';
 import { FoodWorkspaceDialogController } from './FoodWorkspaceDialogController';
-import { FoodDiscoverSurface } from './FoodDiscoverSurface';
 import { FoodHubView } from './FoodHubView';
 import { type FoodPlanSurfaceProps } from './FoodPlanSurface';
 import { buildFoodWorkspacePlanSurfaceProps } from './FoodWorkspacePlanSurfaceModel';
@@ -114,6 +113,7 @@ import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
 import { buildFoodEditorCompletionState, buildRecipeEditorCompletionState } from './FoodEditorProjectionModel';
 import { FoodMobileView } from './FoodMobileView';
+import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import { FoodLibraryFilters } from './FoodLibraryFilters';
 import { FoodDesktopSidebar } from './FoodDesktopSidebar';
@@ -913,7 +913,7 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
       onCreateFood: () => handleOpenCreate('takeout'),
     };
 
-    const surfaceContent = <FoodDiscoverSurface {...discoverSurfaceProps} />;
+    const surfaceContent = <FoodWorkspaceDiscoverView {...discoverSurfaceProps} />;
 
     return (
     <main className="food-workspace">

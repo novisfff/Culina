@@ -67,7 +67,7 @@ describe('FoodWorkspace navigation usage', () => {
 
     expect(discoverSource).toContain('export function FoodDiscoverSurface');
     expect(planSource).toContain('export function FoodPlanSurface');
-    expect(workspaceSource).toContain('<FoodDiscoverSurface');
+    expect(workspaceSource).toContain('<FoodWorkspaceDiscoverView');
     expect(workspaceSource).toContain('<FoodDesktopSidebar');
     expect(workspaceSource).not.toContain('<FoodPlanSurface');
     expect(desktopSidebarSource).toContain('<FoodPlanSurface');
