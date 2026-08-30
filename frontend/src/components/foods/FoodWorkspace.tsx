@@ -39,6 +39,7 @@ import { FoodPlanDetailModal } from './FoodPlanDetailModal';
 import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodWorkspaceQuickMealDialog } from './FoodWorkspaceQuickMealDialog';
+import { FoodWorkspaceNotice } from './FoodWorkspaceNotice';
 import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
 import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
@@ -1062,20 +1063,7 @@ export function FoodWorkspace(props: Props) {
 
     return (
     <main className="food-workspace">
-      {notice && (
-        <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
-          <span className="recipe-notice-icon">
-            <FoodUiIcon name={notice.tone === 'success' ? 'check' : 'bell'} />
-          </span>
-          <span className="recipe-notice-copy">
-            <strong>{notice.title}</strong>
-            <small>{notice.message}</small>
-          </span>
-          <button type="button" onClick={clearNotice} aria-label="关闭提示">
-            ×
-          </button>
-        </div>
-      )}
+      <FoodWorkspaceNotice notice={notice} onClose={clearNotice} />
       {surfaceContent}
       <FoodWorkspaceShoppingOverlays
         food={props.foods.find((item) => item.id === foodShoppingDialog?.draft.foodId) ?? props.foods[0]}
