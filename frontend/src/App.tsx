@@ -54,7 +54,7 @@ import { resolveAssetUrl } from './lib/assets';
 import { resolveShoppingFormSubmission } from './components/ingredients/shoppingFormSubmission';
 import { messageFromApiError, queryErrorMessage } from './app/appErrorModel';
 import { useAppShellLayoutState } from './app/useAppShellLayoutState';
-import { primaryTabToTarget, querySettleStatus } from './app/appRouteModel';
+import { primaryTabToTarget } from './app/appRouteModel';
 import { useAppCookNavigation } from './app/useAppCookNavigation';
 import { useAppHomeInventoryActions } from './app/useAppHomeInventoryActions';
 import { useAppPlanRecipeNavigation } from './app/useAppPlanRecipeNavigation';
@@ -63,6 +63,7 @@ import { useAppInventoryMaintenanceDialogProps } from './app/useAppInventoryMain
 import { useAppHomeDashboardDialogProps } from './app/useAppHomeDashboardDialogProps';
 import { useAppOverlayComposition } from './app/useAppOverlayComposition';
 import { useAppEatTaskBodyArgs } from './app/useAppEatTaskBodyArgs';
+import { useAppEatTaskResolutionArgs } from './app/useAppEatTaskResolutionArgs';
 
 function App() {
   const {
@@ -907,18 +908,18 @@ function App() {
           <WorkspaceRouteBoundary>
             <AppEatWorkspaceRoute
               navigation={navigation}
-              taskResolutionArgs={{
+              taskResolutionArgs={useAppEatTaskResolutionArgs({
                 task: navigation.state.eat.task,
                 recipes,
                 foods,
-                recipesStatus: querySettleStatus(recipesQuery),
-                foodsStatus: querySettleStatus(foodsQuery),
                 planDetail: foodPlanDetail,
-                planDetailStatus: querySettleStatus(foodPlanDetailQuery),
                 mealLogs,
-                mealLogsStatus: querySettleStatus(mealLogsQuery),
+                recipesQuery,
+                foodsQuery,
+                planDetailQuery: foodPlanDetailQuery,
+                mealLogsQuery,
                 mealLogsFetching: mealLogsQuery.isFetching,
-              }}
+              })}
               completionPending={
                 cookRecipeMutation.isPending
                 || recordMealMutation.isPending
