@@ -133,6 +133,13 @@
       "cssBudget": 16384,
       "phase": 5,
       "owner": "ingredients"
+    },
+    "route-overlays": {
+      "criticalGzipBudget": 1024,
+      "routeTotalGzipBudget": 16384,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "frontend-platform"
     }
   }
 }

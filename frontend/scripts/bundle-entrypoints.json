@@ -19,6 +19,7 @@
     "ai-debug": { "source": "src/components/ai/entries/AiDebugEntry.tsx", "dynamic": true },
     "inventory-operation": { "source": "src/app/routeEntries/inventory.ts", "dynamic": true, "additionalSources": ["src/features/inventory/InventoryMaintenanceDialogs.tsx"], "styleSources": ["src/features/inventory/inventory-route.css"] },
     "home-dialogs": { "source": "src/features/home/HomeDashboardDialogs.tsx", "dynamic": true },
-    "shopping-dialog": { "source": "src/components/ingredients/IngredientShoppingDialog.tsx", "dynamic": true }
+    "shopping-dialog": { "source": "src/components/ingredients/IngredientShoppingDialog.tsx", "dynamic": true },
+    "route-overlays": { "source": "src/styles/route-overlays.ts", "dynamic": true, "styleSources": ["src/styles/05-workspace-overlays.css"] }
   }
 }

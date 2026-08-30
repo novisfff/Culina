@@ -19,6 +19,7 @@
     "model-usage": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "model-usage-requests": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "search": { "enabledMode": "ratchet", "owner": "search", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
-    "shopping-dialog": { "enabledMode": "ratchet", "owner": "ingredients", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } }
+    "shopping-dialog": { "enabledMode": "ratchet", "owner": "ingredients", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "route-overlays": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } }
   }
 }

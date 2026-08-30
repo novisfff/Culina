@@ -1,3 +1,2 @@
 @import './shell.css' layer(shell);
-@import './05-workspace-overlays.css' layer(domain);
 @import './responsive.css' layer(responsive);
