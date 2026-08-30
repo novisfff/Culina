@@ -397,3 +397,5 @@ CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一�
 随后提交 `b8ccb693` 将 Eat task body adapter 按 data/pending/actions 三类 typed port 组装，并提交 `1512b735` 修正 Ingredient workspace 的 App overlay ownership 断言。定向 Eat 测试 40/40 通过；全量 `npm run frontend:quality` 随后为 304 个测试文件 / 2024 项测试通过，typecheck 和 style-token gate 通过。该批仍未改变 API、导航或业务行为。
 
 提交 `8ee9519d` 进一步将 Eat task resolution 的 query settle 状态映射迁入 `useAppEatTaskResolutionArgs`，与 task body adapter 分离。定向 Eat/App 测试 20/20 通过，typecheck 和 `git diff --check` 通过；该边界只转换查询状态，不增加请求或改变导航。
+
+提交 `90b4ef6d` 将 Ingredient workspace 的 shopping/create/priority 一次性导航副作用迁入 `useIngredientWorkspaceNavigationEffects`，统一 requestId 去重、overlay 打开和 priority DOM focus/scroll。Ingredient 主文件从约 1180 行降至约 1133 行；Ingredient/Inventory 定向测试 28 个文件 / 159 项通过，typecheck 和 `git diff --check` 通过。
