@@ -23,6 +23,8 @@ release evidence checker 复核：将 evidence 的 `buildCommit` 对齐当前 pr
 
 CSS lazy-loading 实验记录：尝试将 `05-workspace-overlays.css` 从同步 `route-shell.css` 移到所有 route-owned CSS 后，main CSS gzip 约从 44.77 KiB 降至 31.62 KiB，但 routeTotal 因重复传输上升（例如 food 约 290.9 KiB → 303.7 KiB），触发 duplicate-transfer 风险，已回滚该实验；当前保持原有共享加载，待共享 chunk 方案完成后再重做。
 
+共享 chunk 进展：新增 `route-overlays` lazy style entry，所有 route loader 复用同一 `05-workspace-overlays.css` 异步 asset；`route-shell` 不再同步包含 overlay CSS。manifest 已登记该 logical entry，bundle/manifest 定向测试 23/23 通过，production build 通过且不再出现 orphan/unregistered dynamic-entry 错误；该共享 entry 仍保持 ratchet，并如实报告当前 routeTotal gap。
+
 尚未达到最终规格的项目：App/Ingredient/Food workspace 仍保留大块组合文件；AI controller 虽已拆出 selection、stream、approval、human-input、composer 等边界，但 `AiWorkspace.tsx` 仍需进一步收敛；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
 ## 1. 范围与基线
