@@ -107,6 +107,7 @@ import { buildFoodWorkspaceEditorViewModel } from './FoodWorkspaceEditorViewMode
 import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
 import { FoodWorkspaceDiscoverDesktop, FoodWorkspaceDiscoverMobile } from './FoodWorkspaceDiscoverDesktop';
 import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
+import { FoodWorkspaceOperationalOverlays } from './FoodWorkspaceOperationalOverlays';
 import { FoodWorkspaceEditorSurface } from './FoodWorkspaceEditorSurface';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import { type FoodLibraryCardActions } from './FoodLibraryCard';
@@ -872,135 +873,8 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
       {/* FoodWorkspaceEditorSurface owns <FoodWorkspaceEditorOverlay and recipe editor composition. */}
       <FoodWorkspaceEditorSurface context={{ props, view, isFoodRecipeEditorOpen, isSelfMade, editorCompletedCount, closeFoodEditorIfAllowed, handleSubmitFood, editorView, recipeView, availableSceneTagOptions, canSubmit, editorCompletionItems, editorCompletionPercent, currentRecipe, editorProfile, editorRecipeCover, editorRecipeMeta, FOOD_EDITOR_FORM_ID, form, imageComposer, isSceneTagPickerOpen, newSceneTagName, editorSceneTags, foodEditorSubmitLabel, addSceneTag, createAndAddSceneTag, setForm, handleOpenRecipeEditor, removeSceneTag, setIsSceneTagPickerOpen, toggleMealType, resolveFoodAssetUrl, recipeEditor, closeFoodRecipeEditor, recipeEditorSceneSelectOptions, recipeEditorSceneTags, recipeEditorCoverUrl, recipeEditorCoverAsset, recipeEditorIngredientCount, recipeEditorStepCount, recipeEditorCompletionItems, recipeEditorCompletionPercent, recipeEditorImageComposer, getRecipeDraftGenerationButtonLabel, recipeEditorSubmitDisabled, closeFoodRecipeEditorIfAllowed, submitFoodRecipeEditor }} />
 
-      <FoodWorkspaceMealOverlays
-        resultBar={{
-          result: props.recordResult ?? null,
-          isReverting: props.isRevertingRecord,
-          revertError: props.recordRevertError,
-          rateError: props.recordRateError,
-          onRevert: props.onRevertRecord,
-          onView: props.onViewRecord,
-          onRate: props.onRateRecord,
-          onDismiss: props.onDismissRecord,
-        }}
-        quickRecord={{
-          record: quickRecord,
-          recipes: props.recipes,
-          dateOptions: quickMealDateOptions,
-          isRecording: props.isQuickAdding,
-          setRecord: setQuickRecord,
-          onSubmit: () => void submitCompactRecord(),
-        }}
-        quickMeal={quickMealDialog ? {
-          dialog: quickMealDialog,
-          dateOptions: quickMealDateOptions,
-          isQuickAdding: props.isQuickAdding,
-          isUpdatingPlan: props.isUpdatingPlan,
-          recipes: props.recipes,
-          onChange: updateQuickMealDialog,
-          onClose: () => setQuickMealDialog(null),
-          onSubmit: submitCookConfirmDialog,
-        } : null}
-      />
-
-      <FoodWorkspaceDialogController
-        detail={{
-          food: detailFood,
-          recipes: props.recipes,
-          mealLogs: props.mealLogs,
-          recipeCards,
-          todayDate,
-          isQuickAdding: props.isQuickAdding,
-          onClose: closeDetail,
-          onEdit: handleOpenEdit,
-          onEditRecipe: handleOpenRecipeEditorDirectly,
-          onOpenPlanDialog: openPlanDialog,
-          onStartCook: () => {
-            if (detailFood) openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
-          },
-          onQuickAdd: (food, mealType) => openQuickMealDialog(food, mealType, 'eat'),
-          resolveAssetUrl: resolveFoodAssetUrl,
-        }}
-      />
-
-      <FoodWorkspacePlanOverlays
-        planDialog={{
-          isOpen: isPlanDialogOpen,
-          selectedPlanFood,
-          foods: props.foods,
-          recipes: props.recipes,
-          planFoodSearch,
-          planForm,
-          todayDate,
-          isUpdatingPlan: props.isUpdatingPlan,
-          onClose: closePlanDialog,
-          onSubmit: submitPlanItem,
-          onClearPlanFoodSelection: clearPlanFoodSelection,
-          onPlanFoodSearchChange: setPlanFoodSearch,
-          onSelectPlanFood: (food) => {
-            setPlanForm((current) => ({ ...current, foodId: food.id, mealType: getDefaultMealType(food) }));
-            setPlanFoodSearch(food.name);
-          },
-          onPlanDateChange: (value) => setPlanForm({ ...planForm, planDate: value }),
-          onMealTypeChange: (value) => setPlanForm({ ...planForm, mealType: value }),
-          onPlanNoteChange: (value) => setPlanForm({ ...planForm, note: value }),
-          resolveFoodAssetUrl,
-          getFoodCover,
-          getFoodCoverAsset,
-          getDefaultMealType,
-          getPlanDateParts: getFoodPlanDateParts,
-          normalizeFoodType,
-        }}
-        planDetail={activePlanDetailItem ? {
-          item: activePlanDetailItem,
-          food: activePlanDetailFood,
-          recipes: props.recipes,
-          form: planDetailForm,
-          isEditing: isPlanDetailEditing,
-          isUpdatingPlan: props.isUpdatingPlan,
-          isCompleting: Boolean(props.isCompletingPlan || props.isQuickAdding),
-          onClose: closePlanDetail,
-          onChangeForm: setPlanDetailForm,
-          onEditingChange: setIsPlanDetailEditing,
-          onResetEdit: resetPlanDetailForm,
-          onSubmit: submitPlanDetail,
-          completePlanItem: (target) => void completePlanItem(activePlanDetailItem, target),
-          deletePlanItem: () => void deletePlanDetail(activePlanDetailItem),
-          resolveAssetUrl: resolveFoodAssetUrl,
-        } : null}
-      />
-
-      <MealEnrichmentModal
-        open={Boolean(planMealEnrichment)}
-        meal={planMealEnrichment?.meal ?? null}
-        members={props.members}
-        isUpdating={Boolean(props.isUpdatingMeal)}
-        updateMealLog={props.updateMealLog}
-        onClose={() => setPlanMealEnrichment(null)}
-        overlayRootClassName="food-workspace-overlay-root"
-        formId="food-plan-meal-enrichment-form"
-      />
-
-      <FoodWorkspaceDialogController
-        detail={undefined}
-        scenes={{
-          isSceneManagerOpen,
-          sceneFormMode,
-          sceneCards,
-          sceneDraft,
-          sceneImageState,
-          isUpdatingScene: props.isUpdatingScene,
-          onCloseManager: () => setIsSceneManagerOpen(false),
-          onOpenCreateScene: () => openCreateScene(),
-          onOpenEditScene: openEditScene,
-          onDeleteScene: (sceneId) => void deleteScene(sceneId),
-          onCloseSceneForm: closeSceneForm,
-          onSubmitScene: submitScene,
-          onGenerateSceneImage: () => void generateFoodSceneImage(),
-          onSceneDraftChange: setSceneDraft,
-          resolveFoodAssetUrl: resolveFoodAssetUrl,
-        }}
-      />
+      {/* FoodWorkspaceOperationalOverlays owns <FoodWorkspaceMealOverlays and <FoodWorkspacePlanOverlays. */}
+      <FoodWorkspaceOperationalOverlays c={{ props, quickRecord, quickMealDateOptions, setQuickRecord, submitCompactRecord, quickMealDialog, updateQuickMealDialog, submitCookConfirmDialog, detailFood, recipeCards, todayDate, closeDetail, handleOpenEdit, handleOpenRecipeEditorDirectly, openPlanDialog, openQuickMealDialog, getDefaultMealType, isPlanDialogOpen, selectedPlanFood, planFoodSearch, planForm, setPlanForm, setPlanFoodSearch, closePlanDialog, submitPlanItem, clearPlanFoodSelection, activePlanDetailItem, activePlanDetailFood, planDetailForm, isPlanDetailEditing, closePlanDetail, setPlanDetailForm, setIsPlanDetailEditing, resetPlanDetailForm, submitPlanDetail, completePlanItem, deletePlanDetail, planMealEnrichment, setPlanMealEnrichment, isSceneManagerOpen, sceneFormMode, sceneCards, sceneDraft, sceneImageState, setIsSceneManagerOpen, openCreateScene, openEditScene, deleteScene, closeSceneForm, submitScene, generateFoodSceneImage, setSceneDraft, resolveFoodAssetUrl, getFoodCover, getFoodCoverAsset, getFoodPlanDateParts, normalizeFoodType }} />
     </main>
   );
 }
