@@ -1,5 +1,5 @@
 import { lazy, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { AppNotificationCenter, AppShell } from './app/AppShell';
+import { AppShell } from './app/AppShell';
 import { type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
 import { useAppHomeHandlers } from './app/useAppHomeHandlers';
@@ -22,7 +22,6 @@ import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
 import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import { AppOverlayHost } from './app/AppOverlayHost';
 import type { AppInventoryMaintenanceDialogsProps } from './app/AppInventoryMaintenanceDialogs';
-import { resolveAppOverlayState } from './app/appOverlayState';
 import type {
   InventoryOperationDetail,
   InventoryOperationResult,
@@ -69,6 +68,7 @@ import { useAppPlanRecipeNavigation } from './app/useAppPlanRecipeNavigation';
 import { useAppFoodPlanWeekNavigation } from './app/useAppFoodPlanWeekNavigation';
 import { useAppInventoryMaintenanceDialogProps } from './app/useAppInventoryMaintenanceDialogProps';
 import { useAppHomeDashboardDialogProps } from './app/useAppHomeDashboardDialogProps';
+import { useAppOverlayComposition } from './app/useAppOverlayComposition';
 
 function App() {
   const {
@@ -670,33 +670,15 @@ function App() {
     await updateMealMutation.mutateAsync({ mealLogId: meal.id, payload });
   }
 
-  const noticeToast = notice ? (
-    <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
-      <span className="recipe-notice-icon" aria-hidden="true">
-        {notice.tone === 'success' ? '✓' : '!'}
-      </span>
-      <span className="recipe-notice-copy">
-        <strong>{notice.title}</strong>
-        <small>{notice.message}</small>
-      </span>
-      <button type="button" onClick={clearNotice} aria-label="关闭提示">
-        ×
-      </button>
-    </div>
-  ) : null;
-  const mobileNotificationCenter = (
-    <AppNotificationCenter
-      items={appNotifications.items}
-      isLoading={appNotifications.isLoading}
-      variant="mobileIcon"
-      onDismissBackgroundTask={aiImageJobMonitor.dismissJob}
-      onRetryBackgroundTask={aiImageJobMonitor.retryJob}
-      retryingBackgroundTaskId={aiImageJobMonitor.retryingJobId}
-      onOpenModelUsageAlert={appNotifications.openModelUsageAlert}
-      onDismissModelUsageAlert={appNotifications.dismissModelUsageAlert}
-    />
-  );
-  const appOverlayState = resolveAppOverlayState({
+  const {
+    noticeToast,
+    mobileNotificationCenter,
+    appOverlayState,
+  } = useAppOverlayComposition({
+    notice,
+    clearNotice,
+    appNotifications,
+    aiImageJobMonitor,
     globalSearchOpen,
     homeShoppingOpen: homeShoppingState.open,
     inventoryMaintenanceOpen: shoppingIntakeState.open || reconciliationState.open || operationHistory.open,
