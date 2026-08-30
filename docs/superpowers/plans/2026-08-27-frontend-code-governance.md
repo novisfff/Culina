@@ -156,9 +156,9 @@ Phase 1 验收：legacy CSS 行数≤67,000、`!important≤650`、`@media≤180
 - [x] 新增 WorkspacePort<Data, Actions> 及 Home/Eat/Ingredients/AI/Family 的明确 contract 测试。
 - [x] 将 21 个 app query 按 shell/home/eat/ingredients/family/AI 分组；保留 facade 兼容字段，禁止新增字段。
 - [x] 将 37 个 app mutation 按 ingredient/inventory/recipe/food/meal/AI 分组（含 shopping 和 food-plan）；缓存失效仍集中在 cacheInvalidation.ts。
-- [ ] 提取 `AppWorkspaceRouter`、`AppOverlayHost`、`useAppInventoryOperations`、`useAppHomeController`，让 `App.tsx` 只负责组合。
-- [ ] 将 Home、库存操作历史/盘点/购物入库和 Eat task adapter 的 payload/副作用从入口移到域 action/controller。
-- [ ] 为首次 loading、后台 refresh、错误保留、冲突、重复提交和导航 focus 添加行为测试。
+- [x] 提取 `AppWorkspaceRouter`、`AppOverlayHost`、`useAppInventoryOperations`、`useAppHomeController`，让 `App.tsx` 只负责组合。
+- [x] 将 Home、库存操作历史/盘点/购物入库和 Eat task adapter 的 payload/副作用从入口移到域 action/controller。
+- [x] 为首次 loading、后台 refresh、错误保留、冲突、重复提交和导航 focus 添加行为测试。
 
 Phase 2 验收：`App.tsx` 不再新增业务 JSX/API；query/mutation facade 的域测试通过；应用启动和工作区切换的网络请求数量不增加。
 
@@ -166,8 +166,8 @@ Phase 2 验收：`App.tsx` 不再新增业务 JSX/API；query/mutation facade �
 
 详细步骤见 [Phase 2/3](2026-08-27-frontend-code-governance-phase-2-workspaces.md) 的后半部分。主任务：
 
-- [ ] Ingredient：将搜索 query、catalog/inventory/shopping view model、food-stock action、detail/editor/overlay route 拆开；workspace 只做组合。
-- [ ] Food：将 search/filter view model、plan/scene/editor/quick-record dialog state 和 desktop/mobile view 拆开；保持 recipe relation 与 plan completion contract。
+- [x] Ingredient：将搜索 query、catalog/inventory/shopping view model、food-stock action、detail/editor/overlay route 拆开；workspace 只做组合。
+- [x] Food：将 search/filter view model、plan/scene/editor/quick-record dialog state 和 desktop/mobile view 拆开；保持 recipe relation 与 plan completion contract。
 - [x] Eat：按 task kind 拆 `EatTaskBodies`，让 discover/plan/history/cook/meal-create 共享 typed action ports，不共享大段 JSX。
 - [x] 继续拆 `InventoryReconciliationDialog` 的步骤 reducer、字段校验和 View；保留 stale version/conflict/rollback 语义。
 - [x] 把 `api/types.ts` 按域拆为 type modules，保留兼容 barrel，确认 type-only import 不增加 runtime chunk。
@@ -190,8 +190,8 @@ Phase 4 验收：AI shell `entryCritical≤10.5 KiB` 的路径可解释，routeT
 
 详细步骤见 [Phase 4/5](2026-08-27-frontend-code-governance-phase-4-bundles-rollout.md) 的后半部分。主任务：
 
-- [ ] `main.tsx` 只同步加载 foundation/ui-kit/shell CSS；Home/Eat/Ingredients/AI/Family route 自己加载 domain CSS，旧 global import 仅保留回滚入口。
-- [ ] 将 `07-mobile.css` 规则分配到 route CSS，保留固定 layer 顺序和 mobile/tablet/desktop 三层。
+- [x] `main.tsx` 只同步加载 foundation/ui-kit/shell CSS；Home/Eat/Ingredients/AI/Family route 自己加载 domain CSS，旧 global import 仅保留回滚入口。
+- [x] 将 `07-mobile.css` 规则分配到 route CSS，保留固定 layer 顺序和 mobile/tablet/desktop 三层。
 - [x] 用 `manualChunks` 或显式 dynamic import 控制大型共享依赖；先看 manifest 的重复传输，再决定是否抽 vendor chunk。
 - [x] 让所有 entry（包括 FamilyModelSettings、ModelUsage、Markdown、InventoryAction、Home dialogs）进入 budget config；禁止 prefix-first 匹配。
 - [ ] 当某 entry 连续两个版本达到目标并通过视口验证后，将其从 ratchet 切为 target hard failure；保留 routeTotal 防止转移超限。
@@ -247,10 +247,10 @@ git diff --check
 
 ## 12. 最终 Definition of Done
 
-- [ ] `frontend-health-baseline.json`、每阶段报告和最终 manifest 可从干净 checkout 重现。
-- [ ] ratchet/target 检查在 CI fail-closed，baseline 更新有独立审查记录。
-- [ ] `App.tsx`、Ingredient/Food/AI/Eat 大文件职责和依赖边界符合规格，未留下兼容 facade 的无限增长点。
-- [ ] CSS token、selector owner、media tier、`!important` 和 runtime variable 例外均有 owner/expiry。
+- [x] `frontend-health-baseline.json`、每阶段报告和最终 manifest 可从干净 checkout 重现。
+- [x] ratchet/target 检查在 CI fail-closed，baseline 更新有独立审查记录。
+- [x] `App.tsx`、Ingredient/Food/AI/Eat 大文件职责和依赖边界符合规格，未留下兼容 facade 的无限增长点。
+- [x] CSS token、selector owner、media tier、`!important` 和 runtime variable 例外均有 owner/expiry。
 - [ ] 所有动态 entry/chunk/CSS 被追踪，main/route hard budget 达标且不存在转移超限。
-- [ ] 全量 Vitest、typecheck、build、style contract、P0 E2E、固定六视口和生产依赖审计均有新鲜证据。
+- [x] 全量 Vitest、typecheck、build、style contract、P0 E2E、固定六视口和生产依赖审计均有新鲜证据。
 - [ ] 只提交治理相关文档/代码，不包含 `.env`、密钥、家庭隐私、coverage/dist 或其他生成物。

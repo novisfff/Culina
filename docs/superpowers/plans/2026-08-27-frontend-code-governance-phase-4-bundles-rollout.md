@@ -12,7 +12,7 @@
 
 ## 实施状态（2026-08-28）
 
-4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown vendor 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。route-owned CSS 实验因首帧/cascade 回归已回滚，待真实 route lazy boundary 完成后重做。未完成项继续保留为 `[ ]`，不以兼容 wrapper 代替完成。
+4.0–4.4 的纯状态、selection/local migration、stream reducer、approval/composer/cancellation、AI shell/view/overlay 边界已通过独立提交落地；4.5 的 Markdown vendor 二级入口已接入并完成 manifest 验证。5.3 的 rollout state 与 checker 已接入，但所有 entry 仍保持 ratchet，尚未取得启用 target 所需的连续构建与视口证据。route-owned CSS 已在真实 route lazy boundary 中接入，并通过 cascade、build 与 P0 验证；legacy 开关已实现。预算和 target rollout 仍保留为未完成项，不以兼容 wrapper 代替完成。
 
 ## Global Constraints
 
@@ -397,7 +397,7 @@ Expected: FAIL，因为当前 main/static styles.css 加载 19 个文件。
 
 每个 route entry 显式 import 对应 routes/*.css；07-mobile.css 中的业务规则先按 Phase 1 owner map 迁回，再删除旧 global import。
 
-- [ ] **Step 4: 保留本地回滚开关**
+- [x] **Step 4: 保留本地回滚开关**
 
 生产默认 route-owned；VITE_LEGACY_GLOBAL_STYLES=1 仅用于回归比对和紧急回退，测试断言两种模式不会同时加载。
 
@@ -587,7 +587,7 @@ npm --prefix frontend exec playwright test frontend/e2e --project=chromium --gre
 
 在 staging/本地分别设置 VITE_LEGACY_GLOBAL_STYLES=1、关闭一个 entry target、恢复上一 manifest，确认不删除 localStorage、AI draft、run、cook session 或服务端数据；记录恢复时间和命令。
 
-已完成逐 entry rollback CLI 的本地演练：临时将 `ai` 设为 `target` 后执行 `npm --prefix frontend run rollback:bundle-entry -- --state=../.artifacts/rollback-rehearsal-20260829/input.json --entry=ai --output=../.artifacts/rollback-rehearsal-20260829/output.json`，确认只回落 `ai.enabledMode`、evidence/其他 entry 保持不变且仓库 rollout state 未被修改；`--entry=all` 按预期拒绝。`VITE_LEGACY_GLOBAL_STYLES` 开关当前尚未实现，因此本 Step 仍保留未完成。
+已完成逐 entry rollback CLI 的本地演练：临时将 `ai` 设为 `target` 后执行 `npm --prefix frontend run rollback:bundle-entry -- --state=../.artifacts/rollback-rehearsal-20260829/input.json --entry=ai --output=../.artifacts/rollback-rehearsal-20260829/output.json`，确认只回落 `ai.enabledMode`、evidence/其他 entry 保持不变且仓库 rollout state 未被修改；`--entry=all` 按预期拒绝。`VITE_LEGACY_GLOBAL_STYLES` 开关已在 `main.tsx`、route loader 和测试中实现。
 
 - [x] **Step 5: 更新报告并提交**
 
@@ -602,12 +602,12 @@ Rollback: 逐 entry 将 target 降回 ratchet，必要时启用 VITE_LEGACY_GLOB
 
 ## Phase 4/5 Definition of Done
 
-- [ ] AiWorkspace 只做 route/port 组合；selection、local migration、stream reducer、approval、human-input、cancel、composer、message View 和 debug host 职责可从依赖图解释。
-- [ ] conversation key + run id 隔离、404 清理、partial failure、cancel/retry、approval settled refresh、未知 part 降级和失败保留均有 contract/behavior tests。
+- [x] AiWorkspace 只做 route/port 组合；selection、local migration、stream reducer、approval、human-input、cancel、composer、message View 和 debug host 职责可从依赖图解释。
+- [x] conversation key + run id 隔离、404 清理、partial failure、cancel/retry、approval settled refresh、未知 part 降级和失败保留均有 contract/behavior tests。
 - [ ] AI shell entryCritical ≤10.5 KiB gzip、AI routeTotal ≤55 KiB、Markdown ≤32 KiB；Ingredient ≤37 KiB、Food ≤26 KiB、Family profile ≤7 KiB，均以 manifest 真实去重数据为准。
-- [ ] main 只同步 foundation/primitives/shell CSS；route-owned CSS、compatibility 开关和双份加载检测可验证。
-- [ ] 所有 logical entry（含 Family Model Settings、Model Usage、Markdown、AI approval/human-input/debug、Inventory operation、Home dialogs）进入 manifest 和 budget config。
+- [x] main 只同步 foundation/primitives/shell CSS；route-owned CSS、compatibility 开关和双份加载检测可验证。
+- [x] 所有 logical entry（含 Family Model Settings、Model Usage、Markdown、AI approval/human-input/debug、Inventory operation、Home dialogs）进入 manifest 和 budget config。
 - [ ] ratchet/target fail-closed；target 只对连续两次构建、六视口、manifest complete 且无开放 exception 的 entry 启用；routeTotal 不因转移代码而绕过。
-- [ ] 发布证据包含实际命令、commit、工具链、六视口、请求数、资源 gzip/raw、cache reuse 和可执行回滚命令；未运行浏览器 smoke 明确标注。
+- [x] 发布证据包含实际命令、commit、工具链、六视口、请求数、资源 gzip/raw、cache reuse 和可执行回滚命令；未运行浏览器 smoke 明确标注。
 
 停止条件：任一 AI contract、家庭/会话隔离、P0 视口、routeTotal、manifest 完整性或 rollback rehearsal 失败时，停止 rollout，逐 entry 回到 ratchet 或恢复 legacy CSS，不删除用户状态。

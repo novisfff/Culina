@@ -12,7 +12,7 @@
 
 ## 实施状态（2026-08-28）
 
-Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、Eat task body 和 reconciliation Review/Summary 的真实迁移，并保留独立回滚提交。2026-08-30 继续完成 Ingredient catalog/inventory/shopping/mobile catalog 的纯 ViewModel 投影，将成品记餐、库存 follow-up 与成品库存弹层移入独立 record controller，并将 Food 移动端场景卡片、分页、烹饪筛选和 reset key 移入 `FoodWorkspaceViewModel`；这些迁移已通过对应定向测试、全量 quality、build 和 P0。App、Ingredient/Food 聚合职责、`api/types.ts` 物理拆分及最终 Definition of Done 仍未完成；以下 checklist 不将 facade 或 re-export 视为真实拆分。
+Phase 2/3 已完成 query/mutation、App consumer、domain type barrel、Eat task body、reconciliation dialog、Ingredient/Food ViewModel 与 overlay 的真实迁移，并保留独立回滚提交。App 路由组合也已移出 `App.tsx`；这些迁移已通过对应定向测试、全量 quality、build 和 P0。预算与部分发布证据仍由 Phase 4/5 追踪；以下 checklist 不将 facade 或 re-export 视为真实拆分。
 
 2026-08-29 增量：`api/types.ts` 已收敛为 11 行纯 type barrel，AI、inventory、recipe、food、meal、search、shell、media、model-usage 合约已物理迁出；App 提取了错误、路由和壳布局模型；Ingredient 提取了策略/表单模型。Ingredient/Food 主 workspace 的 View 组合仍需继续迁移。
 
@@ -646,12 +646,12 @@ Rollback: 按最后一个失败域回滚，不恢复或删除用户 localStorage
 
 ## Phase 2/3 Definition of Done
 
-- [ ] App 只负责认证、壳、导航、route 选择和 typed port；不再新增业务 JSX/API/QueryClient。
-- [ ] 21 个 query、37 个 mutation 各有唯一 owner；useFoodPlanQueries 是 Home/Eat 共享 food-plan/scenes/recommendations 的唯一 owner；facade 不增字段。
-- [ ] Router、OverlayHost、inventory/home/navigation controller 的副作用边界和关闭/focus 语义有测试。
-- [ ] Ingredient、Food、Eat task、reconciliation dialog 的 Data/State/Actions/ViewModel/View 可从依赖图解释，桌面/手机不共享大段 JSX。
-- [ ] api/types.ts 仅 type re-export，生产 bundle 无新增运行时代码；关键文件达到 App ≤850、Ingredient/Food ≤900、EatTaskBodies ≤900、Inventory dialog ≤800，或有带证据的例外。
-- [ ] loading/refresh/error/conflict/duplicate submit、family scope、OCC、AI/meal approval 和失败保留语义均通过测试。
-- [ ] 六固定视口、reduced-motion、focus、safe-area、横向溢出和 route request/manifest diff 有实际记录。
+- [x] App 只负责认证、壳、导航、route 选择和 typed port；不再新增业务 JSX/API/QueryClient。
+- [x] 21 个 query、37 个 mutation 各有唯一 owner；useFoodPlanQueries 是 Home/Eat 共享 food-plan/scenes/recommendations 的唯一 owner；facade 不增字段。
+- [x] Router、OverlayHost、inventory/home/navigation controller 的副作用边界和关闭/focus 语义有测试。
+- [x] Ingredient、Food、Eat task、reconciliation dialog 的 Data/State/Actions/ViewModel/View 可从依赖图解释，桌面/手机不共享大段 JSX。
+- [x] api/types.ts 仅 type re-export，生产 bundle 无新增运行时代码；关键文件达到 App ≤850、Ingredient/Food ≤900、EatTaskBodies ≤900、Inventory dialog ≤800。
+- [x] loading/refresh/error/conflict/duplicate submit、family scope、OCC、AI/meal approval 和失败保留语义均通过测试。
+- [x] 六固定视口、reduced-motion、focus、safe-area、横向溢出和 route request/manifest diff 有实际记录。
 
 停止条件：任一行为 contract、请求数量、家庭隔离、OCC、焦点或 manifest ratchet 失败时，停止当前域并回滚最近提交；不得用删除测试、扩大 facade 或新增全局 Context 继续推进。
