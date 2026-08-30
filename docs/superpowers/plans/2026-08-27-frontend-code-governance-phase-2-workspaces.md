@@ -24,6 +24,8 @@ Phase 2/3 已完成部分 query/mutation、App consumer、domain type barrel、E
 
 继续增量：新增 `FoodWorkspacePlanSurfaceModel`，将周计划 surface props 的组装和回调边界收敛到独立 projection；按 frontend 项目脚本运行的 plan/view/usage 定向测试 18/18 通过，typecheck 通过。主文件仍需继续拆 discover 与 dialog controller。
 
+继续增量：新增 `buildFoodMobileFilterTabs` 纯 projection，并补充 mutually-exclusive/reset 行为测试；按 frontend 项目脚本定向测试 9/9 通过，typecheck 通过。mobile filter 的筛选组合不再直接堆在 Workspace JSX 中。
+
 ## Global Constraints
 
 - 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
