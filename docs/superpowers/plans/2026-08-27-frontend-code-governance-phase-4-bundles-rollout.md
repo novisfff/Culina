@@ -591,6 +591,8 @@ npm --prefix frontend exec playwright test frontend/e2e --project=chromium --gre
 
 当前发布门禁状态：manifest 完整、六视口通过、report/ratchet 逻辑与回滚演练通过；Markdown routeTotal 已降至约 16.8 KiB gzip。AI 完整 routeTotal 当前约 294 KiB gzip，但扣除已加载 main shell 的 cache-aware routeTransfer 约 166.3 KiB gzip，低于新的 176 KiB hard target；完整 routeTotal 仍保留用于依赖转移审计。
 
+第一轮 rollout 证据已在提交 `26b662446b557be735b972194e8a21bff59e059e` 上重新执行 production build 与 P0 六视口，52/52 通过。
+
 - [x] **Step 5: 更新报告并提交**
 
 ~~~bash
