@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFoodEditorSceneTagOptions,
+  buildFoodMobileFilterTabs,
   buildFoodMobileWorkspaceViewModel,
   buildRecipeEditorSceneTagOptions,
 } from './FoodWorkspaceViewModel';
@@ -47,5 +48,28 @@ describe('FoodWorkspaceViewModel scene options', () => {
     expect(result.mobileLibraryFoods).toHaveLength(1);
     expect(result.mobileLibraryResetKey).toContain('all');
     expect(result.mobileScenePages).toEqual([[]]);
+  });
+
+  it('keeps mobile filter tabs mutually exclusive and resets the cooking lens', () => {
+    const calls: string[] = [];
+    const tabs = buildFoodMobileFilterTabs({
+      lensFilter: 'favorite',
+      typeFilter: 'all',
+      mealFilter: 'all',
+      sceneFilter: '晚餐',
+      governanceIssueFilter: 'all',
+      cookingFilter: 'all',
+      clearFilters: () => calls.push('clear'),
+      setCookingFilter: (value) => calls.push(`cooking:${value}`),
+      setLensFilter: (value) => calls.push(`lens:${value}`),
+      setTypeFilter: (value) => calls.push(`type:${value}`),
+      setMealFilter: (value) => calls.push(`meal:${value}`),
+      setSceneFilter: (value) => calls.push(`scene:${value}`),
+      setGovernanceIssueFilter: (value) => calls.push(`issue:${value}`),
+    });
+
+    expect(tabs.find((tab) => tab.label === '收藏')?.active).toBe(true);
+    tabs.find((tab) => tab.label === '可做')?.onClick();
+    expect(calls).toEqual(['cooking:ready', 'lens:all', 'type:all', 'meal:all', 'scene:all', 'issue:all']);
   });
 });

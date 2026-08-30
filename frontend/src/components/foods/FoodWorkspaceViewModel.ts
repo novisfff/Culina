@@ -1,6 +1,6 @@
 import type { Food, FoodScene, Recipe, FoodType, MealType } from '../../api/types/food';
 import type { MealLog } from '../../api/types/meal';
-import type { FoodWorkspaceLens } from './FoodWorkspaceOptions';
+import type { FoodWorkspaceLens, FoodGovernanceIssue } from './FoodWorkspaceOptions';
 import { getFoodSceneTags, isFoodExpiring, isFoodMissingDecisionInfo, isOutsideFood, isReadyLikeFood, normalizeFoodType } from './FoodWorkspaceHelpers';
 import {
   buildMobileFilterResetKey,
@@ -10,6 +10,38 @@ import {
   type MobileCookingFilter,
 } from './FoodMobileLibraryModel';
 import type { FoodSceneCardView } from './useFoodSceneState';
+
+export function buildFoodMobileFilterTabs(args: {
+  lensFilter: string;
+  typeFilter: string;
+  mealFilter: string;
+  sceneFilter: string;
+  governanceIssueFilter: string;
+  cookingFilter: MobileCookingFilter;
+  clearFilters: () => void;
+  setCookingFilter: (value: MobileCookingFilter) => void;
+  setLensFilter: (value: FoodWorkspaceLens) => void;
+  setTypeFilter: (value: 'all' | import('../../api/types/food').FoodType) => void;
+  setMealFilter: (value: 'all' | MealType) => void;
+  setSceneFilter: (value: string) => void;
+  setGovernanceIssueFilter: (value: 'all' | FoodGovernanceIssue) => void;
+}) {
+  const reset = () => {
+    args.setLensFilter('all');
+    args.setTypeFilter('all');
+    args.setMealFilter('all');
+    args.setSceneFilter('all');
+    args.setGovernanceIssueFilter('all');
+  };
+  return [
+    { label: '全部', active: args.lensFilter === 'all' && args.typeFilter === 'all' && args.mealFilter === 'all' && args.sceneFilter === 'all' && args.governanceIssueFilter === 'all' && args.cookingFilter === 'all', onClick: () => { args.clearFilters(); args.setCookingFilter('all'); } },
+    { label: '家常', active: args.typeFilter === 'selfMade', onClick: () => { args.setCookingFilter('all'); reset(); args.setTypeFilter('selfMade'); } },
+    { label: '外卖', active: args.typeFilter === 'takeout', onClick: () => { args.setCookingFilter('all'); reset(); args.setTypeFilter('takeout'); } },
+    { label: '收藏', active: args.lensFilter === 'favorite', onClick: () => { args.setCookingFilter('all'); reset(); args.setLensFilter('favorite'); } },
+    { label: '可做', active: args.cookingFilter === 'ready', onClick: () => { args.setCookingFilter('ready'); reset(); } },
+    { label: '缺少食材', active: args.cookingFilter === 'shortage', onClick: () => { args.setCookingFilter('shortage'); reset(); } },
+  ];
+}
 
 export function buildFoodWorkspaceViewModel(args: { foods: Food[]; recipes: Recipe[]; mealLogs: MealLog[]; search: string; typeFilter?: 'all' | FoodType; mealFilter?: 'all' | MealType; lensFilter?: FoodWorkspaceLens; matchedFoodIds?: readonly string[] }) {
   const keyword = args.search.trim().toLowerCase();

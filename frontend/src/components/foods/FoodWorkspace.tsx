@@ -101,6 +101,7 @@ import { getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
 import {
   buildFoodEditorSceneTagOptions,
   buildFoodMobileWorkspaceViewModel,
+  buildFoodMobileFilterTabs,
   buildRecipeEditorSceneTagOptions,
 } from './FoodWorkspaceViewModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
@@ -514,76 +515,21 @@ export function FoodWorkspace(props: Props) {
   );
   const mobileLibraryFoods = mobileWorkspaceViewModel.mobileLibraryFoods;
   const mobileLibraryResetKey = mobileWorkspaceViewModel.mobileLibraryResetKey;
-  const mobileFilterTabs = [
-    {
-      label: '全部',
-      active: lensFilter === 'all' && typeFilter === 'all' && mealFilter === 'all' && sceneFilter === 'all' && governanceIssueFilter === 'all' && mobileCookingFilter === 'all',
-      onClick: () => {
-        clearFoodFilters();
-        setMobileCookingFilter('all');
-      },
-    },
-    {
-      label: '家常',
-      active: typeFilter === 'selfMade',
-      onClick: () => {
-        setMobileCookingFilter('all');
-        setLensFilter('all');
-        setTypeFilter('selfMade');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '外卖',
-      active: typeFilter === 'takeout',
-      onClick: () => {
-        setMobileCookingFilter('all');
-        setLensFilter('all');
-        setTypeFilter('takeout');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '收藏',
-      active: lensFilter === 'favorite',
-      onClick: () => {
-        setMobileCookingFilter('all');
-        setLensFilter('favorite');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '可做',
-      active: mobileCookingFilter === 'ready',
-      onClick: () => {
-        setMobileCookingFilter('ready');
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '缺少食材',
-      active: mobileCookingFilter === 'shortage',
-      onClick: () => {
-        setMobileCookingFilter('shortage');
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-  ];
+  const mobileFilterTabs = buildFoodMobileFilterTabs({
+    lensFilter,
+    typeFilter,
+    mealFilter,
+    sceneFilter,
+    governanceIssueFilter,
+    cookingFilter: mobileCookingFilter,
+    clearFilters: clearFoodFilters,
+    setCookingFilter: setMobileCookingFilter,
+    setLensFilter,
+    setTypeFilter,
+    setMealFilter,
+    setSceneFilter,
+    setGovernanceIssueFilter,
+  });
 
   const imagePayload = getFoodImagePayload(form, props.recipes);
   const imageComposer = useImageComposer({
