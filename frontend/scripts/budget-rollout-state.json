@@ -17,6 +17,8 @@
     "ingredients": { "enabledMode": "ratchet", "owner": "ingredients", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "inventory-operation": { "enabledMode": "ratchet", "owner": "inventory", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "main": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "app-workspace-composition": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "app-overlay-host": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "markdown": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "model-usage": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
     "model-usage-requests": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },

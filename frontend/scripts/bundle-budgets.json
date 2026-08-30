@@ -8,6 +8,20 @@
       "phase": 5,
       "owner": "frontend-platform"
     },
+    "app-workspace-composition": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 65536,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "frontend-platform"
+    },
+    "app-overlay-host": {
+      "criticalGzipBudget": 4096,
+      "routeTotalGzipBudget": 65536,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "frontend-platform"
+    },
     "home": {
       "criticalGzipBudget": 24576,
       "routeTotalGzipBudget": 65536,

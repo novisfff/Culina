@@ -43,10 +43,10 @@ import {
   shouldStartThinkingAfterPart,
   shouldStopThinkingForPart,
 } from './state/aiStreamProjection';
-import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
 import { AiMobilePage } from './AiMobilePage';
 import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
 import { AiComposerAttachments } from './AiComposerAttachments';
+import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
 import { AiWelcomePrompt } from './AiWelcomePrompt';

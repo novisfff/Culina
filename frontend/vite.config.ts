@@ -15,6 +15,9 @@ export default defineConfig({
           if (id.includes('/node_modules/react-markdown/') || id.includes('/node_modules/remark-gfm/')) {
             return 'ai-markdown-vendor';
           }
+          if (id.includes('/node_modules/@tanstack/react-query/') || id.includes('/node_modules/@tanstack/query-core/')) {
+            return 'react-query-vendor';
+          }
           return undefined;
         },
       },

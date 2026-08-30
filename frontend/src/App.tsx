@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AppShell } from './app/AppShell';
 import { type PrimaryTabKey } from './app/appNavigationModel';
 import { useAppGlobalSearchNavigation } from './app/useAppGlobalSearchNavigation';
@@ -20,7 +20,6 @@ import { AppHomeWorkspaceRoute } from './app/AppHomeWorkspaceRoute';
 import { AppEatWorkspaceRoute } from './app/AppEatWorkspaceRoute';
 import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
 import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
-import { AppOverlayHost } from './app/AppOverlayHost';
 import type { InventoryOperationResult, MealLog, UpdateMealLogPayload } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
@@ -64,7 +63,8 @@ import { useAppHomeDashboardDialogProps } from './app/useAppHomeDashboardDialogP
 import { useAppOverlayComposition } from './app/useAppOverlayComposition';
 import { useAppEatTaskBodyArgs } from './app/useAppEatTaskBodyArgs';
 import { useAppEatTaskResolutionArgs } from './app/useAppEatTaskResolutionArgs';
-import { AppWorkspaceRouteComposition } from './app/AppWorkspaceRouteComposition';
+const AppWorkspaceRouteComposition = lazy(() => import('./app/AppWorkspaceRouteComposition').then((module) => ({ default: module.AppWorkspaceRouteComposition })));
+const AppOverlayHost = lazy(() => import('./app/AppOverlayHost').then((module) => ({ default: module.AppOverlayHost })));
 function App() {
   const {
     isAuthenticated,
@@ -817,9 +817,12 @@ function App() {
     >
       {/* routes={{...}} is owned by AppWorkspaceRouteComposition. */}
       {/* <AppMealLogWorkspaceRoute foods={foods} /> and upsertInventoryState={(ingredientId, payload) are wired in the route composition. */}
-      <AppWorkspaceRouteComposition context={routeContext} />
+      <Suspense fallback={<main className="page-stack" aria-label="正在准备工作区"><section className="card page-section"><p>正在准备家庭厨房，请稍候。</p></section></main>}>
+        <AppWorkspaceRouteComposition context={routeContext} />
+      </Suspense>
 
-      <AppOverlayHost
+      <Suspense fallback={null}>
+        <AppOverlayHost
           state={appOverlayState}
           global={{
             search: {
@@ -842,7 +845,8 @@ function App() {
           }}
           home={homeDashboardDialogProps}
           inventory={inventoryMaintenanceDialogProps}
-      />
+        />
+      </Suspense>
     </AppShell>
   );
 }

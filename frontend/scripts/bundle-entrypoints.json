@@ -2,6 +2,8 @@
   "version": 1,
   "entries": {
     "main": { "source": "src/main.tsx", "dynamic": false, "styleSources": ["src/styles.css", "src/styles/foundation.css", "src/styles/primitives.css", "src/styles/route-shell.css"] },
+    "app-workspace-composition": { "source": "src/app/AppWorkspaceRouteComposition.tsx", "dynamic": true },
+    "app-overlay-host": { "source": "src/app/AppOverlayHost.tsx", "dynamic": true },
     "home": { "source": "src/app/routeEntries/home.ts", "dynamic": true, "additionalSources": ["src/features/home/HomeDashboard.tsx"], "styleSources": ["src/features/home/home-route.css"] },
     "eat": { "source": "src/app/routeEntries/eat.ts", "dynamic": true, "additionalSources": ["src/features/eat/EatWorkspace.tsx"], "styleSources": ["src/features/eat/eat-route.css", "src/features/eat/recipe-route.css"] },
     "meal-log": { "source": "src/app/routeEntries/mealLog.ts", "dynamic": true, "additionalSources": ["src/features/meals/MealLogWorkspace.tsx"], "styleSources": ["src/features/meals/meal-route.css"] },
