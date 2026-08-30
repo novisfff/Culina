@@ -68,6 +68,7 @@ import { useAppCookNavigation } from './app/useAppCookNavigation';
 import { useAppHomeInventoryActions } from './app/useAppHomeInventoryActions';
 import { useAppPlanRecipeNavigation } from './app/useAppPlanRecipeNavigation';
 import { useAppFoodPlanWeekNavigation } from './app/useAppFoodPlanWeekNavigation';
+import { useAppInventoryMaintenanceDialogProps } from './app/useAppInventoryMaintenanceDialogProps';
 
 function App() {
   const {
@@ -702,137 +703,28 @@ function App() {
     inventoryBusy: shoppingIntakeState.busy || reconciliationState.busy || revertInventoryOperationMutation.isPending,
   });
 
-  const inventoryMaintenanceDialogProps: AppInventoryMaintenanceDialogsProps = {
-    shoppingIntake: shoppingIntakeState.open
-              ? {
-                  open: shoppingIntakeState.open,
-                  step: shoppingIntakeState.step,
-                  draft: shoppingIntakeState.draft,
-                  busy: shoppingIntakeState.busy || revertInventoryOperationMutation.isPending,
-                  errorMessage: shoppingIntakeState.errorMessage,
-                  fieldErrors: shoppingIntakeState.fieldErrors,
-                  focusFieldKey: shoppingIntakeState.focusFieldKey,
-                  conflictState: shoppingIntakeState.conflictState,
-                  result: shoppingIntakeState.result,
-                  expandedExceptionIds: shoppingIntakeState.expandedExceptionIds,
-                  freeTextCandidatesByItemId: shoppingIntakeState.candidatesByItemId,
-                  freeTextLinkOptions: shoppingIntakeState.linkOptions,
-                  onClose: () => {
-                    if (shoppingIntakeState.result) {
-                      setRecentBannerOverride(shoppingIntakeState.result);
-                    }
-                    shoppingIntakeState.closeIntake();
-                  },
-                  onGoReview: () => {
-                    shoppingIntakeState.goToReview();
-                  },
-                  onGoSelect: shoppingIntakeState.goToSelect,
-                  onToggleItem: shoppingIntakeState.toggleItemSelected,
-                  onPatchItem: shoppingIntakeState.patchItem,
-                  onCompleteFreeText: shoppingIntakeState.completeFreeText,
-                  onLinkFreeText: shoppingIntakeState.linkCandidate,
-                  onToggleException: shoppingIntakeState.toggleExceptionExpanded,
-                  onSubmit: () => {
-                    void shoppingIntakeState.submitDraft();
-                  },
-                  onRetry: () => {
-                    void shoppingIntakeState.retryLatest();
-                  },
-                  onRevertResult: (operationId) => {
-                    void handleRevertInventoryOperation(operationId);
-                  },
-                  onViewResult: (operationId) => openOperationHistory(operationId),
-                }
-              : null,
-    reconciliation: reconciliationState.open
-              ? {
-                  open: reconciliationState.open,
-                  step: reconciliationState.step,
-                  scope: reconciliationState.scope,
-                  draft: reconciliationState.draft,
-                  groups: reconciliationState.groups,
-                  orderedGroups: reconciliationState.orderedGroups,
-                  referenceDate: homeBusinessDateKey,
-                  loading: reconciliationState.loading,
-                  busy: reconciliationState.busy || revertInventoryOperationMutation.isPending,
-                  errorMessage: reconciliationState.errorMessage,
-                  fieldErrors: reconciliationState.fieldErrors,
-                  focusFieldKey: reconciliationState.focusFieldKey,
-                  conflictState: reconciliationState.conflictState,
-                  result: reconciliationState.result,
-                  summary: reconciliationState.summary,
-                  checkedCount: reconciliationState.checkedCount,
-                  totalCount: reconciliationState.totalCount,
-                  canSubmit: reconciliationState.canSubmit,
-                  expandedBatchGroupKeys: reconciliationState.expandedBatchGroupKeys,
-                  onClose: () => {
-                    if (reconciliationState.result) {
-                      setRecentBannerOverride(reconciliationState.result);
-                    }
-                    reconciliationState.closeReconciliation({
-                      familyId: family?.id ?? '',
-                      userId: user?.id ?? '',
-                      force: reconciliationState.loading,
-                    });
-                  },
-                  onChangeScope: reconciliationController.changeScope,
-                  onToggleBatchDetails: reconciliationState.toggleBatchDetails,
-                  onSetIntent: (intent) => {
-                    reconciliationState.setIntent(intent, new Date().toISOString());
-                  },
-                  onClearIntent: (targetKey) => {
-                    reconciliationState.clearIntent(targetKey, new Date().toISOString());
-                  },
-                  onGoSummary: () => {
-                    reconciliationState.goToSummary();
-                  },
-                  onGoReview: reconciliationState.goToReview,
-                  onSubmit: () => {
-                    void reconciliationActions.submitDraft();
-                  },
-                  onRetry: () => {
-                    void reconciliationActions.retryLatest();
-                  },
-                  onRevertResult: (operationId) => {
-                    void handleRevertInventoryOperation(operationId);
-                  },
-                  onViewResult: (operationId) => openOperationHistory(operationId),
-                }
-              : null,
-    operationHistory: operationHistory.open
-              ? {
-                  open: operationHistory.open,
-                  operations: inventoryOperations,
-                  loading:
-                    inventoryOperationsQuery.isLoading ||
-                    (inventoryOperationsQuery.isFetching && !inventoryOperationsQuery.data),
-                  busy: revertInventoryOperationMutation.isPending,
-                  errorMessage:
-                    operationHistory.error ??
-                    queryErrorMessage(inventoryOperationsQuery.error, '加载库存变更记录失败'),
-                  selectedOperationId: operationHistory.selectedOperationId,
-                  detail: operationHistory.detail,
-                  detailLoading: operationHistory.detailLoading,
-                  detailError: operationHistory.detailError,
-                  conflictMessage: operationHistory.conflict,
-                  initialOperationId: operationHistory.initialOperationId,
-                  onClose: closeOperationHistory,
-                  onSelectOperation: operationHistory.setSelectedOperationId,
-                  onLoadDetail: (operationId) => {
-                    void loadOperationDetail(operationId);
-                  },
-                  onRevert: (operationId) => {
-                    void handleRevertInventoryOperation(operationId);
-                  },
-                  onRetry: () => {
-                    void inventoryOperationsQuery.refetch();
-                    if (operationHistory.selectedOperationId) {
-                      void loadOperationDetail(operationHistory.selectedOperationId);
-                    }
-                  },
-                }
-              : null
-  };
+  const inventoryMaintenanceDialogProps = useAppInventoryMaintenanceDialogProps({
+    shoppingIntakeState,
+    reconciliationController,
+    operationHistory,
+    inventoryOperations,
+    inventoryOperationsQuery: {
+      isLoading: inventoryOperationsQuery.isLoading,
+      isFetching: inventoryOperationsQuery.isFetching,
+      data: inventoryOperationsQuery.data,
+      error: inventoryOperationsQuery.error,
+      refetch: () => inventoryOperationsQuery.refetch(),
+    },
+    referenceDate: homeBusinessDateKey,
+    familyId: family?.id ?? '',
+    userId: user?.id ?? '',
+    isRevertPending: revertInventoryOperationMutation.isPending,
+    setRecentBannerOverride,
+    handleRevertInventoryOperation,
+    openOperationHistory,
+    closeOperationHistory,
+    loadOperationDetail,
+  });
 
   const homeDashboardDialogProps: AppHomeDashboardDialogsProps = {
     recipes: recipes,
