@@ -67,7 +67,6 @@
 .ai-auto-execution-switch[aria-checked="true"] .ai-auto-execution-switch-thumb { transform: translateX(calc(var(--ai-auto-switch-thumb-size) + var(--ai-auto-switch-inset))); }
 .ai-auto-execution-switch:focus-visible, .ai-auto-execution-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .ai-auto-execution-back { min-height: var(--control-height); margin-bottom: var(--space-5); border: 0; background: transparent; color: var(--text-soft); cursor: pointer; }
-.ai-auto-execution-header-button { min-height: var(--control-height); }
 .ai-workspace-header-actions { display: flex; align-items: center; gap: var(--space-3); }
 .ai-auto-execution-mobile-page { display: none; }
 
@@ -2016,16 +2015,6 @@
     font-weight: 850;
     line-height: 0;
     box-shadow: 0 8px 18px rgba(91, 62, 42, 0.08);
-  }
-
-  .ai-mobile-auto-execution-trigger {
-    flex: 0 0 var(--tap-min);
-    width: var(--tap-min);
-    min-width: var(--tap-min);
-    height: var(--tap-min);
-    min-height: var(--tap-min);
-    font-size: var(--text-sm);
-    line-height: 1.4;
   }
 
   .ai-mobile-menu-mark,
@@ -9365,6 +9354,14 @@
   line-height: 1.35;
 }
 
+.ai-operation-result-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
 .ai-operation-result-status {
   display: flex;
   flex-wrap: wrap;
@@ -9402,9 +9399,59 @@
   color: var(--danger);
 }
 
+/* Revert availability is supporting metadata, so it stays compact and shares
+   the action row instead of becoming a full-width alert panel. */
+.ai-operation-result-revert-note {
+  display: inline-flex;
+  align-items: baseline;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  line-height: 1.35;
+}
+
+.ai-operation-result-revert-note span,
+.ai-operation-result-revert-note strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-operation-result-revert-note strong {
+  color: inherit;
+  font-weight: 700;
+}
+
+.ai-operation-result-revert-note.tone-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-operation-result-revert-note.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-operation-result-revert-note.tone-neutral {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+}
+
 .ai-operation-result-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-3);
   min-width: 0;
 }
@@ -10059,20 +10106,32 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     font-size: 0.78rem;
   }
 
+  .ai-operation-result-meta {
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
   .ai-operation-result-status {
     flex-direction: column;
     gap: var(--space-1);
     padding: var(--space-4);
   }
 
+  .ai-operation-result-revert-note {
+    flex-basis: auto;
+    padding: 5px 9px;
+    font-size: 0.75rem;
+  }
+
   .ai-operation-result-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+    align-items: center;
     width: 100%;
   }
 
   .ai-operation-result-actions .ghost-button {
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
     min-height: var(--control-height-touch);
   }
 

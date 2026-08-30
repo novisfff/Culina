@@ -378,6 +378,54 @@ class AIOperationResultProjectionTest(unittest.TestCase):
         self.assertEqual(message.parts, stored_parts)
         self.assertEqual(message.message_metadata, stored_metadata)
 
+    def test_legacy_operation_result_card_is_upgraded_to_public_projection(self) -> None:
+        message = AIMessage(
+            id="message-legacy-operation-result",
+            family_id="family-1",
+            conversation_id="conversation-1",
+            role="assistant",
+            content="",
+            parts=[
+                {
+                    "id": "legacy-result",
+                    "type": "result_card",
+                    "card": {
+                        "id": "operation-result:legacy-draft",
+                        "type": "operation_result",
+                        "title": "已创建食物",
+                        "data": {
+                            "actionSummary": "已创建食物",
+                            "entityCount": 1,
+                            "workspaceLabel": "食物",
+                            "entities": [
+                                {
+                                    "id": "food-legacy",
+                                    "label": "番茄炒蛋",
+                                    "operation": "create",
+                                    "operationLabel": "已创建",
+                                    "updatedAt": "2026-08-24T10:00:00Z",
+                                }
+                            ],
+                            "approvalId": "approval-legacy",
+                            "operationId": "operation-legacy",
+                            "draftId": "legacy-draft",
+                        },
+                    },
+                }
+            ],
+            message_metadata={},
+        )
+
+        response = serialize_ai_message(message, response_now=NOW)
+        data = response["parts"][0]["card"]["data"]
+        self.assertEqual(data["draft_id"], "legacy-draft")
+        self.assertEqual(data["operation_id"], "operation-legacy")
+        self.assertEqual(data["result_status"], "completed")
+        self.assertEqual(data["execution_mode"], "manual_approval")
+        self.assertEqual(data["operation_status"], "completed")
+        self.assertEqual(data["revert_availability"], "unsupported")
+        self.assertEqual(data["entities"][0]["id"], "food-legacy")
+
     def test_delayed_hydration_expires_response_copy_without_mutating_storage(self) -> None:
         module = _result_projection_module()
         projection = _projection(server_now=NOW)

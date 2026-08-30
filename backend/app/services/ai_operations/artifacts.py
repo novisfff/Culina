@@ -4,7 +4,6 @@ from typing import Any
 
 from app.core.utils import create_id
 from app.services.ai_operations.registry import draft_operation_registry
-from app.services.ai_operations.result_projection import operation_result_artifacts
 from app.services.ai_operations.status import is_operation_completed
 
 
@@ -34,6 +33,10 @@ def build_approval_result_card(
             {
                 "id": str(artifact.get("entityId") or artifact.get("id") or create_id("result_entity")),
                 "label": str(artifact.get("summary") or artifact_summary(payload, fallback_type=draft_type)),
+                "entityType": operation_result_entity_type(
+                    draft_type=draft_type,
+                    business_entity_type=str(artifact.get("businessEntityType") or ""),
+                ),
                 "operation": action or None,
                 "operationLabel": draft_operation_registry.operation_label(draft_type, action) if action else None,
                 "updatedAt": artifact.get("updatedAt"),
@@ -64,6 +67,27 @@ def build_approval_result_card(
             "draftId": draft.get("id"),
         },
     }
+
+
+def operation_result_entity_type(*, draft_type: str, business_entity_type: str) -> str:
+    draft_type_mapping = {
+        "recipe": "recipe",
+        "recipe_cook": "meal_log",
+        "meal_plan": "meal_plan",
+        "meal_log": "meal_log",
+        "food_profile": "food",
+        "ingredient_profile": "food_profile",
+    }
+    if draft_type in draft_type_mapping:
+        return draft_type_mapping[draft_type]
+    entity_type_mapping = {
+        "Food": "food",
+        "Recipe": "recipe",
+        "FoodPlanItem": "meal_plan",
+        "MealLog": "meal_log",
+        "RecipeCookLog": "meal_log",
+    }
+    return entity_type_mapping.get(business_entity_type, draft_type or business_entity_type.lower())
 
 
 def approval_decision_artifacts(

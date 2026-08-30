@@ -138,14 +138,11 @@ async function advanceTimers(ms: number) {
 }
 
 describe('AiWorkspace pending approval restore', () => {
-  it('renders the desktop auto-execution panel and returns through navigation', async () => {
-    const onNavigate = vi.fn();
-    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} view="autoExecution" onNavigate={onNavigate} />);
+  it('renders the conversation when legacy auto-execution view is requested', async () => {
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} view="autoExecution" />);
     await flushAsync();
-    const back = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '返回对话');
-    expect(back).toBeTruthy();
-    await act(async () => back?.click());
-    expect(onNavigate).toHaveBeenCalledWith({ workspace: 'ai', view: 'conversation' });
+    expect(rendered.container.querySelector('.ai-auto-execution-desktop-panel')).toBeNull();
+    expect(rendered.container.textContent).toContain('AI 厨房助手');
     rendered.unmount();
   });
   it('defaults to collapsed history on iPad width even when desktop preference is expanded', async () => {

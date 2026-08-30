@@ -53,7 +53,7 @@ description: 查询、创建、修改、删除或恢复购物清单项；不创�
 ## 审批规则
 
 - 普通 create/update/delete/restore 仅通过 `shopping.create_draft` 生成 `shopping_list` Draft；模型始终只生成 Draft。draft_then_confirm 等待真实用户决定；draft_then_policy 只生成 Draft，服务端在 evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交，否则降级人工确认。Composite/Continuation 始终人工确认。
-- 调用 Draft Tool 时，按 Tool schema 的四档定义填写可选 `intentEvidence`：`sourceQuotes` 只引用当前用户消息；`resolutionSources` 只使用当前 UI、本轮 Tool 输出或成功读取的 Artifact；歧义与默认值分别放入明确数组，不编造缺失事实。
+- 调用 Draft Tool 时，只在 `arguments.draft.intentEvidence` 填写可选的四档证据；它与 `arguments.draft.payload` 平级，不能放进业务 `payload` 或 `arguments` 根部。`sourceQuotes` 只引用当前用户消息；`resolutionSources` 只使用当前 UI、本轮 Tool 输出或成功读取的 Artifact；歧义与默认值分别放入明确数组，不编造缺失事实。
 - 事实陈述、称赞或可能的未来打算不等于写入请求；不要因为草稿合理就把它标记为执行请求。四档定义以 Tool schema 中的 `INTENT_CLARITY_MODEL_DESCRIPTION` 为准。
 - 采购完成与入库由 `inventory_analysis` 通过一份 `inventory_intake` 审批在一个事务中处理。
 - `clientRequestId`、购物项/Ingredient/Food/state 的 row version 由后端归一化或计算，模型不得编造。

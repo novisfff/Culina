@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any
 
 from sqlalchemy import select
@@ -9,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AITaskDraft
+from app.services.ai_operations.commit_coordinator import derive_draft_payload_hash
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.status import DRAFT_PENDING_CONFIRMATION
 
@@ -85,8 +84,7 @@ def create_ai_draft_approval(
 
 
 def _initial_draft_payload_hash(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return derive_draft_payload_hash(payload)
 
 
 def create_retry_ai_approval(

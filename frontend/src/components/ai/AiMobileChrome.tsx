@@ -19,7 +19,6 @@ export function AiMobileChrome(props: {
   onSelectConversation: (conversationId: string) => void;
   onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
   onDeleteConversation: (conversation: AiConversation) => void;
-  onOpenAutoExecution?: () => void;
 }) {
   const groupedConversations = useMemo(() => {
     const today: AiConversation[] = [];
@@ -147,7 +146,6 @@ export function AiMobileChrome(props: {
           <span><i aria-hidden="true" />AI 助手</span>
         </div>
         <div className="ai-mobile-actions">
-          <button className="ai-mobile-history-trigger ai-mobile-auto-execution-trigger" type="button" aria-label="AI 自动执行设置" onClick={props.onOpenAutoExecution}>设置</button>
           <button className="ai-mobile-history-trigger" type="button" aria-label="打开历史记录" onClick={props.onOpenMobileHistory}>
             <span className="ai-mobile-menu-mark" aria-hidden="true" />
           </button>

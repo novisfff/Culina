@@ -63,15 +63,17 @@ describe('appNavigationModel', () => {
     });
   });
 
-  it('navigates to and persists the AI automatic-execution settings view', () => {
-    const next = reduceNavigation(initialNavigationState, {
-      type: 'navigate',
-      target: { workspace: 'ai', view: 'autoExecution' },
-    });
+  it('falls back to the AI conversation for legacy automatic-execution navigation', () => {
+    const restored = parsePersistedNavigation(JSON.stringify({
+      version: 2,
+      primaryTab: 'ai',
+      eatBaseView: 'discover',
+      aiView: 'autoExecution',
+    }));
 
-    expect(next.primaryTab).toBe('ai');
-    expect(next.ai.view).toBe('autoExecution');
-    expect(parsePersistedNavigation(JSON.stringify(persistedNavigationFromState(next))).ai.view).toBe('autoExecution');
+    expect(restored.primaryTab).toBe('ai');
+    expect(restored.ai.view).toBe('conversation');
+    expect(persistedNavigationFromState(restored)).not.toHaveProperty('aiView');
   });
 
   it('falls back to home for corrupt v2 input', () => {

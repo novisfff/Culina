@@ -3,7 +3,6 @@ import {
   ApiError,
   assertAuthorizedResponseIdentity,
   authorizedFetch,
-  getAccessToken,
   isApiError,
   request,
 } from './request';
@@ -81,6 +80,8 @@ function isPermanentRevertConflictCode(value: unknown): value is AiOperationReve
 function isAiOperationResultEntity(value: unknown): value is AiOperationResultEntity {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.label !== 'string') return false;
   return (
+    (value.entityType === undefined || isNullableString(value.entityType))
+    &&
     (value.operation === undefined || isNullableString(value.operation))
     && (value.operationLabel === undefined || isNullableString(value.operationLabel))
     && (value.updatedAt === undefined || isNullableString(value.updatedAt))

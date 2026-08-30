@@ -76,6 +76,7 @@ function isOperationResultEntity(value: unknown): value is AiOperationResultEnti
   const entity = value as Record<string, unknown>;
   return typeof entity.id === 'string'
     && typeof entity.label === 'string'
+    && (entity.entityType === undefined || isNullableString(entity.entityType))
     && (entity.operation === undefined || isNullableString(entity.operation))
     && (entity.operationLabel === undefined || isNullableString(entity.operationLabel))
     && (entity.updatedAt === undefined || isNullableString(entity.updatedAt));
@@ -207,13 +208,16 @@ export function operationResultViewModel(
     };
   }
   const locallyExpired = deadlineMs !== null && effectiveNowMs > deadlineMs;
-  const tone: AiOperationResultViewModel['tone'] = locallyExpired || projection.revert_availability === 'expired'
-    ? 'danger'
-    : projection.revert_availability === 'blocked'
-      ? 'danger'
-      : projection.revert_availability === 'unsupported' || projection.revert_availability === 'reverted'
-        ? 'neutral'
-        : 'success';
+  // A revert window closing or being blocked is an expected lifecycle state,
+  // not a failed operation. Keep the destructive tone reserved for an actual
+  // execution failure (handled above).
+  const tone: AiOperationResultViewModel['tone'] = locallyExpired
+    || projection.revert_availability === 'expired'
+    || projection.revert_availability === 'blocked'
+    || projection.revert_availability === 'unsupported'
+    || projection.revert_availability === 'reverted'
+    ? 'neutral'
+    : 'success';
   return {
     eyebrow: OPERATION_RESULT_EYEBROWS[projection.execution_mode],
     canRevert: Boolean(projection.operation_id)

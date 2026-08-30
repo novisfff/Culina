@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, Iterator
 
@@ -12,7 +13,12 @@ from sqlalchemy.pool import StaticPool
 from app.ai.errors import AIConflictError
 from app.ai.workflows.runner_support.human_input_resume_handler import HumanInputResumeHandler
 from app.ai.workflows.runner_support.human_input_resume_preparer import HumanInputResumePreparer
+from app.ai.workflows.runner_support.human_input_resume_claim import (
+    STREAM_RESUME_CLAIM_TTL,
+    current_stream_resume_claim,
+)
 from app.core.enums import AiMode, AIConversationVisibility, MembershipStatus, UserRole
+from app.core.utils import utcnow
 from app.models.domain import (
     AIAgentRun,
     AIConversation,
@@ -232,6 +238,32 @@ def test_second_stream_prepare_cannot_take_the_committed_claim(
     with resume_context.SessionLocal() as second_db:
         with pytest.raises(AIConflictError):
             resume_context.prepare(second_db)
+
+
+def test_expired_stream_claim_can_be_replaced_after_worker_crash(
+    resume_context: _ResumeContext,
+) -> None:
+    with resume_context.SessionLocal() as first_db:
+        prepared = resume_context.prepare(first_db)
+        run = first_db.get(AIAgentRun, resume_context.run_id)
+        assert run is not None
+        claim = dict((run.context_summary or {}).get("_streamResumeClaim") or {})
+        claim["claimedAt"] = (utcnow() - STREAM_RESUME_CLAIM_TTL - timedelta(seconds=1)).isoformat()
+        run.context_summary = {**(run.context_summary or {}), "_streamResumeClaim": claim}
+        first_db.commit()
+
+    with resume_context.SessionLocal() as second_db:
+        replacement = resume_context.prepare(second_db)
+        assert replacement.resume_payload.get("_resumeClaimToken")
+        assert replacement.resume_payload.get("_resumeClaimToken") != claim.get("token")
+
+
+def test_fresh_stream_claim_remains_active(resume_context: _ResumeContext) -> None:
+    with resume_context.SessionLocal() as db:
+        resume_context.prepare(db)
+        run = db.get(AIAgentRun, resume_context.run_id)
+        assert run is not None
+        assert current_stream_resume_claim(run) is not None
 
 
 def test_worker_must_present_the_committed_claim_token(

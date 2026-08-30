@@ -129,17 +129,13 @@ describe('AiMobileChrome touch targets', () => {
         onSelectConversation={() => undefined}
         onChangeVisibility={() => undefined}
         onDeleteConversation={() => undefined}
-        onOpenAutoExecution={() => undefined}
       />,
     );
 
-    const settings = rendered.container.querySelector<HTMLButtonElement>(
-      'button[aria-label="AI 自动执行设置"]',
-    );
     const history = rendered.container.querySelector<HTMLButtonElement>(
       'button[aria-label="打开历史记录"]',
     );
-    expect(settings?.classList.contains('ai-mobile-auto-execution-trigger')).toBe(true);
+    expect(rendered.container.querySelector('button[aria-label="AI 自动执行设置"]')).toBeNull();
     expect(history?.classList.contains('ai-mobile-auto-execution-trigger')).toBe(false);
     rendered.unmount();
   });

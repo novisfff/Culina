@@ -3,7 +3,6 @@ import type {
   AiGeneratedRecipeDraft,
   AiInventoryCardAction,
   AiInventoryResultItem,
-  AiOperationResultEntity,
   AiProductLoopPrompt,
   AiResultCard,
   AiTodayRecommendationItem,
@@ -13,7 +12,11 @@ import type {
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
-import { useAiOperationRevert } from '../../features/ai-auto-execution/useAiOperationRevert';
+import {
+  AiOperationRevertBoundary,
+  useAiOperationRevertWithController,
+  type AiOperationRevertController,
+} from '../../features/ai-auto-execution/useAiOperationRevert';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { approvalStatusText } from './AiApprovalPanel';
 import { AiMealIdeaProposal } from './AiMealIdeaProposal';
@@ -37,31 +40,6 @@ import {
 export { targetForAiEntity } from './AiResultCardModel';
 
 type NavigateTarget = (target: AppNavigationTarget) => void;
-
-function entityTypeFromOperationEntity(entity: AiOperationResultEntity): string | null {
-  const candidates = [entity.operation, entity.label]
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
-    .map((value) => value.trim().toLowerCase());
-  for (const value of candidates) {
-    if (value.includes('meal_log') || value.includes('meal-log') || value === '餐食记录') return 'meal_log';
-    if (value.includes('meal_plan') || value.includes('food_plan') || value === '菜单计划' || value === '餐食计划') return 'meal_plan';
-    if (value.includes('food_profile') || value === 'food' || value === '食物') return 'food';
-    if (value.includes('recipe') || value === '菜谱') return 'recipe';
-  }
-  return null;
-}
-
-function navigateTargetForOperationEntity(entity: AiOperationResultEntity): AppNavigationTarget | null {
-  // Prefer explicit entityType when present on extended payloads.
-  const extended = entity as AiOperationResultEntity & { entityType?: string | null; entity_type?: string | null };
-  const explicit = extended.entityType ?? extended.entity_type;
-  if (explicit) {
-    return targetForAiEntity({ type: explicit, id: entity.id });
-  }
-  const inferred = entityTypeFromOperationEntity(entity);
-  if (!inferred) return null;
-  return targetForAiEntity({ type: inferred, id: entity.id });
-}
 
 function comparableOperationResultText(value: string) {
   return value.replace(/\s+/g, '').replace(/[，。！？；：,.!?;:]+$/g, '');
@@ -318,16 +296,16 @@ function ClarificationCard({ card }: { card: AiResultCard }) {
   );
 }
 
-function OperationResultCard({
+function OperationResultCardContent({
   card,
   conversationId,
-  onNavigate,
   onResultCard,
+  revertController,
 }: {
   card: AiResultCard;
   conversationId?: string;
-  onNavigate?: NavigateTarget;
   onResultCard?: (card: AiResultCard) => void;
+  revertController: AiOperationRevertController;
 }) {
   const [currentCard, setCurrentCard] = useState(card);
   useEffect(() => setCurrentCard(card), [card]);
@@ -380,7 +358,7 @@ function OperationResultCard({
       window.removeEventListener('offline', updateOnlineState);
     };
   }, []);
-  const revert = useAiOperationRevert({
+  const revert = useAiOperationRevertWithController(revertController, {
     operationId: projection?.operation_id ?? undefined,
     conversationId: conversationId ?? '',
     onResultCard: (nextCard) => {
@@ -415,16 +393,9 @@ function OperationResultCard({
   const shouldShowActionSummary = Boolean(actionSummary) && normalizedSummary !== normalizedTitle;
   const shouldShowEntityCount = entities.length > 0 || (typeof currentCard.data.entityCount === 'number' && currentCard.data.entityCount > 0);
   const destinationText = workspaceHint.trim();
-  const detailTarget = entities.map(navigateTargetForOperationEntity).find(Boolean) ?? null;
   const showRevert = viewModel.canRevert;
   const keepAttemptedRevertControl = revert.hasAttempted && !showRevert;
   const showRevertControl = showRevert || keepAttemptedRevertControl;
-  // Navigation remains useful after a revert window expires or an adapter is
-  // blocked/unsupported.  `no_change` is intentionally the one terminal
-  // result with no detail/settings action because there is no persisted write
-  // to inspect or manage.
-  const showNavigationActions = projection.result_status !== 'no_change';
-  const showActions = showRevertControl || showNavigationActions;
   const terminalRevertControl = keepAttemptedRevertControl;
   const guardedRevertControl = revert.isPending || terminalRevertControl;
   const revertLabel = revert.isPending
@@ -463,8 +434,6 @@ function OperationResultCard({
       {entities.length > 0 && (
         <div className="ai-query-recommendation-list" aria-label="已完成内容">
           {entities.map((item) => {
-            const target = navigateTargetForOperationEntity(item);
-            const canOpen = Boolean(target && onNavigate);
             return (
               <section key={item.id} className="ai-recommendation-item ai-operation-result-item">
                 <span className="ai-operation-result-state" aria-label="已完成">
@@ -473,19 +442,7 @@ function OperationResultCard({
                   </svg>
                 </span>
                 <div className="ai-operation-result-item-copy">
-                  {canOpen ? (
-                    <button
-                      type="button"
-                      className="ai-entity-open-button"
-                      onClick={() => {
-                        if (target) onNavigate?.(target);
-                      }}
-                    >
-                      <strong>{operationResultEntityLabel(item)}</strong>
-                    </button>
-                  ) : (
-                    <strong>{operationResultEntityLabel(item)}</strong>
-                  )}
+                  <strong>{operationResultEntityLabel(item)}</strong>
                   <p>
                     {[operationResultOperationLabel(item), item.updatedAt ? `更新于 ${item.updatedAt}` : null].filter(Boolean).join(' · ')}
                   </p>
@@ -495,55 +452,47 @@ function OperationResultCard({
           })}
         </div>
       )}
-      {destinationText && (
-        <div className="ai-operation-result-footer" aria-label="查看提示">
-          <span>查看位置</span>
-          <strong>{workspaceLabel}</strong>
-          {destinationText !== `可前往${workspaceLabel}查看` && <small>{destinationText}</small>}
-        </div>
-      )}
-      <div className={`ai-operation-result-status tone-${viewModel.tone}`}>
-        <span>{displayedStatus}</span>
-        {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
-      </div>
-      {showActions && (
-        <div className="ai-operation-result-actions">
-          {showRevertControl && (
-            <button
-              className="ghost-button ai-operation-revert-button"
-              type="button"
-              disabled={!guardedRevertControl && (!showRevert || !conversationId || !isOnline)}
-              aria-disabled={guardedRevertControl || undefined}
-              aria-busy={revert.isPending}
-              onKeyDown={(event) => {
-                if (guardedRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
-              }}
-              onClick={() => {
-                if (guardedRevertControl) return;
-                if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
-              }}
-            >
-              {revertLabel}
-            </button>
+      {(destinationText || !showRevertControl) && (
+        <div className="ai-operation-result-meta">
+          {destinationText && (
+            <div className="ai-operation-result-footer" aria-label="查看提示">
+              <span>查看位置</span>
+              <strong>{workspaceLabel}</strong>
+              {destinationText !== `可前往${workspaceLabel}查看` && <small>{destinationText}</small>}
+            </div>
           )}
-          <button
-            className="ghost-button"
-            type="button"
-            disabled={!detailTarget || !onNavigate}
-            onClick={() => detailTarget && onNavigate?.(detailTarget)}
-          >
-            查看详情
-          </button>
-          <button
-            className="ghost-button ai-operation-settings-button"
-            type="button"
-            disabled={!onNavigate}
-            onClick={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}
-          >
-            管理自动执行设置
-          </button>
+          {!showRevertControl && (
+            <div className={`ai-operation-result-revert-note tone-${viewModel.tone}`}>
+              <span>{displayedStatus}</span>
+              {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
+            </div>
+          )}
         </div>
       )}
+      {showRevertControl ? (
+        <div className="ai-operation-result-actions">
+          <button
+            className="ghost-button ai-operation-revert-button"
+            type="button"
+            disabled={!guardedRevertControl && (!showRevert || !conversationId || !isOnline)}
+            aria-disabled={guardedRevertControl || undefined}
+            aria-busy={revert.isPending}
+            onKeyDown={(event) => {
+              if (guardedRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+            }}
+            onClick={() => {
+              if (guardedRevertControl) return;
+              if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
+            }}
+          >
+            {revertLabel}
+          </button>
+          <div className={`ai-operation-result-revert-note tone-${viewModel.tone}`}>
+            <span>{displayedStatus}</span>
+            {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
+          </div>
+        </div>
+      ) : null}
       <div
         className={`ai-operation-result-announcement ${revert.isError ? 'tone-danger' : 'tone-success'}`}
         role="status"
@@ -553,6 +502,20 @@ function OperationResultCard({
         {revert.announcement}
       </div>
     </article>
+  );
+}
+
+function OperationResultCard(props: {
+  card: AiResultCard;
+  conversationId?: string;
+  onResultCard?: (card: AiResultCard) => void;
+}) {
+  return (
+    <AiOperationRevertBoundary>
+      {(revertController) => (
+        <OperationResultCardContent {...props} revertController={revertController} />
+      )}
+    </AiOperationRevertBoundary>
   );
 }
 
@@ -672,7 +635,6 @@ export function ResultCard({
       <OperationResultCard
         card={card}
         conversationId={conversationId}
-        onNavigate={onNavigate}
         onResultCard={onResultCard}
       />
     );

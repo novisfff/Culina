@@ -6,7 +6,13 @@ import { aiApi } from '../../api/aiApi';
 import { queryKeys } from '../../api/queryKeys';
 import { ApiError } from '../../api/request';
 import type { AiOperationRevertResponse, AiResultCard } from '../../api/types';
-import { useAiOperationRevert } from './useAiOperationRevert';
+import {
+  AiOperationRevertBoundary,
+  AiOperationRevertProvider,
+  useAiOperationRevert,
+  useAiOperationRevertWithController,
+  type AiOperationRevertController,
+} from './useAiOperationRevert';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -49,6 +55,20 @@ function Harness({ onCard }: { onCard: (card: AiResultCard) => void }) {
   );
 }
 
+function BoundaryControllerHarness({
+  controller,
+  onCard,
+}: {
+  controller: AiOperationRevertController;
+  onCard: (card: AiResultCard) => void;
+}) {
+  const revert = useAiOperationRevertWithController(controller, {
+    conversationId: 'conversation-1',
+    onResultCard: onCard,
+  });
+  return <button type="button" onClick={() => revert.mutate('operation-1')}>共享撤销</button>;
+}
+
 async function renderHarness(onCard: (card: AiResultCard) => void) {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -68,6 +88,34 @@ afterEach(() => {
 });
 
 describe('useAiOperationRevert', () => {
+  it('reuses the provider controller through the boundary', async () => {
+    const card = response();
+    const apiSpy = vi.spyOn(aiApi, 'revertAiOperation').mockResolvedValue(card);
+    const onCard = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AiOperationRevertProvider>
+            <AiOperationRevertBoundary>
+              {(controller) => <BoundaryControllerHarness controller={controller} onCard={onCard} />}
+            </AiOperationRevertBoundary>
+          </AiOperationRevertProvider>
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('button')?.click(); });
+
+    expect(apiSpy).toHaveBeenCalledTimes(1);
+    expect(onCard).toHaveBeenCalledWith(card.result_card);
+    await act(async () => { root.unmount(); });
+    container.remove();
+  });
+
   it('fails offline without pausing or replaying the mutation on reconnect', async () => {
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
     onlineManager.setOnline(false);

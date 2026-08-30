@@ -120,7 +120,9 @@ def derive_draft_operation_idempotency_key(draft_id: str, draft_version: int) ->
 
 
 def derive_draft_payload_hash(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    normalized_payload = dict(payload)
+    normalized_payload.pop("intentEvidence", None)
+    canonical = json.dumps(normalized_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

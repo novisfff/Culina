@@ -16,7 +16,7 @@ type RevertOperationState = {
   resultCard: AiResultCard | null;
 };
 
-type AiOperationRevertController = {
+export type AiOperationRevertController = {
   states: ReadonlyMap<string, RevertOperationState>;
   mutate: (input: RevertOperationInput) => void;
 };
@@ -97,14 +97,14 @@ export function AiOperationRevertProvider({ children }: { children: ReactNode })
   return createElement(AiOperationRevertContext.Provider, { value: controller }, children);
 }
 
-export function useAiOperationRevert(input: {
-  operationId?: string;
-  conversationId: string;
-  onResultCard: (card: AiResultCard) => void;
-}) {
-  const sharedController = useContext(AiOperationRevertContext);
-  const localController = useAiOperationRevertController();
-  const controller = sharedController ?? localController;
+export function useAiOperationRevertWithController(
+  controller: AiOperationRevertController,
+  input: {
+    operationId?: string;
+    conversationId: string;
+    onResultCard: (card: AiResultCard) => void;
+  },
+) {
   const [localOperationId, setLocalOperationId] = useState(input.operationId ?? '');
   const operationId = input.operationId ?? localOperationId;
   const state = controller.states.get(operationId);
@@ -125,4 +125,26 @@ export function useAiOperationRevert(input: {
     resultCard: state?.resultCard ?? null,
     hasAttempted: Boolean(state),
   };
+}
+
+export function AiOperationRevertBoundary({
+  children,
+}: {
+  children: (controller: AiOperationRevertController) => ReactNode;
+}): ReactNode {
+  const sharedController = useContext(AiOperationRevertContext);
+  if (sharedController) return children(sharedController);
+  return createElement(
+    AiOperationRevertProvider,
+    null,
+    createElement(AiOperationRevertBoundary, { children }),
+  );
+}
+
+export function useAiOperationRevert(input: {
+  operationId?: string;
+  conversationId: string;
+  onResultCard: (card: AiResultCard) => void;
+}) {
+  return useAiOperationRevertWithController(useAiOperationRevertController(), input);
 }

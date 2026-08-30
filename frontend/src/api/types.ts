@@ -1990,6 +1990,7 @@ export interface AiClarificationCandidate {
 export interface AiOperationResultEntity {
   id: string;
   label: string;
+  entityType?: string | null;
   operation?: string | null;
   operationLabel?: string | null;
   updatedAt?: string | null;

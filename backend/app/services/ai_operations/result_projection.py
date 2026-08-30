@@ -35,6 +35,7 @@ PUBLIC_RESULT_FIELDS = (
 PUBLIC_RESULT_ENTITY_FIELDS = (
     "id",
     "label",
+    "entityType",
     "operation",
     "operationLabel",
     "updatedAt",

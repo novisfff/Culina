@@ -51,7 +51,7 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - 即时推荐是只读终态，不生成草稿。
 - `meal_idea_proposal` 同样是只读终态；必须先经用户动作进入菜谱整理并完成菜谱审批，之后正式计划才能引用真实实体。
 - 正式计划仅通过 `meal_plan.create_draft`；模型始终只生成 Draft。draft_then_confirm 等待真实用户决定；draft_then_policy 只生成 Draft，服务端在 evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交，否则降级人工确认。Composite/Continuation 始终人工确认；确认或策略提交前不写正式 `FoodPlanItem`。
-- 调用 Draft Tool 时，按 Tool schema 的四档定义填写可选 `intentEvidence`：`sourceQuotes` 只引用当前用户消息；`resolutionSources` 只使用当前 UI、本轮 Tool 输出或成功读取的 Artifact；歧义与默认值分别放入明确数组，不编造缺失事实。
+- 调用 Draft Tool 时，只在 `arguments.draft.intentEvidence` 填写可选的四档证据；它与 `arguments.draft.payload` 平级，不能放进业务 `payload` 或 `arguments` 根部。`sourceQuotes` 只引用当前用户消息；`resolutionSources` 只使用当前 UI、本轮 Tool 输出或成功读取的 Artifact；歧义与默认值分别放入明确数组，不编造缺失事实。
 - 事实陈述、称赞或可能的未来打算不等于写入请求；不要因为草稿合理就把它标记为执行请求。四档定义以 Tool schema 中的 `INTENT_CLARITY_MODEL_DESCRIPTION` 为准。
 - continuation 只负责恢复能力；运行时不得在审批成功后自动生成或提交下一个草稿。
 

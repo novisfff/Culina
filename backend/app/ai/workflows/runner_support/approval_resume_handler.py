@@ -244,10 +244,6 @@ class ApprovalResumeHandler:
                 run_artifacts=run_artifacts,
                 approval_artifacts=approval_artifacts,
             )
-        requires_orchestrator_resume = self.runner._approval_requires_orchestrator_resume(
-            serialized,
-            run=run,
-        )
         resume_artifact = self._consume_resume_artifact(state=state, serialized=serialized)
         if self._is_typed_continuation(resume_artifact):
             resolved_artifact, injected_skill_keys, injection_history, should_continue = (
@@ -278,24 +274,7 @@ class ApprovalResumeHandler:
                 injection_history=injection_history,
             )
         if resume_artifact is None:
-            if requires_orchestrator_resume:
-                if run is not None:
-                    run.status = "running"
-                if conversation is not None:
-                    conversation.last_run_status = "running"
-                self.runner.db.flush()
-                return approval_resolved_state_patch(
-                    state=state,
-                    serialized=serialized,
-                    status="running",
-                    run_artifacts=run_artifacts,
-                    approval_artifacts=approval_artifacts,
-                )
-            self.runner.approval_followup_streamer.append_deterministic_completion(
-                state,
-                serialized,
-                terminal_status="completed",
-            )
+            self.runner.approval_followup_streamer.stream_followup(state, serialized, terminal_status="completed")
             if run is not None:
                 run.status = "completed"
             if conversation is not None:
@@ -524,13 +503,6 @@ class ApprovalResumeHandler:
         conversation: AIConversation | None,
         decision_draft_type: str,
     ) -> dict[str, Any]:
-        # Capture this before marking the run running below.  The running
-        # status is a transient state for the resume itself and must not by
-        # itself turn a terminal single-Skill approval into another model turn.
-        requires_orchestrator_resume = self.runner._approval_requires_orchestrator_resume(
-            serialized,
-            run=run,
-        )
         if run is not None:
             run.status = "running"
             run.context_summary = record_approval_outcome_summary(
@@ -574,19 +546,7 @@ class ApprovalResumeHandler:
                 injection_history=injection_history,
             )
         if resume_artifact is None:
-            if requires_orchestrator_resume:
-                return approval_resolved_state_patch(
-                    state=state,
-                    serialized=serialized,
-                    status="running",
-                    run_artifacts=run_artifacts,
-                    approval_artifacts=approval_artifacts,
-                )
-            self.runner.approval_followup_streamer.append_deterministic_completion(
-                state,
-                serialized,
-                terminal_status="completed",
-            )
+            self.runner.approval_followup_streamer.stream_followup(state, serialized, terminal_status="completed")
             if run is not None:
                 run.status = "completed"
             if conversation is not None:

@@ -59,7 +59,6 @@ type Props = {
   onSelectConversation: (conversationId: string) => void;
   onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
   onDeleteConversation: (conversation: AiConversation) => void;
-  onOpenAutoExecution?: () => void;
   onDraftChange: (value: string) => void;
   onAttachmentFiles: (files: File[]) => void;
   onRemoveAttachment: (clientAttachmentId: string) => void;
@@ -222,7 +221,6 @@ export function AiMobilePage(props: Props) {
         onSelectConversation={props.onSelectConversation}
         onChangeVisibility={props.onChangeVisibility}
         onDeleteConversation={props.onDeleteConversation}
-        onOpenAutoExecution={props.onOpenAutoExecution}
       />
 
       <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>

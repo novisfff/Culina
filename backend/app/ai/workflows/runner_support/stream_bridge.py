@@ -186,21 +186,27 @@ def consume_stream_graph_worker(
     perf_context: dict[str, Any] | None,
     stream_done_marker: object,
 ) -> None:
-    worker_runner, close_worker_runner = make_stream_worker_runner(
-        db_bind=db_bind,
-        provider_factory=provider_factory,
-        runner_factory=runner_factory,
-    )
     context = perf_context or {}
     family_id = context.get("family_id")
     run_id = context.get("run_id")
-    if isinstance(family_id, str) and family_id and isinstance(run_id, str) and run_id:
-        # Never carry a request-thread provider into a worker. The worker has
-        # its own Session and reconstructs from the immutable run snapshot.
-        worker_runner._bind_provider_for_run(family_id=family_id, run_id=run_id)
-    previous_sink = worker_runner._direct_stream_sink
-    worker_runner._direct_stream_sink = enqueue
+    worker_runner: WorkspaceGraphRunner | None = None
+    close_worker_runner: Callable[[], None] = lambda: None
+    previous_sink: Any = None
+    sink_bound = False
+    worker_failure: BaseException | None = None
     try:
+        worker_runner, close_worker_runner = make_stream_worker_runner(
+            db_bind=db_bind,
+            provider_factory=provider_factory,
+            runner_factory=runner_factory,
+        )
+        if isinstance(family_id, str) and family_id and isinstance(run_id, str) and run_id:
+            # Never carry a request-thread provider into a worker. The worker has
+            # its own Session and reconstructs from the immutable run snapshot.
+            worker_runner._bind_provider_for_run(family_id=family_id, run_id=run_id)
+        previous_sink = worker_runner._direct_stream_sink
+        worker_runner._direct_stream_sink = enqueue
+        sink_bound = True
         drain_stream_graph(
             worker_runner,
             graph_stream=graph_stream,
@@ -211,17 +217,36 @@ def consume_stream_graph_worker(
             perf_context=perf_context,
         )
     except BaseException as exc:
-        handle_stream_worker_exception(
-            worker_runner,
-            exc,
-            event_queue=event_queue,
-            is_disconnected=is_disconnected,
-            on_worker_exception=on_worker_exception,
-            perf_context=perf_context,
-            enqueue=enqueue,
-        )
+        worker_failure = exc
+        try:
+            if worker_runner is None:
+                if not is_disconnected():
+                    event_queue.put(exc)
+            else:
+                handle_stream_worker_exception(
+                    worker_runner,
+                    exc,
+                    event_queue=event_queue,
+                    is_disconnected=is_disconnected,
+                    on_worker_exception=on_worker_exception,
+                    perf_context=perf_context,
+                    enqueue=enqueue,
+                )
+        except BaseException as handler_exc:
+            if not is_disconnected():
+                event_queue.put(handler_exc)
     finally:
-        worker_runner._direct_stream_sink = previous_sink
-        close_worker_runner()
+        if worker_runner is not None:
+            if sink_bound:
+                try:
+                    worker_runner._direct_stream_sink = previous_sink
+                except BaseException as restore_exc:
+                    if worker_failure is None and not is_disconnected():
+                        event_queue.put(restore_exc)
+            try:
+                close_worker_runner()
+            except BaseException as close_exc:
+                if worker_failure is None and not is_disconnected():
+                    event_queue.put(close_exc)
         if not is_disconnected():
             event_queue.put(stream_done_marker)

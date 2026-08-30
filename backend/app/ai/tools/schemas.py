@@ -18,6 +18,7 @@ INTENT_CLARITY_MODEL_DESCRIPTION = """
 - explicit_incomplete：用户要求了操作，但关键值或目标缺失、歧义、冲突或依赖默认值。
 - inferred：用户没有直接要求写入；事实陈述、称赞或可能的未来打算都不是操作指令。
 不得因为 Draft 看起来合理而升级档位。没有证据时省略 intentEvidence，服务端会要求人工确认。
+intentEvidence 必须放在 draft 对象上，路径是 arguments.draft.intentEvidence；它与 arguments.draft.payload 平级，不能放进 payload，也不能放在 arguments 根部。
 """.strip()
 
 INTENT_EVIDENCE_SCHEMA: dict[str, Any] = {

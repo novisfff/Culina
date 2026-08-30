@@ -161,15 +161,44 @@ describe('AI operation result state', () => {
     });
   });
 
-  it('does not style blocked or unsupported results as success', () => {
+  it('uses a calm neutral tone for results that cannot be reverted', () => {
     expect(operationResultViewModel(operationProjection({
       revert_availability: 'blocked',
       revert_blocked_code: 'revert_target_changed',
-    }), Date.parse('2026-08-24T15:00:00+08:00')).tone).toBe('danger');
+    }), Date.parse('2026-08-24T15:00:00+08:00')).tone).toBe('neutral');
+    expect(operationResultViewModel(operationProjection({
+      revert_availability: 'expired',
+    }), Date.parse('2026-08-24T16:00:00+08:00')).tone).toBe('neutral');
     expect(operationResultViewModel(operationProjection({
       revert_availability: 'unsupported',
       revertible_until: null,
     }), Date.parse('2026-08-24T15:00:00+08:00')).tone).toBe('neutral');
+    expect(operationResultViewModel(operationProjection({
+      result_status: 'failed',
+      operation_status: 'failed',
+    }), Date.parse('2026-08-24T15:00:00+08:00')).tone).toBe('danger');
+  });
+
+  it('keeps the available revert hint beside the revert action', async () => {
+    vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
+    const view = await renderCard(operationCard());
+    const actions = view.querySelector('.ai-operation-result-actions');
+    const note = actions?.querySelector('.ai-operation-result-revert-note.tone-success');
+
+    expect(actions).not.toBeNull();
+    expect(note?.textContent).toContain('可在 1 小时内撤销');
+    expect(note?.textContent).toContain('可撤销至 15:42');
+    expect(view.querySelector('.ai-operation-result-status')).toBeNull();
+  });
+
+  it('renders an expired revert hint as compact neutral metadata', async () => {
+    vi.setSystemTime(new Date('2026-08-24T16:00:00+08:00'));
+    const view = await renderCard(operationCard({ revert_availability: 'expired' }));
+    const note = view.querySelector('.ai-operation-result-revert-note.tone-neutral');
+
+    expect(note?.textContent).toContain('撤销时间已过');
+    expect(note?.parentElement).toHaveClass('ai-operation-result-meta');
+    expect(view.querySelector('.ai-operation-result-revert-note.tone-danger')).toBeNull();
   });
 
   it.each([
@@ -329,40 +358,11 @@ describe('AI operation result state', () => {
     expect(view.textContent).toContain('撤销时间已过，可前往页面修改');
   });
 
-  it('navigates to details and settings with keyboard-operable buttons', async () => {
+  it('does not render a details action on an operation result', async () => {
     vi.setSystemTime(new Date('2026-08-24T15:00:00+08:00'));
-    const targets: unknown[] = [];
-    const view = await renderCard(operationCard(), undefined, undefined, undefined, (target) => targets.push(target));
-    const user = userEvent.setup();
-    const detail = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情') as HTMLButtonElement;
-    detail.focus();
-    await user.keyboard('{Enter}');
-    expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
-    expect(document.activeElement).toBe(detail);
-    const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置') as HTMLButtonElement;
-    expect(settings).toBeDefined();
-    await user.click(settings);
-    expect(targets).toContainEqual({ workspace: 'ai', view: 'autoExecution' });
-  });
-
-  it.each(['expired', 'blocked', 'unsupported'] as const)('keeps detail navigation for a non-revertible %s result', async (revert_availability) => {
-    const targets: unknown[] = [];
-    const view = await renderCard(
-      operationCard({ revert_availability }),
-      undefined,
-      undefined,
-      undefined,
-      (target) => targets.push(target),
-    );
-
-    const detail = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '查看详情');
-    const settings = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent === '管理自动执行设置');
-    expect(detail).toBeDefined();
-    expect(settings).toBeDefined();
-    expect(detail).toBeEnabled();
-
-    await userEvent.setup().click(detail!);
-    expect(targets).toContainEqual({ workspace: 'eat', view: 'food', foodId: 'food-1' });
+    const view = await renderCard(operationCard(), undefined, undefined, undefined, () => undefined);
+    expect(view.textContent).not.toContain('查看详情');
+    expect(Array.from(view.querySelectorAll<HTMLButtonElement>('button')).some((button) => button.textContent === '查看详情')).toBe(false);
   });
 });
 

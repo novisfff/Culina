@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.ai.errors import ToolBudgetHardStop
+from app.ai.errors import ToolBudgetHardStop, ToolExecutionError
+from app.ai.observability import error_codes
 from app.ai.skills.base import SkillContext
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.draft_capture import (
@@ -174,7 +175,7 @@ class OrchestratorToolGateway:
                 injection_manager=self.injection_manager,
                 capability_policy=self.state.capability_policy,
             )
-        except Exception:
+        except Exception as exc:
             if "continuation" in runtime_payload:
                 workflow_id = (
                     str(raw_continuation.get("workflowId") or "").strip()
@@ -188,7 +189,17 @@ class OrchestratorToolGateway:
                         or f"invalid:{tool_call_id or f'{self.context.run_id}:{name}'}"
                     ),
                 )
-            raise
+            if isinstance(exc, ToolExecutionError):
+                raise
+            # Payload preparation is part of the tool's input contract, even
+            # though it runs before ToolExecutor.call(). Preserve specialized
+            # continuation codes and classify ordinary malformed payloads so
+            # the provider can give the model an actionable correction signal.
+            error_code = str(getattr(exc, "code", "") or "") or error_codes.TOOL_INPUT_VALIDATION_FAILED
+            raise ToolExecutionError(
+                str(exc) or f"{name} 输入参数校验失败",
+                code=error_code,
+            ) from exc
         budget_decision = evaluate_tool_budget(
             state=self.state,
             historical_record_count=len(self.context.tool_executor.records()),

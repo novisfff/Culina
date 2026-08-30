@@ -302,6 +302,46 @@ type MessageTimelineItem =
   | { key: string; type: 'text'; text: string }
   | { key: string; type: 'part'; part: AiMessage['parts'][number] };
 
+function isOperationResultPart(part: AiMessage['parts'][number]) {
+  return part.type === 'result_card' && part.card?.type === 'operation_result';
+}
+
+function movePostApprovalTextAfterOperationResult(
+  timeline: MessageTimelineItem[],
+  parts: AiMessage['parts'],
+) {
+  if (!parts.some(isOperationResultPart)) return timeline;
+
+  let hasSettledApproval = false;
+  const postApprovalTextKeys = new Set<string>();
+  parts.forEach((part) => {
+    if (part.type === 'approval_request' && part.approval && !isPendingApprovalPart(part)) {
+      hasSettledApproval = true;
+      return;
+    }
+    if (part.type !== 'text' || !hasSettledApproval) return;
+    const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
+    textSegments.forEach((_text, segmentIndex) => {
+      postApprovalTextKeys.add(`text:${part.id}:${segmentIndex}`);
+    });
+  });
+  if (postApprovalTextKeys.size === 0) return timeline;
+
+  const movedText = timeline.filter((item) => postApprovalTextKeys.has(item.key));
+  if (movedText.length === 0) return timeline;
+  const remaining = timeline.filter((item) => !postApprovalTextKeys.has(item.key));
+  let lastOperationResultIndex = -1;
+  remaining.forEach((item, index) => {
+    if (item.type === 'part' && isOperationResultPart(item.part)) lastOperationResultIndex = index;
+  });
+  if (lastOperationResultIndex < 0) return timeline;
+  return [
+    ...remaining.slice(0, lastOperationResultIndex + 1),
+    ...movedText,
+    ...remaining.slice(lastOperationResultIndex + 1),
+  ];
+}
+
 function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[]): MessageTimelineItem[] {
   if (parts.some((part) => part.type === 'run_activity' && part.activity)) {
     const activityStateByCollapseKey = new Map<string, { event: AiRunEvent; partIndex: number }>();
@@ -316,7 +356,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
         });
       }
     });
-    return parts.flatMap((part, partIndex): MessageTimelineItem[] => {
+    const timeline = parts.flatMap((part, partIndex): MessageTimelineItem[] => {
       if (part.type === 'run_activity' && part.activity) {
         const collapseKey = runActivityCollapseKey(part.activity);
         const activityState = collapseKey ? activityStateByCollapseKey.get(collapseKey) : undefined;
@@ -338,6 +378,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
       }
       return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
     });
+    return movePostApprovalTextAfterOperationResult(timeline, parts);
   }
   const collapsedRunEventEntries = collapseRunActivityEntries(runEventEntries);
   const eventCount = collapsedRunEventEntries.length;
@@ -379,7 +420,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
     timeline.push({ key: `activity:${entry.key}`, type: 'activity', entry });
     timeline.push(...(groupedParts.get(entry.sequence) ?? []));
   });
-  return timeline;
+  return movePostApprovalTextAfterOperationResult(timeline, parts);
 }
 
 function HumanInputRequestPanel({

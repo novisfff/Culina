@@ -194,68 +194,6 @@ class ApprovalFollowupStreamer:
             status=terminal_status,
         )
 
-    def append_deterministic_completion(
-        self,
-        state: WorkspaceGraphState,
-        decision_result: dict[str, Any],
-        *,
-        terminal_status: str,
-    ) -> None:
-        """Finish a terminal approval without spending another model attempt.
-
-        An approval that has no continuation only needs a stable, server-derived
-        acknowledgement.  Keeping this path deterministic avoids re-entering a
-        provider after the business operation has already been committed.
-        """
-
-        # Lock the run before checking the message.  Approval resume can be
-        # retried after a disconnect, and two workers must not both observe a
-        # missing completion part and stream the same acknowledgement.
-        run = lock_run_for_transition(
-            self.db,
-            family_id=state["family_id"],
-            run_id=state["run_id"],
-        )
-        if self.cancel_requested(state["run_id"]):
-            raise AIExecutionCancelled("AI run was cancelled")
-        if cancellation_wins(self.db, run=run):
-            finalize_run_cancellation(self.db, run=run)
-            raise AIExecutionCancelled("AI run was cancelled")
-        approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
-        message = self._find_assistant_message(state, approval)
-        if message is None:
-            logger.warning(
-                "AI graph approval deterministic completion skipped because assistant message is missing run_id=%s conversation_id=%s family_id=%s",
-                state["run_id"],
-                state["conversation_id"],
-                state["family_id"],
-            )
-            return
-        approval_id = str(approval.get("id") or "").strip()
-        part_id = self._approval_completion_part_id(state["run_id"], approval_id)
-        if self._has_message_part(message, part_id):
-            return
-        text = approval_followup_fallback_text(
-            decision_result,
-            terminal_status=terminal_status,
-        )
-        writer = self.persistent_progress_writer(self.optional_stream_writer(), state)
-        self._emit_message_delta(
-            writer,
-            state,
-            message_id=message.id,
-            part_id=part_id,
-            chunk=text,
-        )
-        self.append_text_to_assistant_message(
-            state,
-            message,
-            part_id=part_id,
-            text=text,
-            status=terminal_status,
-            locked_run=run,
-        )
-
     @staticmethod
     def _approval_completion_part_id(run_id: str, approval_id: str) -> str:
         return f"approval-summary:{approval_id or run_id}"

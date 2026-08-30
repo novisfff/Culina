@@ -62,8 +62,6 @@ import { useAiAttachmentState } from './useAiAttachmentState';
 import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './useAiConversationComposerState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
 import { AiOperationRevertProvider } from '../../features/ai-auto-execution/useAiOperationRevert';
-import { AiAutoExecutionDesktopPanel } from '../../features/ai-auto-execution/AiAutoExecutionDesktopPanel';
-import { AiAutoExecutionMobilePage } from '../../features/ai-auto-execution/AiAutoExecutionMobilePage';
 import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
@@ -77,8 +75,8 @@ type AiWorkspaceProps = {
   createFoodPlanItem?: (payload: CreateFoodPlanItemPayload) => Promise<FoodPlanItem>;
   isCreatingFoodPlanItem?: boolean;
   onNavigate?: (target: AppNavigationTarget) => void;
+  /** Legacy prop retained for callers while the removed settings view settles to conversation. */
   view?: 'conversation' | 'autoExecution';
-  isOwner?: boolean;
 };
 export { ApprovalPanel } from './AiConversationThread';
 const AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH = 1280;
@@ -184,8 +182,6 @@ export function AiWorkspace({
   createFoodPlanItem,
   isCreatingFoodPlanItem = false,
   onNavigate,
-  view = 'conversation',
-  isOwner = false,
 }: AiWorkspaceProps) {
   const queryClient = useQueryClient();
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(conversations[0]?.id ?? null);
@@ -1534,10 +1530,6 @@ export function AiWorkspace({
     <AiResultCardReplacementProvider onResultCard={replaceOperationResultCard}>
     <AiOperationRevertProvider>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
-      {view === 'autoExecution' ? <>
-        <div className="ai-desktop-view"><AiAutoExecutionDesktopPanel familyId={familyId} isOwner={isOwner} onBack={() => onNavigate?.({ workspace: 'ai', view: 'conversation' })} /></div>
-        <AiAutoExecutionMobilePage familyId={familyId} isOwner={isOwner} onBack={() => onNavigate?.({ workspace: 'ai', view: 'conversation' })} />
-      </> : <>
       {planFeedback && (
         <div className="ai-plan-feedback" role="status">
           {planFeedback}
@@ -1605,7 +1597,6 @@ export function AiWorkspace({
         onSelectConversation={selectConversation}
         onChangeVisibility={changeConversationVisibility}
         onDeleteConversation={deleteConversation}
-        onOpenAutoExecution={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}
         onDraftChange={setDraft}
         onAttachmentFiles={addAttachmentFiles}
         onRemoveAttachment={attachmentState.removeAttachment}
@@ -1664,7 +1655,7 @@ export function AiWorkspace({
                 )}
                 <span>AI 厨房助手</span>
               </div>
-              <div className="ai-workspace-header-actions"><button className="ghost-button ai-auto-execution-header-button" type="button" onClick={() => onNavigate?.({ workspace: 'ai', view: 'autoExecution' })}>自动执行</button><button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
+              <div className="ai-workspace-header-actions"><button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
                 <span />{aiStatusLabel}
               </button></div>
             </div>
@@ -1822,7 +1813,6 @@ export function AiWorkspace({
         )}
       </div>
       <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
-      </>}
     </main>
     </AiOperationRevertProvider>
     </AiResultCardReplacementProvider>

@@ -1,7 +1,7 @@
 import type { MealType } from '../api/types';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
-export type AiView = 'conversation' | 'autoExecution';
+export type AiView = 'conversation';
 export type EatBaseView = 'discover' | 'plan' | 'history';
 export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests' | 'aiServices';
 
@@ -112,7 +112,6 @@ const FAMILY_VIEWS: ReadonlySet<FamilyView> = new Set([
   'modelUsageRequests',
   'aiServices',
 ]);
-const AI_VIEWS: ReadonlySet<AiView> = new Set(['conversation', 'autoExecution']);
 
 const EMPTY_QUERY_SCOPE: AppQueryScope = {
   needsMembers: false,
@@ -150,10 +149,6 @@ function isDiscoverSection(value: unknown): value is 'all' | 'selfMade' {
 function isFamilyView(value: unknown): value is FamilyView {
   return typeof value === 'string' && FAMILY_VIEWS.has(value as FamilyView);
 }
-function isAiView(value: unknown): value is AiView {
-  return typeof value === 'string' && AI_VIEWS.has(value as AiView);
-}
-
 function withEat(
   state: AppNavigationState,
   eat: Partial<AppNavigationState['eat']>,
@@ -202,7 +197,7 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
     return {
       primaryTab: 'ai',
       eat: { ...state.eat, task: null },
-      ai: { view: target.view ?? 'conversation' },
+      ai: { view: 'conversation' },
       family: state.family,
     };
   }
@@ -390,7 +385,9 @@ export function parsePersistedNavigation(raw: string | null | undefined): AppNav
       task: null,
       discoverSection,
     },
-    ai: { view: isAiView(parsed.aiView) ? parsed.aiView : 'conversation' },
+    // The removed auto-execution settings view may still exist in persisted
+    // snapshots. Always restore the AI conversation instead.
+    ai: { view: 'conversation' },
     // V2 snapshots predating model usage have no familyView. Treat those as
     // the profile page rather than dropping a valid stored navigation state.
     family: { view: familyView, period: null },
@@ -403,7 +400,6 @@ export function persistedNavigationFromState(state: AppNavigationState): Persist
     primaryTab: state.primaryTab,
     eatBaseView: state.eat.baseView,
     discoverSection: state.eat.discoverSection,
-    ...(state.ai.view === 'autoExecution' ? { aiView: state.ai.view } : {}),
     familyView: state.family.view,
   };
 }

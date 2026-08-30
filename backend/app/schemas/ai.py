@@ -309,6 +309,7 @@ class AITodayRecommendationCardDataDTO(BaseModel):
 class AIOperationResultEntityDTO(BaseModel):
     id: str
     label: str
+    entityType: str | None = None
     operation: str | None = None
     operationLabel: str | None = None
     updatedAt: str | None = None
@@ -426,6 +427,7 @@ class AIPublicOperationResultEntityDTO(BaseModel):
 
     id: str
     label: str
+    entityType: str | None = None
     operation: str | None = None
     operationLabel: str | None = None
     updatedAt: str | None = None

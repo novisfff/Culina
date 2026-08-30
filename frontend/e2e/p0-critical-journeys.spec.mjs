@@ -405,78 +405,6 @@ async function openAiWorkspace(page) {
   await expect(page.locator('.ai-workspace-shell')).toBeAttached();
 }
 
-async function expectMobileAutoExecutionTriggerGeometry(page) {
-  const trigger = page.getByRole('button', { name: 'AI 自动执行设置' });
-  await expect(trigger).toBeVisible();
-  const box = await trigger.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box.width).toBeGreaterThanOrEqual(44);
-  expect(box.height).toBeGreaterThanOrEqual(44);
-  const topbarOverflow = await page.locator('.ai-mobile-topbar').evaluate(
-    (element) => element.scrollWidth - element.clientWidth,
-  );
-  expect(topbarOverflow, 'AI 手机顶栏不应横向溢出').toBeLessThanOrEqual(1);
-  await expectNoHorizontalOverflow(page);
-}
-
-async function openAiAutoExecutionSettings(page, isPhone) {
-  if (isPhone) {
-    await page.getByRole('button', { name: 'AI 自动执行设置' }).click();
-  } else {
-    await page.locator('.ai-auto-execution-header-button').click();
-  }
-  const root = page.locator(isPhone
-    ? '.ai-auto-execution-mobile-page'
-    : '.ai-auto-execution-desktop-panel');
-  await expect(root).toBeVisible();
-  await expect(root.getByRole('heading', { name: '我的自动执行' })).toBeVisible();
-  return root;
-}
-
-async function expectSettingsGeometry(settingsRoot, page, viewport, isPhone) {
-  const settingsBox = await settingsRoot.boundingBox();
-  expect(settingsBox).not.toBeNull();
-  if (isPhone) {
-    expect(Math.abs(settingsBox.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(settingsBox.y)).toBeLessThanOrEqual(1);
-    expect(settingsBox.width).toBeGreaterThanOrEqual(viewport.width - 1);
-    expect(settingsBox.height).toBeGreaterThanOrEqual(viewport.height - 1);
-    return;
-  }
-  const workspaceBox = await page.locator('.ai-workspace-shell').boundingBox();
-  expect(workspaceBox).not.toBeNull();
-  expect(await page.locator('.ai-workspace-shell').evaluate(
-    (workspace, panel) => workspace.contains(panel),
-    await settingsRoot.elementHandle(),
-  )).toBe(true);
-  expect(settingsBox.x).toBeGreaterThanOrEqual(workspaceBox.x - 1);
-  expect(settingsBox.y).toBeGreaterThanOrEqual(workspaceBox.y - 1);
-  expect(settingsBox.x + settingsBox.width).toBeLessThanOrEqual(
-    workspaceBox.x + workspaceBox.width + 1,
-  );
-}
-
-async function expectOwnerSwitchAccessibility(settingsRoot, page) {
-  const switches = settingsRoot.getByRole('switch');
-  await expect(switches).toHaveCount(6);
-  const controls = await switches.all();
-  for (const control of controls) {
-    await expect(control).toBeEnabled();
-    const metrics = await control.evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      return { width: box.width, height: box.height, tabIndex: element.tabIndex };
-    });
-    expect(metrics.width).toBeGreaterThanOrEqual(44);
-    expect(metrics.height).toBeGreaterThanOrEqual(44);
-    expect(metrics.tabIndex).toBe(0);
-  }
-  await controls[0].focus();
-  for (let index = 0; index < controls.length; index += 1) {
-    await expect(controls[index]).toBeFocused();
-    if (index < controls.length - 1) await page.keyboard.press('Tab');
-  }
-}
-
 function visibleAiConversationSurface(page, isPhone) {
   return page.locator(isPhone ? '.ai-mobile-page' : '.ai-main-panel');
 }
@@ -527,7 +455,7 @@ test.describe('P0 unauthenticated entry', () => {
 });
 
 test.describe('P0 authenticated family workflow', () => {
-  test('@p0 AI automatic execution settings and revert card are responsive', async ({ app, context }, testInfo) => {
+  test('@p0 AI automatic execution defaults and revert card are responsive', async ({ app, context }, testInfo) => {
     const { page } = app;
     const viewport = await applyAcceptanceViewport(page);
     const isPhone = viewport.width < 768;
@@ -535,35 +463,11 @@ test.describe('P0 authenticated family workflow', () => {
     const aiMocks = await installAiAutoExecutionMocks(context);
 
     await openAiWorkspace(page);
-    if (isPhone) await expectMobileAutoExecutionTriggerGeometry(page);
-    const settingsRoot = await openAiAutoExecutionSettings(page, isPhone);
-
-    await expectSettingsGeometry(settingsRoot, page, viewport, isPhone);
-    await expect(settingsRoot.getByRole('switch', { name: '收藏状态' })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
-    await expect(settingsRoot.getByRole('switch', { name: '购物清单安全操作' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
-    await expect(settingsRoot.getByRole('switch', {
-      name: '允许家庭成员在规则内自动维护购物清单',
-    })).toHaveAttribute('aria-checked', 'true');
-    await expectOwnerSwitchAccessibility(settingsRoot, page);
+    await expect(page.getByRole('button', { name: 'AI 自动执行设置' })).toHaveCount(0);
+    await expect(page.locator('.ai-auto-execution-header-button')).toHaveCount(0);
+    await expect(page.locator('.ai-auto-execution-desktop-panel')).toHaveCount(0);
+    await expect(page.locator('.ai-auto-execution-mobile-page')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
-    await maybeAttachAiAcceptanceScreenshot(page, testInfo, 'ai-auto-execution-owner-settings', viewport);
-
-    await settingsRoot.getByRole('switch', { name: '餐食评分' }).click();
-    const consentDialog = page.getByRole('dialog', { name: '开启自动执行' });
-    await expect(consentDialog).toBeVisible();
-    await expect(consentDialog).toContainText(
-      '只有在你明确要求、目标唯一且符合已开启的低风险规则时才会直接执行；其他情况仍会请你确认。支持撤销的操作可在 1 小时内恢复。',
-    );
-    await maybeAttachAiAcceptanceScreenshot(page, testInfo, 'ai-auto-execution-owner-consent', viewport);
-    await consentDialog.locator('footer').getByRole('button', { name: '取消' }).click();
-
-    await settingsRoot.getByRole('button', { name: isPhone ? '返回' : '返回对话' }).click();
     const conversationSurface = visibleAiConversationSurface(page, isPhone);
     await expect(conversationSurface).toBeVisible();
     await expect(conversationSurface.locator('.ai-operation-result-card')).toHaveCount(7);
@@ -612,7 +516,7 @@ test.describe('P0 authenticated family workflow', () => {
       const actionsBox = await automaticActions.boundingBox();
       expect(actionsBox).not.toBeNull();
       const actionButtons = await automaticActions.getByRole('button').all();
-      await expect(automaticActions.getByRole('button')).toHaveCount(3);
+      await expect(automaticActions.getByRole('button')).toHaveCount(2);
       let previousY = null;
       for (const button of actionButtons) {
         const buttonBox = await button.boundingBox();
@@ -767,7 +671,7 @@ test.describe('P0 authenticated family workflow', () => {
 test.describe('P0 authenticated Member AI policy', () => {
   test.use({ modelUsageScenario: 'member' });
 
-  test('@p0 AI automatic execution settings and revert card keep Member family policy read-only', async ({ app, context }, testInfo) => {
+  test('@p0 AI automatic execution defaults apply to Member family actions', async ({ app, context }, testInfo) => {
     const { page } = app;
     const viewport = await applyAcceptanceViewport(page);
     const isPhone = viewport.width < 768;
@@ -775,28 +679,11 @@ test.describe('P0 authenticated Member AI policy', () => {
     const aiMocks = await installAiAutoExecutionMocks(context);
 
     await openAiWorkspace(page);
-    if (isPhone) await expectMobileAutoExecutionTriggerGeometry(page);
-    const settingsRoot = await openAiAutoExecutionSettings(page, isPhone);
-    await expectSettingsGeometry(settingsRoot, page, viewport, isPhone);
-
-    const personalShopping = settingsRoot.getByRole('switch', { name: '购物清单安全操作' });
-    await expect(personalShopping).toBeEnabled();
-    await expect(personalShopping).toHaveAttribute('aria-checked', 'true');
-
-    const familyShopping = settingsRoot.getByRole('switch', {
-      name: '允许家庭成员在规则内自动维护购物清单',
-    });
-    await expect(familyShopping).toBeDisabled();
-    await expect(familyShopping).toHaveAttribute('aria-checked', 'true');
-    await expect(settingsRoot.getByText('仅家庭 Owner 可修改', { exact: true })).toBeVisible();
-    const familySwitchBox = await familyShopping.boundingBox();
-    expect(familySwitchBox).not.toBeNull();
-    expect(familySwitchBox.width).toBeGreaterThanOrEqual(44);
-    expect(familySwitchBox.height).toBeGreaterThanOrEqual(44);
-
-    await familyShopping.scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: 'AI 自动执行设置' })).toHaveCount(0);
+    await expect(page.locator('.ai-auto-execution-header-button')).toHaveCount(0);
+    await expect(page.locator('.ai-auto-execution-desktop-panel')).toHaveCount(0);
+    await expect(page.locator('.ai-auto-execution-mobile-page')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
-    await maybeAttachAiAcceptanceScreenshot(page, testInfo, 'ai-auto-execution-member-family-policy', viewport);
     expect(aiMocks.unexpectedRequests).toEqual([]);
   });
 });

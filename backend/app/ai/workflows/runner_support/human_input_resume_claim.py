@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 import secrets
 from typing import Any
 
@@ -18,6 +19,7 @@ STREAM_RESUME_CLAIM_CONTEXT_KEY = "_streamResumeClaim"
 STREAM_RESUME_CLAIM_TOKEN_KEY = "_resumeClaimToken"
 STREAM_RESUME_CLAIM_KIND = "human_input"
 STREAM_APPROVAL_RESUME_CLAIM_KIND = "approval"
+STREAM_RESUME_CLAIM_TTL = timedelta(hours=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +41,23 @@ def current_stream_resume_claim(run: AIAgentRun) -> dict[str, Any] | None:
     value = summary.get(STREAM_RESUME_CLAIM_CONTEXT_KEY)
     if not isinstance(value, dict):
         return {}
+    claimed_at = value.get("claimedAt")
+    if isinstance(claimed_at, str) and _stream_resume_claim_expired(claimed_at):
+        return None
     return dict(value)
+
+
+def _stream_resume_claim_expired(claimed_at: str, *, now: datetime | None = None) -> bool:
+    try:
+        parsed = datetime.fromisoformat(claimed_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    reference = now or utcnow()
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    return reference - parsed.astimezone(UTC) >= STREAM_RESUME_CLAIM_TTL
 
 
 def claim_stream_resume(

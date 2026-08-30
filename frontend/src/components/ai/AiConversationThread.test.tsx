@@ -136,6 +136,59 @@ describe('MessageBubble operation result replacement', () => {
     expect(apiSpy).not.toHaveBeenCalled();
     rendered.unmount();
   });
+
+  it('renders the post-approval explanation after the operation result card', async () => {
+    const resolvedApproval = approval({
+      status: 'approved',
+      decision: 'approved',
+      submitted_values: approval().initial_values,
+    });
+    const operationCard: AiResultCard = {
+      id: 'operation-result-order-card',
+      type: 'operation_result',
+      title: '已更新收藏状态',
+      data: {
+        result_status: 'completed',
+        operation_status: 'completed',
+        execution_explanation: '已按你的确认执行。',
+        actionSummary: '已按你的确认执行。',
+        entities: [{ id: 'food-1', label: '板栗烧鸡', operation: '收藏' }],
+      },
+    } as AiResultCard;
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          id: 'message-operation-result-order',
+          conversation_id: 'conversation-1',
+          role: 'assistant',
+          content: '已按你的确认，将选中的“板栗烧鸡”（家庭厨房、自制家常菜）加入收藏。',
+          content_type: 'parts',
+          parts: [
+            { id: 'approval-order', type: 'approval_request', approval: resolvedApproval },
+            {
+              id: 'text-operation-summary',
+              type: 'text',
+              text: '已按你的确认，将选中的“板栗烧鸡”（家庭厨房、自制家常菜）加入收藏。',
+            },
+            { id: 'operation-result-order', type: 'result_card', card: operationCard },
+          ],
+          run_id: 'run-operation-result-order',
+          status: 'completed',
+          metadata: {},
+          created_at: '2026-05-30T00:00:00Z',
+        }}
+        user={testUser}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    const messageBody = rendered.container.querySelector<HTMLElement>('.ai-message-body') as HTMLElement;
+    const operationCardElement = messageBody.querySelector<HTMLElement>('.ai-operation-result-card') as HTMLElement;
+    const explanation = Array.from(messageBody.querySelectorAll<HTMLElement>('.ai-message-text-block'))
+      .find((block) => block.textContent?.includes('将选中的')) as HTMLElement;
+    expect(operationCardElement.compareDocumentPosition(explanation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    rendered.unmount();
+  });
 });
 
 describe('MessageBubble footer and media rendering', () => {

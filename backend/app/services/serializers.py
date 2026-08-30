@@ -573,9 +573,47 @@ def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
             continue
         next_part = dict(part)
         if isinstance(part.get("card"), dict):
-            next_part["card"] = _normalize_legacy_inventory_card(part["card"])
+            next_part["card"] = _normalize_legacy_operation_result_card(
+                _normalize_legacy_inventory_card(part["card"])
+            )
         normalized.append(next_part)
     return normalized
+
+
+def _normalize_legacy_operation_result_card(card: dict) -> dict:
+    if card.get("type") != "operation_result" or not isinstance(card.get("data"), dict):
+        return card
+    data = dict(card["data"])
+    if data.get("draft_id"):
+        return card
+    draft_id = data.get("draftId")
+    if not isinstance(draft_id, str) or not draft_id:
+        return card
+    entities = [
+        dict(entity)
+        for entity in data.get("entities") or []
+        if isinstance(entity, dict)
+        and isinstance(entity.get("id"), str)
+        and isinstance(entity.get("label"), str)
+    ]
+    operation_id = data.get("operationId")
+    data.update(
+        {
+            "draft_id": draft_id,
+            "operation_id": operation_id if isinstance(operation_id, str) else None,
+            "result_status": "completed",
+            "execution_mode": "manual_approval",
+            "operation_status": "completed",
+            "execution_explanation": str(data.get("actionSummary") or "已按你的确认执行。"),
+            "revert_availability": "unsupported",
+            "revertible_until": None,
+            "revert_blocked_code": None,
+            "server_now": "",
+            "entities": entities,
+            "cache_scopes": ["ai_conversation"],
+        }
+    )
+    return {**card, "data": data}
 
 
 def serialize_ai_message(item: AIMessage, *, response_now: datetime | None = None) -> dict:
