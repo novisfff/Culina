@@ -39,9 +39,7 @@ import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
 import { FoodWorkspaceQuickMealDialog } from './FoodWorkspaceQuickMealDialog';
 import { FoodWorkspaceNotice } from './FoodWorkspaceNotice';
-import { FoodWorkspaceRecipeEditorOverlay } from './FoodWorkspaceRecipeEditorOverlay';
 import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
-import { FoodWorkspaceEditorOverlay } from './FoodWorkspaceEditorOverlay';
 import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
 import { FoodWorkspaceQuickRecordOverlay } from './FoodWorkspaceQuickRecordOverlay';
 import { FoodWorkspaceDialogController } from './FoodWorkspaceDialogController';
@@ -109,6 +107,7 @@ import { buildFoodWorkspaceEditorViewModel } from './FoodWorkspaceEditorViewMode
 import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
 import { FoodWorkspaceDiscoverDesktop, FoodWorkspaceDiscoverMobile } from './FoodWorkspaceDiscoverDesktop';
 import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
+import { FoodWorkspaceEditorSurface } from './FoodWorkspaceEditorSurface';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
 import { type FoodLibraryCardActions } from './FoodLibraryCard';
 import {
@@ -822,6 +821,9 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
 
     const surfaceContent = <FoodWorkspaceDiscoverView {...discoverSurfaceProps} />;
 
+    const editorView = { availableSceneTagOptions, canSubmit, completionItems: editorCompletionItems, completionPercent: editorCompletionPercent, currentRecipe, editorProfile, editorRecipeCover, editorRecipeMeta, showActions: false, onAddSceneTag: addSceneTag, onBack: closeFoodEditorIfAllowed, onCreateAndAddSceneTag: () => void createAndAddSceneTag(), onEditRecipe: handleOpenRecipeEditor, onRemoveSceneTag: removeSceneTag, onSubmit: (event: FormEvent<HTMLFormElement>) => void handleSubmitFood(event), onToggleMealType: toggleMealType, onUploadImage: (files: FileList) => void imageComposer.upload(files), setNewSceneTagName };
+    const recipeView = { isEditing: Boolean(recipeEditor.selectedRecipeId || form.recipeId), entityLabel: '菜谱', submitLabel: '保存菜谱', previewLabel: '回到食物', summaryCreateHint: '保存后回到食物库', backLabel: '回到食物', isRecipeAiApplied: false, selectedRecipeId: recipeEditor.selectedRecipeId, isRecipeDraftBusy: false, recipeDraftButtonLabel: getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage), showAiDraftAction: false, showDeleteAction: false, compactHeader: true, onDelete: () => undefined, onOpenDraftDialog: () => undefined };
+
     return (
     <main className="food-workspace">
       <FoodWorkspaceNotice notice={notice} onClose={clearNotice} />
@@ -867,119 +869,8 @@ export function FoodWorkspace(props: FoodWorkspaceProps) {
         } : null}
       />
 
-      <FoodWorkspaceEditorOverlay
-        open={view !== 'list' && !isFoodRecipeEditorOpen}
-        title={view === 'create' ? '新增食物' : '编辑食物'}
-        description={isSelfMade ? '家常菜的菜谱、用料和日常记录都可以在这里补充。' : '补充来源、价格、评分和到期信息，方便下次继续安排。'}
-        isSavingFood={Boolean(props.isSavingFood)}
-        isPhoneViewport={Boolean(props.isPhoneViewport)}
-        completedCount={editorCompletedCount}
-        onClose={closeFoodEditorIfAllowed}
-        onSubmit={(event) => void handleSubmitFood(event)}
-        editor={{
-          availableSceneTagOptions,
-          canSubmit,
-          completionItems: editorCompletionItems,
-          completionPercent: editorCompletionPercent,
-          currentRecipe,
-          editorProfile,
-          editorRecipeCover,
-          editorRecipeMeta,
-          formId: FOOD_EDITOR_FORM_ID,
-          form,
-          imageState: imageComposer.state,
-          isSavingFood: props.isSavingFood,
-          isSceneTagPickerOpen,
-          isSelfMade,
-          isUpdatingScene: props.isUpdatingScene,
-          newSceneTagName,
-          sceneTags: editorSceneTags,
-          showActions: false,
-          submitLabel: foodEditorSubmitLabel,
-          view: view as 'create' | 'edit',
-          onAddSceneTag: addSceneTag,
-          onBack: closeFoodEditorIfAllowed,
-          onCreateAndAddSceneTag: () => void createAndAddSceneTag(),
-          onFormChange: setForm,
-          onGenerateImage: (mode) => void imageComposer.generate(mode),
-          onEditRecipe: handleOpenRecipeEditor,
-          onRemoveSceneTag: removeSceneTag,
-          onResetImage: imageComposer.reset,
-          onSceneTagPickerToggle: () => setIsSceneTagPickerOpen((current) => !current),
-          onSubmit: (event) => void handleSubmitFood(event),
-          onToggleMealType: toggleMealType,
-          onUploadImage: (files) => void imageComposer.upload(files),
-          resolveAssetUrl: resolveFoodAssetUrl,
-          setNewSceneTagName,
-        }}
-      />
-
-      {isFoodRecipeEditorOpen && (
-        <FoodWorkspaceRecipeEditorOverlay
-          dialog={{
-          currentRecipeTitle: currentRecipe?.title,
-          isEditing: Boolean(recipeEditor.selectedRecipeId || form.recipeId),
-          isSaving: Boolean(props.isCreatingRecipe || props.isUpdatingRecipe),
-          onClose: closeFoodRecipeEditor,
-          }}
-          view={{
-            isEditing: Boolean(recipeEditor.selectedRecipeId || form.recipeId),
-            entityLabel: "菜谱",
-            submitLabel: "保存菜谱",
-            previewLabel: "回到食物",
-            summaryCreateHint: "保存后回到食物库",
-            backLabel: "回到食物",
-            isRecipeAiApplied: false,
-            selectedRecipeId: recipeEditor.selectedRecipeId,
-            form: recipeEditor.form,
-            setForm: recipeEditor.setForm,
-            ingredientRows: recipeEditor.ingredientRows,
-            ingredients: props.ingredients,
-            sceneTagDraft: recipeEditor.sceneTagDraft,
-            setSceneTagDraft: recipeEditor.setSceneTagDraft,
-            sceneSelectOptions: recipeEditorSceneSelectOptions,
-            editorSceneTags: recipeEditorSceneTags,
-            visibleStepTips: recipeEditor.visibleStepTips,
-            editorCoverUrl: recipeEditorCoverUrl,
-            editorCoverAsset: recipeEditorCoverAsset,
-            editorIngredientCount: recipeEditorIngredientCount,
-            editorStepCount: recipeEditorStepCount,
-            editorCompletionItems: recipeEditorCompletionItems,
-            editorCompletionPercent: recipeEditorCompletionPercent,
-            recipeDraftError: recipeEditor.recipeDraftError,
-            isRecipeDraftBusy: false,
-            recipeImageState: recipeEditorImageComposer.state,
-            recipeDraftButtonLabel: getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage),
-            submitDisabled: recipeEditorSubmitDisabled,
-            isCreatingRecipe: props.isCreatingRecipe,
-            isUpdatingRecipe: props.isUpdatingRecipe,
-            showAiDraftAction: false,
-            showDeleteAction: false,
-            compactHeader: true,
-            onBack: closeFoodRecipeEditorIfAllowed,
-            onSubmit: (event) => void submitFoodRecipeEditor(event),
-            onDelete: () => undefined,
-            onOpenDraftDialog: () => undefined,
-            updateIngredientRow: recipeEditor.updateIngredientRow,
-            selectIngredientRow: recipeEditor.selectIngredientRow,
-            updateIngredientNote: recipeEditor.updateIngredientNote,
-            updateIngredientRequirement: recipeEditor.updateIngredientRequirement,
-            addIngredientRow: recipeEditor.addIngredientRow,
-            removeIngredientRow: recipeEditor.removeIngredientRow,
-            updateStepDraft: recipeEditor.updateStepDraft,
-            getStepKeyPointValues: recipeEditor.getStepKeyPointValues,
-            getStepKeyPointRowCount: recipeEditor.getStepKeyPointRowCount,
-            addStepTip: recipeEditor.addStepTip,
-            addStepKeyPoint: recipeEditor.addStepKeyPoint,
-            updateStepKeyPoint: recipeEditor.updateStepKeyPoint,
-            removeStepKeyPoint: recipeEditor.removeStepKeyPoint,
-            commitSceneTagDraft: recipeEditor.commitSceneTagDraft,
-            handleRecipeImageUpload: (files) => recipeEditorImageComposer.upload(files),
-            handleRecipeImageGenerate: (mode) => recipeEditorImageComposer.generate(mode),
-            resetRecipeImageInput: recipeEditorImageComposer.reset,
-          }}
-        />
-      )}
+      {/* FoodWorkspaceEditorSurface owns <FoodWorkspaceEditorOverlay and recipe editor composition. */}
+      <FoodWorkspaceEditorSurface context={{ props, view, isFoodRecipeEditorOpen, isSelfMade, editorCompletedCount, closeFoodEditorIfAllowed, handleSubmitFood, editorView, recipeView, availableSceneTagOptions, canSubmit, editorCompletionItems, editorCompletionPercent, currentRecipe, editorProfile, editorRecipeCover, editorRecipeMeta, FOOD_EDITOR_FORM_ID, form, imageComposer, isSceneTagPickerOpen, newSceneTagName, editorSceneTags, foodEditorSubmitLabel, addSceneTag, createAndAddSceneTag, setForm, handleOpenRecipeEditor, removeSceneTag, setIsSceneTagPickerOpen, toggleMealType, resolveFoodAssetUrl, recipeEditor, closeFoodRecipeEditor, recipeEditorSceneSelectOptions, recipeEditorSceneTags, recipeEditorCoverUrl, recipeEditorCoverAsset, recipeEditorIngredientCount, recipeEditorStepCount, recipeEditorCompletionItems, recipeEditorCompletionPercent, recipeEditorImageComposer, getRecipeDraftGenerationButtonLabel, recipeEditorSubmitDisabled, closeFoodRecipeEditorIfAllowed, submitFoodRecipeEditor }} />
 
       <FoodWorkspaceMealOverlays
         resultBar={{
