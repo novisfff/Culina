@@ -103,6 +103,7 @@ import {
   useIngredientWorkspaceState,
 } from './useIngredientWorkspaceState';
 import { buildIngredientImagePayload, formatExpiryRuleLabel, formatLowStockRuleLabel } from './ingredientWorkspaceModels';
+import { buildIngredientDetailViewModel } from './IngredientWorkspaceViewModel';
 import { ScrollableChipRail } from './ScrollableChipRail';
 import {
   useIngredientFoodStockState,
@@ -1020,34 +1021,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   );
 
   if (workspaceView === 'detail' && selectedIngredient) {
-    const detailQuantityLabel = selectedIngredient.quantitySummaries[0]?.label ?? '还没有库存';
-    const detailMetricItems = [
-      {
-        icon: 'stocked' as const,
-        label: '当前库存',
-        value: detailQuantityLabel,
-        tone: 'green',
-      },
-      {
-        icon: 'link' as const,
-        label: '相关菜谱',
-        value: `${selectedIngredient.recipeReferences.length}`,
-        tone: 'brown',
-      },
-      {
-        icon: 'scale' as const,
-        label: '默认单位',
-        value: selectedIngredient.ingredient.default_unit || '个',
-        tone: 'brown',
-      },
-      {
-        icon: 'bell' as const,
-        label: '当前提醒',
-        value: `${selectedIngredient.alerts.length}`,
-        tone: selectedIngredient.alerts.length > 0 ? 'red' : 'green',
-      },
-    ];
-    const detailStorageLabel = selectedIngredient.primaryStorage || selectedIngredient.ingredient.default_storage || '常温';
+    const { detailStorageLabel, detailMetricItems } = buildIngredientDetailViewModel(selectedIngredient);
 
     const detailViewProps = {
       activePanelBackLabel,

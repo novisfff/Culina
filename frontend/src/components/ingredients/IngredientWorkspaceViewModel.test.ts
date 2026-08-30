@@ -6,6 +6,7 @@ import {
   buildIngredientInventoryViewModel,
   filterIngredientMobileCatalogSummaries,
   buildIngredientShoppingViewModel,
+  buildIngredientDetailViewModel,
 } from './IngredientWorkspaceViewModel';
 
 describe('Ingredient catalog view model', () => {
@@ -86,5 +87,18 @@ describe('Ingredient catalog view model', () => {
       inventoryEntryFilter: 'pending',
       storageFocus: '冷藏',
     })).toEqual([summary]);
+  });
+
+  it('projects detail metrics from the selected ingredient summary', () => {
+    const selected = {
+      ingredient: { id: 'i-1', name: '番茄', default_unit: '个', default_storage: '冷藏' },
+      quantitySummaries: [{ label: '2 个' }],
+      recipeReferences: [{ id: 'r-1', title: '番茄炒蛋' }],
+      alerts: [{ kind: 'expiry' }],
+      primaryStorage: '冷藏',
+    } as never;
+    const model = buildIngredientDetailViewModel(selected);
+    expect(model.detailStorageLabel).toBe('冷藏');
+    expect(model.detailMetricItems.map((item) => item.value)).toEqual(['2 个', '1', '个', '1']);
   });
 });

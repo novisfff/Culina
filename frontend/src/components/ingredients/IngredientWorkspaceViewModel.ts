@@ -152,3 +152,16 @@ export function filterIngredientMobileCatalogSummaries(args: {
     return quickMatches && entryMatches;
   });
 }
+
+export function buildIngredientDetailViewModel(selected: IngredientSummaryViewModel) {
+  const detailQuantityLabel = selected.quantitySummaries[0]?.label ?? '还没有库存';
+  return {
+    detailStorageLabel: selected.primaryStorage || selected.ingredient.default_storage || '常温',
+    detailMetricItems: [
+      { icon: 'stocked' as const, label: '当前库存', value: detailQuantityLabel, tone: 'green' as const },
+      { icon: 'link' as const, label: '相关菜谱', value: `${selected.recipeReferences.length}`, tone: 'brown' as const },
+      { icon: 'scale' as const, label: '默认单位', value: selected.ingredient.default_unit || '个', tone: 'brown' as const },
+      { icon: 'bell' as const, label: '当前提醒', value: `${selected.alerts.length}`, tone: selected.alerts.length > 0 ? 'red' as const : 'green' as const },
+    ],
+  };
+}
