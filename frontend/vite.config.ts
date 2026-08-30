@@ -18,9 +18,6 @@ export default defineConfig({
           if (id.includes('/node_modules/@tanstack/react-query/') || id.includes('/node_modules/@tanstack/query-core/')) {
             return 'react-query-vendor';
           }
-          if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/') || id.includes('/node_modules/scheduler/')) {
-            return 'react-vendor';
-          }
           return undefined;
         },
       },
