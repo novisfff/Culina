@@ -723,6 +723,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
 
   it('keeps the mobile home header at the established reference scale', () => {
     const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
+    const compatibilityStyles = readFileSync(resolve(__dirname, '../../styles/compatibility-responsive.css'), 'utf8');
 
     expect(mobileStyles).toMatch(
       /\.mobile-dashboard-logo \{[^}]*width: var\(--control-height-touch\);[^}]*height: var\(--control-height-touch\);[^}]*flex: 0 0 var\(--control-height-touch\);/s,
@@ -735,6 +736,9 @@ describe('HomeMobileDashboard three-question mobile', () => {
     );
     expect(mobileStyles).toMatch(
       /\.mobile-dashboard-icon-actions svg,[\s\S]*?\.mobile-notification-center \.app-notification-icon svg \{[^}]*width: 26px;[^}]*height: 26px;[^}]*flex: 0 0 26px;/s,
+    );
+    expect(compatibilityStyles).toMatch(
+      /\.mobile-dashboard-hero > \.mobile-dashboard-topbar \{[^}]*margin: 0;[^}]*padding-top: 14px;/s,
     );
   });
 });

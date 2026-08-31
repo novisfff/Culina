@@ -192,7 +192,7 @@
   }
 
   .mobile-dashboard-hero > .mobile-dashboard-topbar {
-    margin: 0 calc(-1 * var(--mobile-dashboard-hero-inline));
+    margin: 0;
     padding-top: 14px;
   }
 }
