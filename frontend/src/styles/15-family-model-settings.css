@@ -3247,3 +3247,32 @@ input:checked + .family-model-settings-switch-track::after,
     animation: none;
   }
 }
+
+/* The settings surface is a full-screen mobile task, not a tab destination.
+ * Keep it on a single background plane and remove the global tab bar so its
+ * primary action can never sit underneath fixed navigation. */
+@media (max-width: 767px) {
+  .app-shell:has(.family-model-settings-mobile-page) > .mobile-bottom-nav {
+    display: none;
+  }
+
+  .app-shell:has(.family-model-settings-mobile-page) {
+    padding-bottom: 0;
+  }
+
+  .family-model-settings-mobile-page {
+    width: 100%;
+    max-width: 480px;
+    background: transparent;
+  }
+
+  .family-model-settings-mobile-scroll {
+    padding-bottom: var(--space-7);
+  }
+
+  .family-model-settings-mobile-footer {
+    position: relative;
+    margin-bottom: 0;
+    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  }
+}
