@@ -70,6 +70,7 @@ jobs:
           path: .artifacts/pr-gate-classification*
           if-no-files-found: warn
           retention-days: 14
+          include-hidden-files: true
 
   backend-service:
     name: Backend Service Tests
