@@ -112,6 +112,7 @@ describe('WorkspaceOverlayShell', () => {
     const foundationStyles = readFileSync(resolve(repoRoot, 'styles/00-foundation.css'), 'utf8');
     const uiKitStyles = readFileSync(resolve(repoRoot, 'styles/00-ui-kit.css'), 'utf8');
     const mobileStyles = readFileSync(resolve(repoRoot, 'styles/compatibility-responsive.css'), 'utf8');
+    const sharedOverlayStyles = readFileSync(resolve(repoRoot, 'styles/05-workspace-overlays.css'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'styles/06-food-workspace.css'), 'utf8');
 
     expect(foundationStyles).not.toContain('.ui-form-actions-row');
@@ -128,6 +129,10 @@ describe('WorkspaceOverlayShell', () => {
     expect(foodStyles).toContain('.food-detail-actions-mobile .ui-form-actions-primary');
     expect(foodStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));');
     expect(foodStyles).toContain('.food-detail-drawer > .workspace-overlay-footer .food-detail-actions .ui-form-actions-row');
+    expect(sharedOverlayStyles).toMatch(
+      /\.workspace-overlay-root \.workspace-modal,\s*\.workspace-overlay-root \.workspace-drawer \{[^}]*width: 100%;[^}]*max-width: none;[^}]*border-radius: 24px 24px 0 0;/s,
+    );
+    expect(sharedOverlayStyles).toContain('.workspace-overlay-root .home-plan-add-modal.recipe-plan-modal');
   });
 });
 
