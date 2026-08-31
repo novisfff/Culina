@@ -953,8 +953,10 @@ describe('EatFoodTaskBody image and scene tag actions', () => {
     await userEvent.click(screen.getAllByRole('button', { name: '编辑食物' })[0]);
     expect(await screen.findByRole('heading', { name: '编辑食物' })).toBeInTheDocument();
     const editorForm = document.querySelector<HTMLFormElement>('#eat-food-editor-form');
+    const editorModal = document.querySelector<HTMLElement>('.food-editor-modal');
     const saveButton = screen.getByRole('button', { name: '保存' });
     expect(editorForm).not.toBeNull();
+    expect(editorModal).toHaveClass('workspace-modal-large');
     expect(saveButton).toHaveAttribute('form', 'eat-food-editor-form');
     expect(saveButton.closest('.workspace-overlay-footer')).not.toBeNull();
 
