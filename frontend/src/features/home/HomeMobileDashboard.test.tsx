@@ -728,7 +728,13 @@ describe('HomeMobileDashboard three-question mobile', () => {
       /\.mobile-dashboard-logo \{[^}]*width: var\(--control-height-touch\);[^}]*height: var\(--control-height-touch\);[^}]*flex: 0 0 var\(--control-height-touch\);/s,
     );
     expect(mobileStyles).toMatch(
-      /\.mobile-dashboard-logo \.shell-logo-image \{[^}]*width: 24px;[^}]*height: 24px;[^}]*object-fit: contain;/s,
+      /\.mobile-dashboard-logo \.shell-logo-image \{[^}]*width: 100%;[^}]*height: 100%;[^}]*border-radius: inherit;[^}]*object-fit: cover;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-hero \{[^}]*margin-inline: -12px;[^}]*border: 0;[^}]*box-shadow: none;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-hero > \.mobile-dashboard-topbar \{[^}]*margin-inline: 0;[^}]*padding-inline: var\(--space-5\);/s,
     );
     expect(mobileStyles).toMatch(
       /\.mobile-dashboard-icon-actions button \{[^}]*width: var\(--tap-min\);[^}]*height: var\(--tap-min\);[^}]*min-width: var\(--tap-min\);/s,
