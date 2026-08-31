@@ -602,22 +602,6 @@
     flex: 1 1 auto;
   }
 
-  .tabbar {
-    top: 8px;
-  }
-
-  .tabbar-scroll {
-    justify-content: flex-start;
-    padding: 8px;
-    gap: 8px;
-  }
-
-  .tab-button {
-    min-width: auto;
-    padding: 9px 14px;
-    font-size: 0.9rem;
-  }
-
   .page-stack,
   .ingredients-workspace,
   .ingredients-panel,
@@ -969,8 +953,7 @@
     overflow: hidden;
   }
 
-  .app-frame:has(.recipe-workspace-cook-mode) .sidebar-shell,
-  .app-frame:has(.recipe-workspace-cook-mode) .tabbar {
+  .app-frame:has(.recipe-workspace-cook-mode) .sidebar-shell {
     display: none;
   }
 

@@ -71,8 +71,7 @@
 
 .family-model-settings-section-rail {
   position: sticky;
-  /* Keep the rail below the sticky shell tabbar while app-content scrolls. */
-  top: 83px;
+  top: 0;
   display: grid;
   gap: var(--space-4);
   padding: var(--space-4);

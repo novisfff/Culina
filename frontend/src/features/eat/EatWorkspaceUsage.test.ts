@@ -32,6 +32,5 @@ describe('EatWorkspace desktop layout', () => {
 
     expect(styles).toContain('.eat-workspace-cook-mode .eat-cook-task-body');
     expect(overlayStyles).toContain('.app-frame:has(.recipe-workspace-cook-mode) .sidebar-shell');
-    expect(overlayStyles).toContain('.app-frame:has(.recipe-workspace-cook-mode) .tabbar');
   });
 });

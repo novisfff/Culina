@@ -6485,10 +6485,6 @@
     scrollbar-gutter: stable;
   }
 
-  .tabbar {
-    display: none;
-  }
-
   .page-header {
     padding: 16px 18px;
     border-radius: 22px;

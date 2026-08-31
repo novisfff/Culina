@@ -93,58 +93,6 @@
   border: 1px solid var(--line-soft);
 }
 
-.tabbar {
-  position: sticky;
-  top: 12px;
-  z-index: 20;
-}
-
-.tabbar-inner {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 10px;
-}
-
-.tabbar-notification-center {
-  position: absolute;
-  right: 0;
-  top: 0;
-}
-
-.app-shell-current-user {
-  position: absolute;
-  left: 16px;
-  top: 18px;
-  max-width: 160px;
-  overflow: hidden;
-  color: var(--text-soft);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tabbar-scroll {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  padding: 10px;
-  overflow-x: auto;
-  border-radius: 999px;
-  border: 1px solid var(--line-soft);
-  background: rgba(250, 247, 243, 0.94);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(18px);
-  scrollbar-width: none;
-}
-
-.tabbar-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-
 .model-usage-degradation {
   display: grid;
   grid-template-columns: var(--space-5) minmax(0, 1fr);
@@ -189,25 +137,6 @@
 
 .model-usage-degradation.tone-danger svg {
   color: var(--danger);
-}
-
-.tab-button {
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 16px;
-  min-width: 100px;
-  background: transparent;
-  color: var(--text-soft);
-  font-weight: 700;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
-}
-
-.tab-button.active {
-  background: var(--accent);
-  color: white;
-  box-shadow: 0 6px 16px rgba(210, 107, 51, 0.25);
 }
 
 .page-stack,
