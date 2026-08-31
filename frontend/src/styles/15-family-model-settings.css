@@ -3252,12 +3252,8 @@ input:checked + .family-model-settings-switch-track::after,
  * Keep it on a single background plane and remove the global tab bar so its
  * primary action can never sit underneath fixed navigation. */
 @media (max-width: 767px) {
-  .app-shell:has(.family-model-settings-mobile-page) > .mobile-bottom-nav {
-    display: none;
-  }
-
   .app-shell:has(.family-model-settings-mobile-page) {
-    padding-bottom: 0;
+    padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
   }
 
   .family-model-settings-mobile-page {
@@ -3271,8 +3267,27 @@ input:checked + .family-model-settings-switch-track::after,
   }
 
   .family-model-settings-mobile-footer {
-    position: relative;
-    margin-bottom: 0;
-    padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    position: fixed;
+    left: 50%;
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    z-index: calc(var(--z-mobile-topbar) + 1);
+    width: min(calc(100vw - 32px), 448px);
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: var(--shadow-md);
+    transform: translateX(-50%);
+    backdrop-filter: blur(14px);
+  }
+
+  .family-model-settings-mobile-footer > div {
+    width: 100%;
+  }
+
+  .family-model-settings-mobile-footer .family-model-settings-mobile-primary-cta {
+    width: 100%;
+    min-height: var(--tap-min);
   }
 }
