@@ -29,6 +29,8 @@ jobs:
       frontend_build: ${{ steps.classify.outputs.frontend_build }}
       frontend_e2e: ${{ steps.classify.outputs.frontend_e2e }}
       frontend_ai_contract: ${{ steps.classify.outputs.frontend_ai_contract }}
+      frontend_governance: ${{ steps.classify.outputs.frontend_governance }}
+      frontend_release_evidence: ${{ steps.classify.outputs.frontend_release_evidence }}
       backend_service: ${{ steps.classify.outputs.backend_service }}
       backend_ai: ${{ steps.classify.outputs.backend_ai }}
       ai_evals: ${{ steps.classify.outputs.ai_evals }}
@@ -50,7 +52,25 @@ jobs:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_SHA: ${{ github.sha }}
+          FORCE_FULL_GATES: ${{ contains(github.event.pull_request.labels.*.name, 'full-gates') }}
+          CLASSIFICATION_ARTIFACT_PATH: .artifacts/pr-gate-classification.json
         run: node .github/scripts/classify-pr-gates.mjs
+      - name: Audit classification (non-blocking)
+        if: always()
+        continue-on-error: true
+        env:
+          CLASSIFICATION_ARTIFACT_PATH: .artifacts/pr-gate-classification.json
+          CLASSIFICATION_AUDIT_REPORT_PATH: .artifacts/pr-gate-classification-audit.md
+        run: node .github/scripts/audit-pr-gate-classification.mjs
+      - name: Upload classification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-gate-classification
+          path: .artifacts/pr-gate-classification*
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true
 
   backend-service:
     name: Backend Service Tests
@@ -394,6 +414,8 @@ jobs:
 
   frontend-governance:
     name: Frontend Governance
+    needs: classify
+    if: needs.classify.outputs.frontend_governance == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -439,6 +461,8 @@ jobs:
 
   frontend-release-evidence:
     name: Frontend Release Evidence
+    needs: classify
+    if: needs.classify.outputs.frontend_release_evidence == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -592,6 +616,8 @@ jobs:
       - frontend-build
       - frontend-e2e-p0
       - frontend-ai-contract
+      - frontend-governance
+      - frontend-release-evidence
       - backend-service
       - backend-ai
       - ai-skill-evals
@@ -622,6 +648,10 @@ jobs:
           RESULT_FRONTEND_E2E: ${{ needs.frontend-e2e-p0.result }}
           REQUIRE_FRONTEND_AI_CONTRACT: ${{ needs.classify.outputs.frontend_ai_contract }}
           RESULT_FRONTEND_AI_CONTRACT: ${{ needs.frontend-ai-contract.result }}
+          REQUIRE_FRONTEND_GOVERNANCE: ${{ needs.classify.outputs.frontend_governance }}
+          RESULT_FRONTEND_GOVERNANCE: ${{ needs.frontend-governance.result }}
+          REQUIRE_FRONTEND_RELEASE_EVIDENCE: ${{ needs.classify.outputs.frontend_release_evidence }}
+          RESULT_FRONTEND_RELEASE_EVIDENCE: ${{ needs.frontend-release-evidence.result }}
           REQUIRE_BACKEND_SERVICE: ${{ needs.classify.outputs.backend_service }}
           RESULT_BACKEND_SERVICE: ${{ needs.backend-service.result }}
           REQUIRE_BACKEND_AI: ${{ needs.classify.outputs.backend_ai }}
