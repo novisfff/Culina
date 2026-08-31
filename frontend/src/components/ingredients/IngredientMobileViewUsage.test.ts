@@ -19,6 +19,20 @@ describe('IngredientMobileView shared overlay usage', () => {
     );
   });
 
+  it('keeps the priority card vertically compact on mobile', () => {
+    const mobileCss = readFileSync(resolve(__dirname, '../../styles/ingredients-responsive.css'), 'utf8');
+
+    expect(mobileCss).toMatch(
+      /#mobile-ingredient-priority\.mobile-ingredient-panel \{[^}]*gap: var\(--space-3\);[^}]*padding-block: var\(--space-4\);/s,
+    );
+    expect(mobileCss).toMatch(
+      /#mobile-ingredient-priority \.mobile-ingredient-priority-body \{[^}]*gap: var\(--space-2\);[^}]*padding: var\(--space-3\);/s,
+    );
+    expect(mobileCss).toMatch(
+      /#mobile-ingredient-priority \.mobile-ingredient-priority-body p \{[^}]*min-height: 0;[^}]*-webkit-line-clamp: 1;/s,
+    );
+  });
+
   it('keeps the mobile page within the padded app viewport', () => {
     const mobileCss = readFileSync(resolve(__dirname, '../../styles/ingredients-responsive.css'), 'utf8');
     const workspaceRule = mobileCss.match(/\.ingredients-workspace:has\(\.mobile-ingredient-page\)\s*\{([^}]*)\}/s)?.[1] ?? '';

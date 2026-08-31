@@ -2020,6 +2020,51 @@
 
 }
 
+/* Keep the priority card dense enough to scan without sacrificing the
+ * minimum touch size of its actions. */
+@media (max-width: 767px) {
+  #mobile-ingredient-priority.mobile-ingredient-panel {
+    gap: var(--space-3);
+    padding-block: var(--space-4);
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-priority-scroller {
+    gap: var(--space-3);
+    padding-bottom: 0;
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-priority-card {
+    grid-template-columns: minmax(112px, 0.9fr) minmax(0, 1fr);
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-priority-body {
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-card-head {
+    gap: var(--space-1);
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-card-head h3 {
+    font-size: var(--text-md);
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-priority-body p {
+    min-height: 0;
+    -webkit-line-clamp: 1;
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-meta-row {
+    gap: var(--space-1);
+    padding-block: 0;
+  }
+
+  #mobile-ingredient-priority .mobile-ingredient-card-actions {
+    gap: var(--space-1);
+  }
+}
+
 @keyframes mobileIngredientDetailDrop {
   from {
     opacity: 0;
