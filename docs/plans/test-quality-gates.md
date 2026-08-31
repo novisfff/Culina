@@ -57,6 +57,8 @@ npm run frontend:e2e:p0
 
 分类规则和 fail-closed 行为由 `.github/scripts/classify-pr-gates.test.mjs` 覆盖；本地可用 `node --test .github/scripts/classify-pr-gates.test.mjs` 验证。域级前端测试通过 `FRONTEND_TEST_SCOPES` 传递已选中的目录范围，不在第一阶段推断到单个测试文件。
 
+PR 可以添加 `full-gates` 标签强制执行全量相关门禁。分类器会将改动路径、风险、业务域、选中/跳过门禁和分类依据写入 Job Summary，并上传为 `pr-gate-classification` artifact。分类审计只提示未知路径和频繁升级到 full 的原因，不改变 `PR Gate` 结论；这样可以在不维护文件级测试归属表的前提下持续发现规则漂移。
+
 ## 测试环境默认值
 
 普通后端测试默认不应访问真实 AI、search、media provider 或外部向量服务。默认策略：
