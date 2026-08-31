@@ -42,7 +42,7 @@ function matchesAny(path, patterns) {
 }
 
 function isDocumentationPath(path) {
-  return path === 'AGENTS.md' || path.startsWith('docs/') || /\.(md|mdx|txt)$/i.test(path);
+  return path === 'AGENTS.md' || path.startsWith('docs/') || /\.(md|mdx)$/i.test(path);
 }
 
 function isFrontendPath(path) {
