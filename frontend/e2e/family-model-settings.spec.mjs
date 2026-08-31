@@ -153,19 +153,17 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     const appContent = page.locator('.app-content');
     const workspace = page.locator('.family-model-settings-workspace');
     const sectionRail = page.getByRole('navigation', { name: '家庭 AI 服务设置分区' });
-    const [contentBox, workspaceBox, tabbarBox, initialRailBox, contentGap] = await Promise.all([
+    const [contentBox, workspaceBox, initialRailBox] = await Promise.all([
       appContent.boundingBox(),
       workspace.boundingBox(),
-      page.locator('.tabbar:visible').boundingBox(),
       sectionRail.boundingBox(),
-      appContent.evaluate((element) => Number.parseFloat(getComputedStyle(element).rowGap || getComputedStyle(element).gap || '0')),
     ]);
     expect(contentBox, '桌面应用内容区应完成布局').not.toBeNull();
     expect(workspaceBox, '家庭 AI 服务工作区应完成布局').not.toBeNull();
     expect(initialRailBox, 'AI 服务分区导航应完成布局').not.toBeNull();
-    const shellNavigationHeight = (tabbarBox?.height ?? 0) + contentGap;
+    await expect(page.locator('.tabbar')).toHaveCount(0);
     expect(workspaceBox?.height ?? 0, '短内容分区也应铺满去除顶部导航后的桌面可用高度')
-      .toBeGreaterThanOrEqual((contentBox?.height ?? 0) - shellNavigationHeight - 1);
+      .toBeGreaterThanOrEqual((contentBox?.height ?? 0) - 1);
 
     await sectionRail.getByRole('button', { name: /^功能设置/ }).click();
     await expect(page.getByRole('heading', { name: '功能设置', exact: true })).toBeVisible();
