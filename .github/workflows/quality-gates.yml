@@ -200,10 +200,8 @@ jobs:
 
   backend-model-usage:
     name: Backend Model Usage Tests
-    if: ${{ always() && needs.classify.outputs.backend_mysql == 'true' }}
-    needs:
-      - classify
-      - backend-mysql-suite
+    if: ${{ always() && needs.backend-mysql-suite.result != 'skipped' }}
+    needs: backend-mysql-suite
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -364,10 +362,8 @@ jobs:
 
   frontend-vitest:
     name: Frontend Vitest
-    if: ${{ always() && needs.classify.outputs.frontend_full == 'true' }}
-    needs:
-      - classify
-      - frontend-vitest-shard
+    if: ${{ always() && needs.frontend-vitest-shard.result != 'skipped' }}
+    needs: frontend-vitest-shard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
