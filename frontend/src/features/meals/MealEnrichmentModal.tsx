@@ -1,4 +1,4 @@
-import type { Food, FoodPlanItem, MealLog, Member, RecordMealResponse, RevertMealRecordResponse, UpdateMealLogPayload } from '../../api/types';
+import type { Food, FoodPlanItem, MealLog, Member, RecordMealResponse, RevertMealRecordResponse, UpdateMealLogPayload } from '../../api/types/meal';
 import { FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { MealEnrichmentForm } from './MealLogEnrichment';
 import type { MealComposerFoodType } from './MealComposerModel';

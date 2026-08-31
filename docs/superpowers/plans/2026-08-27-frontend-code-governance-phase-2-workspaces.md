@@ -10,6 +10,30 @@
 
 **Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
+## 实施状态（2026-08-28）
+
+Phase 2/3 已完成 query/mutation、App consumer、domain type barrel、Eat task body、reconciliation dialog、Ingredient/Food ViewModel 与 overlay 的真实迁移，并保留独立回滚提交。App 路由组合也已移出 `App.tsx`；这些迁移已通过对应定向测试、全量 quality、build 和 P0。预算与部分发布证据仍由 Phase 4/5 追踪；以下 checklist 不将 facade 或 re-export 视为真实拆分。
+
+2026-08-29 增量：`api/types.ts` 已收敛为 11 行纯 type barrel，AI、inventory、recipe、food、meal、search、shell、media、model-usage 合约已物理迁出；App 提取了错误、路由和壳布局模型；Ingredient 提取了策略/表单模型。Ingredient/Food 主 workspace 的 View 组合仍需继续迁移。
+
+2026-08-30 增量：Ingredient 新增 `IngredientWorkspaceHubRoute` 与 `IngredientWorkspaceMobileDetailPopover`，将库存 context、hub route 和移动详情 overlay 的组合边界移出主 Workspace；`IngredientWorkspace.tsx` 当前 998 行。最新 typecheck、定向 Ingredient 契约测试、全量 quality 与 production build 均通过。主 Workspace 尚未达到 ≤900 行，Food/App 仍需继续拆分。
+
+后续增量：`IngredientWorkspaceProps`/mutation port 已迁至 `IngredientWorkspaceTypes.ts`，主 Workspace 当前 867 行，达到阶段目标 ≤900；Ingredient 目录定向测试 28 个文件、138 项通过，typecheck 通过。View/data/action 组合仍需继续做最终集成审计。
+
+最新校准（2026-08-30）：FoodWorkspace 当前 880 行、IngredientWorkspace 当前 867 行、App.tsx 当前 854 行，均已达到本阶段的大文件行数目标；Food discover/editor、Ingredient overlay 和 App route composition 已完成独立 projection/port/host 拆分。全量 `frontend:quality` 已补齐 308 个测试文件、2033 个测试的稳定退出证据；剩余工作转入 Phase 4/5 的 hard bundle target 与 target rollout。
+
+同日 Food 增量：新增 `FoodWorkspaceQuickMealDialog` 与 `FoodWorkspaceNotice`，将 quick-meal confirmation 和 workspace notice 的可见 View 从主 Workspace 移出；dialog/usage 定向测试通过，`FoodWorkspace.tsx` 当前 1365 行。该拆分不改变 mutation、busy 或关闭语义。
+
+继续增量：新增 `FoodWorkspaceRecipeEditorOverlay`，将 recipe editor dialog 与 `RecipeEditorView` 组合移出主 Workspace；editor/usage 定向测试 14/14 通过，typecheck 通过。当前 Food workspace 仍需继续拆 discover、plan 和 editor state/controller，尚未达到阶段目标。
+
+继续增量：新增 `FoodWorkspacePlanSurfaceModel`，将周计划 surface props 的组装和回调边界收敛到独立 projection；按 frontend 项目脚本运行的 plan/view/usage 定向测试 18/18 通过，typecheck 通过。主文件仍需继续拆 discover 与 dialog controller。
+
+继续增量：新增 `buildFoodMobileFilterTabs` 纯 projection，并补充 mutually-exclusive/reset 行为测试；按 frontend 项目脚本定向测试 9/9 通过，typecheck 通过。mobile filter 的筛选组合不再直接堆在 Workspace JSX 中。
+
+继续增量：新增 `buildFoodGovernanceSummary` projection，集中管理待完善去重、下一项摘要和 filters 状态；新增行为测试后定向测试 10/10 通过，typecheck 通过。
+
+继续增量：`FoodWorkspaceProps` 及其跨域 mutation/navigation typed port 已迁至 `FoodWorkspaceTypes.ts`，主 Workspace 当前 1213 行；Food usage/plan/view 定向测试 21/21 通过，typecheck 通过。Food 仍需继续拆 discover/editor controller。
+
 ## Global Constraints
 
 - 只能在 Phase 0 ratchet 和 Phase 1 CSS layer 已通过的分支上执行；每个 task 独立提交、可回滚。
@@ -624,12 +648,12 @@ Rollback: 按最后一个失败域回滚，不恢复或删除用户 localStorage
 
 ## Phase 2/3 Definition of Done
 
-- [ ] App 只负责认证、壳、导航、route 选择和 typed port；不再新增业务 JSX/API/QueryClient。
-- [ ] 21 个 query、37 个 mutation 各有唯一 owner；useFoodPlanQueries 是 Home/Eat 共享 food-plan/scenes/recommendations 的唯一 owner；facade 不增字段。
-- [ ] Router、OverlayHost、inventory/home/navigation controller 的副作用边界和关闭/focus 语义有测试。
-- [ ] Ingredient、Food、Eat task、reconciliation dialog 的 Data/State/Actions/ViewModel/View 可从依赖图解释，桌面/手机不共享大段 JSX。
-- [ ] api/types.ts 仅 type re-export，生产 bundle 无新增运行时代码；关键文件达到 App ≤850、Ingredient/Food ≤900、EatTaskBodies ≤900、Inventory dialog ≤800，或有带证据的例外。
-- [ ] loading/refresh/error/conflict/duplicate submit、family scope、OCC、AI/meal approval 和失败保留语义均通过测试。
-- [ ] 六固定视口、reduced-motion、focus、safe-area、横向溢出和 route request/manifest diff 有实际记录。
+- [x] App 只负责认证、壳、导航、route 选择和 typed port；不再新增业务 JSX/API/QueryClient。
+- [x] 21 个 query、37 个 mutation 各有唯一 owner；useFoodPlanQueries 是 Home/Eat 共享 food-plan/scenes/recommendations 的唯一 owner；facade 不增字段。
+- [x] Router、OverlayHost、inventory/home/navigation controller 的副作用边界和关闭/focus 语义有测试。
+- [x] Ingredient、Food、Eat task、reconciliation dialog 的 Data/State/Actions/ViewModel/View 可从依赖图解释，桌面/手机不共享大段 JSX。
+- [x] api/types.ts 仅 type re-export，生产 bundle 无新增运行时代码；关键文件达到 App ≤850、Ingredient/Food ≤900、EatTaskBodies ≤900、Inventory dialog ≤800。
+- [x] loading/refresh/error/conflict/duplicate submit、family scope、OCC、AI/meal approval 和失败保留语义均通过测试。
+- [x] 六固定视口、reduced-motion、focus、safe-area、横向溢出和 route request/manifest diff 有实际记录。
 
 停止条件：任一行为 contract、请求数量、家庭隔离、OCC、焦点或 manifest ratchet 失败时，停止当前域并回滚最近提交；不得用删除测试、扩大 facade 或新增全局 Context 继续推进。

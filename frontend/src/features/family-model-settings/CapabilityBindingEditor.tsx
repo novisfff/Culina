@@ -5,7 +5,7 @@ import type {
   FamilyModelCapability,
   FamilyModelProviderConnectionCheckResult,
   FamilyModelProviderProfile,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { safeFamilyModelSettingsError, type FamilyModelSettingsDraft } from './familyModelSettingsModel';
 import {
   FAMILY_MODEL_CAPABILITY_OPTIONS,

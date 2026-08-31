@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { ActivityLog, Member } from '../../api/types';
+import type { ActivityLog, Member } from '../../api/types/shell';
 import { DashboardIcon } from '../../app/shellIcons';
 import { DropdownSelect, EmptyState, FormActions, StateBlock, WorkspaceModal, WorkspaceOverlayFrame } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';

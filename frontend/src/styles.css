@@ -1,22 +1,21 @@
-/* Global stylesheet entrypoint.
- * Keep imports ordered to preserve the original cascade across workspaces.
- */
+/* Canonical cascade contract. Keep the order declaration unique. */
+@layer reset, tokens, primitives, shell, domain, responsive, compatibility;
+
 @import './styles/00-foundation.css';
-@import './styles/00-ui-kit.css';
-@import './styles/01-home-dashboard.css';
-@import './styles/02-family-settings.css';
-@import './styles/03-recipe-workspace.css';
-@import './styles/04-ingredients-workspace.css';
-@import './styles/05-workspace-overlays.css';
-@import './styles/06-food-workspace.css';
-@import './styles/09-ai-workspace.css';
-@import './styles/09-ai-draft-ui.css';
-@import './styles/08-meal-log.css';
-@import './styles/09-global-search.css';
-@import './styles/10-inventory-actions.css';
-@import './styles/11-inventory-maintenance.css';
-@import './styles/12-eat-workspace.css';
-@import './styles/13-meal-composer.css';
-@import './styles/14-model-usage.css';
-@import './styles/15-family-model-settings.css';
-@import './styles/07-mobile.css';
+@import './styles/legacy-primitives.css' layer(primitives);
+@import './styles/00-ui-kit.css' layer(primitives);
+@import './styles/shell.css' layer(shell);
+@import './styles/05-workspace-overlays.css' layer(domain);
+/* Legacy rollback mode only: route-owned styles are reassembled here. */
+@import './features/home/home-route.css' layer(domain);
+@import './features/eat/eat-route.css' layer(domain);
+@import './features/eat/recipe-route.css' layer(domain);
+@import './features/meals/meal-route.css' layer(domain);
+@import './components/ingredients/ingredient-route.css' layer(domain);
+@import './components/foods/food-route.css' layer(domain);
+@import './components/ai/ai-route.css' layer(domain);
+@import './features/family/family-route.css' layer(domain);
+@import './features/family-model-settings/family-model-settings-route.css' layer(domain);
+@import './features/model-usage/model-usage-route.css' layer(domain);
+@import './features/inventory/inventory-route.css' layer(domain);
+@import './styles/responsive.css' layer(responsive);

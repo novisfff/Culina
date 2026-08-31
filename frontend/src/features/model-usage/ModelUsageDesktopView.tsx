@@ -1,7 +1,7 @@
 import type {
   ModelUsageBreakdownItem,
   ModelUsageGroupBy,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { DropdownSelect, StateBlock } from '../../components/ui-kit';
 import { DashboardIcon } from '../../app/shellIcons';
 import { modelUsageGroupOptions } from './modelUsageOptions';

@@ -582,6 +582,39 @@ describe('Family model settings editors', () => {
     expect(onReplacementProfileIdChange).toHaveBeenCalledWith(null);
   });
 
+  it('hides a cancelled replacement progress card while keeping the active index summary', () => {
+    const draft = createEmptyFamilyModelDraft();
+    draft.search_profile_id = 'profile-a';
+    render(
+      <SearchProfilePanel
+        settings={{ ...settings, active_search_profile_id: 'profile-a' }}
+        draft={draft}
+        busyAction={null}
+        searchReplacement={{
+          profile_id: 'search-profile-cancelled',
+          status: 'cancelled',
+          total_documents: 42,
+          indexed_documents: 24,
+          failed_documents: 0,
+          budget_blocked_documents: 0,
+          retryable: false,
+          created_at: '2026-08-19T10:00:00Z',
+          activated_at: null,
+        }}
+        replacementProfileId="search-profile-cancelled"
+        actions={{} as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({ status: 'succeeded' })}
+      />,
+    );
+
+    expect(screen.getByText('当前智能搜索已启用')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: '智能搜索更新进度' })).not.toBeInTheDocument();
+  });
+
   it('keeps capability test progress and success feedback inside the button', async () => {
     const user = userEvent.setup();
     const draft = createEmptyFamilyModelDraft();

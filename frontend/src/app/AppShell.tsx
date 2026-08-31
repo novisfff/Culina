@@ -468,6 +468,9 @@ export function AppShell({
       <div className="page-glow page-glow-left" />
       <div className="page-glow page-glow-right" />
       <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame sidebar-expanded'}>
+        <span className="app-shell-current-user" aria-label={`当前用户：${userName}`}>
+          {userName}
+        </span>
         <aside className="sidebar-shell card">
           <div className="sidebar-top">
             <div className="sidebar-brand">
@@ -554,13 +557,15 @@ export function AppShell({
               >
                 <DashboardIcon name="more" />
               </button>
-              <div className="sidebar-user-main">
-                <Avatar label={userName} seed={userSeed} imageUrl={userImageUrl} large={!sidebarCollapsed} />
+            <div className="sidebar-user-main">
+              <Avatar label={userName} seed={userSeed} imageUrl={userImageUrl} large={!sidebarCollapsed} />
+              {!sidebarCollapsed && (
                 <div className="sidebar-user-copy">
                   <strong>{userName}</strong>
                   <p className="subtle">{userMeta}</p>
                   <p className="sidebar-user-note">{userNote}</p>
                 </div>
+              )}
               </div>
             </div>
             <button className="ghost-button sidebar-logout" type="button" onClick={onLogout} title="退出登录">
@@ -575,6 +580,16 @@ export function AppShell({
         <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
           <nav className="tabbar" aria-label="顶部导航">
             <div className="tabbar-inner">
+              <AppNotificationCenter
+                items={notifications}
+                isLoading={notificationsLoading}
+                variant="desktop"
+                onDismissBackgroundTask={onDismissBackgroundTask}
+                onRetryBackgroundTask={onRetryBackgroundTask}
+                retryingBackgroundTaskId={retryingBackgroundTaskId}
+                onOpenModelUsageAlert={onOpenModelUsageAlert}
+                onDismissModelUsageAlert={onDismissModelUsageAlert}
+              />
               <div className="tabbar-scroll">
                 {PRIMARY_NAV_ITEMS.map((item) => (
                   <button

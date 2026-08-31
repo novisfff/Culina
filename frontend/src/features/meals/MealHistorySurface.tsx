@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { MealLog } from '../../api/types';
+import type { MealLog } from '../../api/types/meal';
 
 export type MealHistorySurfaceMode = 'timeline' | 'create' | 'detail' | 'enrich';
 

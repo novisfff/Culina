@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type Ref, type SetStateAction } from 'react';
-import type { CookRecipePreviewResponse, RecipeStep } from '../../api/types';
+import type { CookRecipePreviewResponse, RecipeStep } from '../../api/types/recipe';
 import { ActionButton, ConfirmDialog } from '../ui-kit';
 import { CookingAssistantPanel } from './CookingAssistantPanel';
 import { COOK_TIMER_PRESETS } from './RecipeWorkspaceOptions';

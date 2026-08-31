@@ -3,10 +3,13 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const workspaceSourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
+const inventoryCardSourcePath = resolve(__dirname, 'IngredientInventoryCard.tsx');
+const shoppingHistorySourcePath = resolve(__dirname, 'ShoppingHistoryRow.tsx');
+const quickDetailSourcePath = resolve(__dirname, 'IngredientQuickDetailPopover.tsx');
 const shoppingOverlaySourcePath = resolve(__dirname, 'IngredientShoppingOverlay.tsx');
 const workspacePanelsSourcePath = resolve(__dirname, 'IngredientWorkspacePanels.tsx');
 const ingredientsStylePath = resolve(__dirname, '../../styles/04-ingredients-workspace.css');
-const foundationStylePath = resolve(__dirname, '../../styles/00-foundation.css');
+const sharedPrimitiveStylePath = resolve(__dirname, '../../styles/legacy-primitives.css');
 const overlayStylePath = resolve(__dirname, '../../styles/05-workspace-overlays.css');
 const foodStylePath = resolve(__dirname, '../../styles/06-food-workspace.css');
 
@@ -78,6 +81,14 @@ const currentWorkspaceStyleSelectors = [
 ];
 
 describe('Ingredient legacy style cleanup', () => {
+  it('loads ingredient workspace styles from the lazy route entry', () => {
+    const repoRoot = resolve(__dirname, '../../..');
+    const globalStyles = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
+    const routeStyles = readFileSync(resolve(__dirname, 'ingredient-route.css'), 'utf8');
+    expect(globalStyles).toContain("@import './components/ingredients/ingredient-route.css' layer(domain);");
+    expect(routeStyles).toContain("@import '../../styles/04-ingredients-workspace.css' layer(domain);");
+  });
+
   it('keeps ingredient workspace ownership in the ingredient stylesheet', () => {
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');
@@ -94,24 +105,26 @@ describe('Ingredient legacy style cleanup', () => {
 
   it('keeps current ingredient card styles without stale checklist and summary classes', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
+    const inventoryCardSource = readFileSync(inventoryCardSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
-    const foundationStyleSource = readFileSync(foundationStylePath, 'utf8');
+    const primitiveStyleSource = readFileSync(sharedPrimitiveStylePath, 'utf8');
 
-    expect(workspaceSource).toContain('ingredient-card-interactive');
+    expect(inventoryCardSource).toContain('ingredient-card-interactive');
     expect(ingredientsStyleSource).toContain('.ingredient-card-interactive');
-    expect(foundationStyleSource).toContain('.ingredient-card-interactive:hover');
+    expect(primitiveStyleSource).toContain('.ingredient-card-interactive:hover');
 
     for (const className of staleChecklistAndSummaryClasses) {
       expect(workspaceSource).not.toContain(className);
+      expect(inventoryCardSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
-      expect(foundationStyleSource).not.toContain(className);
+      expect(primitiveStyleSource).not.toContain(className);
     }
   });
 
   it('keeps the current catalog toolbar without stale title and metric strip classes', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
-    const foundationStyleSource = readFileSync(foundationStylePath, 'utf8');
+    const primitiveStyleSource = readFileSync(sharedPrimitiveStylePath, 'utf8');
     const overlayStyleSource = readFileSync(overlayStylePath, 'utf8');
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');
 
@@ -122,7 +135,7 @@ describe('Ingredient legacy style cleanup', () => {
     for (const className of staleCatalogToolbarClasses) {
       expect(workspaceSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
-      expect(foundationStyleSource).not.toContain(className);
+      expect(primitiveStyleSource).not.toContain(className);
       expect(overlayStyleSource).not.toContain(className);
       expect(foodStyleSource).not.toContain(className);
     }
@@ -146,6 +159,7 @@ describe('Ingredient legacy style cleanup', () => {
 
   it('keeps current shopping quantity and storage header styles without stale helpers', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
+    const shoppingHistorySource = readFileSync(shoppingHistorySourcePath, 'utf8');
     const shoppingOverlaySource = readFileSync(shoppingOverlaySourcePath, 'utf8');
     const workspacePanelsSource = readFileSync(workspacePanelsSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
@@ -155,11 +169,12 @@ describe('Ingredient legacy style cleanup', () => {
     expect(shoppingOverlaySource).toContain('ingredients-restock-quantity-row');
     expect(workspacePanelsSource).toContain('ingredients-inventory-mixed-group');
     expect(workspacePanelsSource).toContain('ingredients-inventory-mixed-grid');
-    expect(workspaceSource).toContain('shopping-history-row');
+    expect(shoppingHistorySource).toContain('shopping-history-row');
     expect(ingredientsStyleSource).toContain('.ingredients-restock-quantity-row');
 
     for (const className of staleShoppingAndStorageClasses) {
       expect(workspaceSource).not.toContain(className);
+      expect(shoppingHistorySource).not.toContain(className);
       expect(shoppingOverlaySource).not.toContain(className);
       expect(workspacePanelsSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
@@ -169,19 +184,23 @@ describe('Ingredient legacy style cleanup', () => {
 
   it('keeps current visual card and expand styles without stale visual helpers', () => {
     const workspaceSource = readFileSync(workspaceSourcePath, 'utf8');
+    const quickDetailSource = readFileSync(quickDetailSourcePath, 'utf8');
+    const catalogCardSource = readFileSync(resolve(__dirname, 'IngredientCatalogCard.tsx'), 'utf8');
     const workspacePanelsSource = readFileSync(workspacePanelsSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');
     const foodStyleSource = readFileSync(foodStylePath, 'utf8');
 
-    expect(workspaceSource).toContain('ingredient-work-card-more-icon');
-    expect(workspaceSource).toContain('ingredient-quick-detail-popover');
-    expect(workspaceSource).toContain('ingredient-visual-meta');
+    expect(catalogCardSource).toContain('ingredient-work-card-more-icon');
+    expect(quickDetailSource).toContain('ingredient-quick-detail-popover');
+    expect(catalogCardSource).toContain('ingredient-visual-meta');
     expect(workspacePanelsSource).toContain('ingredients-storage-workbench-density-compact');
     expect(ingredientsStyleSource).toContain('.ingredient-quick-detail-popover');
     expect(ingredientsStyleSource).toContain('.ingredients-storage-workbench-density-compact');
 
     for (const className of staleVisualAndExpandClasses) {
       expect(workspaceSource).not.toContain(className);
+      expect(quickDetailSource).not.toContain(className);
+      expect(catalogCardSource).not.toContain(className);
       expect(workspacePanelsSource).not.toContain(className);
       expect(ingredientsStyleSource).not.toContain(className);
       expect(foodStyleSource).not.toContain(className);

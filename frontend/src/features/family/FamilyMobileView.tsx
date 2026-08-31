@@ -1,4 +1,4 @@
-import type { ActivityLog, Member, MembershipSummary, UserSummary } from '../../api/types';
+import type { ActivityLog, Member, MembershipSummary, UserSummary } from '../../api/types/shell';
 import type { ReactNode } from 'react';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon } from '../../app/shellIcons';

@@ -4,18 +4,9 @@ import {
   buildIngredientPriorityActionGroups,
   buildInventoryCardStatus,
   buildInventoryStorageOverview,
-  buildIngredientCategoryFilters,
   buildIngredientSummaries,
   buildPrioritySurfaceRows,
   buildShoppingCardGroups,
-  buildShoppingCards,
-  buildShoppingOverview,
-  buildStorageGroups,
-  filterShoppingCards,
-  filterIngredientSummaries,
-  filterIngredientSummariesForInventory,
-  isSeasoningIngredient,
-  sortInventorySummariesByExpiry,
   type IngredientSummaryViewModel,
   type ShoppingOverviewViewModel,
 } from './workspaceModel';
@@ -27,6 +18,33 @@ import type {
   InventoryQuickFilter,
   MobileIngredientFilter,
 } from './useIngredientWorkspaceState';
+import {
+  buildIngredientCatalogViewModel,
+  buildIngredientInventoryViewModel,
+  buildIngredientShoppingViewModel,
+  filterIngredientMobileCatalogSummaries,
+} from './IngredientWorkspaceViewModel';
+
+// Compatibility export for existing model tests and callers during the workspace migration.
+export function filterMobileCatalogSummaries(args: {
+  summaries: IngredientSummaryViewModel[];
+  catalogSearch: string;
+  catalogSearchMatchedIngredientIds?: readonly string[];
+  mobileIngredientFilter: MobileIngredientFilter;
+  mobileInventoryEntryFilter: InventoryEntryFilter;
+  mobileStorageFocus: InventoryStorageFocus;
+  actionableIngredientIds?: ReadonlySet<string>;
+}) {
+  return filterIngredientMobileCatalogSummaries({
+    summaries: args.summaries,
+    search: args.catalogSearch,
+    searchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
+    ingredientFilter: args.mobileIngredientFilter,
+    inventoryEntryFilter: args.mobileInventoryEntryFilter,
+    storageFocus: args.mobileStorageFocus,
+    actionableIngredientIds: args.actionableIngredientIds,
+  });
+}
 
 type UseIngredientWorkspaceDataArgs = {
   ingredients: Ingredient[];
@@ -59,60 +77,6 @@ type UseIngredientWorkspaceDataArgs = {
   referenceDate?: string;
 };
 
-export function filterMobileCatalogSummaries(args: {
-  summaries: IngredientSummaryViewModel[];
-  catalogSearch: string;
-  catalogSearchMatchedIngredientIds?: readonly string[];
-  mobileIngredientFilter: MobileIngredientFilter;
-  mobileInventoryEntryFilter: InventoryEntryFilter;
-  mobileStorageFocus: InventoryStorageFocus;
-  actionableIngredientIds?: ReadonlySet<string>;
-}) {
-  return filterIngredientSummaries(
-    args.summaries,
-    args.catalogSearch,
-    'all',
-    args.catalogSearchMatchedIngredientIds
-  ).filter((summary) => {
-    if (args.mobileStorageFocus !== 'all' && summary.primaryStorage !== args.mobileStorageFocus) {
-      return false;
-    }
-    const isActionable =
-      args.actionableIngredientIds?.has(summary.ingredient.id) ?? summary.alerts.length > 0;
-    const quickMatches =
-      args.mobileIngredientFilter === 'all' ||
-      args.mobileIngredientFilter === 'ingredient' ||
-      (args.mobileIngredientFilter === 'alerted' && isActionable) ||
-      (args.mobileIngredientFilter === 'expiring' && summary.alerts.some((alert) => alert.kind === 'expiry')) ||
-      (args.mobileIngredientFilter === 'seasoning' && isSeasoningIngredient(summary.ingredient));
-    const entryMatches =
-      args.mobileInventoryEntryFilter === 'all' ||
-      (args.mobileInventoryEntryFilter === 'pending' && summary.quantitySummaries.length === 0) ||
-      (args.mobileInventoryEntryFilter === 'stocked' && summary.quantitySummaries.length > 0);
-    return quickMatches && entryMatches;
-  });
-}
-
-function filterInventorySummariesByQuickFilter(
-  summaries: IngredientSummaryViewModel[],
-  quickFilter: InventoryQuickFilter,
-  actionableIngredientIds: ReadonlySet<string>
-) {
-  if (quickFilter === 'alerted') {
-    return summaries.filter((item) => actionableIngredientIds.has(item.ingredient.id));
-  }
-  if (quickFilter === 'food') {
-    return [];
-  }
-  if (quickFilter === 'expiring') {
-    return summaries.filter((item) => item.alerts.some((alert) => alert.kind === 'expiry'));
-  }
-  if (quickFilter === 'seasoning') {
-    return summaries.filter((item) => isSeasoningIngredient(item.ingredient));
-  }
-  return summaries;
-}
-
 export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs) {
   return useMemo(() => {
     const referenceDate = args.referenceDate ?? businessDateKey();
@@ -134,59 +98,57 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
       shoppingItems: args.shoppingItems,
       inventoryStates,
     });
-    const catalogCategories = buildIngredientCategoryFilters(args.ingredients);
-    const catalogBaseSummaries = filterIngredientSummaries(
+    const catalogProjection = buildIngredientCatalogViewModel({
       summaries,
-      args.catalogSearch,
-      args.catalogCategoryFilter,
-      args.catalogSearchMatchedIngredientIds
-    );
-    const filteredSummaries = args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, args.catalogStatusFilter);
-    const catalogHasActiveFilter =
-      Boolean(args.catalogSearch.trim()) || args.catalogCategoryFilter !== 'all' || args.catalogStatusFilter !== 'all';
-    const catalogCountLabel = catalogHasActiveFilter
-      ? `当前筛选 ${filteredSummaries.length} 项`
-      : `共 ${summaries.length} 项`;
-    const catalogStatusCounts = {
-      all: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'all').length,
-      actionNeeded: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'actionNeeded').length,
-      expired: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'expired').length,
-      expiring: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'expiring').length,
-      lowStock: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'lowStock').length,
-      stable: args.filterIngredientSummariesByCatalogStatus(catalogBaseSummaries, 'stable').length,
-    } as const;
-    const inventorySourceSummaries = filterInventorySummariesByQuickFilter(
+      ingredients: args.ingredients,
+      search: args.catalogSearch,
+      categoryFilter: args.catalogCategoryFilter,
+      statusFilter: args.catalogStatusFilter,
+      searchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
+      filterByStatus: args.filterIngredientSummariesByCatalogStatus,
+    });
+    const {
+      catalogCategories,
+      filteredSummaries,
+      countLabel: catalogCountLabel,
+      statusCounts: catalogStatusCounts,
+    } = catalogProjection;
+    const inventoryProjection = buildIngredientInventoryViewModel({
       summaries,
-      args.inventoryQuickFilter,
-      actionableIngredientIds
-    );
-    const filteredInventorySummaries = filterIngredientSummariesForInventory(
-      inventorySourceSummaries,
-      args.inventorySearch,
-      args.inventorySearchMatchedIngredientIds
-    );
-    const inventoryStorageOverview = buildInventoryStorageOverview(filteredInventorySummaries);
-    const focusedInventorySummaries =
-      args.inventoryStorageFocus === 'all'
-        ? filteredInventorySummaries
-        : filteredInventorySummaries.filter((item) => item.primaryStorage === args.inventoryStorageFocus);
-    const inventoryGroups = buildStorageGroups(focusedInventorySummaries).map((group) => ({
-      ...group,
-      items: args.inventorySortMode === 'expiry' ? sortInventorySummariesByExpiry(group.items) : group.items,
-    }));
+      quickFilter: args.inventoryQuickFilter,
+      search: args.inventorySearch,
+      searchMatchedIngredientIds: args.inventorySearchMatchedIngredientIds,
+      storageFocus: args.inventoryStorageFocus,
+      sortMode: args.inventorySortMode,
+      actionableIngredientIds,
+    });
+    const {
+      filteredInventorySummaries,
+      focusedInventorySummaries,
+      inventoryStorageOverview,
+      inventoryGroups,
+    } = inventoryProjection;
     const selectedIngredient =
       summaries.find((item) => item.ingredient.id === args.selectedIngredientId) ?? summaries[0] ?? null;
     const allAlerts = summaries.flatMap((item) => item.alerts);
-    const pendingShopping = args.shoppingItems.filter(args.isPendingShopping);
-    const completedShopping = args.shoppingItems.filter((item) => item.done);
-    const pendingShoppingCards = buildShoppingCards(pendingShopping, summaries, { foods: args.foods });
-    const completedShoppingCards = buildShoppingCards(completedShopping, summaries, { completed: true, foods: args.foods });
-    const shoppingOverview = buildShoppingOverview(pendingShoppingCards);
-    const visiblePendingShoppingCards = filterShoppingCards(pendingShoppingCards, args.shoppingSearch, args.shoppingFocus);
-    const visibleCompletedShoppingCards = filterShoppingCards(completedShoppingCards, args.shoppingSearch, 'all');
-    const visiblePendingShoppingGroups = buildShoppingCardGroups(visiblePendingShoppingCards);
-    const activeShoppingOverview =
-      shoppingOverview.find((item) => item.key === args.shoppingFocus) ?? shoppingOverview[0] ?? null;
+    const shoppingProjection = buildIngredientShoppingViewModel({
+      shoppingItems: args.shoppingItems,
+      summaries,
+      foods: args.foods,
+      search: args.shoppingSearch,
+      focus: args.shoppingFocus,
+      isPending: args.isPendingShopping,
+    });
+    const {
+      pendingShopping,
+      completedShoppingCards,
+      pendingShoppingCards,
+      shoppingOverview,
+      visiblePendingShoppingCards,
+      visibleCompletedShoppingCards,
+      visiblePendingShoppingGroups,
+      activeShoppingOverview,
+    } = shoppingProjection;
     const stockedIngredientCount = summaries.filter((item) => item.quantitySummaries.length > 0).length;
     const workspaceMetrics = [
       { label: '提醒', value: `${priorityActionCount} 种`, detail: '过期、临期或待补货需要优先处理' },
@@ -205,13 +167,13 @@ export function useIngredientWorkspaceData(args: UseIngredientWorkspaceDataArgs)
     const mobileStorageCards = buildInventoryStorageOverview(summaries).filter((item) =>
       ['冷藏', '冷冻', '常温'].includes(item.key)
     );
-    const mobileCatalogSummaries = filterMobileCatalogSummaries({
+    const mobileCatalogSummaries = filterIngredientMobileCatalogSummaries({
       summaries,
-      catalogSearch: args.catalogSearch,
-      catalogSearchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
-      mobileIngredientFilter: args.mobileIngredientFilter,
-      mobileInventoryEntryFilter: args.mobileInventoryEntryFilter,
-      mobileStorageFocus: args.mobileStorageFocus,
+      search: args.catalogSearch,
+      searchMatchedIngredientIds: args.catalogSearchMatchedIngredientIds,
+      ingredientFilter: args.mobileIngredientFilter,
+      inventoryEntryFilter: args.mobileInventoryEntryFilter,
+      storageFocus: args.mobileStorageFocus,
       actionableIngredientIds,
     });
     const mobileShoppingCards = pendingShoppingCards;

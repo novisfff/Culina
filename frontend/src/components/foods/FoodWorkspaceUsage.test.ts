@@ -10,10 +10,32 @@ function readSource(fileName: string) {
 }
 
 describe('FoodWorkspace navigation usage', () => {
+  it('keeps overlay composition in the dialog controller', () => {
+    const workspaceSource = readSource('FoodWorkspace.tsx');
+    const controllerSource = readSource('FoodWorkspaceDialogController.tsx');
+
+    expect(workspaceSource).toContain('<FoodWorkspaceDialogController');
+    expect(workspaceSource).not.toContain('<FoodWorkspaceDetailOverlay');
+    expect(workspaceSource).not.toContain('<FoodSceneDialogs');
+    expect(controllerSource).toContain('<FoodWorkspaceDetailOverlay');
+    expect(controllerSource).toContain('<FoodSceneDialogs');
+  });
+
+  it('delegates remote food search to a data hook', () => {
+    const workspaceSource = readSource('FoodWorkspace.tsx');
+
+    expect(workspaceSource).toContain('useFoodWorkspaceSearch');
+    expect(workspaceSource).not.toContain("from '@tanstack/react-query'");
+    expect(workspaceSource).not.toContain("from '../../api/client'");
+    expect(workspaceSource).not.toContain("from '../../api/queryKeys'");
+  });
+
   it('supports edit and quick-meal navigation requests from other workspaces', () => {
     const appNavigationSource = readFileSync(resolve(repoRoot, 'src/app/useAppGlobalSearchNavigation.ts'), 'utf8');
     const stateSource = readFileSync(resolve(repoRoot, 'src/components/foods/useFoodWorkspaceState.ts'), 'utf8');
     const workspaceSource = readSource('FoodWorkspace.tsx');
+    const navigationModelSource = readSource('FoodNavigationModel.ts');
+    const navigationHookSource = readSource('useFoodNavigationRequests.ts');
 
     expect(appNavigationSource).toContain("target?: 'detail' | 'edit' | 'quickMeal'");
     expect(appNavigationSource).toContain("quickMealAction?: 'eat' | 'cook'");
@@ -22,9 +44,9 @@ describe('FoodWorkspace navigation usage', () => {
     expect(appNavigationSource).not.toContain('setFoodNavigationRequest');
     expect(stateSource).toContain("args.navigationRequest?.target === 'edit'");
     expect(stateSource).toContain("args.navigationRequest?.target === 'quickMeal'");
-    expect(workspaceSource).toContain('resolveFoodNavigationRequestAction');
-    expect(workspaceSource).toContain('handledNavigationRequestIdRef');
-    expect(workspaceSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
+    expect(navigationModelSource).toContain('resolveFoodNavigationRequestAction');
+    expect(navigationHookSource).toContain('handledRequestIdRef');
+    expect(navigationModelSource).toContain("quickMealAction: navigationRequest.quickMealAction ?? 'eat'");
     expect(stateSource).toContain('expected_row_version: editingFood.row_version');
     expect(workspaceSource).toMatch(/updateFoodFavorite\(food\.id, !food\.favorite, food\.row_version\)/);
     // Ordinary Food recording uses recordMeal + MealQuickRecordView; stock is a separate command.
@@ -37,6 +59,8 @@ describe('FoodWorkspace navigation usage', () => {
   it('exports focused Food surfaces and keeps the unified workspace composition', () => {
     const discoverSource = readSource('FoodDiscoverSurface.tsx');
     const planSource = readSource('FoodPlanSurface.tsx');
+    const desktopSidebarSource = readSource('FoodDesktopSidebar.tsx');
+    const desktopDiscoverSource = readSource('FoodWorkspaceDiscoverDesktop.tsx');
     const workspaceSource = readSource('FoodWorkspace.tsx');
     const hubSource = readSource('FoodHubView.tsx');
     const mobileSource = readSource('FoodMobileView.tsx');
@@ -44,8 +68,12 @@ describe('FoodWorkspace navigation usage', () => {
 
     expect(discoverSource).toContain('export function FoodDiscoverSurface');
     expect(planSource).toContain('export function FoodPlanSurface');
-    expect(workspaceSource).toContain('<FoodDiscoverSurface');
-    expect(workspaceSource).toContain('<FoodPlanSurface');
+    expect(workspaceSource).toContain('<FoodWorkspaceDiscoverView');
+    expect(workspaceSource).toContain('<FoodWorkspaceDiscoverDesktop');
+    expect(desktopDiscoverSource).toContain('<FoodDesktopSidebar');
+    expect(workspaceSource).not.toContain('<FoodPlanSurface');
+    expect(desktopSidebarSource).toContain('<FoodPlanSurface');
+    expect(desktopSidebarSource).toContain('resolveFoodAssetUrl(scene.imageUrl)');
     expect(workspaceSource).not.toContain("surface?: 'discover' | 'plan'");
     expect(workspaceSource).not.toContain("surface === 'plan'");
     expect(discoverSource).not.toContain('<AppShell');
@@ -79,5 +107,15 @@ describe('FoodWorkspace navigation usage', () => {
     expect(foodCss).toMatch(
       /@media \(min-width: 1024px\)[\s\S]*?\.food-content-main\s*\{[^}]*overflow-anchor:\s*none;/,
     );
+  });
+
+  it('keeps the public workspace port in the dedicated type module', () => {
+    const workspaceSource = readSource('FoodWorkspace.tsx');
+    const typeSource = readSource('FoodWorkspaceTypes.ts');
+    expect(workspaceSource).toContain("from './FoodWorkspaceTypes'");
+    expect(workspaceSource).not.toContain('type Props = {');
+    expect(typeSource).toContain('export type FoodWorkspaceProps = {');
+    expect(typeSource).toContain('createFood:');
+    expect(typeSource).toContain('completeFoodPlanItem:');
   });
 });

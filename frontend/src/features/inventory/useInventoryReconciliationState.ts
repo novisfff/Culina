@@ -3,7 +3,7 @@ import type {
   InventoryOperationResult,
   InventoryReconciliationGroup,
   InventoryReconciliationResponse,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import { hoursBetweenInstants } from '../../lib/date';
 import { readJsonStorage, reconciliationDraftKey, removeStorage, writeJsonStorage } from '../../lib/storage';
 import {

@@ -17,7 +17,10 @@ describe('SearchableResourceSelect usages', () => {
       'src/styles/03-recipe-workspace.css',
       'src/styles/04-ingredients-workspace.css',
       'src/styles/05-workspace-overlays.css',
-      'src/styles/07-mobile.css',
+      'src/styles/compatibility-responsive.css',
+      'src/styles/ingredients-responsive.css',
+      'src/styles/food-responsive.css',
+      'src/styles/inventory-responsive.css',
     ];
     const legacyClassNames = [
       'custom-combobox-container',

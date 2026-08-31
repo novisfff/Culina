@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { MealLogCandidate, MealType, MediaAsset, RecordMealTarget } from '../../api/types';
+import type { MealLogCandidate, MealType, MediaAsset, RecordMealTarget } from '../../api/types/meal';
 import {
   createMealBusinessDate,
   deriveCandidatePresentation,

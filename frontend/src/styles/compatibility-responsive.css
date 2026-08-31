@@ -1,0 +1,949 @@
+@media (max-width: 767px) {
+
+  .tabbar,
+  .dashboard-page {
+    display: none;
+  }
+
+  html.app-mobile-keyboard-open:has(.app-shell-ai),
+  html.app-mobile-keyboard-open:has(.recipe-workspace-cook-mode),
+  html.app-mobile-keyboard-open:has(.app-shell-ai) body,
+  html.app-mobile-keyboard-open:has(.recipe-workspace-cook-mode) body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .page-glow {
+    display: none;
+  }
+
+  .mobile-ingredient-detail-popover-panel .inventory-card-rich,
+  .mobile-ingredient-detail-popover-panel .ingredient-related-row:has(.ingredient-detail-row-icon) {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    min-height: 0;
+    padding: 10px 10px;
+    border-radius: 14px;
+    background: rgba(255, 253, 251, 0.72);
+  }
+
+  .mobile-ingredient-detail-popover-panel .ingredient-related-row:has(.ingredient-detail-row-icon) > div,
+  .mobile-ingredient-detail-popover-panel .inventory-card-rich > div {
+    min-width: 0;
+  }
+
+  .mobile-ingredient-detail-popover-panel .ingredient-related-row h3,
+  .mobile-ingredient-detail-popover-panel .inventory-card-rich h3 {
+    font-size: 0.9rem;
+    line-height: 1.25;
+  }
+
+  .mobile-ingredient-detail-popover-panel .ingredient-related-row p,
+  .mobile-ingredient-detail-popover-panel .inventory-card-rich p {
+    margin-top: 3px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  /* Mobile Tab Bar */
+
+  /* Control visibility based on active mobile tab */
+
+  /* Connecting line behind circles */
+
+
+
+}
+
+
+
+
+@media (max-width: 767px) {
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page) {
+    padding-top: 0;
+  }
+
+  :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
+    position: relative;
+    z-index: var(--z-mobile-topbar);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    box-sizing: border-box;
+    margin: 0 -12px;
+    padding: 14px 22px 0;
+  }
+
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 15px;
+    background: linear-gradient(180deg, #df7a39, #d66d2f);
+    color: #fff;
+    box-shadow: 0 14px 28px rgba(203, 96, 42, 0.22);
+  }
+
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) .shell-logo-image {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+  }
+
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 1.8;
+  }
+
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) :is(strong, small) {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) strong {
+    color: #2d211a;
+    font-size: 1.08rem;
+    line-height: 1.12;
+    font-weight: 900;
+  }
+
+  :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) small {
+    margin-top: 3px;
+    color: #7e6f64;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) button {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #18110d;
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) svg {
+    width: 26px;
+    height: 26px;
+    stroke-width: 2;
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) i {
+    position: absolute;
+    top: 7px;
+    right: 6px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid #fff8f0;
+    border-radius: 999px;
+    background: #de7336;
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) .mobile-notification-center .app-notification-popover {
+    top: calc(env(safe-area-inset-top, 0px) + 86px);
+    right: auto;
+    left: 50%;
+    width: min(420px, calc(100vw - 32px));
+    max-height: min(456px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 102px));
+    overflow: hidden;
+    transform: translateX(-50%);
+  }
+
+
+  .mobile-dashboard-hero > .mobile-dashboard-topbar {
+    align-self: start;
+    margin: 0 calc(-1 * var(--mobile-dashboard-hero-inline));
+  }
+}
+
+@keyframes home-dashboard-sheet-enter {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes home-dashboard-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace-overlay-root {
+    max-width: 100vw;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+  }
+
+  .workspace-overlay-root .workspace-modal {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+  }
+
+  .workspace-overlay-root .workspace-drawer {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+  }
+
+  .workspace-overlay-root :is(.workspace-overlay-head, .workspace-overlay-titleblock, .workspace-overlay-body) {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .workspace-overlay-root .workspace-overlay-body {
+    touch-action: pan-y;
+  }
+
+  .workspace-overlay-root .workspace-overlay-body > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workspace-overlay-root .workspace-overlay-body :is(h1, h2, h3, h4, p, span, strong, small, label, button) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workspace-overlay-root {
+    --home-sheet-handle-width: 56px;
+    --home-sheet-handle-height: 5px;
+    --home-sheet-title-size: 24px;
+    --home-sheet-description-size: 14px;
+    --home-sheet-eyebrow-size: 12px;
+    --home-sheet-close-width: 64px;
+    --home-sheet-close-height: 44px;
+    --home-sheet-close-font-size: 14px;
+    align-items: end;
+    justify-items: stretch;
+    padding: 0;
+  }
+
+  .workspace-overlay-root .workspace-overlay-backdrop {
+    background: var(--overlay-backdrop);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    animation: home-dashboard-backdrop-enter 180ms ease-out both;
+  }
+
+  .workspace-overlay-root .workspace-modal {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-self: end;
+    justify-self: stretch;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: auto;
+    max-height: min(92dvh, var(--app-visual-viewport-height));
+    margin: 0;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    overflow: hidden;
+    overscroll-behavior-x: none;
+    border: 1px solid rgba(147, 96, 63, 0.12);
+    border-bottom: 0;
+    border-radius: 24px 24px 0 0;
+    background: rgba(255, 253, 251, 0.99);
+    box-shadow: 0 -8px 32px rgba(55, 40, 30, 0.12);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    animation: home-dashboard-sheet-enter var(--motion-slow) cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .workspace-overlay-root .workspace-drawer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-self: end;
+    justify-self: stretch;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: auto;
+    max-height: min(92dvh, var(--app-visual-viewport-height));
+    margin: 0;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    overflow: hidden;
+    overscroll-behavior-x: none;
+    border: 1px solid rgba(147, 96, 63, 0.12);
+    border-bottom: 0;
+    border-radius: 24px 24px 0 0;
+    background: rgba(255, 253, 251, 0.99);
+    box-shadow: 0 -8px 32px rgba(55, 40, 30, 0.12);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    animation: home-dashboard-sheet-enter var(--motion-slow) cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .workspace-overlay-root .workspace-modal::before {
+    content: none;
+  }
+
+  .workspace-overlay-root .workspace-drawer::before {
+    content: none;
+  }
+
+  .workspace-overlay-root .workspace-overlay-drag-zone {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 4;
+    width: 112px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    cursor: grab;
+    touch-action: none;
+    transform: translateX(-50%);
+  }
+
+  .workspace-overlay-root .workspace-overlay-drag-zone:active {
+    cursor: grabbing;
+  }
+
+  .workspace-overlay-root .workspace-overlay-drag-handle {
+    width: var(--home-sheet-handle-width);
+    height: var(--home-sheet-handle-height);
+    border-radius: 999px;
+    background: #e4ded9;
+    pointer-events: none;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head {
+    position: relative;
+    top: auto;
+    z-index: 2;
+    flex: 0 0 auto;
+    align-items: start;
+    gap: 14px;
+    min-width: 0;
+    margin: 0;
+    padding: 40px 20px 16px;
+    border-bottom: 0;
+    background: #fffdfb;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head {
+    position: relative;
+    top: auto;
+    z-index: 2;
+    flex: 0 0 auto;
+    align-items: start;
+    gap: 14px;
+    min-width: 0;
+    margin: 0;
+    padding: 40px 20px 16px;
+    border-bottom: 0;
+    background: #fffdfb;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-titleblock {
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-titleblock {
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-titleblock .eyebrow {
+    color: #9b887b;
+    font-size: var(--home-sheet-eyebrow-size);
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-titleblock .eyebrow {
+    color: #9b887b;
+    font-size: var(--home-sheet-eyebrow-size);
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-titleblock h3 {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: #2f211b;
+    font-size: var(--home-sheet-title-size);
+    font-weight: 950;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-titleblock h3 {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    color: #2f211b;
+    font-size: var(--home-sheet-title-size);
+    font-weight: 950;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-titleblock .subtle {
+    min-width: 0;
+    max-width: 100%;
+    margin: 2px 0 0;
+    color: #8f7d71;
+    font-size: var(--home-sheet-description-size);
+    font-weight: 650;
+    line-height: 1.5;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-titleblock .subtle {
+    min-width: 0;
+    max-width: 100%;
+    margin: 2px 0 0;
+    color: #8f7d71;
+    font-size: var(--home-sheet-description-size);
+    font-weight: 650;
+    line-height: 1.5;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-close {
+    width: var(--home-sheet-close-width);
+    min-width: var(--home-sheet-close-width);
+    max-width: var(--home-sheet-close-width);
+    height: var(--home-sheet-close-height);
+    min-height: var(--home-sheet-close-height);
+    max-height: var(--home-sheet-close-height);
+    padding: 0;
+    border: 0;
+    border-radius: 15px;
+    background: #f7f3f0;
+    color: #74655b;
+    font-size: var(--home-sheet-close-font-size);
+    font-weight: 900;
+    line-height: 1;
+    aspect-ratio: auto;
+    box-shadow: 0 6px 16px rgba(74, 54, 40, 0.05);
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-close {
+    width: var(--home-sheet-close-width);
+    min-width: var(--home-sheet-close-width);
+    max-width: var(--home-sheet-close-width);
+    height: var(--home-sheet-close-height);
+    min-height: var(--home-sheet-close-height);
+    max-height: var(--home-sheet-close-height);
+    padding: 0;
+    border: 0;
+    border-radius: 15px;
+    background: #f7f3f0;
+    color: #74655b;
+    font-size: var(--home-sheet-close-font-size);
+    font-weight: 900;
+    line-height: 1;
+    aspect-ratio: auto;
+    box-shadow: 0 6px 16px rgba(74, 54, 40, 0.05);
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-icon,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-icon {
+    display: none;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-label,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-label {
+    display: inline;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-body {
+    min-height: 0;
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: 0 20px 20px;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workspace-overlay-root .destroy-expired-modal :is(
+    .destroy-expired-summary-metric,
+    .destroy-expired-row,
+    .ingredients-restock-identity-card
+  ) {
+    box-shadow: none;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-body {
+    min-height: 0;
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: 0 20px 20px;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-body > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-body > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-body * {
+    max-width: 100%;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-body * {
+    max-width: 100%;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-body :is([class*="scroller"], [class*="scroll-shell"], [class*="chip-row"], [class*="category-cloud"], [class*="pill-row"]) {
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
+
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-body :is([class*="scroller"], [class*="scroll-shell"], [class*="chip-row"], [class*="category-cloud"], [class*="pill-row"]) {
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
+
+  .workspace-overlay-root .ui-form-actions-row {
+    padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .workspace-overlay-root .workspace-overlay-body > form,
+  .workspace-overlay-root .workspace-overlay-body > div,
+  .workspace-overlay-root .workspace-overlay-body > section {
+    min-height: auto;
+  }
+
+  .workspace-overlay-root .workspace-overlay-body > form {
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .workspace-overlay-root :is(
+    .ingredients-restock-scroll,
+    .shopping-quick-scroll,
+    .consume-quick-scroll,
+    .destroy-expired-scroll
+  ) {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+    padding-right: 0;
+    -webkit-overflow-scrolling: auto;
+  }
+
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal.workspace-modal, .ingredient-workspace-overlay-root .destroy-expired-modal.workspace-modal {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    max-height: calc(100dvh - 18px);
+    padding-right: 0;
+    padding-left: 0;
+    overflow-x: hidden;
+  }
+
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-head, :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-body, .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-head, .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .inventory-restock-modal .workspace-overlay-body, .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
+    overflow: hidden;
+  }
+
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .ingredients-restock-form, .ingredient-workspace-overlay-root .destroy-expired-form {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  :is(.home-dashboard-overlay-root, .ingredient-workspace-overlay-root) .ingredients-restock-scroll, .ingredient-workspace-overlay-root .destroy-expired-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-right: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-form {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-scroll {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+    padding-bottom: 12px;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-footer-summary {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    margin-bottom: 10px;
+    padding: 0 2px;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-footer-summary span {
+    color: #8b7a6f;
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-footer-summary strong {
+    color: #2f211b;
+    font-size: 0.98rem;
+    line-height: 1.18;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-footer-summary p {
+    margin: 0;
+    color: #806f64;
+    font-size: 0.78rem;
+    line-height: 1.32;
+    overflow-wrap: anywhere;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-modal .workspace-overlay-body {
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-modal .destroy-expired-form {
+    display: grid;
+    gap: 0;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .ingredient-workspace-overlay-root .destroy-expired-modal .destroy-expired-scroll {
+    display: grid;
+    gap: 10px;
+    overflow: visible;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .workspace-overlay-body {
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .destroy-expired-form {
+    display: grid;
+    gap: 0;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .destroy-expired-scroll {
+    display: grid;
+    gap: 10px;
+    min-height: auto;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+    padding-bottom: 12px;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .destroy-expired-footer-summary {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    margin-bottom: 10px;
+    padding: 0 2px;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .destroy-expired-footer-summary span {
+    color: #8b7a6f;
+    font-size: 0.78rem;
+    font-weight: 850;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .destroy-expired-footer-summary strong {
+    color: #2f211b;
+    font-size: 0.98rem;
+    line-height: 1.18;
+  }
+
+  .home-dashboard-overlay-root .destroy-expired-modal .destroy-expired-footer-summary p {
+    margin: 0;
+    color: #806f64;
+    font-size: 0.78rem;
+    line-height: 1.32;
+    overflow-wrap: anywhere;
+  }
+
+  .workspace-overlay-root :is(
+    .ingredients-restock-scroll,
+    .shopping-quick-scroll,
+    .consume-quick-scroll,
+    .destroy-expired-scroll
+  ) {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow: visible;
+    padding-right: 0;
+    -webkit-overflow-scrolling: auto;
+  }
+
+  .workspace-overlay-root .workspace-modal-sheet {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+
+  .workspace-overlay-root .workspace-drawer-sheet {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+
+  .workspace-overlay-root .workspace-modal-sheet > .workspace-overlay-head {
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+
+  .workspace-overlay-root .workspace-drawer-sheet > .workspace-overlay-head {
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+
+  .workspace-overlay-root .workspace-modal-sheet > .workspace-overlay-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workspace-overlay-root .workspace-drawer-sheet > .workspace-overlay-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  :is(.login-shell, .app-shell, .workspace-overlay-root, .global-search-root) :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]),
+    textarea,
+    select,
+    .text-input,
+    .compact-input
+  ) {
+    font-size: 16px;
+  }
+
+}
+
+@media (max-width: 767px) {
+  /* Inventory actions own the scroll region. The generic sheet body must not
+     become a second scroller, otherwise the fixed action area can be pushed
+     below the visual viewport on short phones. */
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer {
+    padding: 10px 20px max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+    padding: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > .ui-form-actions-spacer,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > .ui-form-actions-spacer {
+    display: none;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > button,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > button {
+    grid-column: span 2;
+    width: 100%;
+    min-width: 0;
+    min-height: 52px;
+    margin: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > button:only-of-type,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > button:only-of-type {
+    grid-column: span 6;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 1),
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 1) {
+    grid-column: span 6;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(2):nth-of-type(3n + 1),
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 2),
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(2):nth-of-type(3n + 1),
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="after-extra"] .ui-form-actions-row > button:nth-last-of-type(1):nth-of-type(3n + 2) {
+    grid-column: span 3;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary {
+    grid-column: 1 / -1;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1),
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(1) {
+    grid-column: span 6;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1),
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(2):nth-last-of-type(2),
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-row > button:nth-of-type(3):nth-last-of-type(1) {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 380px) {
+  .workspace-overlay-root .workspace-overlay-head {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .workspace-overlay-root .workspace-overlay-body {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    gap: 10px;
+  }
+
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions .ui-form-actions-row > button {
+    grid-column: auto;
+  }
+
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions:is(.is-standard, .is-editing) .ui-form-actions-row > .ui-form-actions-primary {
+    grid-column: 1 / -1;
+  }
+
+  .workspace-overlay-root .workspace-modal.food-plan-detail-modal > .workspace-overlay-footer .recipe-plan-detail-actions.is-recorded .ui-form-actions-row {
+    grid-template-columns: minmax(0, 1.7fr) minmax(112px, 0.8fr);
+  }
+}
+
+
+
+@media (prefers-reduced-motion: reduce) {
+  .home-compact-day-toggle-action svg {
+    transition: none;
+  }
+
+  .home-compact-day-detail.is-mobile-collapsible:not([hidden]) {
+    animation: none;
+  }
+
+  .mobile-ingredient-detail-popover-panel,
+  .workspace-overlay-root .workspace-overlay-backdrop {
+    animation: none;
+  }
+
+  .workspace-overlay-root .workspace-modal {
+    animation: none;
+  }
+
+  .workspace-overlay-root .workspace-drawer {
+    animation: none;
+  }
+}
+/* Food editor body only. The shared mobile sheet remains owned by ui-kit. */
+/* Shared desktop defaults for mobile route variants. */
+.mobile-dashboard-page,
+.mobile-food-page,
+.mobile-family-page,
+.mobile-ingredient-page,
+.mobile-recipe-page,
+.mobile-bottom-nav {
+  display: none;
+}

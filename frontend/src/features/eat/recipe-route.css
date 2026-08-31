@@ -1,0 +1,2 @@
+/* Recipe surfaces are loaded by Food and Eat lazy routes. */
+@import '../../styles/03-recipe-workspace.css' layer(domain);

@@ -1,5 +1,5 @@
 import { useState, type ReactNode, type Ref } from 'react';
-import type { FoodPlanItem, MealType, MediaAsset } from '../../api/types';
+import type { FoodPlanItem, MealType, MediaAsset } from '../../api/types/food';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { todayKey } from '../../lib/date';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';

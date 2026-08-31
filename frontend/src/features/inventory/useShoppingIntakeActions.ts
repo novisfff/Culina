@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { ApiError, isApiError } from '../../api/request';
-import type { ShoppingIntakeRequest, ShoppingIntakeResult } from '../../api/types';
+import type { ShoppingIntakeRequest, ShoppingIntakeResult } from '../../api/types/inventory';
 import {
   buildShoppingIntakePayload,
   getSelectedDraftItems,

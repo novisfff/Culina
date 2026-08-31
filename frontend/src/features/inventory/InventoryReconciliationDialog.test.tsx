@@ -737,7 +737,9 @@ describe('InventoryReconciliationDialog', () => {
     expect(props.onClose).toHaveBeenCalledTimes(1);
 
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
-    expect(appSource).toContain('force: reconciliationState.loading');
+    const controllerSource = readFileSync(resolve(__dirname, '../../app/useAppInventoryMaintenanceDialogProps.ts'), 'utf8');
+    expect(appSource).toContain('useAppInventoryMaintenanceDialogProps');
+    expect(controllerSource).toContain('force: reconciliationState.loading');
   });
 
   it('changes scope via chips', () => {

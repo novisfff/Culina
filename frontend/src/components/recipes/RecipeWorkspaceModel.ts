@@ -1,11 +1,9 @@
 import type {
-  AiGeneratedRecipeDraft,
   CookRecipePreviewItem,
   CookRecipeRequest,
   CookRecipeResponse,
   CookRecipeShortage,
   Difficulty,
-  ImageInputValue,
   Ingredient,
   IngredientQuantityTrackingMode,
   MealType,
@@ -14,6 +12,10 @@ import type {
   RecipePayload,
   RecipeScene,
   RecipeStep,
+} from '../../api/types/recipe';
+import type {
+  AiGeneratedRecipeDraft,
+  ImageInputValue,
 } from '../../api/types';
 import { resolveAssetUrl } from '../../lib/assets';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';

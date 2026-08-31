@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { FamilyModelBindingDraft, FamilyModelPriceRate } from '../../api/types';
+import type { FamilyModelBindingDraft, FamilyModelPriceRate } from '../../api/types/modelUsage';
 import {
   FAMILY_MODEL_REQUIRED_METERS,
   validateFamilyModelPriceRates,

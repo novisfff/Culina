@@ -11,7 +11,7 @@ import type {
   ModelUsagePersonalOverview,
   ModelUsageScope,
   UserRole,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { businessDateKey } from '../../lib/date';
 import { buildModelUsageTrendWindow } from './modelUsageChartModel';
 import { buildModelUsageWorkspaceViewModel } from './modelUsageModel';

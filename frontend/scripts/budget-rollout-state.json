@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "entries": {
+    "ai": { "enabledMode": "target", "owner": "ai", "phase": 5, "evidence": { "buildCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "viewportCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "manifestComplete": true, "openExceptions": [] } },
+    "ai-approval": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "ai-human-input": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "ai-debug": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "eat": { "enabledMode": "ratchet", "owner": "eat", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "meal-log": { "enabledMode": "ratchet", "owner": "meal", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "family-model-settings": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "family-model-settings-desktop": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "family-model-settings-mobile": { "enabledMode": "ratchet", "owner": "family-model-settings", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "family-profile": { "enabledMode": "ratchet", "owner": "family", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "food": { "enabledMode": "ratchet", "owner": "food", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "home": { "enabledMode": "ratchet", "owner": "home", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "home-dialogs": { "enabledMode": "ratchet", "owner": "home", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "ingredients": { "enabledMode": "ratchet", "owner": "ingredients", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "inventory-operation": { "enabledMode": "ratchet", "owner": "inventory", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "main": { "enabledMode": "target", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "viewportCommits": ["26b662446b557be735b972194e8a21bff59e059e", "7255c67930d3e0ee1d4ca3e6c685f04e874dad71"], "manifestComplete": true, "openExceptions": [] } },
+    "app-workspace-composition": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "app-overlay-host": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "markdown": { "enabledMode": "ratchet", "owner": "ai", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "model-usage": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "model-usage-requests": { "enabledMode": "ratchet", "owner": "model-usage", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "search": { "enabledMode": "ratchet", "owner": "search", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "shopping-dialog": { "enabledMode": "ratchet", "owner": "ingredients", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } },
+    "route-overlays": { "enabledMode": "ratchet", "owner": "frontend-platform", "phase": 5, "evidence": { "buildCommits": [], "viewportCommits": [], "manifestComplete": false, "openExceptions": [] } }
+  }
+}

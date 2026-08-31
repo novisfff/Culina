@@ -1,5 +1,5 @@
 import { isApiError } from '../../api/request';
-import type { MealLogCandidate } from '../../api/types';
+import type { MealLogCandidate } from '../../api/types/meal';
 
 export function extractMealRecordErrorCode(reason: unknown): string | null {
   if (!isApiError(reason)) return null;

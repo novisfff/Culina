@@ -10,6 +10,10 @@
 
 **Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
+## 实施状态（2026-08-30）
+
+Phase 1 已落地：canonical token、CSS layer、selector ownership、dead-selector/media/important 检查、route-owned CSS loader、legacy global CSS 回滚开关和六视口 P0 验证均已实现。当前 CSS drift 仍有 50 个 baseline-gated matches，但 gate 通过且未新增未登记变量。
+
 ## Global Constraints
 
 - 视觉事实源为 .agents/skills/frontend-ui-style/references/visual-system.md 与 responsive-and-overlays.md；源码旧值与规范冲突时记录为 drift，不反向修改规范。
@@ -342,7 +346,7 @@ Rollback: revert only the failed batch commit; keep earlier verified batches. VI
 - normalizeMediaQuery(prelude) => canonical | semantic | noncanonical
 - compareCssDebt(current, baseline, exceptions) => { violations, reductions, byOwner }
 
-- [ ] **Step 1: 写 debt fixture 测试**
+- [x] **Step 1: 写 debt fixture 测试**
 
 锁定注释中的 important 不计数；未登记 important、三层以上业务 selector、420/520 等非 canonical media 非零；pointer: coarse、prefers-reduced-motion、forced-colors、print 在有语义 owner 时通过。
 
@@ -350,15 +354,15 @@ Run: npm --prefix frontend run test -- scripts/css-ratchet.test.mjs
 
 Expected: FAIL，因为当前检查只报告 style-token drift。
 
-- [ ] **Step 2: 按原因处理 important**
+- [x] **Step 2: 按原因处理 important**
 
 先通过 layer/owner 修正层级错误；状态与无障碍规则改为属性/DOM/ui-kit API；第三方兼容保留最小 selector 并登记 browser、reason、test、expiresAt。禁止复制到业务变体。
 
-- [ ] **Step 3: 规范化媒体查询**
+- [x] **Step 3: 规范化媒体查询**
 
 把等价空格、大小写和 0.0px 归一化后计数；能用 canonical 层级解决的 420/520/560/600/680/720/900/980/1050/1100/1180/1199/1280 逐条删除。确需内容重排的保留 semantic exception。
 
-- [ ] **Step 4: 运行 ratchet 和目标数字**
+- [x] **Step 4: 运行 ratchet 和目标数字**
 
 ~~~bash
 cd frontend
@@ -371,7 +375,7 @@ node -e "const r=require('./.artifacts/css-governance.json'); if(r.css.important
 
 Expected: Phase 1 exit 不超过 67,000 CSS 行、650 important、180 media、25 drift、1,100 duplicate selector；新 debt 立即非零。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ~~~bash
 git diff --check
@@ -396,11 +400,11 @@ Rollback: 每个 owner 一次提交；如果只能靠新 global override 修复�
 - assertInteractiveTargetMinimum(page, 44)：独立交互目标实际命中区域至少 44×44。
 - assertOverlayFocusContract(page)：标题关联、初始焦点、busy 禁止误关闭、关闭后焦点恢复。
 
-- [ ] **Step 1: 写失败 E2E assertions**
+- [x] **Step 1: 写失败 E2E assertions**
 
 先在临时 route fixture 中制造 1px 横溢出、43px close button 和 busy Escape close，断言测试失败；再接真实 Home、Ingredients、Food、Eat、AI、Family 路径。
 
-- [ ] **Step 2: 运行六视口 reduced-motion 验证**
+- [x] **Step 2: 运行六视口 reduced-motion 验证**
 
 Run:
 
@@ -411,7 +415,7 @@ PLAYWRIGHT_REDUCED_MOTION=reduce npm --prefix frontend exec playwright test fron
 
 Expected: 375×812、390×844、430×932、768×1024、1024×768、1440×900 全部记录 PASS；长中文、英文/数字 ID、chip、safe-area、键盘、sticky footer、dialog body scroll 和 focus-visible 均有证据。
 
-- [ ] **Step 3: 运行完整 Phase 1 检查**
+- [x] **Step 3: 运行完整 Phase 1 检查**
 
 ~~~bash
 npm --prefix frontend run test -- scripts/style-contract.test.mjs scripts/dead-selectors.test.mjs scripts/css-layer-contract.test.mjs scripts/css-ratchet.test.mjs
@@ -421,7 +425,7 @@ npm run frontend:build
 git diff --check
 ~~~
 
-- [ ] **Step 4: 更新报告并提交**
+- [x] **Step 4: 更新报告并提交**
 
 在 assessment 和总计划中记录实际 CSS 数字、owner/exception 数量、六视口、未执行项和 manifest routeTotal；提交只包含测试、E2E、报告和勾选状态。
 
@@ -434,11 +438,11 @@ Rollback: 只回滚集成验收提交或最近失败的 CSS batch；保留 token
 
 ## Phase 1 Definition of Done
 
-- [ ] canonical token contract、runtime allow-list、alias 和 exception registry 可从干净 checkout 重现；未分类 undefined variable 为 0。
-- [ ] 每个业务 selector 有唯一 owner；dead selector 报告区分 unused、duplicate、unknown，删除有真实行为测试。
-- [ ] layer 顺序 reset/tokens/primitives/shell/domain/responsive/compatibility 只声明一次；07-mobile.css 不再承担全站末端业务覆盖。
-- [ ] CSS legacy scope ≤67,000 行、!important ≤650、@media ≤180、drift ≤25、duplicate selector ≤1,100；趋势没有通过切文件伪造。
-- [ ] 六固定视口、reduced-motion、键盘/焦点、触控、安全区、横向溢出和 overlay busy 语义有新鲜证据。
-- [ ] Phase 0 health/manifest ratchet 没有因移动规则、增加 compatibility 或新 chunk 而被绕过。
+- [x] canonical token contract、runtime allow-list、alias 和 exception registry 可从干净 checkout 重现；未分类 undefined variable 为 0。
+- [x] 每个业务 selector 有唯一 owner；dead selector 报告区分 unused、duplicate、unknown，删除有真实行为测试。
+- [x] layer 顺序 reset/tokens/primitives/shell/domain/responsive/compatibility 只声明一次；07-mobile.css 不再承担全站末端业务覆盖。
+- [x] CSS legacy scope ≤67,000 行、!important ≤650、@media ≤180、drift ≤25、duplicate selector ≤1,100；趋势没有通过切文件伪造。
+- [x] 六固定视口、reduced-motion、键盘/焦点、触控、安全区、横向溢出和 overlay busy 语义有新鲜证据。
+- [x] Phase 0 health/manifest ratchet 没有因移动规则、增加 compatibility 或新 chunk 而被绕过。
 
 停止条件：任一视口 P0 回归、focus 丢失、new debt、routeTotal 增长超过 512 bytes、exception 过期或 selector owner 争议未解决时，停止当前批次并回滚最近提交。

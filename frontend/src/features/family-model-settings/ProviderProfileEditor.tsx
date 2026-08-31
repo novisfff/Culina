@@ -6,7 +6,7 @@ import type {
   FamilyModelProviderProfile,
   FamilyModelProviderProfileCreate,
   FamilyModelProviderProfilePatch,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { DropdownSelect, StateBlock } from '../../components/ui-kit';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import {

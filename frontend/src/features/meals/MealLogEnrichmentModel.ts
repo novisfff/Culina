@@ -1,4 +1,4 @@
-import type { FoodPlanItem, FoodType, MealLog, RecordMealPayload, UpdateMealLogPayload } from '../../api/types';
+import type { FoodPlanItem, FoodType, MealLog, RecordMealPayload, UpdateMealLogPayload } from '../../api/types/meal';
 import { formatDate } from '../../lib/ui';
 
 export type MealSource = {

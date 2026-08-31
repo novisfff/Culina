@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const sourcePath = resolve(__dirname, 'IngredientWorkspaceOverlays.tsx');
+const appOverlaySourcePath = resolve(__dirname, '../../app/AppGlobalOverlays.tsx');
 
 describe('IngredientWorkspaceOverlays shared overlay usage', () => {
   it('uses the shared overlay frame instead of a local backdrop shell', () => {
@@ -16,7 +17,7 @@ describe('IngredientWorkspaceOverlays shared overlay usage', () => {
 
   it('reuses the same complete shopping dialog on home and ingredients surfaces', () => {
     const workspaceSource = readFileSync(sourcePath, 'utf8');
-    const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
+    const appSource = readFileSync(appOverlaySourcePath, 'utf8');
 
     expect(workspaceSource).toContain('<IngredientShoppingDialog');
     expect(appSource).toContain('<IngredientShoppingDialog');

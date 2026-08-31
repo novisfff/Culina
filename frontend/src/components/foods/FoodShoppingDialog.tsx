@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { Food, ShoppingListItem } from '../../api/types';
+import type { Food, ShoppingListItem } from '../../api/types/food';
 import { resolveMediaUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { FormActions, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';

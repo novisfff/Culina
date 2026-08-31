@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type {
-  CompleteFoodPlanItemPayload,
   Food,
   FoodPlanItem,
-  MealLog,
   MealType,
-} from '../../api/types';
+} from '../../api/types/food';
+import type { CompleteFoodPlanItemPayload, MealLog } from '../../api/types/meal';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
 import type { NoticeState } from '../../hooks/useNotice';
 import { addDateKeyDays, todayKey } from '../../lib/date';

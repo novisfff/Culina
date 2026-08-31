@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Culina frontend health report",
+  "type": "object",
+  "required": [
+    "version",
+    "toolchain",
+    "source",
+    "css",
+    "tests",
+    "dependencies",
+    "exceptions"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "toolchain": { "type": "object" },
+    "source": { "type": "object" },
+    "css": { "type": "object" },
+    "tests": { "type": "object" },
+    "dependencies": { "type": "object" },
+    "exceptions": { "type": "object" }
+  }
+}

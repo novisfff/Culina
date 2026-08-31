@@ -1,5 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { MealType, ShoppingListItem } from '../api/types';
+import type { MealType } from '../api/types/meal';
+import type { ShoppingListItem } from '../api/types/inventory';
 import {
   buildHomeRestockForm,
   type HomeRestockFormState,
@@ -10,6 +11,7 @@ import type {
   MealCreateSource,
 } from './appNavigationModel';
 import type { IngredientNavigationRequest } from './useAppGlobalSearchNavigation';
+import type { FamilyOverlayMode } from '../features/family/FamilySettings';
 
 export const homeTargets = {
   food: (foodId: string): AppNavigationTarget => ({ workspace: 'eat', view: 'food', foodId }),
@@ -53,6 +55,7 @@ type UseAppHomeHandlersArgs = {
   openIngredientShoppingDialog: (ingredientId: string) => void;
   /** Shared atomic shopping intake. Preferred over the legacy restock form. */
   openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
+  setFamilyOverlayMode?: (mode: FamilyOverlayMode) => void;
 };
 
 /** Pure helper for tests and callers that need the target without side effects. */
@@ -73,6 +76,11 @@ export function buildHomeHandlers(args: Pick<UseAppHomeHandlersArgs, 'navigate'>
 
   function openMealCreate(source: MealCreateSource, foodId?: string) {
     navigate(homeTargets.mealCreate(source, foodId));
+  }
+
+  function openFamilyActivity() {
+    args.setFamilyOverlayMode?.('activity');
+    navigate({ workspace: 'family' });
   }
 
   function startRecommendedRecipe(input: HomeRecommendedCookArgs) {
@@ -116,13 +124,14 @@ export function buildHomeHandlers(args: Pick<UseAppHomeHandlersArgs, 'navigate'>
     openPlan,
     openHistory,
     openMealCreate,
+    openFamilyActivity,
     startRecommendedRecipe,
     startPlanRecipe,
   };
 }
 
 export function useAppHomeHandlers(args: UseAppHomeHandlersArgs) {
-  const semantic = buildHomeHandlers({ navigate: args.navigate });
+  const semantic = buildHomeHandlers({ navigate: args.navigate, setFamilyOverlayMode: args.setFamilyOverlayMode });
 
   function nextIngredientRequestId() {
     args.ingredientNavigationRequestIdRef.current += 1;

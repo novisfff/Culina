@@ -75,6 +75,17 @@ describe('useAppHomeHandlers semantic targets', () => {
     ]);
   });
 
+  it('opens family activity with the activity overlay selected', () => {
+    const navigate = vi.fn();
+    const setFamilyOverlayMode = vi.fn();
+    const handlers = buildHomeHandlers({ navigate, setFamilyOverlayMode });
+
+    handlers.openFamilyActivity();
+
+    expect(setFamilyOverlayMode).toHaveBeenCalledWith('activity');
+    expect(navigate).toHaveBeenCalledWith({ workspace: 'family' });
+  });
+
   it('never exposes setActiveTab or legacy TabKey cooking routes', () => {
     const navigate = vi.fn();
     const handlers = buildHomeHandlers({ navigate });

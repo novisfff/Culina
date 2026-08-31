@@ -3,7 +3,7 @@ import type {
   InventoryOperationDetail,
   InventoryOperationResult,
   InventoryOperationSummary,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import {
   ActionButton,
   FormActions,

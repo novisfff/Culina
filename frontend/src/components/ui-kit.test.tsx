@@ -111,7 +111,7 @@ describe('WorkspaceOverlayShell', () => {
   it('keeps mobile drawer footer actions hierarchical and compact', () => {
     const foundationStyles = readFileSync(resolve(repoRoot, 'styles/00-foundation.css'), 'utf8');
     const uiKitStyles = readFileSync(resolve(repoRoot, 'styles/00-ui-kit.css'), 'utf8');
-    const mobileStyles = readFileSync(resolve(repoRoot, 'styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'styles/compatibility-responsive.css'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'styles/06-food-workspace.css'), 'utf8');
 
     expect(foundationStyles).not.toContain('.ui-form-actions-row');
@@ -120,7 +120,8 @@ describe('WorkspaceOverlayShell', () => {
     expect(uiKitStyles).toContain('@media (max-width: 900px)');
     expect(uiKitStyles).toContain('.ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary');
     expect(uiKitStyles).toContain('button:nth-of-type(2):nth-last-of-type(2)');
-    expect(mobileStyles).toContain('grid-template-columns: repeat(6, minmax(0, 1fr)) !important;');
+    expect(mobileStyles).toContain('grid-template-columns: repeat(6, minmax(0, 1fr));');
+    expect(mobileStyles).not.toContain('grid-template-columns: repeat(6, minmax(0, 1fr)) !important;');
     expect(mobileStyles).toContain('.ui-form-actions[data-primary-placement="before-extra"] .ui-form-actions-primary');
     expect(mobileStyles).toContain('button:nth-of-type(3):nth-last-of-type(1)');
     expect(foodStyles).toContain('.food-detail-actions-mobile .ui-form-actions-row');

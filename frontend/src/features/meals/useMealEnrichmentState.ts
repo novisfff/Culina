@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isApiError } from '../../api/request';
-import type { MealLog, MediaAsset, UpdateMealLogPayload } from '../../api/types';
+import type { MealLog, MediaAsset, UpdateMealLogPayload } from '../../api/types/meal';
 import { useDirectImageUploader } from '../../hooks/useImageComposer';
 import {
   buildMealEntryRatingDraft,

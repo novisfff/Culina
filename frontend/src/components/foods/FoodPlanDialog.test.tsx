@@ -151,7 +151,7 @@ describe('FoodPlanDialog', () => {
   });
 
   it('uses the standard mobile bottom-sheet geometry for the home plan dialog', () => {
-    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
 
     expect(mobileStyles).toMatch(
       /\.home-dashboard-overlay-root \.home-plan-add-modal\.recipe-plan-modal\.workspace-modal \{[^}]*width: 100%;[^}]*max-height: min\(92dvh, var\(--app-visual-viewport-height\)\);[^}]*border-radius: 24px 24px 0 0;/,

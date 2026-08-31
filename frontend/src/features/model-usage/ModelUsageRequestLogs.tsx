@@ -4,7 +4,7 @@ import type {
   ModelUsagePersonalRequestLog,
   ModelUsagePersonalRequestLogPage,
   ModelUsageRequestLogPage,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { MODEL_USAGE_CAPABILITY_OPTIONS, MODEL_USAGE_METER_OPTIONS } from './modelUsageOptions';
 import { formatModelUsageCny, formatModelUsageQuantity } from './modelUsageModel';
 

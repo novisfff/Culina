@@ -1,0 +1,7 @@
+{
+  "exitCode": 1,
+  "violations": [
+    { "entry": "main", "metric": "entryCritical", "delta": 513 }
+  ],
+  "manifestErrors": []
+}

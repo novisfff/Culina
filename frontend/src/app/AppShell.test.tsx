@@ -362,11 +362,11 @@ describe('AppShell primary navigation', () => {
       const expected = name === '底部导航'
         ? ['首页', '吃什么', 'AI', '食材', '家庭']
         : desktopExpected;
-      expect(
-        within(screen.getByRole('navigation', { name }))
-          .getAllByRole('button')
-          .map((node) => node.textContent?.trim()),
-      ).toEqual(expected);
+      const navigation = within(screen.getByRole('navigation', { name }));
+      const buttons = navigation.getAllByRole('button').filter((node) =>
+        name === '顶部导航' ? node.classList.contains('tab-button') : true,
+      );
+      expect(buttons.map((node) => node.textContent?.trim())).toEqual(expected);
     }
     expect(screen.queryByRole('button', { name: '菜谱' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '记录' })).not.toBeInTheDocument();

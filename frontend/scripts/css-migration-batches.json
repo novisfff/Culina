@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "batches": [
+    {
+      "id": "shell-foundation",
+      "status": "complete",
+      "sources": [
+        "frontend/src/styles/00-foundation.css",
+        "frontend/src/styles/07-mobile.css"
+      ],
+      "destinations": [
+        "frontend/src/styles/00-foundation.css",
+        "frontend/src/styles/00-ui-kit.css",
+        "frontend/src/styles/legacy-primitives.css",
+        "frontend/src/styles/shell.css",
+        "frontend/src/styles/shell-responsive.css"
+      ],
+      "owners": ["foundation", "ui-kit", "shell"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "51dda838"
+    },
+    {
+      "id": "home-family",
+      "status": "complete",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/01-home-dashboard.css",
+        "frontend/src/styles/02-family-settings.css",
+        "frontend/src/styles/family-responsive.css",
+        "frontend/src/styles/home-responsive.css",
+        "frontend/src/styles/14-model-usage.css",
+        "frontend/src/styles/15-family-model-settings.css"
+      ],
+      "owners": ["home", "family", "model-usage"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "34aa927c"
+    },
+    {
+      "id": "eat-meal",
+      "status": "complete",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/03-recipe-workspace.css",
+        "frontend/src/styles/recipe-responsive.css",
+        "frontend/src/styles/08-meal-log.css",
+        "frontend/src/styles/meal-responsive.css",
+        "frontend/src/styles/12-eat-workspace.css",
+        "frontend/src/styles/eat-responsive.css",
+        "frontend/src/styles/13-meal-composer.css"
+      ],
+      "owners": ["recipe", "eat", "meal"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "2419432b"
+    },
+    {
+      "id": "ingredient-food-inventory",
+      "status": "complete",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/04-ingredients-workspace.css",
+        "frontend/src/styles/ingredients-responsive.css",
+        "frontend/src/styles/05-workspace-overlays.css",
+        "frontend/src/styles/06-food-workspace.css",
+        "frontend/src/styles/food-responsive.css",
+        "frontend/src/styles/10-inventory-actions.css",
+        "frontend/src/styles/11-inventory-maintenance.css",
+        "frontend/src/styles/inventory-responsive.css"
+      ],
+      "owners": ["ingredients", "food", "inventory"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "58f0d4db"
+    },
+    {
+      "id": "ai-search",
+      "status": "complete",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": [
+        "frontend/src/styles/09-ai-draft-ui.css",
+        "frontend/src/styles/09-ai-workspace.css",
+        "frontend/src/styles/09-global-search.css"
+      ],
+      "owners": ["ai", "search"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "dbe462e1"
+    },
+    {
+      "id": "compat-retire",
+      "status": "complete",
+      "sources": ["frontend/src/styles/07-mobile.css"],
+      "destinations": ["frontend/src/styles.css", "frontend/src/styles/compatibility-responsive.css"],
+      "owners": ["compatibility"],
+      "viewports": ["375x812", "390x844", "430x932", "768x1024", "1024x768", "1440x900"],
+      "rollbackCommit": "ec350a39"
+    }
+  ]
+}

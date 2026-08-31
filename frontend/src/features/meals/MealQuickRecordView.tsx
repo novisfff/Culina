@@ -1,4 +1,4 @@
-import type { MealLogCandidate, MealType, MediaAsset, RecordMealTarget } from '../../api/types';
+import type { MealLogCandidate, MealType, MediaAsset, RecordMealTarget } from '../../api/types/meal';
 import {
   FormActions,
   WorkspaceModal,

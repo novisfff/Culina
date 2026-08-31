@@ -1,7 +1,7 @@
 import type { Food, Ingredient, ShoppingListItem } from '../../api/types';
 import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
-import { parsePositiveNumber, type ShoppingDialogFormState } from './ingredientWorkspaceForms';
+import { parsePositiveNumber, type ShoppingDialogFormState } from '../../features/inventory/shoppingFormModel';
 
 export type ShoppingItemWritePayload = {
   title: string;

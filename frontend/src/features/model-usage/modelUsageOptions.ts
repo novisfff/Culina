@@ -6,7 +6,7 @@ import type {
   ModelUsageMeter,
   ModelUsagePersonalGroupBy,
   ModelUsageScope,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 
 export const MODEL_USAGE_CAPABILITY_OPTIONS: Record<
   ModelUsageCapability,

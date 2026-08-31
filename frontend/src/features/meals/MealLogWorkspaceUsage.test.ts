@@ -514,6 +514,6 @@ describe('MealLogWorkspace photo-first timeline', () => {
 
   it('wires foods prop through App history mount for cover fallback', () => {
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
-    expect(appSource).toMatch(/<MealLogWorkspace[\s\S]*foods=\{foods\}/);
+    expect(appSource).toMatch(/<AppMealLogWorkspaceRoute[\s\S]*foods=\{foods\}/);
   });
 });

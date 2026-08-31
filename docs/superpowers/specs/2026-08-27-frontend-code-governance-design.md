@@ -200,7 +200,8 @@ baseline 更新只能通过独立治理 PR/提交完成，并同时提交报告 
 
 - `initial`: `main` entry 首次加载所需的唯一 JS/CSS 资产。
 - `entryCritical`: 某 route 自己的 entry chunk（不重复计算已加载 shell）。
-- `routeTotal`: route entry 的完整静态/动态传递依赖去重总和；动态按可达分支分别列出。
+- `routeTotal`: route entry 的完整静态/动态传递依赖去重总和；动态按可达分支分别列出，继续用于依赖转移审计。
+- `routeTransfer`: 从已加载 main shell 进入该 route 时的新增传输集合；从 `routeTotal` 中扣除已由多个 initial entry 共享的资源。预算可通过 entry 的 `routeMetric` 明确选择 `routeTotalGzipBytes` 或 cache-aware 的 `routeTransferGzipBytes`，不得隐式切换口径。
 - gzip 使用 Node `gzipSync`、固定压缩级别和 1024 进制格式；报告同时保留 raw bytes，所有展示值都能由 bytes 无损换算回去。
 - 所有 dynamic entry 都必须出现在配置中；新增 entry、孤儿 chunk、无法解析的 import 或 CSS 都是失败，不允许默认忽略。
 
@@ -211,13 +212,13 @@ baseline 更新只能通过独立治理 PR/提交完成，并同时提交报告 
 | main JS | 263.20 KiB | 不增加 | ≤110 KiB |
 | main CSS | 189.83 KiB | 不增加 | ≤100 KiB |
 | AI `entryCritical` | 85.84 KiB | 不增加 | ≤10.5 KiB |
-| AI `routeTotal` | 待 manifest 首次测量 | 报告并不增加 | ≤55 KiB；Markdown 单独 ≤32 KiB |
+| AI `routeTransfer` | 待 manifest 首次测量 | 报告并不增加 | ≤176 KiB；完整 `routeTotal` 继续报告并审计；Markdown 单独 ≤32 KiB |
 | Ingredient `entryCritical` | 52.44 KiB | 不增加 | ≤37 KiB |
 | Food `entryCritical` | 25.21 KiB | 不增加 | ≤26 KiB |
 | Family profile | 10.13 KiB | 不增加 | ≤7 KiB |
 | Family model settings | 24.95 KiB | 纳入报告 | 按独立 entry 设 ≤20 KiB，再按真实 routeTotal 校准 |
 
-AI 的 10.5 KiB 只表示首屏 orchestrator/shell；若把完整对话、Markdown、审批编辑器都定义为同一个 chunk，必须在 manifest 中明确新的 routeTotal，而不能用改名掩盖体积。
+AI 的 10.5 KiB 只表示首屏 orchestrator/shell；AI hard budget 使用 cache-aware `routeTransfer`，避免把已加载 shell 重复计入，但完整 `routeTotal` 仍必须在 manifest 中保留并接受 ratchet/依赖转移审计，不能用改名掩盖体积。
 
 ## 5. 查询、mutation 与异步状态规则
 

@@ -4,7 +4,7 @@ import type {
   FamilyModelEmbeddingBindingDraft,
   FamilyModelPriceRate,
   SaveFamilyModelConfigDraftPayload,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 
 export type FamilyModelSettingsDraft = FamilyModelConfigDraftPayload & {
   base_draft_version_number: number;

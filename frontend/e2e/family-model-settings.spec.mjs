@@ -15,7 +15,8 @@ async function openFamilyModelSettings(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const mobileFamilyNavigation = page.locator('.mobile-bottom-nav:visible').getByRole('button', { name: '家庭' });
   const desktopFamilyNavigation = page.locator('.sidebar-nav:visible').getByRole('button', { name: '家庭' });
-  await mobileFamilyNavigation.or(desktopFamilyNavigation).click();
+  const topFamilyNavigation = page.locator('.tabbar:visible').getByRole('button', { name: '家庭' });
+  await mobileFamilyNavigation.or(desktopFamilyNavigation).or(topFamilyNavigation).click();
   await page.locator('.family-ai-services-entry:visible, .mobile-family-ai-services-entry:visible').first().click();
 }
 
@@ -23,7 +24,8 @@ async function openModelUsage(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const mobileFamilyNavigation = page.locator('.mobile-bottom-nav:visible').getByRole('button', { name: '家庭' });
   const desktopFamilyNavigation = page.locator('.sidebar-nav:visible').getByRole('button', { name: '家庭' });
-  await mobileFamilyNavigation.or(desktopFamilyNavigation).click();
+  const topFamilyNavigation = page.locator('.tabbar:visible').getByRole('button', { name: '家庭' });
+  await mobileFamilyNavigation.or(desktopFamilyNavigation).or(topFamilyNavigation).click();
   await page.locator('.family-model-usage-entry:visible, .mobile-family-model-usage-entry:visible').first().click();
 }
 
@@ -151,16 +153,19 @@ test.describe('@p0 @family-model-settings-1440x900 workspace navigation contract
     const appContent = page.locator('.app-content');
     const workspace = page.locator('.family-model-settings-workspace');
     const sectionRail = page.getByRole('navigation', { name: '家庭 AI 服务设置分区' });
-    const [contentBox, workspaceBox, initialRailBox] = await Promise.all([
+    const [contentBox, workspaceBox, tabbarBox, initialRailBox, contentGap] = await Promise.all([
       appContent.boundingBox(),
       workspace.boundingBox(),
+      page.locator('.tabbar:visible').boundingBox(),
       sectionRail.boundingBox(),
+      appContent.evaluate((element) => Number.parseFloat(getComputedStyle(element).rowGap || getComputedStyle(element).gap || '0')),
     ]);
     expect(contentBox, '桌面应用内容区应完成布局').not.toBeNull();
     expect(workspaceBox, '家庭 AI 服务工作区应完成布局').not.toBeNull();
     expect(initialRailBox, 'AI 服务分区导航应完成布局').not.toBeNull();
-    expect(workspaceBox?.height ?? 0, '短内容分区也应铺满桌面可用高度')
-      .toBeGreaterThanOrEqual((contentBox?.height ?? 0) - 1);
+    const shellNavigationHeight = (tabbarBox?.height ?? 0) + contentGap;
+    expect(workspaceBox?.height ?? 0, '短内容分区也应铺满去除顶部导航后的桌面可用高度')
+      .toBeGreaterThanOrEqual((contentBox?.height ?? 0) - shellNavigationHeight - 1);
 
     await sectionRail.getByRole('button', { name: /^功能设置/ }).click();
     await expect(page.getByRole('heading', { name: '功能设置', exact: true })).toBeVisible();

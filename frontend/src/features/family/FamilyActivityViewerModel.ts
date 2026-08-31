@@ -1,4 +1,4 @@
-import type { ActivityLog, ActivityLogQuery, Member } from '../../api/types';
+import type { ActivityLog, ActivityLogQuery, Member } from '../../api/types/shell';
 import { addDateKeyDays, getWeekRange, todayKey, toDateKey } from '../../lib/date';
 
 export type FamilyActivityDatePreset = 'all' | 'today' | 'week' | 'month' | 'custom';

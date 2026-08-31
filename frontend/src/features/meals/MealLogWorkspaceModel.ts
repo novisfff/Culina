@@ -1,4 +1,4 @@
-import type { MealInsight, MealInsightKind, MealLog, Member } from '../../api/types';
+import type { MealInsight, MealInsightKind, MealLog, Member } from '../../api/types/meal';
 import { addDateKeyDays } from '../../lib/date';
 import { formatDate, todayKey } from '../../lib/ui';
 import { buildMealTitle, getMealRatingSummary } from './MealLogEnrichmentModel';

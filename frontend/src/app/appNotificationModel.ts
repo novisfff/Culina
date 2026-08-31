@@ -1,4 +1,4 @@
-import type { ModelUsageAlert } from '../api/types';
+import type { ModelUsageAlert } from '../api/types/modelUsage';
 
 export type BackgroundTaskNotification = {
   kind: 'background_task';

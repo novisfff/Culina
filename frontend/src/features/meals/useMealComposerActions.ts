@@ -3,7 +3,7 @@ import type {
   MealLogCandidate,
   RecordMealPayload,
   RecordMealResponse,
-} from '../../api/types';
+} from '../../api/types/meal';
 import {
   MealComposerValidationError,
   buildRecordMealPayload,

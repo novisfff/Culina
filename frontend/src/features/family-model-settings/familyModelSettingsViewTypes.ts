@@ -5,7 +5,7 @@ import type {
   FamilyModelProviderConnectionCheckResult,
   FamilyModelSearchReplacement,
   FamilyModelSettings,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';
 import type { FamilyModelSettingsOverview } from './familyModelSettingsOverviewModel';
 import type { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';

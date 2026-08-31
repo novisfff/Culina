@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isApiError } from '../../api/request';
-import type { Food, MealLog, UpdateMealCompositionPayload } from '../../api/types';
+import type { Food, MealLog, UpdateMealCompositionPayload } from '../../api/types/meal';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { FormActions, SearchableResourceSelect } from '../../components/ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';

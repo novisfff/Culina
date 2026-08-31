@@ -2,17 +2,10 @@ import type {
   Food,
   Ingredient,
   IngredientInventoryState,
-  InventoryConfirmationStatus,
   InventoryItem,
   Recipe,
   ShoppingListItem,
 } from '../../api/types';
-import {
-  buildInventoryActionGroups,
-  type ExpiryInventoryActionGroup,
-  type InventoryActionGroup,
-} from '../../features/inventory/inventoryActionModel';
-import { hoursBetweenInstants } from '../../lib/date';
 import { formatDate, todayKey } from '../../lib/ui';
 import {
   getIngredientAvailableQuantityInDefault,
@@ -20,180 +13,187 @@ import {
   getInventoryRemainingQuantity,
 } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
+import { formatNumericString } from './ingredientWorkspaceForms';
 
-export type IngredientWorkspaceView = 'hub' | 'catalog' | 'detail' | 'create';
-export type IngredientOverlayMode = 'inventory' | 'shopping' | 'consume' | 'inventoryAction' | null;
-export type IngredientWorkspacePanel = 'catalog' | 'inventory' | 'shopping';
+export type {
+  CatalogCardStatusTone,
+  DisposableExpiredInventoryItemViewModel,
+  IngredientAlertTone,
+  IngredientAlertViewModel,
+  IngredientCategoryPreset,
+  IngredientOverlayMode,
+  IngredientSummaryViewModel,
+  IngredientWorkspacePanel,
+  IngredientWorkspaceView,
+  InventoryBatchGroupViewModel,
+  InventoryBatchItemViewModel,
+  InventoryCardExpiryTone,
+  InventoryCardPresentationViewModel,
+  InventoryCardStatusViewModel,
+  InventoryCardTone,
+  InventoryConfirmationTone,
+  InventoryStorageOverviewTone,
+  InventoryStorageOverviewViewModel,
+  QuantitySummaryViewModel,
+  ShoppingCardFocus,
+  ShoppingCardStatusTone,
+  ShoppingCardTone,
+  ShoppingCardViewModel,
+  ShoppingOverviewTone,
+  ShoppingOverviewViewModel,
+  StorageGroupViewModel,
+} from './workspaceTypes';
+export { buildShoppingOverview, filterShoppingCards } from './shoppingWorkspaceModel';
+export {
+  buildIngredientAlerts,
+  buildIngredientPriorityActionGroups,
+  buildPriorityGroupStatus,
+  buildPrioritySurfaceRows,
+  getPriorityGroupPrimaryLabel,
+  inventoryActionGroupsToAlerts,
+  type PrioritySurfaceRow,
+  type PrioritySurfaceShoppingBinding,
+} from './ingredientInventoryAlertsModel';
+export { buildInventoryCardStatus, buildQuantitySummaries } from './ingredientInventoryPresentationModel';
+export {
+  buildDisposableExpiredInventoryItems,
+  buildInventoryCardPresentation,
+  countDisposableExpiredInventoryItems,
+} from './ingredientInventoryCardModel';
+export {
+  filterIngredientSummaries,
+  filterIngredientSummariesByCatalogStatus,
+  filterIngredientSummariesForInventory,
+  filterInventoryBatchGroups,
+  hasExpiredCatalogAlert,
+  hasExpiringCatalogAlert,
+  matchesCatalogStatusFilter,
+} from './ingredientFilterModel';
+export {
+  buildIngredientCategoryFilters,
+  getIngredientCategoryPreset,
+  getIngredientEditorCategoryPresets,
+  INGREDIENT_CATEGORY_PRESETS,
+  isSeasoningIngredient,
+} from './ingredientCategoryModel';
+export {
+  aggregateConfirmationStatus,
+  buildExactIngredientConfirmation,
+  buildFoodConfirmation,
+  buildPresenceIngredientConfirmation,
+  confirmationStatusFromLastConfirmedAt,
+  confirmationStatusLabel,
+  confirmationStatusTone,
+  earliestConfirmationAt,
+  staleAfterDaysForStorageLocation,
+  CONFIRMATION_STATUS_LABELS,
+  CONFIRMATION_STATUS_TONES,
+  FOOD_STALE_AFTER_DAYS,
+  FROZEN_INGREDIENT_STALE_AFTER_DAYS,
+  PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
+  REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS,
+  ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS,
+} from './ingredientConfirmationModel';
+import { buildExactIngredientConfirmation, buildPresenceIngredientConfirmation, buildFoodConfirmation } from './ingredientConfirmationModel';
+import { isSeasoningIngredient } from './ingredientCategoryModel';
+import { buildIngredientAlerts } from './ingredientInventoryAlertsModel';
+import { buildInventoryCardStatus, buildQuantitySummaries } from './ingredientInventoryPresentationModel';
+import { buildInventoryCardPresentation, buildDisposableExpiredInventoryItems, countDisposableExpiredInventoryItems } from './ingredientInventoryCardModel';
+import type {
+  CatalogCardStatusTone,
+  DisposableExpiredInventoryItemViewModel,
+  IngredientAlertTone,
+  IngredientAlertViewModel,
+  IngredientSummaryViewModel,
+  InventoryBatchGroupViewModel,
+  InventoryBatchItemViewModel,
+  InventoryCardExpiryTone,
+  InventoryCardPresentationViewModel,
+  InventoryCardStatusViewModel,
+  InventoryConfirmationTone,
+  InventoryStorageOverviewViewModel,
+  QuantitySummaryViewModel,
+  ShoppingCardStatusTone,
+  ShoppingCardTone,
+  ShoppingCardViewModel,
+  StorageGroupViewModel,
+} from './workspaceTypes';
 
-export type IngredientAlertViewModel = {
-  id: string;
-  ingredientId: string;
-  ingredientName: string;
-  title: string;
-  detail: string;
-  tone: 'warning' | 'danger';
-  kind: 'lowStock' | 'expiry';
-  /** Present for expiry alerts; sourced from shared inventory action severity. */
-  severity?: ExpiryInventoryActionGroup['severity'];
-  storageLocation: string;
-};
+export function getIngredientAlertTone(summary: IngredientSummaryViewModel): IngredientAlertTone {
+  return summary.alerts.some((item) => item.tone === 'danger') ? 'danger' : 'warning';
+}
 
-export type QuantitySummaryViewModel = {
-  unit: string;
-  total: number;
+export function buildInventorySummaryLine(summary: IngredientSummaryViewModel): string {
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    const level = summary.inventoryState?.availability_level;
+    if (level === 'sufficient' || level === 'present_unknown') return '有库存';
+    if (level === 'low') return '少量';
+    if (level === 'absent') return '没有库存';
+    return '未确认';
+  }
+  if (summary.quantitySummaries.length === 0) return '还没有库存';
+  return summary.quantitySummaries.slice(0, 2).map((item) => item.label).join(' · ');
+}
+
+export function buildInventoryRowDescription(summary: IngredientSummaryViewModel): string {
+  if (!tracksIngredientQuantity(summary.ingredient)) {
+    return `${summary.primaryStorage} · 库存状态：${buildInventorySummaryLine(summary)}`;
+  }
+  if (summary.inventoryItems.length === 0) {
+    return `${summary.primaryStorage} · 还没有库存，适合先补充第一批常用量。`;
+  }
+  if (summary.quantitySummaries.length === 0) {
+    return `${summary.primaryStorage} · 当前没有可用库存，可处理到期库存或补充新的库存。`;
+  }
+  return [
+    buildInventorySummaryLine(summary),
+    summary.primaryStorage,
+    summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+export function buildInventoryTotalLabel(summary: IngredientSummaryViewModel): string {
+  if (!tracksIngredientQuantity(summary.ingredient)) return buildInventorySummaryLine(summary);
+  const totalQuantity = getIngredientAvailableQuantityInDefault(summary.ingredient, summary.inventoryItems);
+  if (totalQuantity <= 0) return `0 ${summary.ingredient.default_unit || '个'}`;
+  return `${formatNumericString(totalQuantity)} ${summary.ingredient.default_unit || '个'}`;
+}
+
+export function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
   label: string;
-};
+  tone: CatalogCardStatusTone;
+  stockLine: string;
+  hint: string;
+} {
+  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity === 'expired');
+  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity !== 'expired');
+  const firstWarningAlert = summary.alerts.find((item) => item.tone === 'warning');
+  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
+  const availableLabel = tracksQuantity ? summary.quantitySummaries[0]?.label ?? '还没有库存' : buildInventorySummaryLine(summary);
+  const stockLine = tracksQuantity
+    ? summary.inventoryItems.length > 0 ? `库存 ${availableLabel} · ${summary.inventoryItems.length} 批` : `库存 ${availableLabel}`
+    : `库存状态 ${availableLabel} · 只记录有无`;
+  if (expiredAlert) return { label: '已过期', tone: 'danger', stockLine, hint: '优先处理过期库存' };
+  if (expiringAlert) return { label: '临期', tone: expiringAlert.tone === 'danger' ? 'danger' : 'warning', stockLine, hint: '建议优先安排使用' };
+  if (summary.quantitySummaries.length === 0) {
+    return { label: '还没有可用库存', tone: 'empty', stockLine, hint: summary.inventoryItems.length > 0 ? '可补货或加入采购清单' : '建议先加入库存' };
+  }
+  if (firstWarningAlert) return { label: '库存偏低', tone: 'warning', stockLine, hint: '建议加入采购清单或补货' };
+  return { label: '库存正常', tone: 'stable', stockLine, hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可以记录用量或补货' };
+}
 
-export type IngredientSummaryViewModel = {
-  ingredient: Ingredient;
-  inventoryItems: InventoryItem[];
-  availableInventoryItems: InventoryItem[];
-  /** Presence-only current fact; null for exact-tracked ingredients or absent/default. */
-  inventoryState: IngredientInventoryState | null;
-  alerts: IngredientAlertViewModel[];
-  quantitySummaries: QuantitySummaryViewModel[];
-  hasMultipleUnits: boolean;
-  primaryStorage: string;
-  storageLocations: string[];
-  recipeReferences: Array<{ id: string; title: string }>;
-  latestPurchaseDate: string | null;
-  latestUpdatedAt: string;
-  /** First-version confirmation freshness: never_confirmed | current | stale. */
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-};
+export function buildCatalogExpandedNote(summary: IngredientSummaryViewModel): string {
+  if (summary.ingredient.notes.trim()) return summary.ingredient.notes.trim();
+  if (summary.latestPurchaseDate) return `最近补货于 ${formatDate(summary.latestPurchaseDate)}，当前主要放在 ${summary.primaryStorage}。`;
+  if (summary.inventoryItems.length > 0) return `当前有 ${summary.inventoryItems.length} 批库存，可继续补货或查看详情。`;
+  return '这项食材还没有库存，先补充一些会更方便。';
+}
 
-export type StorageGroupViewModel = {
-  key: string;
-  label: string;
-  items: IngredientSummaryViewModel[];
-  totalBatches: number;
-  alertCount: number;
-};
-
-export type InventoryCardTone = 'stable' | 'warning' | 'danger' | 'empty';
-
-export type InventoryCardStatusViewModel = {
-  label: '库存正常' | '库存偏低' | '临期或过期' | '还没有可用库存';
-  tone: InventoryCardTone;
-  detail: string;
-  priority: number;
-};
-
-export type InventoryCardExpiryTone = 'neutral' | 'warning' | 'danger';
-export type InventoryConfirmationTone = 'neutral' | 'current' | 'stale';
-
-export type InventoryCardPresentationViewModel = {
-  headline: string;
-  secondary: string;
-  footerNote: string;
-  hasExpiryInfo: boolean;
-  expiryLabel: string | null;
-  expiryDateLabel: string | null;
-  expiryTone: InventoryCardExpiryTone | null;
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-};
-
-export type DisposableExpiredInventoryItemViewModel = {
-  id: string;
-  ingredientId: string;
-  ingredientName: string;
-  remainingQuantity: number;
-  remainingLabel: string;
-  unit: string;
-  purchaseDate: string;
-  expiryDate: string;
-  storageLocation: string;
-  notes: string;
-  status: InventoryItem['status'];
-  createdAt: string;
-  rowVersion: number;
-  expiryAlertSnoozedUntil: string | null;
-  expiryReviewedAt: string | null;
-  expiryReviewedBy: string | null;
-};
-
-export type InventoryStorageOverviewTone = 'stable' | 'warning' | 'danger' | 'muted';
-
-export type InventoryStorageOverviewViewModel = {
-  key: string;
-  label: string;
-  ingredientCount: number;
-  totalBatches: number;
-  alertCount: number;
-  tone: InventoryStorageOverviewTone;
-  statusLabel: string;
-};
-
-export type InventoryBatchItemViewModel = {
-  id: string;
-  ingredientId: string;
-  ingredientName: string;
-  ingredientImageUrl?: string;
-  quantityLabel: string;
-  status: InventoryItem['status'];
-  purchaseDate: string;
-  expiryDate?: string | null;
-  storageLocation: string;
-  notes: string;
-  alerts: IngredientAlertViewModel[];
-};
-
-export type InventoryBatchGroupViewModel = {
-  key: string;
-  label: string;
-  items: InventoryBatchItemViewModel[];
-};
-
-export type IngredientCategoryPreset = {
-  label: string;
-  defaultUnit: string;
-  defaultStorage: string;
-  quantityTrackingMode?: Ingredient['quantity_tracking_mode'];
-  icon: string;
-};
-
-export type ShoppingCardFocus = 'all' | 'attention' | 'linked' | 'freeform';
-export type ShoppingCardTone = 'attention' | 'linked' | 'freeform';
-export type ShoppingCardStatusTone = 'stable' | 'warning' | 'danger' | 'muted';
-export type ShoppingOverviewTone = 'stable' | 'warning' | 'linked' | 'freeform' | 'muted';
-
-export type ShoppingCardViewModel = {
-  shoppingItem: ShoppingListItem;
-  linkedSummary: IngredientSummaryViewModel | null;
-  linkedFood: Food | null;
-  title: string;
-  headline: string;
-  quantityLabel: string;
-  subline: string;
-  contextTags: string[];
-  reasonLabel: string;
-  contextLine: string;
-  inventoryLabel: string;
-  inventoryNote: string;
-  footerNote: string;
-  statusLabel: string;
-  statusTone: ShoppingCardStatusTone;
-  sourceLabel: '关联食材' | '成品速食' | '其他采购';
-  tone: ShoppingCardTone;
-  isLinked: boolean;
-  hasAttention: boolean;
-  updatedAt: string;
-  searchText: string;
-};
-
-export type ShoppingOverviewViewModel = {
-  key: ShoppingCardFocus;
-  label: string;
-  count: number;
-  tone: ShoppingOverviewTone;
-  detail: string;
-};
+export function resolveShoppingReason(summary: IngredientSummaryViewModel): string {
+  if (summary.alerts.some((item) => item.kind === 'lowStock')) return '库存偏低，准备补货';
+  if (summary.alerts.some((item) => item.kind === 'expiry')) return '备一份新的，替换临期库存';
+  return '加入近期采购清单';
+}
 
 export type SeasoningStatus = 'stocked' | 'needsRestock' | 'unconfigured';
 
@@ -214,205 +214,6 @@ export type ShoppingCardGroupViewModel = {
 };
 
 const STORAGE_ORDER = ['冷藏', '冷冻', '常温'];
-const ALL_CATEGORY_FILTER = 'all';
-const SEASONING_CATEGORY_LABELS = new Set(['调料', '调味料', '酱料']);
-
-/** Fixed re-confirm intervals from the approved design. */
-export const FOOD_STALE_AFTER_DAYS = 7;
-export const REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS = 14;
-export const FROZEN_INGREDIENT_STALE_AFTER_DAYS = 30;
-export const ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS = 30;
-export const PRESENCE_INGREDIENT_STALE_AFTER_DAYS = 30;
-
-export const CONFIRMATION_STATUS_LABELS: Record<InventoryConfirmationStatus, string> = {
-  never_confirmed: '未确认',
-  current: '刚确认过',
-  stale: '建议再确认',
-};
-
-export const CONFIRMATION_STATUS_TONES: Record<InventoryConfirmationStatus, InventoryConfirmationTone> = {
-  never_confirmed: 'neutral',
-  current: 'current',
-  stale: 'stale',
-};
-
-export function confirmationStatusLabel(status: InventoryConfirmationStatus): string {
-  return CONFIRMATION_STATUS_LABELS[status];
-}
-
-export function confirmationStatusTone(status: InventoryConfirmationStatus): InventoryConfirmationTone {
-  return CONFIRMATION_STATUS_TONES[status];
-}
-
-export function staleAfterDaysForStorageLocation(storageLocation: string | null | undefined): number {
-  const label = (storageLocation || '').trim();
-  if (label === '冷藏') return REFRIGERATED_INGREDIENT_STALE_AFTER_DAYS;
-  if (label === '冷冻') return FROZEN_INGREDIENT_STALE_AFTER_DAYS;
-  if (label === '常温') return ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS;
-  return ROOM_TEMPERATURE_INGREDIENT_STALE_AFTER_DAYS;
-}
-
-/**
- * Pure confirmation freshness from last_confirmed_at only.
- * Never derives status from updated_at / row_version / changed_since_confirmation.
- * `referenceDate` is an explicit business date key (YYYY-MM-DD) or ISO instant.
- */
-export function confirmationStatusFromLastConfirmedAt(
-  lastConfirmedAt: string | null | undefined,
-  args: { referenceDate: string; staleAfterDays: number },
-): InventoryConfirmationStatus {
-  if (!lastConfirmedAt) {
-    return 'never_confirmed';
-  }
-  const referenceInstant = args.referenceDate.includes('T')
-    ? args.referenceDate
-    : `${args.referenceDate.slice(0, 10)}T12:00:00.000Z`;
-  const ageHours = hoursBetweenInstants(referenceInstant, lastConfirmedAt);
-  if (!Number.isFinite(ageHours)) {
-    return 'never_confirmed';
-  }
-  const staleAfterHours = args.staleAfterDays * 24;
-  return ageHours > staleAfterHours ? 'stale' : 'current';
-}
-
-export function aggregateConfirmationStatus(
-  statuses: InventoryConfirmationStatus[],
-): InventoryConfirmationStatus {
-  if (statuses.length === 0) return 'never_confirmed';
-  if (statuses.some((status) => status === 'never_confirmed')) return 'never_confirmed';
-  if (statuses.some((status) => status === 'stale')) return 'stale';
-  return 'current';
-}
-
-export function earliestConfirmationAt(values: Array<string | null | undefined>): string | null {
-  const present = values.filter((value): value is string => Boolean(value));
-  if (present.length === 0) return null;
-  return present.slice().sort((left, right) => left.localeCompare(right))[0] ?? null;
-}
-
-export function buildExactIngredientConfirmation(args: {
-  batches: Array<Pick<InventoryItem, 'last_confirmed_at' | 'storage_location' | 'remaining_quantity' | 'quantity' | 'consumed_quantity' | 'disposed_quantity'>>;
-  referenceDate: string;
-  fallbackStorage?: string | null;
-}): {
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-} {
-  const remaining = args.batches.filter((batch) => getInventoryRemainingQuantity(batch as InventoryItem) > 0);
-  if (remaining.length === 0) {
-    return {
-      confirmationStatus: 'never_confirmed',
-      confirmationLabel: CONFIRMATION_STATUS_LABELS.never_confirmed,
-      confirmationTone: CONFIRMATION_STATUS_TONES.never_confirmed,
-      lastConfirmedAt: null,
-    };
-  }
-  const statuses = remaining.map((batch) =>
-    confirmationStatusFromLastConfirmedAt(batch.last_confirmed_at, {
-      referenceDate: args.referenceDate,
-      staleAfterDays: staleAfterDaysForStorageLocation(batch.storage_location || args.fallbackStorage),
-    }),
-  );
-  const confirmationStatus = aggregateConfirmationStatus(statuses);
-  return {
-    confirmationStatus,
-    confirmationLabel: confirmationStatusLabel(confirmationStatus),
-    confirmationTone: confirmationStatusTone(confirmationStatus),
-    lastConfirmedAt: earliestConfirmationAt(remaining.map((batch) => batch.last_confirmed_at)),
-  };
-}
-
-export function buildPresenceIngredientConfirmation(args: {
-  state: IngredientInventoryState | null | undefined;
-  referenceDate: string;
-}): {
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-} {
-  const confirmationStatus = confirmationStatusFromLastConfirmedAt(args.state?.last_confirmed_at, {
-    referenceDate: args.referenceDate,
-    staleAfterDays: PRESENCE_INGREDIENT_STALE_AFTER_DAYS,
-  });
-  return {
-    confirmationStatus,
-    confirmationLabel: confirmationStatusLabel(confirmationStatus),
-    confirmationTone: confirmationStatusTone(confirmationStatus),
-    lastConfirmedAt: args.state?.last_confirmed_at ?? null,
-  };
-}
-
-export function buildFoodConfirmation(args: {
-  food: Pick<Food, 'inventory_last_confirmed_at' | 'storage_location'>;
-  referenceDate: string;
-}): {
-  confirmationStatus: InventoryConfirmationStatus;
-  confirmationLabel: string;
-  confirmationTone: InventoryConfirmationTone;
-  lastConfirmedAt: string | null;
-} {
-  const confirmationStatus = confirmationStatusFromLastConfirmedAt(args.food.inventory_last_confirmed_at, {
-    referenceDate: args.referenceDate,
-    staleAfterDays: FOOD_STALE_AFTER_DAYS,
-  });
-  return {
-    confirmationStatus,
-    confirmationLabel: confirmationStatusLabel(confirmationStatus),
-    confirmationTone: confirmationStatusTone(confirmationStatus),
-    lastConfirmedAt: args.food.inventory_last_confirmed_at ?? null,
-  };
-}
-
-export const INGREDIENT_CATEGORY_PRESETS: IngredientCategoryPreset[] = [
-  { label: '蔬菜', defaultUnit: '个', defaultStorage: '冷藏', icon: 'vegetable' },
-  { label: '水果', defaultUnit: '个', defaultStorage: '常温', icon: 'fruit' },
-  { label: '肉类', defaultUnit: '份', defaultStorage: '冷冻', icon: 'meat' },
-  { label: '水产', defaultUnit: '块', defaultStorage: '冷冻', icon: 'fish' },
-  { label: '蛋奶', defaultUnit: '个', defaultStorage: '冷藏', icon: 'egg' },
-  { label: '豆制品', defaultUnit: '盒', defaultStorage: '冷藏', icon: 'tofu' },
-  { label: '菌菇', defaultUnit: '盒', defaultStorage: '冷藏', icon: 'mushroom' },
-  { label: '主食', defaultUnit: '份', defaultStorage: '常温', icon: 'staple' },
-  { label: '干货', defaultUnit: '袋', defaultStorage: '常温', icon: 'dryGoods' },
-  { label: '坚果果干', defaultUnit: '袋', defaultStorage: '常温', icon: 'nuts' },
-  { label: '烘焙食材', defaultUnit: '袋', defaultStorage: '常温', icon: 'baking' },
-  { label: '调料', defaultUnit: '瓶', defaultStorage: '常温', quantityTrackingMode: 'not_track_quantity', icon: 'seasoning' },
-  { label: '调味料', defaultUnit: '瓶', defaultStorage: '常温', icon: 'seasoning' },
-  { label: '酱料', defaultUnit: '瓶', defaultStorage: '常温', icon: 'seasoning' },
-  { label: '罐头腌菜', defaultUnit: '罐', defaultStorage: '常温', icon: 'canned' },
-  { label: '熟食', defaultUnit: '份', defaultStorage: '冷藏', icon: 'prepared' },
-  { label: '速冻食品', defaultUnit: '袋', defaultStorage: '冷冻', icon: 'frozen' },
-  { label: '零食饮品', defaultUnit: '包', defaultStorage: '常温', icon: 'snack' },
-  { label: '其他', defaultUnit: '份', defaultStorage: '常温', icon: 'more' },
-];
-
-const INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS = [
-  '蔬菜',
-  '肉类',
-  '水产',
-  '蛋奶',
-  '调料',
-  '水果',
-  '主食',
-  '豆制品',
-  '干货',
-  '其他',
-];
-
-const INGREDIENT_CATEGORY_PRESET_MAP = new Map(
-  INGREDIENT_CATEGORY_PRESETS.map((item) => [item.label, item] satisfies [string, IngredientCategoryPreset])
-);
-
-function normalizeCategoryLabel(value: string) {
-  return value.trim() || '未分类';
-}
-
-export function isSeasoningIngredient(ingredient: Pick<Ingredient, 'category' | 'quantity_tracking_mode'>) {
-  return !tracksIngredientQuantity(ingredient) || SEASONING_CATEGORY_LABELS.has(normalizeCategoryLabel(ingredient.category));
-}
-
 function storageWeight(label: string) {
   const index = STORAGE_ORDER.indexOf(label);
   return index === -1 ? STORAGE_ORDER.length : index;
@@ -500,155 +301,6 @@ function isAvailableInventory(item: InventoryItem, todayTime: number) {
     isRemainingInventory(item) &&
     (!item.expiry_date || new Date(item.expiry_date).getTime() >= todayTime)
   );
-}
-
-export function buildIngredientAlerts(
-  inventoryItems: InventoryItem[],
-  ingredients: Ingredient[],
-  today: string,
-  shoppingItems: ShoppingListItem[] = [],
-  inventoryStates: IngredientInventoryState[] = [],
-) {
-  const groups = buildInventoryActionGroups({
-    inventoryItems,
-    ingredients,
-    shoppingItems,
-    inventoryStates,
-    referenceDate: today,
-  });
-  return inventoryActionGroupsToAlerts(groups, ingredients);
-}
-
-export function inventoryActionGroupsToAlerts(
-  groups: InventoryActionGroup[],
-  ingredients: Ingredient[]
-): IngredientAlertViewModel[] {
-  const ingredientById = new Map(ingredients.map((ingredient) => [ingredient.id, ingredient]));
-  const alerts: IngredientAlertViewModel[] = [];
-
-  for (const group of groups) {
-    const ingredient = ingredientById.get(group.ingredientId);
-    if (group.kind === 'low_stock') {
-      alerts.push({
-        id: group.id,
-        ingredientId: group.ingredientId,
-        ingredientName: group.ingredientName,
-        title: group.title,
-        detail: group.detail,
-        tone: 'warning',
-        kind: 'lowStock',
-        storageLocation: ingredient?.default_storage || '',
-      });
-      continue;
-    }
-
-    // One alert per shared group so priority/action counts stay ingredient-level.
-    alerts.push({
-      id: group.id,
-      ingredientId: group.ingredientId,
-      ingredientName: group.ingredientName,
-      title: group.title,
-      detail: group.detail,
-      tone: group.severity === 'expires_later' ? 'warning' : 'danger',
-      kind: 'expiry',
-      severity: group.severity,
-      storageLocation: group.storageLocations[0] || ingredient?.default_storage || '',
-    });
-  }
-
-  return alerts;
-}
-
-export function buildIngredientPriorityActionGroups(args: {
-  inventoryItems: InventoryItem[];
-  ingredients: Ingredient[];
-  shoppingItems?: ShoppingListItem[];
-  inventoryStates?: IngredientInventoryState[];
-  referenceDate: string;
-}) {
-  return buildInventoryActionGroups({
-    inventoryItems: args.inventoryItems,
-    ingredients: args.ingredients,
-    shoppingItems: args.shoppingItems ?? [],
-    inventoryStates: args.inventoryStates ?? [],
-    referenceDate: args.referenceDate,
-  });
-}
-
-export type PrioritySurfaceShoppingBinding = {
-  ingredientId: string;
-  ingredientName: string;
-  reason: string;
-};
-
-export type PrioritySurfaceRow = {
-  group: InventoryActionGroup;
-  shoppingBinding: PrioritySurfaceShoppingBinding | null;
-};
-
-export function buildPrioritySurfaceRows(groups: InventoryActionGroup[]): PrioritySurfaceRow[] {
-  return groups.map((group) => ({
-    group,
-    shoppingBinding:
-      group.kind === 'low_stock'
-        ? {
-            ingredientId: group.ingredientId,
-            ingredientName: group.ingredientName,
-            reason: '库存不足',
-          }
-        : null,
-  }));
-}
-
-export function buildPriorityGroupStatus(group: InventoryActionGroup): InventoryCardStatusViewModel {
-  if (group.kind === 'low_stock') {
-    return {
-      label: '库存偏低',
-      tone: 'warning',
-      detail: group.detail,
-      priority: 2,
-    };
-  }
-  if (group.severity === 'expires_later') {
-    return {
-      label: '临期或过期',
-      tone: 'warning',
-      detail: group.detail,
-      priority: 2,
-    };
-  }
-  return {
-    label: '临期或过期',
-    tone: 'danger',
-    detail: group.detail,
-    priority: 3,
-  };
-}
-
-export function getPriorityGroupPrimaryLabel(group: InventoryActionGroup) {
-  if (group.kind === 'low_stock') {
-    return '加入采购清单';
-  }
-  return group.severity === 'expired' ? '处理过期库存' : '处理临期库存';
-}
-
-export function buildQuantitySummaries(inventoryItems: InventoryItem[]): QuantitySummaryViewModel[] {
-  const grouped = new Map<string, number>();
-  for (const item of inventoryItems) {
-    const remainingQuantity = getInventoryRemainingQuantity(item);
-    if (remainingQuantity <= 0) {
-      continue;
-    }
-    grouped.set(item.unit, (grouped.get(item.unit) ?? 0) + remainingQuantity);
-  }
-
-  return [...grouped.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .map(([unit, total]) => ({
-      unit,
-      total,
-      label: `${Number(total.toFixed(2)).toString().replace(/\.0+$/, '')} ${unit}`,
-    }));
 }
 
 function pickPrimaryStorage(ingredient: Ingredient, inventoryItems: InventoryItem[]) {
@@ -799,259 +451,6 @@ export function buildStorageGroups(summaries: IngredientSummaryViewModel[]): Sto
     }));
 }
 
-export function buildInventoryCardStatus(summary: IngredientSummaryViewModel): InventoryCardStatusViewModel {
-  const hasDangerAlert = summary.alerts.some((item) => item.tone === 'danger');
-  const hasWarningAlert = summary.alerts.some((item) => item.tone === 'warning');
-
-  if (hasDangerAlert) {
-    return {
-      label: '临期或过期',
-      tone: 'danger',
-      detail: summary.alerts[0]?.detail ?? '有临期或过期的库存需要优先处理。',
-      priority: 3,
-    };
-  }
-
-  if (summary.quantitySummaries.length === 0) {
-    return {
-      label: '还没有可用库存',
-      tone: 'empty',
-      detail:
-        !tracksIngredientQuantity(summary.ingredient)
-          ? summary.inventoryState?.availability_level === 'absent'
-            ? '家里没有库存，需要补充。'
-          : '还没有确认家里是否有库存，建议先确认库存状态。'
-          : summary.inventoryItems.length > 0
-            ? '当前可用库存已空，可以处理到期库存，或补充新的库存。'
-            : '还没有库存，适合先补充一些常用量。',
-      priority: hasWarningAlert ? 2 : 1,
-    };
-  }
-
-  if (hasWarningAlert || summary.inventoryState?.availability_level === 'low') {
-    return {
-      label: '库存偏低',
-      tone: 'warning',
-      detail:
-        summary.alerts[0]?.detail ??
-        (summary.inventoryState?.availability_level === 'low' ? '家里库存不多，建议尽快补货。' : '当前库存偏低，建议尽快补货。'),
-      priority: 2,
-    };
-  }
-
-  return {
-      label: '库存正常',
-    tone: 'stable',
-    detail: summary.latestPurchaseDate
-      ? `最近补货 ${formatDate(summary.latestPurchaseDate)}，库存正常。`
-      : '库存正常，可正常使用。',
-    priority: 0,
-  };
-}
-
-function buildInventoryCardSummaryLine(summary: IngredientSummaryViewModel) {
-  if (summary.quantitySummaries.length === 0) {
-    return '还没有库存';
-  }
-
-  return summary.quantitySummaries
-    .slice(0, 2)
-    .map((item) => item.label)
-    .join(' · ');
-}
-
-function buildInventoryCardExpiry(summary: IngredientSummaryViewModel, referenceDate: string) {
-  const earliestExpiryDate = !tracksIngredientQuantity(summary.ingredient)
-    ? summary.inventoryState?.expiry_date ?? null
-    : summary.inventoryItems
-        .map((item) => item.expiry_date)
-        .filter((value): value is string => Boolean(value))
-        .sort((left, right) => left.localeCompare(right))[0] ?? null;
-
-  if (!earliestExpiryDate) {
-    return {
-      hasExpiryInfo: false,
-      expiryLabel: null,
-      expiryDateLabel: null,
-      expiryTone: null,
-    } satisfies Pick<
-      InventoryCardPresentationViewModel,
-      'hasExpiryInfo' | 'expiryLabel' | 'expiryDateLabel' | 'expiryTone'
-    >;
-  }
-
-  const diffDays = Math.round(
-    (new Date(earliestExpiryDate).getTime() - new Date(referenceDate).getTime()) / (1000 * 60 * 60 * 24)
-  );
-  const expiryLabel =
-    diffDays < 0
-      ? `已过期 ${Math.abs(diffDays)} 天`
-      : diffDays === 0
-        ? '今天到期'
-      : diffDays === 1
-          ? '距到期 1 天'
-          : `距到期 ${diffDays} 天`;
-
-  const expiryTone: InventoryCardExpiryTone =
-    diffDays <= 2 ? 'danger' : diffDays <= 7 ? 'warning' : 'neutral';
-
-  return {
-    hasExpiryInfo: true,
-    expiryLabel,
-    expiryDateLabel: formatDate(earliestExpiryDate),
-    expiryTone,
-  } satisfies Pick<
-    InventoryCardPresentationViewModel,
-    'hasExpiryInfo' | 'expiryLabel' | 'expiryDateLabel' | 'expiryTone'
-  >;
-}
-
-export function buildDisposableExpiredInventoryItems(
-  summary: IngredientSummaryViewModel,
-  referenceDate: string,
-): DisposableExpiredInventoryItemViewModel[] {
-  // Calendar-key compare keeps dispose eligibility aligned with Shanghai businessDateKey.
-  const referenceKey = referenceDate.slice(0, 10);
-
-  return summary.inventoryItems
-    .filter((item) => {
-      if (!item.expiry_date) {
-        return false;
-      }
-      if (item.expiry_date.slice(0, 10) >= referenceKey) {
-        return false;
-      }
-      return getInventoryRemainingQuantity(item) > 0;
-    })
-    .sort(
-      (left, right) =>
-        left.expiry_date!.localeCompare(right.expiry_date!) ||
-        left.purchase_date.localeCompare(right.purchase_date) ||
-        left.created_at.localeCompare(right.created_at)
-    )
-    .map((item) => {
-      const remainingQuantity = getInventoryRemainingQuantity(item);
-      return {
-        id: item.id,
-        ingredientId: item.ingredient_id,
-        ingredientName: item.ingredient_name,
-        remainingQuantity,
-        remainingLabel: `${formatQuantityValue(remainingQuantity)} ${item.unit}`,
-        unit: item.unit,
-        purchaseDate: item.purchase_date,
-        expiryDate: item.expiry_date!,
-        storageLocation: item.storage_location || summary.primaryStorage || summary.ingredient.default_storage || '常温',
-        notes: item.notes,
-        status: item.status,
-        createdAt: item.created_at,
-        rowVersion: item.row_version,
-        expiryAlertSnoozedUntil: item.expiry_alert_snoozed_until ?? null,
-        expiryReviewedAt: item.expiry_reviewed_at ?? null,
-        expiryReviewedBy: item.expiry_reviewed_by ?? null,
-      };
-    });
-}
-
-export function countDisposableExpiredInventoryItems(
-  summary: IngredientSummaryViewModel,
-  referenceDate: string,
-) {
-  const referenceKey = referenceDate.slice(0, 10);
-
-  return summary.inventoryItems.reduce((count, item) => {
-    if (!item.expiry_date) {
-      return count;
-    }
-    if (item.expiry_date.slice(0, 10) >= referenceKey) {
-      return count;
-    }
-    return getInventoryRemainingQuantity(item) > 0 ? count + 1 : count;
-  }, 0);
-}
-
-export function buildInventoryCardPresentation(
-  summary: IngredientSummaryViewModel,
-  referenceDate: string,
-): InventoryCardPresentationViewModel {
-  const status = buildInventoryCardStatus(summary);
-  const expiry = buildInventoryCardExpiry(summary, referenceDate);
-  // Decorative date badge may keep its own day-window colors, but must never look calm
-  // when the shared action projection includes this ingredient.
-  const actionableTone: InventoryCardExpiryTone | null =
-    summary.alerts.length === 0
-      ? null
-      : summary.alerts.some((item) => item.tone === 'danger')
-        ? 'danger'
-        : 'warning';
-  const resolvedExpiryTone: InventoryCardExpiryTone | null =
-    expiry.hasExpiryInfo && actionableTone && expiry.expiryTone === 'neutral'
-      ? actionableTone
-      : expiry.expiryTone;
-  const resolvedExpiry = {
-    ...expiry,
-    expiryTone: resolvedExpiryTone,
-  };
-  const latestRestockLabel = summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : null;
-  const hasExpiredInventory = summary.alerts.some((item) => item.kind === 'expiry' && item.tone === 'danger');
-  const footerNote =
-    hasExpiredInventory
-      ? `当前有 ${summary.alerts.length} 条提醒，请先处理过期库存。`
-      : summary.alerts.length > 0
-        ? `当前有 ${summary.alerts.length} 条提醒，建议优先处理。`
-        : status.detail;
-  const confirmation = {
-    confirmationStatus: summary.confirmationStatus,
-    confirmationLabel: summary.confirmationLabel,
-    confirmationTone: summary.confirmationTone,
-    lastConfirmedAt: summary.lastConfirmedAt,
-  };
-
-  if (summary.quantitySummaries.length > 0) {
-    const secondaryParts = latestRestockLabel ? [`最近补货 ${latestRestockLabel}`] : [];
-    secondaryParts.push(resolvedExpiry.hasExpiryInfo ? `最早 ${resolvedExpiry.expiryDateLabel} 到期` : '没有设置保质期');
-
-    return {
-      headline: buildInventoryCardSummaryLine(summary),
-      secondary: secondaryParts.join(' · '),
-      footerNote,
-      ...resolvedExpiry,
-      ...confirmation,
-    };
-  }
-
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    // State absent/default: no current presence fact.
-    return {
-      headline: summary.inventoryState?.availability_level === 'absent' ? '没有库存' : '未确认',
-      secondary:
-        summary.inventoryState?.availability_level === 'absent'
-          ? '家里没有库存'
-          : '还没有确认家里是否有库存，建议先确认库存状态',
-      footerNote,
-      ...resolvedExpiry,
-      ...confirmation,
-    };
-  }
-
-  if (summary.inventoryItems.length > 0) {
-    return {
-      headline: '当前无可用库存',
-      secondary: latestRestockLabel ? `最近补货 ${latestRestockLabel} · 当前无可用库存` : '当前无可用库存',
-      footerNote,
-      ...resolvedExpiry,
-      ...confirmation,
-    };
-  }
-
-  return {
-    headline: '还没有库存',
-    secondary: '还没有库存，适合先补充第一批',
-    footerNote,
-    ...resolvedExpiry,
-    ...confirmation,
-  };
-}
-
 export function buildInventoryStorageOverview(
   summaries: IngredientSummaryViewModel[]
 ): InventoryStorageOverviewViewModel[] {
@@ -1173,152 +572,6 @@ export function buildInventoryBatchGroups(args: {
     }));
 }
 
-export function getIngredientCategoryPreset(category: string) {
-  return INGREDIENT_CATEGORY_PRESET_MAP.get(category.trim());
-}
-
-export function getIngredientEditorCategoryPresets() {
-  return INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS
-    .map((label) => INGREDIENT_CATEGORY_PRESET_MAP.get(label))
-    .filter((item): item is IngredientCategoryPreset => Boolean(item));
-}
-
-export function buildIngredientCategoryFilters(ingredients: Ingredient[]) {
-  const existingCategories = uniqueLabels(ingredients.map((item) => normalizeCategoryLabel(item.category)));
-  const presetLabels = INGREDIENT_EDITOR_CATEGORY_PRESET_LABELS;
-  const secondaryPresetLabels = INGREDIENT_CATEGORY_PRESETS
-    .map((item) => item.label)
-    .filter((label) => !presetLabels.includes(label) && existingCategories.includes(label));
-  const customLabels = existingCategories
-    .filter((label) => !INGREDIENT_CATEGORY_PRESET_MAP.has(label))
-    .sort((left, right) => left.localeCompare(right, 'zh-CN'));
-
-  return [...presetLabels, ...secondaryPresetLabels, ...customLabels];
-}
-
-export function filterIngredientSummaries(
-  summaries: IngredientSummaryViewModel[],
-  term: string,
-  categoryFilter = ALL_CATEGORY_FILTER,
-  matchedIngredientIds: readonly string[] = []
-) {
-  const normalized = term.trim();
-  const matchedIdSet = new Set(matchedIngredientIds);
-  const matchedOrder = new Map(matchedIngredientIds.map((id, index) => [id, index]));
-  const filtered = summaries.filter((summary) => {
-    const matchesCategory =
-      categoryFilter === ALL_CATEGORY_FILTER || normalizeCategoryLabel(summary.ingredient.category) === categoryFilter;
-    if (!matchesCategory) {
-      return false;
-    }
-    if (!normalized) {
-      return true;
-    }
-    return (
-      matchedIdSet.has(summary.ingredient.id) ||
-      summary.ingredient.name.includes(normalized) ||
-      summary.ingredient.category.includes(normalized) ||
-      summary.ingredient.notes.includes(normalized) ||
-      summary.recipeReferences.some((item) => item.title.includes(normalized))
-    );
-  });
-  if (!normalized || matchedIngredientIds.length === 0) {
-    return filtered;
-  }
-  return [...filtered].sort((left, right) => {
-    const leftOrder = matchedOrder.get(left.ingredient.id);
-    const rightOrder = matchedOrder.get(right.ingredient.id);
-    if (leftOrder !== undefined && rightOrder !== undefined) {
-      return leftOrder - rightOrder;
-    }
-    if (leftOrder !== undefined) {
-      return -1;
-    }
-    if (rightOrder !== undefined) {
-      return 1;
-    }
-    return 0;
-  });
-}
-
-export function filterInventoryBatchGroups(groups: InventoryBatchGroupViewModel[], term: string) {
-  const normalized = term.trim();
-  if (!normalized) return groups;
-  return groups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => {
-        return (
-          item.ingredientName.includes(normalized) ||
-          item.storageLocation.includes(normalized) ||
-          item.notes.includes(normalized)
-        );
-      }),
-    }))
-    .filter((group) => group.items.length > 0);
-}
-
-export function filterIngredientSummariesForInventory(
-  summaries: IngredientSummaryViewModel[],
-  term: string,
-  matchedIngredientIds: readonly string[] = []
-) {
-  const normalized = term.trim();
-  const matchedIdSet = new Set(matchedIngredientIds);
-  if (!normalized) {
-    return summaries;
-  }
-
-  return summaries.filter((summary) => {
-    return (
-      matchedIdSet.has(summary.ingredient.id) ||
-      summary.ingredient.name.includes(normalized) ||
-      summary.ingredient.category.includes(normalized) ||
-      summary.ingredient.notes.includes(normalized) ||
-      summary.primaryStorage.includes(normalized) ||
-      summary.storageLocations.some((location) => location.includes(normalized)) ||
-      summary.alerts.some((alert) => alert.title.includes(normalized) || alert.detail.includes(normalized))
-    );
-  });
-}
-
-export function hasExpiredCatalogAlert(summary: IngredientSummaryViewModel) {
-  return summary.alerts.some((item) => item.kind === 'expiry' && item.severity === 'expired');
-}
-
-export function hasExpiringCatalogAlert(summary: IngredientSummaryViewModel) {
-  return summary.alerts.some((item) => item.kind === 'expiry' && item.severity !== 'expired');
-}
-
-export function matchesCatalogStatusFilter(
-  summary: IngredientSummaryViewModel,
-  filter: 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable'
-) {
-  if (filter === 'all') {
-    return true;
-  }
-  if (filter === 'actionNeeded') {
-    // Shared 需处理 projection: any ingredient present in InventoryActionGroup alerts.
-    return summary.alerts.length > 0;
-  }
-  if (filter === 'expired') {
-    return hasExpiredCatalogAlert(summary);
-  }
-  if (filter === 'expiring') {
-    return hasExpiringCatalogAlert(summary);
-  }
-  if (filter === 'lowStock') {
-    return summary.alerts.some((item) => item.kind === 'lowStock');
-  }
-  return summary.quantitySummaries.length > 0 && summary.alerts.length === 0;
-}
-
-export function filterIngredientSummariesByCatalogStatus(
-  summaries: IngredientSummaryViewModel[],
-  filter: 'all' | 'actionNeeded' | 'expired' | 'expiring' | 'lowStock' | 'stable'
-) {
-  return summaries.filter((summary) => matchesCatalogStatusFilter(summary, filter));
-}
 
 export function buildShoppingCards(
   shoppingItems: ShoppingListItem[],
@@ -1475,49 +728,6 @@ export function buildShoppingCards(
     });
 }
 
-export function buildShoppingOverview(cards: ShoppingCardViewModel[]): ShoppingOverviewViewModel[] {
-  const attentionCount = cards.filter((card) => card.hasAttention).length;
-  const linkedCount = cards.filter((card) => card.isLinked).length;
-  const freeformCount = cards.filter((card) => !card.isLinked).length;
-
-  return [
-    {
-      key: 'all',
-      label: '全部待买',
-      count: cards.length,
-      tone:
-        cards.length === 0 ? 'muted' : attentionCount > 0 ? 'warning' : linkedCount > 0 ? 'linked' : 'freeform',
-      detail:
-        cards.length === 0
-          ? '当前采购清单为空'
-          : attentionCount > 0
-            ? `${attentionCount} 项需要优先购买`
-            : '当前没有需要优先购买的内容',
-    },
-    {
-      key: 'attention',
-      label: '优先购买',
-      count: attentionCount,
-      tone: attentionCount > 0 ? 'warning' : 'muted',
-      detail: attentionCount > 0 ? '关联食材有库存提醒' : '当前没有需要优先购买的内容',
-    },
-    {
-      key: 'linked',
-      label: '关联食材',
-      count: linkedCount,
-      tone: linkedCount > 0 ? 'linked' : 'muted',
-      detail: linkedCount > 0 ? '可直接看到库存与提醒' : '当前没有关联食材的待买内容',
-    },
-    {
-      key: 'freeform',
-      label: '其他采购',
-      count: freeformCount,
-      tone: freeformCount > 0 ? 'freeform' : 'muted',
-      detail: freeformCount > 0 ? '其他采购或还没有加入食材库的内容' : '当前没有其他采购',
-    },
-  ];
-}
-
 export function buildSeasoningSummaries(summaries: IngredientSummaryViewModel[]): SeasoningSummaryViewModel[] {
   return summaries
     .filter((summary) => isSeasoningIngredient(summary.ingredient))
@@ -1567,27 +777,4 @@ export function buildShoppingCardGroups(cards: ShoppingCardViewModel[]): Shoppin
       cards: seasoningCards,
     },
   ].filter((group) => group.cards.length > 0);
-}
-
-export function filterShoppingCards(
-  cards: ShoppingCardViewModel[],
-  term: string,
-  focus: ShoppingCardFocus = 'all'
-) {
-  const normalized = term.trim();
-
-  return cards.filter((card) => {
-    const matchesFocus =
-      focus === 'all' ||
-      (focus === 'attention' && card.hasAttention) ||
-      (focus === 'linked' && card.isLinked) ||
-      (focus === 'freeform' && !card.isLinked);
-    if (!matchesFocus) {
-      return false;
-    }
-    if (!normalized) {
-      return true;
-    }
-    return card.searchText.includes(normalized);
-  });
 }

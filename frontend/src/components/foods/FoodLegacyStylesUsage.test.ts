@@ -5,6 +5,13 @@ import { describe, expect, it } from 'vitest';
 describe('Food legacy style cleanup', () => {
   const repoRoot = resolve(__dirname, '../../..');
 
+  it('loads Food domain styles from the lazy route entry', () => {
+    const globalStyles = readFileSync(resolve(repoRoot, 'src/styles.css'), 'utf8');
+    const routeStyles = readFileSync(resolve(repoRoot, 'src/components/foods/food-route.css'), 'utf8');
+    expect(globalStyles).toContain("@import './components/foods/food-route.css' layer(domain);");
+    expect(routeStyles).toContain("@import '../../styles/06-food-workspace.css' layer(domain);");
+  });
+
   it('keeps linked recipe summary styles scoped to the food detail drawer', () => {
     const detailSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodDetailDrawer.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
@@ -49,8 +56,9 @@ describe('Food legacy style cleanup', () => {
 
   it('does not hide recipe or shopping action buttons from food mobile rules', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+    const compatibilityStyles = readFileSync(resolve(repoRoot, 'src/styles/compatibility-responsive.css'), 'utf8');
 
-    expect(foodStyles).toContain('.mobile-dashboard-page,\n.mobile-food-page,');
+    expect(compatibilityStyles).toContain(':is(.mobile-food-page, .mobile-recipe-page');
     expect(foodStyles).not.toMatch(/\.recipe-(create-button|discovery-card-hit|plan-add-button|shopping-add-button)[\s\S]{0,500}\.mobile-dashboard-page/);
     expect(foodStyles).not.toMatch(/\.shopping-work-row-primary-action[\s\S]{0,500}\.mobile-dashboard-page/);
   });
@@ -130,7 +138,7 @@ describe('Food legacy style cleanup', () => {
 
   it('keeps the food editor responsive rules in the food domain', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
-    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(repoRoot, 'src/styles/food-responsive.css'), 'utf8');
 
     expect(foodStyles).toContain('.food-editor-recipe-action');
     expect(foodStyles).toContain('.food-editor-usage-panel');
@@ -144,7 +152,7 @@ describe('Food legacy style cleanup', () => {
   });
 
   it('does not keep obsolete food filter toolbar action overrides', () => {
-    const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodWorkspace.tsx'), 'utf8');
+    const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodLibraryFilters.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
 
     expect(foodSource).toContain('food-library-head-actions');

@@ -1,0 +1,3 @@
+/* AI styles are owned by the lazy AI route entry. Keep the canonical layer. */
+@import '../../styles/09-ai-workspace.css' layer(domain);
+@import '../../styles/09-ai-draft-ui.css' layer(domain);

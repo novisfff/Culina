@@ -1,6 +1,33 @@
 # 前端代码治理体检（2026-08-27）
 
-状态：基线体检，基于最新已提交 `origin/main`，不包含治理实现。
+状态：基线体检及治理实施跟踪；基线数字仍基于 `origin/main`，下方实施记录来自独立 worktree `codex/frontend-code-governance-implementation`。
+
+## 0. 治理实施跟踪（2026-08-30）
+
+已落地并独立提交的阶段性边界包括：Phase 0 度量/manifest/ratchet/fail-closed gates；Phase 1 CSS layer、token、selector ownership、响应式迁移；Phase 2 App query/mutation ownership、router/overlay/controller ports；Phase 3 Ingredient/Food/Eat 与 Inventory reconciliation 的部分 view-model/step 边界；Phase 4 AI selection/migration、run/stream/approval/composer/cancellation 状态模型、workspace shell/overlay hosts、secondary entry 与 manifest 注册。
+
+最新验证证据：
+
+- `npm run frontend:quality`：typecheck、全量 Vitest、style token gate 通过。
+- `npm run frontend:build`：生产构建成功，bundle manifest 未报告 orphan/unregistered/missing entry。
+- `node frontend/scripts/bundle-manifest.mjs --check frontend/dist/.vite/frontend-health-manifest.json`：14 entries。
+- `npm run frontend:e2e:p0`：52/52 通过，覆盖固定移动/平板/桌面路径。
+
+2026-08-30 增量：Food workspace 新增 discover surface 与 meal-record/quick-record/quick-meal overlay 组合边界，`FoodWorkspace.tsx` 当前 1208 行；Food 目录定向测试 39 个文件、176 项通过。最新完整 quality 为 307 个测试文件、2031 项通过；生产构建在 `37cab2ac` 与 `2b0ff0c0` 两个连续提交上均转换 820 个 modules 并生成 health/rollout manifest；随后 `npm run frontend:e2e:p0` 在 phone、tablet、desktop 及 375×812/390×844/430×932/768×1024/1024×768/1440×900 路径上 52/52 通过。所有入口仍保持 ratchet，bundle target gaps 继续按预期报告。
+
+回滚演练增量：在当前提交执行 `VITE_LEGACY_GLOBAL_STYLES=1 npm run frontend:build` 成功（817 modules），确认 legacy global CSS 可构建且 route style loader 不发生双份加载；该模式仍保留为回滚路径，未改变 rollout state。
+
+逐 entry rollback CLI 复核：使用临时 state 将 `ai.enabledMode` 从 `target` 回落为 `ratchet`，输出中其他 entry 与输入完全一致，仓库 `frontend/scripts/budget-rollout-state.json` 保持不变。
+
+release evidence checker 复核：将 evidence 的 `buildCommit` 对齐当前 production manifest 的 `sourceCommit` 后，使用真实 manifest、budget、六视口、request/cache/long-task 和 rollback evidence 执行 `node frontend/scripts/release-governance-check.mjs ...`，结果 `exit 0`，`missing=[]`、`violations=[]`。
+
+CSS lazy-loading 实验记录：尝试将 `05-workspace-overlays.css` 从同步 `route-shell.css` 移到所有 route-owned CSS 后，main CSS gzip 约从 44.77 KiB 降至 31.62 KiB，但 routeTotal 因重复传输上升（例如 food 约 290.9 KiB → 303.7 KiB），触发 duplicate-transfer 风险，已回滚该实验；当前保持原有共享加载，待共享 chunk 方案完成后再重做。
+
+共享 chunk 进展：新增 CSS-owned `route-overlays` lazy style entry，所有 route loader 直接复用同一 `05-workspace-overlays.css` 异步 asset；`route-shell` 不再同步包含 overlay CSS。manifest 已登记该 logical entry，bundle/manifest 定向测试 20/20 通过，production build 通过且不再出现 orphan/unregistered dynamic-entry 错误；该共享 entry 仍保持 ratchet，并如实报告当前 routeTotal gap。
+
+治理聚合器复核：使用当前 health artifact 与最新 production manifest 执行 `node frontend/scripts/check-frontend-governance.mjs --health=.artifacts/frontend-health-current.json --manifest=frontend/dist/.vite/frontend-health-manifest.json --mode=report`，结果 `exit 0`；默认路径失败仅因默认 artifact 是旧工作目录产物，不作为代码失败证据。
+
+尚未达到最终规格的项目：App/Ingredient/Food workspace 仍保留大块组合文件；AI controller 虽已拆出 selection、stream、approval、human-input、composer 等边界，但 `AiWorkspace.tsx` 仍需进一步收敛；route-owned CSS 尚未完成；bundle rollout state 已接入，但所有入口仍保持 ratchet，尚未具备两次 build/viewport 证据，因此 target hard-failure 尚未启用。因此本跟踪记录不把当前阶段标记为最终验收。
 
 ## 1. 范围与基线
 
@@ -221,4 +248,170 @@ CSS append-only + 07-mobile final override
 未执行：
 
 - 没有运行浏览器/P0 smoke 或人工截图，因为本次交付是只含文档的治理基线；后续涉及 CSS、路由、弹层或响应式的每个工作包必须使用 375×812、390×844、430×932、768×1024、1024×768、1440×900 验证矩阵。
-- 没有修改原始脏 `main` 工作区，也没有在治理分支实现拆分代码；本分支当前只应包含本治理文档。
+- 基线体检当时没有修改原始脏 `main` 工作区，也尚未在治理分支实现拆分代码；后续落地状态见第 10 节。
+
+## 10. Phase 0 门禁落地记录（2026-08-28）
+
+Phase 0 在独立 worktree `/Users/zyf/IdeaProjects/Culina/.worktrees/frontend-code-governance-implementation`、分支 `codex/frontend-code-governance-implementation` 完成。分支从 `59ea22b7` 创建，但 ratchet 真相源仍固定为 B0 `b559246669dd3fd9ec463658ce2ed4504df2a1ba`，不跟随 `origin/main` 移动。
+
+独立回滚提交：
+
+- `65a21ead`：共享 metric fixture。
+- `92cb0e4e`：frontend health reporter。
+- `e4781286`：固定 B0 baseline。
+- `6e67bcbf`：逻辑入口 manifest。
+- `2ea53eb7`：report/ratchet/target 三态 bundle checker。
+- `f5280778`：fail-closed Frontend Governance CI job 和 canonical artifact。
+- `0e54c5df`：coverage topology 只报告 artifact。
+- `dab575e9`：把 health B0 comparator 接入 CI 聚合器。
+
+### 实际验证
+
+以下命令均退出 0：
+
+```bash
+npm --prefix frontend run test -- scripts/frontend-health-metrics.test.mjs scripts/frontend-health-baseline.test.mjs scripts/bundle-manifest.test.mjs scripts/check-bundle-budgets.test.mjs scripts/check-frontend-governance.test.mjs scripts/coverage-topology-report.test.mjs
+npm --prefix frontend run typecheck
+npm --prefix frontend run health:report -- --format json --output "$PWD/.artifacts/frontend-health.json"
+npm --prefix frontend run build:manifest
+cp frontend/dist/.vite/frontend-health-manifest.json .artifacts/frontend-health-manifest.json
+npm --prefix frontend run check:governance -- --mode=ratchet --health="$PWD/.artifacts/frontend-health.json" --manifest="$PWD/.artifacts/frontend-health-manifest.json" --coverage="$PWD/.artifacts/frontend-coverage-topology.json" --result="$PWD/.artifacts/frontend-governance-result.json"
+node frontend/scripts/check-frontend-governance.mjs --fixtures frontend/scripts/fixtures/governance-ci
+npm run frontend:test:coverage
+npm --prefix frontend run coverage:report
+git diff --check
+```
+
+focused 集成集为 6 个文件、33 个测试。构建转换 640 modules；canonical manifest 包含 14 个逻辑入口：`main`、`home`、`eat`、`ingredients`、`food`、`ai`、`family-profile`、`family-model-settings`、`model-usage`、`model-usage-requests`、`markdown`、`ai-approval`、`inventory-operation`、`home-dialogs`。ratchet 聚合结果为 health/manifest/bundle/coverage 全部 `success`，0 violation、0 manifest error；28 条历史超目标均保留为 `targetGap` warning。
+
+注入验证覆盖新增 `!important`、513-byte bundle 增量、未登记 dynamic import 和缺失逻辑 entry，失败路径均被 fixture/子进程测试锁定为非零；B0 历史 gap 无增量仍退出 0。coverage 没有设置全局 hard floor；当前治理分支采样为 221 个测试文件、1,823 个测试，行/分支/函数为 71.16%/75.84%/66.66%，与固定 B0 的 214/1,786 和 71.11%/75.84%/66.58% 分开记录。topology artifact 仍明确列出 `App.tsx`、`IngredientWorkspace.tsx` 等 8 个低覆盖组合层文件。
+
+新 CSS tokenizer 在 B0 上得到 10,247 个 selector block、38,905 个 declaration；与原体检的启发式 10,316/39,038 不同，因为新口径跳过 keyframe 内部规则。当前 `59ea22b7` 后代源码采样为 10,255/38,944；B0 baseline 没有因此改写。`!important=837`、`@media=214` 与 B0 一致。
+
+本阶段没有修改用户可见 UI，未运行 Playwright/P0 smoke、人工截图或 375×812、390×844、430×932、768×1024、1024×768、1440×900 六视口；Phase 0 结论不替代后续 CSS/响应式阶段的视觉验收。`.artifacts`、`frontend/dist`、`frontend/coverage` 均只作本地验证并在提交前删除。
+
+## 11. Phase 1 CSS 与响应式落地记录（2026-08-28）
+
+Phase 1 在同一独立 worktree 按 shell-foundation、home-family、eat-meal、ingredient-food-inventory、ai-search、compat-retire 批次完成。`07-mobile.css` 的规则已迁移至 `compatibility-responsive.css`，并保留固定 layer 顺序 `reset > tokens > primitives > shell > domain > responsive > compatibility`；旧文件不再作为生产入口。
+
+当前 CSS 治理指标：legacy CSS 64,890 行、`!important` 648、`@media` 180、token drift 10、duplicate selectors 62、undefined variables 0、business specificity candidates 1,368、attribute selector candidates 150、noncanonical media 61（均在 registry 中有 owner/expiry）。CSS gzip 为 191,911 bytes，较 B0 增加 477 bytes；manifest `routeTotal` gzip 为 742,454 bytes，较 B0 减少 721 bytes。
+
+新增 `frontend/e2e/css-governance.spec.mjs` 覆盖临时 fixture 的横向溢出、43px 触控目标与 busy overlay Escape 失败路径，以及 Home、Ingredients、Food、Eat、AI、Family 六个真实路径。测试在 375×812、390×844、430×932、768×1024、1024×768、1440×900 六视口循环，并以 reduced motion 模式运行，6/6 通过；`frontend:e2e:p0` 52/52 通过。Phase 1 focused contract tests 23/23 通过，完整 Vitest 1,852/1,852、build、style-token 与 CSS ratchet 均通过。
+
+本阶段未执行人工截图 diff；CSS 治理 E2E 提供了布局、交互目标和 overlay 语义的自动化证据。`.artifacts`、`frontend/dist`、`frontend/coverage` 仍仅为本地验证产物，不纳入提交。
+
+## 12. Phase 2/3 增量落地记录（2026-08-28）
+
+在同一治理 worktree 中继续完成了 domain type barrel 消费者迁移，并将 Eat task body 与库存盘点步骤从聚合文件真实迁出。相关提交保持按批次独立：
+
+- `6503e070`：Meal 类型消费者迁移。
+- `c797069c`、`43361746`：Model Usage、Search 类型消费者迁移。
+- `d6cc2d6b`、`fd465ac3`、`9bc59724`：Family Model Settings、Family、App 部分消费者迁移。
+- `fa4d975d`、`5fca7c8f`、`5e07244d`、`7e35a643`、`d23bcb51`、`7ce31a79`：Eat 的 Food、Plan、Recipe、Cook、Meal/Meal-create body 迁移及 entry wrapper 接线；`EatTaskBodies.tsx` 从约 1,956 行降至 361 行。
+- `c8bec2f4`、`1d0951aa`：库存盘点 Summary、Review View 真实迁出；Dialog 壳降至 432 行。
+
+本增量实际验证：
+
+```bash
+npm --prefix frontend run typecheck
+npm --prefix frontend run test -- src/features/meals
+npm --prefix frontend run test -- src/features/model-usage src/features/search
+npm --prefix frontend run test -- src/features/family
+npm --prefix frontend run test -- src/app
+npm --prefix frontend run test -- src/features/eat
+npm --prefix frontend run test -- src/features/inventory/InventoryReconciliationDialog.test.tsx src/features/inventory/InventoryReconciliationDialogBehavior.test.tsx
+git diff --check
+```
+
+上述定向测试均通过。随后运行全量 `npm run frontend:quality && npm run frontend:build`：249 个测试文件、1,902 个测试通过，style-token gate 通过，Vite 转换 685 modules，build 与 bundle checker 退出 0（历史 targetGap 仍为 warning）。之后重新运行 `npm run frontend:e2e:p0`，固定路径 52/52 通过。后续又将 Markdown 专属依赖显式拆为 `ai-markdown-vendor` chunk，并重新 build：686 modules、manifest 无 error，Markdown entryCritical gzip 降至约 0.88 KiB，但 AI routeTotal 仍超过目标。一次 route-owned CSS 实验因 P0 首帧/cascade 回归撤回，并在恢复全局样式、重建 dist 后以 52/52 P0 通过确认回滚有效。新增 bundle rollout state 校验与 checker 集成测试（18 个脚本测试通过）；当前所有入口仍为 ratchet，target 仅在连续 build/viewport 证据完整后启用。人工截图与 route-owned CSS 仍未完成，因此 Phase 3/4/5 的最终验收仍保持未完成状态。
+
+## 13. Phase 3 workspace model 增量（2026-08-29）
+
+继续在同一治理 worktree 完成两批真实职责收敛：
+
+- `36557051`：Ingredient 目录/库存摘要、状态、展开说明和采购原因迁入 `workspaceModel.ts`，并以 model 契约测试锁定展示结果；`IngredientWorkspace.tsx` 删除重复实现。
+- `69c3e70a`：Food 日期投影、食物类型归一化、推荐餐别、卡片主操作、采购资格和库存文案迁入 `FoodWorkspaceModel.ts`，保留 Workspace 的兼容导出。
+- `eeb1678d`：Ingredient 库存存储概览卡、图标和插图迁入独立 View，Workspace 仅传递数据与回调。
+- `69e338df`、`0bdd0c34`：AI 与 Food domain CSS 从全局聚合移到各自 lazy route stylesheet，保留 `domain` layer；build 后主 CSS gzip 从约 194.9 KiB 降至约 150.3 KiB，AI/Food route CSS 由独立 chunk 承载。
+- `31f4186e`：将 Food 样式中误放置的跨域 mobile 默认隐藏规则迁移到 compatibility responsive layer；修复后完整 P0 重新通过 52/52。
+- `14b2e023`：Model Usage domain CSS 迁移到 lazy route stylesheet；主 CSS gzip 进一步降至约 138.9 KiB，Model Usage 相关定向 P0 15/15 通过。
+- `d6966d10`：Family Model Settings domain CSS 迁移到独立 lazy route stylesheet；family-model-settings 定向 Vitest 100/100 通过，build 继续保持 ratchet。
+
+本批验证：全量 Vitest 256 个文件 / 1,919 个测试通过；Vite 696 modules、manifest 无 error，bundle 历史超目标继续以 ratchet warning 输出；P0 固定路径 52/52 通过。构建后仍有未收敛的历史预算 gap，route-owned CSS、App/Ingredient/Food 大文件最终目标、连续 viewport 发布证据和 target hard-failure 尚未完成，不能据此勾选 Phase 3/5 最终验收。
+
+## 14. Phase 3/5 增量记录（2026-08-29）
+
+- `25ef12e6`：新增 `AppGlobalOverlays`，将全局搜索和首页食材采购弹层从 `App.tsx` 的 JSX 组合中提取为 typed overlay host；完成 typecheck 与 `src/app` 定向测试。
+- 当前继续将 Home dashboard 主样式由全局 `styles.css` 移至 `features/home/home-route.css`，由 Home route 自有入口加载；responsive 与 compatibility 样式仍保持全局，避免跨域默认可见性回归。
+
+本批验证：Home 定向 Vitest 98/98 通过；CSS layer contract 4/4 通过；typecheck 通过；Vite build 704 modules、manifest 无 error、bundle checker 退出 0；主 CSS gzip 约 133.83 KiB，历史 targetGap 继续按 ratchet warning 输出；`git diff --check` 通过。最新完整 P0 启动后在登录恢复、multitab 和部分 768px 导航场景出现可见性/超时失败，未取得完整通过结果；该失败证据不能替代 P0 通过。App/Ingredient/Food 大文件和其余 route CSS 迁移仍未完成。
+
+## 15. Workspace renderer 增量记录（2026-08-29）
+
+- `fe245a5f`：将 Food 计划详情中的候选餐食确认状态、候选查询和完成目标投影迁入 `FoodPlanDetailWithCandidates`，Workspace 保留 route 组合与 action wiring。
+- `b0e6b196`：将 Ingredient 库存摘要卡的状态投影、媒体和库存动作渲染迁入 `IngredientInventoryCard`，Workspace 仅提供数据和回调。
+
+本批定向 typecheck 与 Food/Ingredient 使用契约测试通过；全量 `frontend:quality` 已完成 typecheck 并运行 Vitest，未发现新增编译错误。Food workspace 约 2316 行，Ingredient workspace 约 3175 行，仍高于规格目标，后续必须继续按完整组件边界拆分。
+
+- `ea356d84`：将采购历史行的媒体、标签和操作渲染迁入 `ShoppingHistoryRow`，进一步缩小 Ingredient workspace 的 View 组合范围。
+- `07264fb5`：将 Eat workspace domain CSS 移至 lazy Eat route stylesheet，并同步更新 layer contract；主 CSS gzip 降至约 133.21 KiB，Eat route 获得独立 CSS chunk（约 1.06 KiB gzip）。
+
+Eat/Food 定向测试 74/74、typecheck、build 与 diff check 通过；bundle 历史目标仍为 ratchet warning，未启用 target。
+
+- `2b9878ee`：将 Ingredient 目录卡的 Quick Detail Popover（portal 定位、库存状态和快捷操作）迁入独立 View，并更新使用契约测试覆盖跨文件职责边界。
+
+Ingredient overlay 定向测试 28/28、typecheck 与 `git diff --check` 通过；Ingredient workspace 约降至 2959 行，仍高于规格目标，目录卡本体和 App 组合层还需继续拆分。
+
+- `7f8e830b`：将 Ingredient 目录卡本体（状态摘要、库存动作、Popover 接线）迁入 `IngredientCatalogCard`，Workspace 仅保留列表编排；文件约降至 2749 行。
+
+本批 Ingredient overlay/usage 测试 28/28、typecheck、build（710 modules）和 bundle ratchet-report 通过；历史 target gap 继续保留。
+
+- `490610e0`：将 InventoryMaintenanceDialogs 改为 lazy overlay entry，并修正 manifest routeTotal 图遍历：route entry 不再穿过共享 main chunk 的 sibling dynamic imports。新增回归测试锁定“只计算自身动态后代”的语义；manifest 现包含 17 个入口，routeTotal 从全站聚合值收敛为按入口图计算（例如 AI 约 528.6 KiB、Eat 约 407.4 KiB），主入口仍保留全站初始路由图。
+
+该批 App/Inventory 定向测试 123/123、bundle-manifest 8/8 通过；typecheck、build 与 manifest 检查通过。历史 ratchet target gap 继续保留，尚未启用 target hard-failure。
+
+- `841c3869`：为 `ai-human-input` 与 `ai-debug` 补齐 bundle budget 和 rollout state，使 17 个 logical entry 在 entrypoints、budget、rollout 三份配置中完全对齐。
+
+bundle-manifest、budget checker、rollout state 相关测试 21/21 通过；构建和 manifest 检查通过。新增 AI 入口当前仍处于 ratchet，未伪造 target 资格。
+
+- `fccda6c6`：将 Eat shell 与 MealLog workspace 从 App 首屏静态闭包改为显式 lazy route；新增 `meal-log` logical entry、预算和 rollout state，并把 `eat` 标记为 dynamic entry。构建后主 JS gzip 从约 267.18 KiB 降至约 258.95 KiB，生成独立 Eat（约 2.01 KiB gzip）与 MealLog（约 8.38 KiB gzip）chunk。
+
+该批 App/Eat/Meal 定向测试 46 文件、364 个测试通过；bundle/manifest/rollout 脚本 20 个测试通过；Vite build 706 modules，manifest 检查通过并包含 17 个 logical entry，0 orphan/unregistered dynamic entry。历史 routeTotal 与主包目标差距仍保持 ratchet warning，未启用 target。
+
+- `9aefd2a9`：新增 `release-governance-check.mjs` 与 10 个 fail-closed 测试，校验 manifest/budget、六固定视口浏览器证据、请求数、cache reuse、long-task、构建 commit、Node/Vite 版本和回滚命令；新增 `check:release-governance` npm script。
+
+缺失任一 viewport、请求数据或 rollback command 时检查非零；`browserRun=false` 即使 build/unit tests 为真也不能通过。CI 接线和真实发布证据仍待完成。
+
+- `5b24f452`：将 release evidence 接入 `.github/workflows/quality-gates.yml` 的独立 `Frontend Release Evidence` job，执行 build/manifest、Chromium、六视口请求证据、route transfer、budget result 和 release checker，并以 `if: always()` 上传全部证据。
+
+CI 任务默认在每次 PR/push 运行；证据缺失、manifest/budget 不一致或 browser journey 失败都会使该 job 非零，同时保留 artifact 供回滚审阅。逐 entry target 开启和 rollback rehearsal 仍未完成。
+
+在最新提交上重新执行 `npm --prefix frontend run build`、route transfer、budget report 与 `check:release-governance`：build 退出 0，release checker `ok=true`、missing=0、violations=0；target gap 仍仅作为 report/ratchet warning。
+
+- `35f7e0a8`：新增 `route-transfer-report.mjs` 与 4 个测试，从 health manifest 生成按入口的 initial/routeTotal/entryCritical raw/gzip、asset hash、shared/cache 复用报告；新增 `route-transfer-report` npm script。真实构建后已生成本地报告（仅作验证产物，不提交）。
+
+该批 release/transfer 测试 14/14 通过，实际 route transfer report 生成退出 0；六视口浏览器报告、请求计数和回滚演练仍未完成。
+
+随后在 frontend 工作目录重新运行 CSS governance Playwright：`npx playwright test e2e/css-governance.spec.mjs --project=phone-375x812 --project=tablet-1180x820 --project=desktop-1440x960 --workers=1`，6/6 通过；每个真实路径循环覆盖 375×812、390×844、430×932、768×1024、1024×768、1440×900，共 6 个固定视口。报告写入本地 `frontend/.artifacts/viewport-report.json`，不纳入提交。该证据覆盖布局、横向溢出、44px 目标、Home→Ingredients→Eat→AI→Family 路径和 overlay 语义，但尚不包含完整 P0、请求计数或回滚演练。
+
+在提交 `355b09b3` 后重新构建 manifest，并运行 `@release-evidence` Playwright（desktop 项目，测试内部循环六固定视口）：1/1 通过；采集到 requestCount=276、uniqueRequestCount=24、cacheReuse=true、longTaskMs=0。随后以同一 manifest commit 运行 `check:release-governance`，结果 `ok=true`、missing=0、violations=0。该证据链仍只覆盖 CSS governance 路径，完整 P0/AI 状态矩阵和 rollback rehearsal 尚未完成。
+
+- `67d4ba13`：新增 `rollback:bundle-entry` CLI 与单测，按 logical entry 将 `enabledMode` 安全回落到 `ratchet`，拒绝 `all` 全局 sentinel，并保留目标 entry evidence、其他 entry 和输入对象不变。
+
+在当前 worktree 完成真实 rollback rehearsal：临时复制 rollout state 并将 `ai` 设为 `target`，执行逐 entry rollback 后确认 `sourceUnchanged=true`、`evidencePreserved=true`、`otherEntriesPreserved=true`；随后验证 `--entry=all` 非零拒绝。该演练没有写入正式 rollout state，也未触碰 localStorage、AI draft/run、cook session 或服务端数据。完整 Step 4 仍未勾选，因为仓库尚未实现 `VITE_LEGACY_GLOBAL_STYLES=1` 兼容开关，也未进行上一 manifest 恢复演练。
+
+随后重新运行完整 P0：在 `frontend/` 工作目录执行 `npx playwright test --grep @p0`，52/52 通过（39.1s）。这更新了此前 lazy/CSS 提交后的失败记录；release evidence、完整 P0 与 rollback CLI 演练均有真实命令和结果，但 App/Ingredient/Food 大文件、target budget 启用和 legacy CSS 开关仍未完成。
+
+补充运行 `npm --prefix frontend audit --omit=dev --audit-level=high`，production dependency audit 退出 0，报告 `found 0 vulnerabilities`。审计日志仅保留在本地 `.artifacts/frontend-production-audit-20260829.log`，未纳入提交。
+
+随后在当前提交 `fd91ca9163a3b373f62a0b79cd475e3fb9035245` 上重新执行 `npm --prefix frontend run build`，并运行 `npx playwright test e2e/release-governance-evidence.spec.mjs --project=desktop-1440x960 --workers=1`，1/1 通过（11.8s）。使用当前 manifest、budget、六视口、请求/cache/long-task 和 rollback command 运行 `release-governance-check.mjs`，结果 `ok=true`、`missing=[]`、`violations=[]`。该结果仅证明发布证据链完整，不代表 target budget 已达标；所有入口仍保持 ratchet。
+
+在后续 App 组合收敛批次中，提交 `500544f8` 修正 Inventory reconciliation ownership 静态契约，提交 `2bab0a86` 将 Home dashboard dialog props 迁入 `useAppHomeDashboardDialogProps`，提交 `e7333ac9` 将 toast、移动通知中心和 overlay visibility 组合迁入 `useAppOverlayComposition`。本批定向测试 131/131 通过（含 Home、Inventory、App overlay contract），typecheck 通过；随后全量 `npm run frontend:quality` 为 302 个测试文件 / 2022 项测试通过，`npm run frontend:build` 转换 805 modules、manifest 无错误，`npm run frontend:e2e:p0` 为 52/52 通过。App 当前约 1278 行，仍未达到 ≤850 的阶段目标；Ingredient/Food 及 bundle target rollout 仍保持未完成，不以 facade 或 warning 代替验收。
+
+随后提交 `b8ccb693` 将 Eat task body adapter 按 data/pending/actions 三类 typed port 组装，并提交 `1512b735` 修正 Ingredient workspace 的 App overlay ownership 断言。定向 Eat 测试 40/40 通过；全量 `npm run frontend:quality` 随后为 304 个测试文件 / 2024 项测试通过，typecheck 和 style-token gate 通过。该批仍未改变 API、导航或业务行为。
+
+提交 `8ee9519d` 进一步将 Eat task resolution 的 query settle 状态映射迁入 `useAppEatTaskResolutionArgs`，与 task body adapter 分离。定向 Eat/App 测试 20/20 通过，typecheck 和 `git diff --check` 通过；该边界只转换查询状态，不增加请求或改变导航。
+
+提交 `90b4ef6d` 将 Ingredient workspace 的 shopping/create/priority 一次性导航副作用迁入 `useIngredientWorkspaceNavigationEffects`，统一 requestId 去重、overlay 打开和 priority DOM focus/scroll。Ingredient 主文件从约 1180 行降至约 1133 行；Ingredient/Inventory 定向测试 28 个文件 / 159 项通过，typecheck 和 `git diff --check` 通过。
+
+提交 `6dd71ec7` 将 Ingredient editor modal、图片操作和 tracking transition projection 迁入 `IngredientWorkspaceEditorOverlay`，主文件降至约 1056 行；提交 `88b3c173` 将桌面 panel action bar 迁入 `IngredientWorkspaceDesktopActions`，主文件降至约 1021 行；提交 `885ec721` 将 notice toast 迁入 `IngredientWorkspaceNotice`，主文件降至约 1009 行。三批定向测试与 typecheck 均通过，未改变库存/OCC 或移动端交互契约。

@@ -1,11 +1,15 @@
 import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import type { AppNavigationService } from '../../app/useAppNavigationState';
 import { ActionButton, StateBlock } from '../../components/ui-kit';
-import type { ResolvedEatTask } from './EatWorkspaceViewModel';
+import { resolveEatTask, type ResolvedEatTask } from './EatWorkspaceViewModel';
+import { buildEatTaskBodies } from './EatTaskBodies';
+type EatTaskBodyArgs = Parameters<typeof buildEatTaskBodies>[0];
+type EatTaskResolutionArgs = Parameters<typeof resolveEatTask>[0];
 
 export type EatWorkspaceProps = {
   navigation: AppNavigationService;
-  resolvedTask: ResolvedEatTask;
+  resolvedTask?: ResolvedEatTask;
+  taskResolutionArgs?: EatTaskResolutionArgs;
   liveMessage?: string;
   completionPending?: boolean;
   cookResumePromptOpen?: boolean;
@@ -18,6 +22,8 @@ export type EatWorkspaceProps = {
   recipeTaskContent?: ReactNode;
   cookTaskContent?: ReactNode;
   mealCreateContent?: ReactNode;
+  /** Route-owned adapter inputs; keeps task body construction out of the app shell. */
+  taskBodyArgs?: Omit<EatTaskBodyArgs, 'resolvedTask'>;
 };
 
 function returnLabel(view: AppNavigationService['state']['eat']['baseView']): string {
@@ -169,7 +175,7 @@ function RelationErrorTask(props: {
 }
 
 function renderResolvedTask(
-  props: EatWorkspaceProps,
+  props: EatWorkspaceProps & { resolvedTask: ResolvedEatTask },
   options: { headingRef: Ref<HTMLHeadingElement> },
 ): ReactNode {
   const resolved = props.resolvedTask;
@@ -410,7 +416,22 @@ function renderResolvedTask(
  * Does not own domain mutations, recommendations, or query fetching.
  */
 export function EatWorkspace(props: EatWorkspaceProps) {
-  if (props.resolvedTask.kind === 'cook') {
+  const resolvedTask = props.taskResolutionArgs
+    ? resolveEatTask(props.taskResolutionArgs)
+    : props.resolvedTask ?? { kind: 'none' as const };
+  const taskBodies = props.taskBodyArgs
+    ? buildEatTaskBodies({ ...props.taskBodyArgs, resolvedTask })
+    : {};
+  const taskContentProps = {
+    foodTaskContent: props.foodTaskContent ?? taskBodies.foodTaskContent,
+    planTaskContent: props.planTaskContent ?? taskBodies.planTaskContent,
+    mealTaskContent: props.mealTaskContent ?? taskBodies.mealTaskContent,
+    recipeTaskContent: props.recipeTaskContent ?? taskBodies.recipeTaskContent,
+    cookTaskContent: props.cookTaskContent ?? taskBodies.cookTaskContent,
+    mealCreateContent: props.mealCreateContent ?? taskBodies.mealCreateContent,
+  };
+  const resolvedProps: EatWorkspaceProps & { resolvedTask: ResolvedEatTask } = { ...props, resolvedTask, ...taskContentProps };
+  if (resolvedTask.kind === 'cook') {
     return (
       <main className="eat-workspace eat-workspace-cook-mode recipe-workspace recipe-workspace-cook-mode">
         {props.cookResumePromptOpen ? (
@@ -422,7 +443,7 @@ export function EatWorkspace(props: EatWorkspaceProps) {
             {props.discoverContent ?? null}
           </section>
         ) : null}
-        {renderResolvedTask(props, {
+        {renderResolvedTask(resolvedProps, {
           headingRef: props.navigation.registerTaskHeading as Ref<HTMLHeadingElement>,
         })}
         <div className="sr-only" aria-live="polite">
@@ -441,10 +462,10 @@ export function EatWorkspace(props: EatWorkspaceProps) {
           tabIndex={-1}
           aria-label="当前吃什么列表"
         >
-          {renderBaseView(props)}
+          {renderBaseView(resolvedProps)}
         </section>
 
-        {renderResolvedTask(props, {
+        {renderResolvedTask(resolvedProps, {
           headingRef: props.navigation.registerTaskHeading as Ref<HTMLHeadingElement>,
         })}
       </div>

@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import type { Food } from '../../api/types/food';
 import type {
-  Food,
   Ingredient,
   IngredientInventoryState,
   ShoppingIntakeResult,
   ShoppingListItem,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import {
   buildShoppingIntakeDraft,
   canAdvanceToReview,

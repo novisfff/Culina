@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Food, FoodPlanItem, MealInsight, MealLog, Member, UpdateMealLogPayload } from '../../api/types';
+import type { Food, FoodPlanItem, MealInsight, MealLog, Member, UpdateMealLogPayload } from '../../api/types/meal';
 import {
   ActionButton,
   FormActions,
