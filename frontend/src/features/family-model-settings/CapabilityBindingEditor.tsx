@@ -222,11 +222,15 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
       const resultStatus = result && typeof result === 'object' && 'status' in result
         ? result.status
         : 'failed';
+      const resultDetail = result && typeof result === 'object' && 'detail' in result
+        && typeof result.detail === 'string'
+        ? result.detail
+        : null;
       const nextState: CapabilityTestState = resultStatus === 'succeeded'
-        ? { status: 'succeeded', message: '测试成功，点击可再次测试。' }
+        ? { status: 'succeeded', message: resultDetail || '测试成功，点击可再次测试。' }
         : resultStatus === 'blocked'
-          ? { status: 'blocked', message: '测试被用量限制阻止，未请求模型。请检查模型用量限制后重试。' }
-          : { status: 'failed', message: '服务未通过功能测试，请检查模型服务、模型和价格配置后重试。' };
+          ? { status: 'blocked', message: resultDetail || '测试被用量限制阻止，未请求模型。请检查模型用量限制后重试。' }
+          : { status: 'failed', message: resultDetail || '服务未通过功能测试，请检查模型服务、模型和价格配置后重试。' };
       setCapabilityTests((current) => ({
         ...current,
         [key]: nextState,
@@ -425,6 +429,11 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                     ) : null}
                   </div>
                   <div className="family-model-settings-binding-test">
+                    {capabilityTest && capabilityTest.status !== 'running' && capabilityTest.status !== 'succeeded' ? (
+                      <span className="family-model-settings-test-detail" role="status" aria-label="能力测试状态">
+                        {capabilityTest.message}
+                      </span>
+                    ) : null}
                     <button
                       className={`ghost-button family-model-settings-test-button ${capabilityTest ? `is-${capabilityTest.status}` : ''}`}
                       type="button"
