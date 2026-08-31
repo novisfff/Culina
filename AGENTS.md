@@ -1,6 +1,6 @@
 # Culina AI 辅助开发指南
 
-本文件是 Codex、Claude Code 等 AI 工具进入 Culina 仓库后的导航与任务路由层。开始工作前先读取当前实现、对应规范和必要 Skill；不要用通用模板推断项目结构，也不要在本文件复制各模块的全部细则。
+本文件是 Codex、Claude Code 等 AI 工具进入 Culina 仓库后的导航与任务路由层。开始工作前按任务需要读取当前实现、对应规范和必要 Skill；只读取与当前改动相关的内容，不要用通用模板推断项目结构，也不要在本文件复制各模块的全部细则。
 
 ## 项目定位
 
@@ -24,16 +24,26 @@ Culina 是面向中国家庭的移动优先饮食管理 Web/PWA，覆盖菜谱�
 
 组件 API、业务行为、数据模型和级联顺序以当前源码为实现事实；Culina 固定视觉值与组件样式以 `frontend-ui-style` 为规范事实。两者冲突时识别为实现漂移，不用旧页面反向改写视觉规范。
 
+## 默认快速通道（Fast Lane）
+
+普通 bug、小功能和单文件规则/文档修改默认走 Fast Lane：不创建 Goal、worktree、PR 或 CI 跟进；只读取相关代码、规范和必要 Skill，优先运行定向测试、必要的 typecheck/build 和 `git diff --check`，达到验收标准后立即结束，不自动续作。测试按需执行，只有改动风险或影响范围确实需要，或用户明确要求时，才运行全量测试。
+
+验证范围按影响递进：helper/单组件跑定向测试和 typecheck；页面、状态或缓存改动再考虑相关 build；响应式、导航或移动端关键路径再跑对应 E2E；migration、部署配置、权限、事务/并发（含流式恢复锁）、AI Runtime/跨端 contract、全局样式或跨业务域改动才升级到定向集成/契约测试，全量门禁优先交给 CI。外部命令失败时同一命令最多自动重试一次，仍失败就报告原因和环境缺口。
+
+只有确实命中上述高风险范围，或用户明确要求时，才使用 Goal、完整计划、worktree、全量测试、PR 或 CI 监控，并说明升级原因。
+
 ## 项目 Skill 路由
 
-| 任务 | 必须使用 |
+仅当任务实际命中以下范围时使用；Fast Lane 下的小修仍使用命中的必要 Skill，但不会因此自动升级 Goal、worktree 或全量门禁。
+
+| 任务 | 使用 |
 | --- | --- |
 | UI、CSS、页面、卡片、表单、弹层、移动端和响应式 | `frontend-ui-style` |
 | 复杂 UI 状态流、组件拆分、异步、类型、无障碍和验证 | `frontend-ui-style` + `frontend-ui-engineering` |
 | 前端 diff、PR 或回归风险审计 | `frontend-code-audit`；涉及 UI 时同时使用 `frontend-ui-style` |
 | 后端 diff、PR、权限、事务、迁移、媒体或 AI 审计 | `backend-code-audit` |
 
-项目 Skill 位于 `.agents/skills/`。使用前读取 Skill 正文和它明确路由的 reference，同时读取目标代码与对应规范；项目 Skill 优先于通用模板或模型默认偏好。
+项目 Skill 位于 `.agents/skills/`。使用前读取 Skill 正文和当前任务实际需要的 reference，同时读取目标代码与对应规范；项目 Skill 优先于通用模板或模型默认偏好。
 
 ## 常用命令
 
@@ -72,13 +82,9 @@ npm run backend:test:search
 
 ### Superpowers 使用边界
 
-- 本节明确覆盖 Superpowers skill 自带的“只要有 1% 可能适用就必须调用”和“简单任务也必须使用”规则。Superpowers 是按需工作流，不是所有任务的默认入口。
-- 问答、解释、翻译、状态汇报、只读检查或评审、文本润色、单文件文档或规则修改，以及目标明确、可逆、验证路径清楚的小修，默认不调用任何 Superpowers skill，直接完成并执行与风险相称的最小验证。
-- 小型代码功能或 bug 修复可按需采用根因分析、测试先行和完成前验证，但不自动进入 `brainstorming`、设计文档、`writing-plans`、worktree、subagent review 或 branch finishing。
-- 只有需求存在实质不确定性，或涉及 UX、产品取舍、架构、跨模块边界、公开接口、数据模型、权限、安全、迁移等高影响决策时，才启动 `brainstorming -> spec -> plan`。
-- `using-git-worktrees`、`subagent-driven-development`、`dispatching-parallel-agents` 和外部评审只在用户或者方案明确要求的情况下使用。
-- `finishing-a-development-branch` 只用于独立开发分支的集成决策；普通就地修改或用户已明确要求提交时，不再展示 merge、push、keep、discard 菜单。
-- 无论是否调用 Superpowers，完成结论都必须有新鲜验证证据；简单任务不因验证要求升级成完整工作流。
+- Superpowers 按需使用，不是所有任务的默认入口；问答、只读检查、文本/规则修改和目标明确的小修默认不调用。
+- 小型 bug/功能可按需使用根因分析、测试先行或完成前验证；不自动进入 brainstorming、写计划、worktree、子代理评审或分支收尾。
+- 只有存在实质不确定性，或涉及 UX/架构/公开接口/数据模型/权限/安全/迁移等高影响决策时，才启动 `brainstorming -> spec -> plan`；无论是否使用，都保留与风险相称的新鲜验证证据。
 
 ## 前端不可突破的边界
 
@@ -111,8 +117,8 @@ npm run backend:test:search
 
 - 不提交 `.env`、密钥、token、数据库密码、本地生成物或含家庭隐私的调试数据。
 - 文档/注释：人工审阅并运行 `git diff --check`。
-- 前端 model/helper：对应 Vitest；页面/状态/缓存：`frontend:quality` + `frontend:build`；响应式关键路径再跑 `frontend:e2e:p0`。
+- 前端 model/helper：对应 Vitest；页面/状态/缓存：按影响范围运行相关测试，必要时再执行 `frontend:quality` 或 `frontend:build`；响应式关键路径再跑 `frontend:e2e:p0`。
 - CSS、ui-kit、token：运行 `check:style-tokens` 并人工审阅；AI contract 运行对应前后端测试。
 - 后端 route/service/权限/serializer：先跑定向 pytest，再按风险运行分类测试或 `backend:quality`。
 - 模型/migration：检查 Alembic head、migration 和关键读写；可用本地库时执行 `backend:migrate`。
-- 最终回复必须列出实际执行的命令和视口；未运行的测试或环境缺口明确说明，不把静态检查、单测、构建、smoke 或 CI 互相替代。
+- 最终回复列出实际执行的命令；涉及 UI 时补充实际检查的视口。未运行的测试或环境缺口明确说明，不把静态检查、单测、构建、smoke 或 CI 互相替代。
