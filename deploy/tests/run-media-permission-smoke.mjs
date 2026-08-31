@@ -217,7 +217,7 @@ try {
 } finally {
   const down = run(
     'docker',
-    [...compose, 'down', '--volumes', '--remove-orphans', '--rmi', 'local'],
+    [...compose, 'down', '--volumes', '--remove-orphans'],
     {
       allowFailure: true,
     },
