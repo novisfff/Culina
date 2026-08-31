@@ -181,6 +181,22 @@
   }
 }
 
+/* Restore the route-owned mobile header geometry.  The compatibility layer
+ * must not widen the header with a second negative inset: each route already
+ * provides its own page padding and the legacy reference uses a 10px header
+ * inset with the 46px brand mark and 38px icon controls. */
+@media (max-width: 767px) {
+  :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
+    margin: 0;
+    padding: 0 10px;
+  }
+
+  .mobile-dashboard-hero > .mobile-dashboard-topbar {
+    margin: 0 calc(-1 * var(--mobile-dashboard-hero-inline));
+    padding-top: 14px;
+  }
+}
+
 @keyframes home-dashboard-sheet-enter {
   from {
     transform: translateY(100%);

@@ -731,12 +731,6 @@ describe('HomeMobileDashboard three-question mobile', () => {
       /\.mobile-dashboard-logo \.shell-logo-image \{[^}]*width: 100%;[^}]*height: 100%;[^}]*border-radius: inherit;[^}]*object-fit: cover;/s,
     );
     expect(mobileStyles).toMatch(
-      /\.mobile-dashboard-hero \{[^}]*width: 100%;[^}]*margin-inline: 0;[^}]*border: 0;[^}]*box-shadow: none;/s,
-    );
-    expect(mobileStyles).toMatch(
-      /\.mobile-dashboard-hero > \.mobile-dashboard-topbar \{[^}]*margin-inline: 0;[^}]*padding-inline: var\(--space-5\);/s,
-    );
-    expect(mobileStyles).toMatch(
       /\.mobile-dashboard-icon-actions button \{[^}]*width: var\(--tap-min\);[^}]*height: var\(--tap-min\);[^}]*min-width: var\(--tap-min\);/s,
     );
     expect(mobileStyles).toMatch(
