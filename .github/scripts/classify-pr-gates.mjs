@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const GATE_KEYS = Object.freeze([
@@ -12,6 +12,8 @@ export const GATE_KEYS = Object.freeze([
   'frontend_build',
   'frontend_e2e',
   'frontend_ai_contract',
+  'frontend_governance',
+  'frontend_release_evidence',
   'backend_service',
   'backend_ai',
   'ai_evals',
@@ -32,6 +34,24 @@ const FULL_FRONTEND_SCOPES = Object.freeze([
   'src/hooks',
   'src/lib',
 ]);
+
+// Keep directory ownership coarse-grained. New files inherit the nearest
+// directory rule; only cross-cutting or high-risk paths need explicit rules.
+const FRONTEND_SCOPE_PREFIXES = Object.freeze([
+  ['frontend/src/lib/', 'src/lib'],
+  ['frontend/src/hooks/', 'src/hooks'],
+  ['frontend/src/api/', 'src/api'],
+  ['frontend/scripts/', 'scripts'],
+  ['frontend/src/app/', 'src/app'],
+  ['frontend/src/auth/', 'src/auth'],
+]);
+const FRONTEND_DOMAIN_ROOTS = Object.freeze([
+  'frontend/src/components/',
+  'frontend/src/features/',
+]);
+const FRONTEND_PAGE_FILENAME = /(?:Workspace|Dialog|Page|View)\.(?:ts|tsx)$/;
+const FRONTEND_UNIT_FILENAME = /(?:model|helper|options|viewmodel)\.(?:ts|tsx)$/i;
+const FRONTEND_HIGH_RISK_PATH = /(?:mobile|responsive|navigation|nav|sidebar|overlay|shell)/i;
 
 function normalizePath(value) {
   return value.replaceAll('\\', '/').replace(/^\.?\//, '');
@@ -66,6 +86,22 @@ function addFrontendScope(result, scope) {
   if (!result.frontendScopes.includes(scope)) result.frontendScopes.push(scope);
 }
 
+function addFrontendScopeFromPath(result, path) {
+  for (const [prefix, scope] of FRONTEND_SCOPE_PREFIXES) {
+    if (path.startsWith(prefix)) {
+      addFrontendScope(result, scope);
+      return;
+    }
+  }
+  for (const root of FRONTEND_DOMAIN_ROOTS) {
+    if (path.startsWith(root)) {
+      const domain = path.slice(root.length).split('/')[0];
+      addFrontendScope(result, domain ? `${root.slice('frontend/'.length, -1)}/${domain}` : root.slice('frontend/'.length, -1));
+      return;
+    }
+  }
+}
+
 function elevateRisk(result, risk) {
   if (RISK_RANK[risk] > RISK_RANK[result.risk]) result.risk = risk;
 }
@@ -86,19 +122,7 @@ function markFrontendUnit(result, path) {
   setGate(result, 'frontend_focus', '前端 helper/model/API 变更运行对应业务域测试');
   setGate(result, 'frontend_typecheck');
 
-  if (path.startsWith('frontend/src/lib/')) addFrontendScope(result, 'src/lib');
-  else if (path.startsWith('frontend/src/hooks/')) addFrontendScope(result, 'src/hooks');
-  else if (path.startsWith('frontend/src/api/')) addFrontendScope(result, 'src/api');
-  else if (path.startsWith('frontend/scripts/')) addFrontendScope(result, 'scripts');
-  else if (path.startsWith('frontend/src/app/')) addFrontendScope(result, 'src/app');
-  else if (path.startsWith('frontend/src/auth/')) addFrontendScope(result, 'src/auth');
-  else if (path.startsWith('frontend/src/components/')) {
-    const [, , , domain] = path.split('/');
-    addFrontendScope(result, domain ? `src/components/${domain}` : 'src/components');
-  } else if (path.startsWith('frontend/src/features/')) {
-    const [, , , domain] = path.split('/');
-    addFrontendScope(result, domain ? `src/features/${domain}` : 'src/features');
-  }
+  addFrontendScopeFromPath(result, path);
 }
 
 function markFrontendPage(result, path) {
@@ -108,23 +132,14 @@ function markFrontendPage(result, path) {
   setGate(result, 'frontend_typecheck');
   setGate(result, 'frontend_build', '页面/状态变更需要构建验证');
 
-  if (path.startsWith('frontend/src/app/')) addFrontendScope(result, 'src/app');
-  else if (path.startsWith('frontend/src/auth/')) addFrontendScope(result, 'src/auth');
-  else if (path.startsWith('frontend/src/components/')) {
-    const [, , , domain] = path.split('/');
-    addFrontendScope(result, domain ? `src/components/${domain}` : 'src/components');
-  } else if (path.startsWith('frontend/src/features/')) {
-    const [, , , domain] = path.split('/');
-    addFrontendScope(result, domain ? `src/features/${domain}` : 'src/features');
-  } else if (path.startsWith('frontend/src/lib/')) addFrontendScope(result, 'src/lib');
-  else if (path.startsWith('frontend/src/hooks/')) addFrontendScope(result, 'src/hooks');
-  else if (path.startsWith('frontend/src/api/')) addFrontendScope(result, 'src/api');
+  addFrontendScopeFromPath(result, path);
 }
 
 function markFrontendHighRisk(result, path, reason) {
   markFrontendPage(result, path);
   elevateRisk(result, 'high');
   setGate(result, 'frontend_e2e', reason);
+  setGate(result, 'frontend_release_evidence', '高风险前端变更需要发布证据检查');
 }
 
 function classifyFrontendPath(result, path) {
@@ -132,11 +147,12 @@ function classifyFrontendPath(result, path) {
     setDomain(result, 'frontend');
     elevateRisk(result, 'high');
     setGate(result, 'frontend_e2e', 'Playwright 关键路径或测试变更');
+    setGate(result, 'frontend_release_evidence', '前端关键路径变更需要发布证据检查');
     setGate(result, 'frontend_build');
     return true;
   }
 
-  if (path.startsWith('frontend/src/styles/') || /(?:mobile|responsive|navigation|nav|sidebar|overlay|shell)/i.test(path)) {
+  if (path.startsWith('frontend/src/styles/') || FRONTEND_HIGH_RISK_PATH.test(path)) {
     markFrontendHighRisk(result, path, '响应式、导航、移动端或全局样式变更需要 E2E');
     setGate(result, 'frontend_style');
     if (path.startsWith('frontend/src/styles/')) result.gates.frontend_focus = false;
@@ -146,18 +162,18 @@ function classifyFrontendPath(result, path) {
   if (path.startsWith('frontend/src/lib/aiWorkspaceContracts.') || path.startsWith('frontend/src/components/ai/') || path.startsWith('frontend/src/api/aiApi.') || path.startsWith('frontend/src/api/aiVoiceApi.')) {
     markFrontendPage(result, path);
     setGate(result, 'frontend_ai_contract', 'AI workspace 变更需要跨端 contract 测试');
-    if (path.startsWith('frontend/src/lib/')) addFrontendScope(result, 'src/lib');
+    addFrontendScopeFromPath(result, path);
     return true;
   }
 
   const filename = path.split('/').at(-1) ?? '';
-  if (/(?:model|helper|options|viewmodel)\.(?:ts|tsx)$/i.test(filename)) {
+  if (FRONTEND_UNIT_FILENAME.test(filename)) {
     markFrontendUnit(result, path);
     return true;
   }
 
   if (path.startsWith('frontend/src/lib/') || path.startsWith('frontend/src/hooks/') || path.startsWith('frontend/src/api/')) {
-    const isPageState = /(?:Workspace|Dialog|Page|View)\.(?:ts|tsx)$/.test(filename);
+    const isPageState = FRONTEND_PAGE_FILENAME.test(filename);
     if (isPageState) markFrontendPage(result, path);
     else markFrontendUnit(result, path);
     return true;
@@ -240,7 +256,7 @@ const DEPLOYMENT_PATTERNS = Object.freeze([
   /^frontend\/e2e\/realtime-websocket-deployment\.spec\./,
 ]);
 
-export function classifyChangedFiles(inputFiles, { eventName = 'pull_request' } = {}) {
+export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', forceFull = false } = {}) {
   const files = [...new Set(inputFiles.map(normalizePath).filter(Boolean))].sort();
   const result = {
     changedFiles: files,
@@ -260,6 +276,11 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request' } 
 
   if (files.length === 0) {
     markFull(result, '没有取得 PR 文件列表，按 fail-closed 处理');
+    return result;
+  }
+
+  if (forceFull) {
+    markFull(result, 'PR 使用 full-gates 标记，按请求执行全量门禁');
     return result;
   }
 
@@ -314,6 +335,29 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request' } 
   return result;
 }
 
+function formatClassificationSummary(result) {
+  const selectedGates = GATE_KEYS.filter((gate) => result.gates[gate]);
+  const skippedGates = GATE_KEYS.filter((gate) => !result.gates[gate]);
+  const visibleFiles = result.changedFiles.slice(0, 80);
+  const omittedCount = result.changedFiles.length - visibleFiles.length;
+  return [
+    '## PR 门禁分类',
+    '',
+    `- 风险：**${result.risk}**`,
+    `- 业务域：${result.domains.length ? result.domains.join('、') : '文档'}`,
+    `- 改动文件：${result.changedFiles.length}`,
+    `- 选中门禁：${selectedGates.length ? selectedGates.join('、') : '无业务门禁'}`,
+    `- 跳过门禁：${skippedGates.length ? skippedGates.join('、') : '无'}`,
+    '',
+    '改动路径（最多展示 80 个）：',
+    ...(visibleFiles.length ? visibleFiles.map((file) => `- \`${file}\``) : ['- 无']),
+    ...(omittedCount > 0 ? [`- …另有 ${omittedCount} 个文件未展开`] : []),
+    '',
+    '分类依据：',
+    ...result.reasons.map((reason) => `- ${reason}`),
+  ].join('\n');
+}
+
 function parseNameStatusOutput(buffer) {
   const tokens = buffer.toString('utf8').split('\0').filter(Boolean);
   const files = [];
@@ -350,6 +394,13 @@ function parseCliFiles(argv) {
 }
 
 function writeGitHubOutputs(result) {
+  const artifactPath = process.env.CLASSIFICATION_ARTIFACT_PATH;
+  if (artifactPath) {
+    const separator = artifactPath.lastIndexOf('/');
+    if (separator > 0) mkdirSync(artifactPath.slice(0, separator), { recursive: true });
+    writeFileSync(artifactPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  }
+
   const outputPath = process.env.GITHUB_OUTPUT;
   if (outputPath) {
     const outputs = {
@@ -371,18 +422,7 @@ function writeGitHubOutputs(result) {
 
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (summaryPath) {
-    const selectedGates = GATE_KEYS.filter((gate) => result.gates[gate]);
-    const summary = [
-      '## PR 门禁分类',
-      '',
-      `- 风险：**${result.risk}**`,
-      `- 业务域：${result.domains.length ? result.domains.join('、') : '文档'}`,
-      `- 选中门禁：${selectedGates.length ? selectedGates.join('、') : '无业务门禁'}`,
-      '',
-      '分类依据：',
-      ...result.reasons.map((reason) => `- ${reason}`),
-    ].join('\n');
-    appendFileSync(summaryPath, `${summary}\n`);
+    appendFileSync(summaryPath, `${formatClassificationSummary(result)}\n`);
   }
 }
 
@@ -392,7 +432,10 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   const files = cliFiles ?? (eventName === 'pull_request'
     ? readChangedFilesFromGit(env.GITHUB_BASE_SHA, env.GITHUB_HEAD_SHA || env.GITHUB_SHA)
     : []);
-  const result = classifyChangedFiles(files, { eventName });
+  const result = classifyChangedFiles(files, {
+    eventName,
+    forceFull: env.FORCE_FULL_GATES === 'true',
+  });
   writeGitHubOutputs(result);
   console.log(JSON.stringify(result, null, 2));
   return result;

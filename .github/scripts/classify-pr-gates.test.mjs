@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { classifyChangedFiles } from './classify-pr-gates.mjs';
 import { runFrontendDomainTests } from './run-frontend-domain-tests.mjs';
 import { verifyGateResults } from './verify-pr-gates.mjs';
+import { buildAuditReport } from './audit-pr-gate-classification.mjs';
 
 describe('classifyChangedFiles', () => {
   it('skips business gates for documentation-only changes', () => {
@@ -106,6 +107,14 @@ describe('classifyChangedFiles', () => {
     assert.equal(result.gates.backend_service, true);
   });
 
+  it('allows a full-gates label to override normal PR classification', () => {
+    const result = classifyChangedFiles(['docs/frontend-code-standards.md'], { forceFull: true });
+    assert.equal(result.full, true);
+    assert.equal(result.docsOnly, false);
+    assert.equal(result.gates.frontend_full, true);
+    assert.match(result.reasons.at(-1), /full-gates/);
+  });
+
   it('runs every gate for main pushes', () => {
     const result = classifyChangedFiles([], { eventName: 'push' });
     assert.equal(result.full, true);
@@ -131,7 +140,7 @@ describe('verifyGateResults', () => {
   it('passes when selected jobs succeed and unselected jobs are skipped', () => {
     const env = { CLASSIFY_RESULT: 'success' };
     const selected = new Set(['frontend_focus', 'frontend_typecheck']);
-    for (const gate of ['frontend_focus', 'frontend_typecheck', 'frontend_full', 'frontend_style', 'frontend_build', 'frontend_e2e', 'frontend_ai_contract', 'backend_service', 'backend_ai', 'ai_evals', 'backend_search', 'backend_mysql', 'backend_migration', 'dependency_audit', 'deployment_smokes']) {
+    for (const gate of ['frontend_focus', 'frontend_typecheck', 'frontend_full', 'frontend_style', 'frontend_build', 'frontend_e2e', 'frontend_ai_contract', 'frontend_governance', 'frontend_release_evidence', 'backend_service', 'backend_ai', 'ai_evals', 'backend_search', 'backend_mysql', 'backend_migration', 'dependency_audit', 'deployment_smokes']) {
       env[`REQUIRE_${gate.toUpperCase()}`] = String(selected.has(gate));
       env[`RESULT_${gate.toUpperCase()}`] = selected.has(gate) ? 'success' : 'skipped';
     }
@@ -145,5 +154,21 @@ describe('verifyGateResults', () => {
       RESULT_FRONTEND_BUILD: 'failure',
     };
     assert.throws(() => verifyGateResults(env), /PR Gate failed/);
+  });
+});
+
+describe('buildAuditReport', () => {
+  it('reports full and unknown classifications without turning them into failures', () => {
+    const report = buildAuditReport({
+      risk: 'full',
+      full: true,
+      domains: [],
+      changedFiles: ['scripts/release.sh'],
+      gates: { frontend_full: true },
+      reasons: ['未知路径 scripts/release.sh 无法安全分类'],
+    });
+    assert.match(report, /需关注（不阻断）/);
+    assert.match(report, /未知路径/);
+    assert.match(report, /不改变 PR Gate 结论/);
   });
 });
