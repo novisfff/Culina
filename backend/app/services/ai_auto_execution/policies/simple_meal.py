@@ -20,6 +20,7 @@ from app.services.ai_auto_execution.policies._common import (
 from app.services.ai_auto_execution.policy_types import (
     ActionPolicyEvaluation,
     AutoExecutionPolicyContext,
+    ConcurrencyStrategy,
     CriticalEvidenceRequirement,
 )
 
@@ -46,6 +47,15 @@ class SimpleMealPolicy:
             and "foods" in payload
             and not payload.get("action")
         )
+
+    def concurrency_strategy(
+        self,
+        *,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy:
+        del draft_type, payload
+        return "insert"
 
     def evidence_requirements(
         self,

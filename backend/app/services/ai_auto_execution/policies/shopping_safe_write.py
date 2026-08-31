@@ -17,11 +17,11 @@ from app.services.ai_auto_execution.policies._common import (
     denied,
     enum_value,
     requirements_verified,
-    version_matches,
 )
 from app.services.ai_auto_execution.policy_types import (
     ActionPolicyEvaluation,
     AutoExecutionPolicyContext,
+    ConcurrencyStrategy,
     CriticalEvidenceRequirement,
 )
 from app.services.inventory_operation_locking import lock_inventory_targets
@@ -177,7 +177,6 @@ def shopping_critical_requirements(
         _require(isinstance(item, dict) and set(item) == _ITEM_FIELDS)
         target = server_targets.shopping_items.get(str(operation.get("targetId") or ""))
         _require(target is not None and not target.done)
-        _require(version_matches(target.updated_at, operation.get("baseUpdatedAt")), "target_stale")
         _require(bool(target.ingredient_id) != bool(target.food_id))
         if target.ingredient_id:
             _require(target.ingredient_id in server_targets.ingredients)
@@ -213,7 +212,6 @@ def shopping_critical_requirements(
             target = server_targets.shopping_items.get(target_id)
             _require(target is not None and target_id not in target_ids)
             target_ids.add(target_id)
-            _require(version_matches(target.updated_at, operation.get("baseUpdatedAt")), "target_stale")
             item = operation.get("payload")
             _require(isinstance(item, dict) and set(item) == {"done", "reason"})
             _require(item.get("done") is False and item.get("reason") == "")
@@ -277,6 +275,25 @@ class ShoppingSafeWritePolicy:
 
     def matches(self, *, draft_type: str, payload: dict[str, Any]) -> bool:
         return draft_type == "shopping_list" and payload.get("draftType") == "shopping_list"
+
+    def concurrency_strategy(
+        self,
+        *,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy:
+        del draft_type
+        operations = payload.get("operations")
+        if not isinstance(operations, list) or not operations:
+            return "insert"
+        actions = {str(item.get("action") or "") for item in operations if isinstance(item, dict)}
+        if actions == {"create"}:
+            return "insert"
+        if actions == {"update"}:
+            return "field_patch"
+        if actions == {"set_done"}:
+            return "idempotent_set"
+        return "entity_version"
 
     def evidence_requirements(
         self,

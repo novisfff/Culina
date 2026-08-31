@@ -75,6 +75,73 @@ def test_explicit_context_resolution_requires_trusted_call_and_version() -> None
     assert validation.reason_codes == ()
 
 
+def test_server_binds_omitted_resolution_source_version() -> None:
+    evidence = _evidence(
+        clarity="explicit_context_resolved",
+        quotes=[{"fields": ["action"], "text": "收藏这个"}],
+        sources=[
+            {
+                "fields": ["targetId"],
+                "kind": "tool_result",
+                "referenceId": "call-food-omitted-version",
+                "entityId": "food-tomato",
+            }
+        ],
+    )
+    validation = validate_intent_evidence(
+        evidence=evidence,
+        current_message="收藏这个",
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "set_favorite:true", "explicit_action"),
+            CriticalEvidenceRequirement("targetId", "food-tomato", "entity_id"),
+        ),
+        trusted_sources={
+            "call-food-omitted-version": TrustedResolutionSource(
+                kind="tool_result",
+                reference_id="call-food-omitted-version",
+                family_id="family-ai",
+                entity_versions={"food-tomato": 3},
+            )
+        },
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_fields == frozenset({"action", "targetId"})
+    assert validation.normalized_evidence["resolutionSources"][0]["rowVersion"] == 3
+
+
+def test_server_version_comparison_accepts_json_integer_string() -> None:
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            clarity="explicit_context_resolved",
+            sources=[
+                {
+                    "fields": ["targetId"],
+                    "kind": "tool_result",
+                    "referenceId": "call-food-string-version",
+                    "entityId": "food-tomato",
+                    "rowVersion": "3",
+                }
+            ],
+        ),
+        current_message="收藏这个",
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("targetId", "food-tomato", "entity_id"),),
+        trusted_sources={
+            "call-food-string-version": TrustedResolutionSource(
+                kind="tool_result",
+                reference_id="call-food-string-version",
+                family_id="family-ai",
+                entity_versions={"food-tomato": 3},
+            )
+        },
+    )
+
+    assert validation.reason_codes == ()
+    assert validation.verified_fields == frozenset({"targetId"})
+
+
 def test_model_declared_empty_defaults_does_not_prove_critical_fields() -> None:
     validation = validate_intent_evidence(
         evidence=_evidence(),
@@ -208,7 +275,7 @@ def test_resolution_source_rejects_untrusted_cross_family_stale_or_wrong_entity(
     assert validation.verified_fields == frozenset()
 
 
-def test_versioned_resolution_source_cannot_omit_the_server_version() -> None:
+def test_versioned_resolution_source_binds_omitted_server_version() -> None:
     validation = validate_intent_evidence(
         evidence=_evidence(
             clarity="explicit_context_resolved",
@@ -234,8 +301,9 @@ def test_versioned_resolution_source_cannot_omit_the_server_version() -> None:
         },
     )
 
-    assert validation.reason_codes == ("resolution_source_untrusted",)
-    assert validation.verified_fields == frozenset()
+    assert validation.reason_codes == ()
+    assert validation.verified_fields == frozenset({"targetId"})
+    assert validation.normalized_evidence["resolutionSources"][0]["rowVersion"] == 3
 
 
 @pytest.mark.parametrize(
@@ -1118,6 +1186,24 @@ def test_purchasable_resolution_candidate_becomes_allowlisted_trusted_identity()
     assert sources["call-purchasable-1"].entity_values == {
         "ingredient-tomato": {"entity_id": "ingredient-tomato", "text": "番茄"}
     }
+
+
+def test_food_serializer_row_version_is_used_for_tool_provenance() -> None:
+    sources = trusted_sources_from_tool_output(
+        tool_name="food.read_by_id",
+        tool_call_id="call-food-read",
+        family_id="family-ai",
+        output={
+            "item": {
+                "id": "food-tomato",
+                "name": "番茄小炒",
+                "row_version": 7,
+                "updated_at": "2026-08-31T10:00:00+00:00",
+            }
+        },
+    )
+
+    assert sources["call-food-read"].entity_versions == {"food-tomato": 7}
 
 
 def test_current_ui_source_uses_only_server_normalized_subject_ids() -> None:

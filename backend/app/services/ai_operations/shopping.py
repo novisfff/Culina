@@ -15,7 +15,7 @@ from app.models.domain import Food, Ingredient, ShoppingListItem
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.services.activity import log_activity
 from app.services.ai_auto_execution.catalog import AUTO_EXECUTION_CATALOG
-from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
+from app.services.ai_auto_execution.policy_types import ConcurrencyStrategy, DraftExecutionReceipt
 from app.services.ai_operations.registry_types import DraftExecuteContext
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.serializers import serialize_shopping_item
@@ -229,6 +229,7 @@ def execute_shopping_list_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    concurrency_strategy: ConcurrencyStrategy = "entity_version",
     revert_capture: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     if isinstance(payload.get("operations"), list):
@@ -238,6 +239,7 @@ def execute_shopping_list_draft(
             user_id=user_id,
             payload=payload,
             assert_updated_at_matches=assert_updated_at_matches,
+            concurrency_strategy=concurrency_strategy,
             revert_capture=revert_capture,
         )
     return _create_shopping_items_from_payload(
@@ -256,6 +258,7 @@ def _apply_shopping_item_operations(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    concurrency_strategy: ConcurrencyStrategy = "entity_version",
     revert_capture: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     results: list[dict[str, Any]] = []
@@ -356,11 +359,12 @@ def _apply_shopping_item_operations(
             item = locked_items[str(operation["targetId"])]
         except KeyError:
             raise AIConflictError("购物项不存在或已被删除")
-        assert_updated_at_matches(
-            actual=item.updated_at,
-            expected=str(operation["baseUpdatedAt"]),
-            label=f"购物项 {item.title}",
-        )
+        if concurrency_strategy not in {"field_patch", "idempotent_set", "insert"}:
+            assert_updated_at_matches(
+                actual=item.updated_at,
+                expected=str(operation.get("baseUpdatedAt")),
+                label=f"购物项 {item.title}",
+            )
         if action == "delete":
             snapshot = serialize_shopping_item(item)
             db.delete(item)
@@ -571,6 +575,7 @@ def execute_shopping_list_draft_receipt(context: DraftExecuteContext) -> DraftEx
         user_id=context.user_id,
         payload=context.payload,
         assert_updated_at_matches=context.assert_updated_at_matches,
+        concurrency_strategy=context.concurrency_strategy,
         revert_capture=revert_context,
     )
     eligible = _shopping_safe_mode(context.payload) is not None and bool(revert_context)

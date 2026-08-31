@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { api, isApiError } from '../../api/client';
@@ -37,10 +37,11 @@ import { AiResultCardReplacementProvider, MessageBubble, type AiApprovalDecision
 import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
-import { AiRunDebugDrawer } from './AiRunDebugDrawer';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWorkspaceRoute } from './AiWorkspaceRoute';
+import { AiDebugHost } from './views/AiDebugHost';
+import { loadAiDebug } from './entries';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -67,6 +68,8 @@ import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
+
+const LazyAiDebugEntry = lazy(loadAiDebug);
 type AiWorkspaceProps = {
   familyId?: string;
   conversations: AiConversation[];
@@ -1814,7 +1817,13 @@ export function AiWorkspace({
           />
         )}
       </div>
-      <AiRunDebugDrawer runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
+      <AiDebugHost open={Boolean(debugRunId)}>
+        <LazyAiDebugEntry
+          runId={debugRunId}
+          open={Boolean(debugRunId)}
+          onClose={() => setDebugRunId(null)}
+        />
+      </AiDebugHost>
     </main>
     </AiOperationRevertProvider>
     </AiResultCardReplacementProvider>

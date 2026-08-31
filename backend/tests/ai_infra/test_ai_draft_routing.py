@@ -61,7 +61,7 @@ REGISTERED_ADAPTERS = ai_revert_adapter_registry.keys
 class PolicyFavoriteProvider(BaseChatProvider):
     model_name = "policy-favorite-model"
 
-    def __init__(self, *, base_updated_at: str) -> None:
+    def __init__(self, *, base_updated_at: str | None = None) -> None:
         self.base_updated_at = base_updated_at
         self.calls = 0
 
@@ -85,37 +85,37 @@ class PolicyFavoriteProvider(BaseChatProvider):
         self.assert_tool_available(tools, "food_profile.create_draft")
         if message_handler is not None:
             message_handler("我来收藏这个食物。")
+        draft = {
+            "draftType": "food_profile",
+            "schemaVersion": "food_profile_operation.v1",
+            "action": "set_favorite",
+            "targetId": "food-tomato",
+            "payload": {"favorite": True},
+            "intentEvidence": {
+                "intentClarity": "explicit_context_resolved",
+                "sourceQuotes": [
+                    {
+                        "fields": ["action", "payload.favorite"],
+                        "text": "收藏这个",
+                    }
+                ],
+                "resolutionSources": [
+                    {
+                        "fields": ["targetId"],
+                        "kind": "current_ui_context",
+                        "referenceId": "current-ui-context",
+                        "entityId": "food-tomato",
+                    }
+                ],
+                "ambiguityCodes": [],
+                "defaultedFields": [],
+            },
+        }
+        if self.base_updated_at is not None:
+            draft["baseUpdatedAt"] = self.base_updated_at
         tool_handler(
             "food_profile.create_draft",
-            {
-                "draft": {
-                    "draftType": "food_profile",
-                    "schemaVersion": "food_profile_operation.v1",
-                    "action": "set_favorite",
-                    "targetId": "food-tomato",
-                    "baseUpdatedAt": self.base_updated_at,
-                    "payload": {"favorite": True},
-                    "intentEvidence": {
-                        "intentClarity": "explicit_context_resolved",
-                        "sourceQuotes": [
-                            {
-                                "fields": ["action", "payload.favorite"],
-                                "text": "收藏这个",
-                            }
-                        ],
-                        "resolutionSources": [
-                            {
-                                "fields": ["targetId"],
-                                "kind": "current_ui_context",
-                                "referenceId": "current-ui-context",
-                                "entityId": "food-tomato",
-                            }
-                        ],
-                        "ambiguityCodes": [],
-                        "defaultedFields": [],
-                    },
-                }
-            },
+            {"draft": draft},
         )
         raise AssertionError("routed draft must stop the provider loop")
 
@@ -1040,11 +1040,10 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             assert message is not None
             self.assertEqual(sum(part.get("type") == "result_card" for part in message.parts), 1)
 
-    def test_full_runner_auto_route_finishes_without_pending_card(self) -> None:
+    def test_full_runner_auto_route_fills_server_version_and_finishes_without_pending_card(self) -> None:
         with self.SessionLocal() as db:
             food = db.get(Food, "food-tomato")
             assert food is not None
-            base_updated_at = food.updated_at.isoformat()
             db.add(
                 AIAutoExecutionPreference(
                     id="route-pref-full-runner",
@@ -1059,7 +1058,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                 )
             )
             db.commit()
-            provider = PolicyFavoriteProvider(base_updated_at=base_updated_at)
+            provider = PolicyFavoriteProvider()
             runner = WorkspaceGraphRunner(AIApplicationService(db, provider=provider))
             runner.skill_registry.get("food_profile").manifest.approval_policy = "draft_then_policy"
 
@@ -1080,6 +1079,27 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertTrue(
                 any(part.get("type") == "result_card" for part in response["message"]["parts"])
             )
+
+    def test_policy_auto_favorite_uses_idempotent_set_after_unrelated_food_change(self) -> None:
+        request, run_id = self._seed_route(suffix="favorite-unrelated-change", favorite=True)
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            food.notes = "用户在草稿生成后补充的备注"
+            food.updated_at = food.updated_at + timedelta(seconds=1)
+            db.commit()
+
+        outcome = self._route(request)
+
+        self.assertEqual(outcome.status, "auto_executed")
+        self.assertEqual(outcome.operation_id is not None, True)
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            self.assertTrue(food.favorite)
+            run = db.get(AIAgentRun, run_id)
+            assert run is not None
+            self.assertEqual(run.auto_operation_id, outcome.operation_id)
 
     def test_policy_pending_retry_recovers_same_run_without_prompt_replay(self) -> None:
         request, run_id = self._seed_route(suffix="retry-auto")

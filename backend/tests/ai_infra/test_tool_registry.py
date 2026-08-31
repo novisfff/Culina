@@ -1162,9 +1162,23 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             self.assertTrue(meal_plan_draft.requires_confirmation)
             shopping_draft = registry.get("shopping.create_draft")
             self.assertIn("不要提交只有 draftType/schemaVersion", shopping_draft.input_schema["properties"]["draft"]["description"])
+            shopping_operation_branches = shopping_draft.input_schema["properties"]["draft"]["properties"]["operations"]["items"]["anyOf"]
+            for action in ("update", "set_done"):
+                branch = next(
+                    branch
+                    for branch in shopping_operation_branches
+                    if branch.get("properties", {}).get("action", {}).get("enum") == [action]
+                )
+                self.assertNotIn("baseUpdatedAt", branch["required"])
             meal_log_draft = registry.get("meal_log.create_draft")
             self.assertEqual(meal_log_draft.input_schema["properties"]["draft"]["properties"]["foods"]["minItems"], 1)
             self.assertIn("anyOf", meal_log_draft.input_schema["properties"]["draft"])
+            rating_branch = next(
+                branch
+                for branch in meal_log_draft.input_schema["properties"]["draft"]["anyOf"]
+                if branch.get("properties", {}).get("action", {}).get("enum") == ["rate_food"]
+            )
+            self.assertNotIn("baseUpdatedAt", rating_branch["required"])
             ingredient_profile_draft = registry.get("ingredient_profile.create_draft")
             self.assertIn("更新时还必须提供 targetId", ingredient_profile_draft.input_schema["properties"]["draft"]["description"])
             food_profile_draft = registry.get("food_profile.create_draft")
@@ -1172,6 +1186,12 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
             food_profile_schema = food_profile_draft.input_schema["properties"]["draft"]
             self.assertIn("必须填写 name、type、category", food_profile_schema["description"])
             self.assertIn("anyOf", food_profile_schema)
+            favorite_branch = next(
+                branch
+                for branch in food_profile_schema["anyOf"]
+                if branch.get("properties", {}).get("action", {}).get("enum") == ["set_favorite"]
+            )
+            self.assertNotIn("baseUpdatedAt", favorite_branch["required"])
             self.assertIn("即食/现成/盒装", food_profile_schema["properties"]["type"]["description"])
             self.assertIn("action=create", food_profile_schema["properties"]["payload"]["description"])
             recipe_draft = registry.get("recipe.create_draft")

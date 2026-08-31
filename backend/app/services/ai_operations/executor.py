@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
+from app.services.ai_auto_execution.policy_types import ConcurrencyStrategy, DraftExecutionReceipt
 from app.services.ai_operations.registry_types import DraftExecuteContext
 
 
@@ -28,6 +28,7 @@ def execute_ai_operation_draft(
     payload: dict[str, Any],
     assert_updated_at_matches: AssertUpdatedAt,
     operation_idempotency_key: str,
+    concurrency_strategy: ConcurrencyStrategy = "entity_version",
     conversation_id: str = "",
     committed_at: datetime | None = None,
     revertible_until: datetime | None = None,
@@ -43,6 +44,7 @@ def execute_ai_operation_draft(
             payload=payload,
             assert_updated_at_matches=assert_updated_at_matches,
             operation_idempotency_key=operation_idempotency_key,
+            concurrency_strategy=concurrency_strategy,
             conversation_id=conversation_id,
             committed_at=committed_at,
             revertible_until=revertible_until,

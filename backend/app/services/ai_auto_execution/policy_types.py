@@ -17,6 +17,12 @@ PolicyRoute = Literal["auto_execute", "manual_confirmation", "no_change"]
 DraftExecutionRoute = Literal["manual_confirmation", "policy_auto", "policy_no_change"]
 DraftRouteStatus = Literal["waiting_approval", "auto_executed", "no_change", "execution_failed"]
 ExecutionMode = Literal["manual_approval", "policy_auto", "policy_no_change"]
+ConcurrencyStrategy = Literal[
+    "entity_version",
+    "field_patch",
+    "idempotent_set",
+    "insert",
+]
 AuthorizationSource = Literal[
     "approval_request",
     "catalog_default",
@@ -137,6 +143,13 @@ class AutoExecutionActionPolicy(Protocol):
     ) -> tuple[CriticalEvidenceRequirement, ...]: ...
 
     def evaluate(self, context: AutoExecutionPolicyContext) -> ActionPolicyEvaluation: ...
+
+    def concurrency_strategy(
+        self,
+        *,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy: ...
 
     def lock_no_change_targets(self, context: AutoExecutionPolicyContext) -> bool:
         """Lock every domain row needed to prove an action-owned no-change result."""

@@ -516,7 +516,7 @@ test.describe('P0 authenticated family workflow', () => {
       const actionsBox = await automaticActions.boundingBox();
       expect(actionsBox).not.toBeNull();
       const actionButtons = await automaticActions.getByRole('button').all();
-      await expect(automaticActions.getByRole('button')).toHaveCount(2);
+      await expect(automaticActions.getByRole('button')).toHaveCount(1);
       let previousY = null;
       for (const button of actionButtons) {
         const buttonBox = await button.boundingBox();
@@ -552,14 +552,14 @@ test.describe('P0 authenticated family workflow', () => {
       viewport,
     );
 
-    const deadlineBeforeRefresh = await manualCard.locator('.ai-operation-result-status strong').innerText();
+    const deadlineBeforeRefresh = await manualCard.locator('.ai-operation-result-revert-note strong').innerText();
     expect(deadlineBeforeRefresh).toBe('可撤销至 19:00');
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'AI', exact: true }).first().click();
     const refreshedSurface = visibleAiConversationSurface(page, isPhone);
     const refreshedManualCard = operationCardByTitle(refreshedSurface, '人工确认结果');
-    await expect(refreshedManualCard.locator('.ai-operation-result-status strong')).toHaveText(
+    await expect(refreshedManualCard.locator('.ai-operation-result-revert-note strong')).toHaveText(
       deadlineBeforeRefresh,
     );
     await expect(operationCardByTitle(refreshedSurface, '自动收藏结果').locator('.ai-query-card-eyebrow')).toHaveText('已撤销');

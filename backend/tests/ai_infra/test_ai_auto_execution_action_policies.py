@@ -635,7 +635,7 @@ def test_favorite_policy_allows_only_exact_state_change(policy_seed: PolicySeed,
     assert decision.policy_version == "food.set_favorite.v1"
 
 
-def test_favorite_policy_rejects_extra_fields_stale_or_cross_family(policy_seed: PolicySeed) -> None:
+def test_favorite_policy_rejects_extra_fields_or_cross_family(policy_seed: PolicySeed) -> None:
     extra = _favorite(policy_seed, favorite=False)
     extra["payload"]["notes"] = "x"
     _, extra_decision = _evaluate(policy_seed, draft_type="food_profile", payload=extra)
@@ -646,9 +646,99 @@ def test_favorite_policy_rejects_extra_fields_stale_or_cross_family(policy_seed:
     cross["targetId"] = "food-policy-cross-family"
     _, cross_decision = _evaluate(policy_seed, draft_type="food_profile", payload=cross)
     assert extra_decision.route == "manual_confirmation"
-    assert stale_decision.route == "manual_confirmation"
-    assert "target_stale" in stale_decision.reason_codes
+    assert stale_decision.route == "auto_execute"
     assert cross_decision.route == "manual_confirmation"
+
+
+def test_favorite_policy_ignores_stale_entity_timestamp_for_explicit_set(policy_seed: PolicySeed) -> None:
+    payload = _favorite(policy_seed, favorite=False)
+    payload["baseUpdatedAt"] = "2020-01-01T00:00:00+00:00"
+
+    _, decision = _evaluate(policy_seed, draft_type="food_profile", payload=payload)
+
+    assert decision.route == "auto_execute"
+
+
+def test_safe_mutation_normalizers_own_base_updated_at(policy_seed: PolicySeed) -> None:
+    food = policy_seed.db.get(Food, policy_seed.food_ids[0])
+    meal = policy_seed.db.get(MealLog, policy_seed.meal_log_id)
+    shopping = policy_seed.db.get(ShoppingListItem, policy_seed.shopping_pending_id)
+    assert food is not None and meal is not None and shopping is not None
+
+    favorite = normalize_food_profile_draft_for_tools(
+        policy_seed.db,
+        family_id=policy_seed.family_id,
+        payload={
+            "draftType": "food_profile",
+            "schemaVersion": "food_profile_operation.v1",
+            "action": "set_favorite",
+            "targetId": food.id,
+            "payload": {"favorite": False},
+        },
+    )
+    rating = normalize_meal_log_draft(
+        policy_seed.db,
+        family_id=policy_seed.family_id,
+        user_id=policy_seed.actor_id,
+        payload={
+            "draftType": "meal_log",
+            "schemaVersion": "meal_log_operation.v1",
+            "action": "rate_food",
+            "targetId": meal.id,
+            "payload": {"foodEntryRatings": [{"id": policy_seed.meal_entry_ids[0], "rating": 5}]},
+        },
+    )
+    restored = normalize_shopping_list_draft(
+        policy_seed.db,
+        family_id=policy_seed.family_id,
+        conversation_id="conversation",
+        payload={
+            "draftType": "shopping_list",
+            "schemaVersion": "shopping_list_operation.v1",
+            "operations": [{
+                "operationId": "restore-without-version",
+                "action": "set_done",
+                "targetId": policy_seed.shopping_done_id,
+                "payload": {"done": False},
+            }],
+        },
+    )
+
+    assert favorite["baseUpdatedAt"] == food.updated_at.isoformat()
+    assert rating["baseUpdatedAt"] == meal.updated_at.isoformat()
+    assert restored["operations"][0]["baseUpdatedAt"] == policy_seed.db.get(
+        ShoppingListItem, policy_seed.shopping_done_id
+    ).updated_at.isoformat()
+
+
+def test_rating_policy_ignores_unrelated_meal_log_changes(policy_seed: PolicySeed) -> None:
+    payload = _rating(policy_seed, count=1)
+    meal = policy_seed.db.get(MealLog, policy_seed.meal_log_id)
+    assert meal is not None
+    meal.notes = "用户在草稿生成后补充的备注"
+    policy_seed.db.commit()
+
+    _, decision = _evaluate(policy_seed, draft_type="meal_log", payload=payload)
+
+    assert decision.route == "auto_execute"
+
+
+def test_policy_registry_exposes_action_level_concurrency_strategies(policy_seed: PolicySeed) -> None:
+    cases = (
+        ("food_profile", _favorite(policy_seed, favorite=False), "idempotent_set"),
+        ("meal_log", _rating(policy_seed, count=1), "field_patch"),
+        ("shopping_list", _plain_shopping(policy_seed, count=1), "insert"),
+        ("meal_log", _simple_meal(policy_seed, count=1), "insert"),
+        ("meal_plan", _simple_plan(policy_seed, count=1), "insert"),
+    )
+    for draft_type, payload, expected in cases:
+        policy = auto_execution_policy_registry.resolve_policy(draft_type=draft_type, payload=payload)
+        assert policy is not None
+        assert auto_execution_policy_registry.concurrency_strategy(
+            policy_key=policy.key,
+            draft_type=draft_type,
+            payload=payload,
+        ) == expected
 
 
 @pytest.mark.parametrize(("count", "expected"), [(1, "auto_execute"), (5, "auto_execute"), (6, "manual_confirmation")])

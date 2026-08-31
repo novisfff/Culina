@@ -16,7 +16,7 @@ from app.models.domain import Food
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.schemas.foods import CreateFoodRequest, UpdateFoodRequest
 from app.services.activity import log_activity
-from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
+from app.services.ai_auto_execution.policy_types import ConcurrencyStrategy, DraftExecutionReceipt
 from app.services.inventory_operation_locking import InventoryTargetNotFoundError, lock_inventory_targets
 from app.services.ai_operations.image_jobs import build_food_image_request, enqueue_ai_entity_image_generation
 from app.services.ai_operations.registry_types import DraftExecuteContext
@@ -54,6 +54,7 @@ def execute_food_profile_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    concurrency_strategy: ConcurrencyStrategy = "entity_version",
     revert_capture: dict[str, Any] | None = None,
 ) -> Food:
     if payload.get("action") not in {"update", "set_favorite"}:
@@ -68,8 +69,9 @@ def execute_food_profile_draft(
         ).foods[str(payload.get("targetId"))]
     except (InventoryTargetNotFoundError, KeyError):
         raise AIConflictError("食物不存在或已被删除")
-    assert_updated_at_matches(actual=food.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"食物 {food.name}")
     action = str(payload.get("action") or "")
+    if concurrency_strategy not in {"field_patch", "idempotent_set", "insert"}:
+        assert_updated_at_matches(actual=food.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"食物 {food.name}")
     if action == "set_favorite":
         before_favorite = bool(food.favorite)
         food.favorite = bool((payload.get("payload") or {}).get("favorite"))
@@ -154,6 +156,7 @@ def execute_food_profile_draft_receipt(context: DraftExecuteContext) -> DraftExe
         user_id=context.user_id,
         payload=context.payload,
         assert_updated_at_matches=context.assert_updated_at_matches,
+        concurrency_strategy=context.concurrency_strategy,
         revert_capture=revert_context,
     )
     media_map = build_media_map(

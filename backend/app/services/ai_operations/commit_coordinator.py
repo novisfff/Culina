@@ -27,7 +27,7 @@ from app.repos.ai_operations import (
     operation_for_draft_for_update,
 )
 from app.services.activity import log_activity
-from app.services.ai_auto_execution.policies._common import active_actor
+from app.services.ai_auto_execution.policies._common import active_actor, version_matches
 from app.services.ai_auto_execution.policy_registry import auto_execution_policy_registry
 from app.services.ai_auto_execution.policy_types import (
     AutoExecutionPolicyContext,
@@ -578,6 +578,15 @@ class DraftCommitCoordinator:
                     payload=request.committed_payload,
                     assert_updated_at_matches=assert_updated_at_matches,
                     operation_idempotency_key=operation.idempotency_key,
+                    concurrency_strategy=auto_execution_policy_registry.concurrency_strategy(
+                        policy_key=(
+                            request.policy_key
+                            if request.execution_mode == "policy_auto"
+                            else None
+                        ),
+                        draft_type=draft.draft_type,
+                        payload=request.committed_payload,
+                    ),
                     conversation_id=request.conversation_id,
                     committed_at=request.committed_at,
                     revertible_until=revertible_until,
@@ -1028,13 +1037,14 @@ class DraftCommitCoordinator:
         actor_user_id: str,
         authorization: Any,
     ) -> None:
-        del cls
         policy = auto_execution_policy_registry.resolve_policy(
             draft_type=draft.draft_type,
             payload=draft.payload,
         )
         if policy is None or policy.key != draft.policy_key or policy.version != draft.policy_version:
             raise AIConflictError("自动执行策略已变化，不能重试原操作")
+        if not cls._retry_target_versions_match(db, draft):
+            raise AIConflictError("自动执行目标或版本已变化，不能重试原操作")
         evidence_record = draft.intent_evidence_json if isinstance(draft.intent_evidence_json, dict) else {}
         evidence = IntentEvidenceValidation(
             clarity=draft.intent_clarity or "inferred",  # type: ignore[arg-type]
@@ -1061,6 +1071,54 @@ class DraftCommitCoordinator:
         )
         if not evaluation.allowed or evaluation.all_targets_satisfied:
             raise AIConflictError("自动执行目标或版本已变化，不能重试原操作")
+
+    @staticmethod
+    def _retry_target_versions_match(db: Session, draft: AITaskDraft) -> bool:
+        """Keep retry OCC strict even when an initial low-risk write is a patch."""
+        from app.models.domain import Food, FoodPlanItem, Ingredient, MealLog, Recipe, ShoppingListItem
+
+        payload = draft.payload if isinstance(draft.payload, dict) else {}
+        model_by_type = {
+            "food_profile": Food,
+            "ingredient_profile": Ingredient,
+            "recipe": Recipe,
+            "meal_log": MealLog,
+            "meal_plan": FoodPlanItem,
+            "shopping_list": ShoppingListItem,
+        }
+        model = model_by_type.get(draft.draft_type)
+        if model is None:
+            return True
+
+        def target_matches(target_id: Any, expected: Any) -> bool:
+            if not target_id:
+                return False
+            target = db.get(model, str(target_id))
+            return bool(
+                target is not None
+                and target.family_id == draft.family_id
+                and version_matches(target.updated_at, expected)
+            )
+
+        target_id = payload.get("targetId") or payload.get("target_id")
+        if target_id:
+            return target_matches(target_id, payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
+
+        operations = payload.get("operations")
+        if not isinstance(operations, list):
+            return True
+        for operation in operations:
+            if not isinstance(operation, dict):
+                return False
+            # Inserts have no pre-existing target and therefore no OCC
+            # baseline to re-check; existing-row mutations do.
+            if str(operation.get("action") or "") == "create":
+                continue
+            operation_target_id = operation.get("targetId") or operation.get("target_id")
+            expected = operation.get("baseUpdatedAt") or operation.get("base_updated_at")
+            if not target_matches(operation_target_id, expected):
+                return False
+        return True
 
     @classmethod
     def _receipt_to_json(cls, receipt: DraftExecutionReceipt) -> dict[str, Any]:

@@ -118,6 +118,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
         payload: dict,
         suffix: str,
         user_id: str | None = None,
+        concurrency_strategy: str = "entity_version",
     ):
         return draft_operation_registry.execute(
             DraftExecuteContext(
@@ -128,6 +129,7 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                 payload=payload,
                 assert_updated_at_matches=assert_updated_at_matches,
                 operation_idempotency_key=f"task-11:{suffix}",
+                concurrency_strategy=concurrency_strategy,
                 conversation_id=f"conversation-task-11-{suffix}",
                 committed_at=NOW,
                 revertible_until=NOW + timedelta(hours=1),
@@ -582,6 +584,31 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertFalse(restored.favorite)
             self.assertEqual(restored.row_version, before_version + 2)
 
+    def test_favorite_idempotent_set_does_not_require_stale_timestamp(self) -> None:
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-tomato")
+            assert food is not None
+            payload = {
+                "draftType": "food_profile",
+                "schemaVersion": "food_profile_operation.v1",
+                "action": "set_favorite",
+                "targetId": food.id,
+                "baseUpdatedAt": "2020-01-01T00:00:00+00:00",
+                "before": {"favorite": bool(food.favorite)},
+                "payload": {"favorite": True},
+            }
+
+            receipt = self._execute_receipt(
+                db,
+                draft_type="food_profile",
+                payload=payload,
+                suffix="favorite-stale-baseline",
+                concurrency_strategy="idempotent_set",
+            )
+
+            self.assertEqual(db.get(Food, food.id).favorite, True)
+            self.assertEqual(receipt.business_entity["favorite"], True)
+
     def test_rating_handler_receipt_reverts_none_and_value_as_one_collection_change(self) -> None:
         with self.SessionLocal() as db:
             meal_log, entries = self._seed_rating_target(db)
@@ -644,6 +671,31 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
             self.assertIsNone(restored_entries[entries[1].id].rating)
             self.assertEqual(restored_entries[entries[0].id].rating, Decimal("2.5"))
             self.assertEqual(restored.row_version, before_version + 2)
+
+    def test_rating_field_patch_does_not_require_stale_timestamp(self) -> None:
+        with self.SessionLocal() as db:
+            meal_log, entries = self._seed_rating_target(db)
+            payload = {
+                "draftType": "meal_log",
+                "schemaVersion": "meal_log_operation.v1",
+                "action": "rate_food",
+                "targetId": meal_log.id,
+                "baseUpdatedAt": "2020-01-01T00:00:00+00:00",
+                "before": {},
+                "payload": {"foodEntryRatings": [{"id": entries[0].id, "rating": 4.0}]},
+            }
+
+            self._execute_receipt(
+                db,
+                draft_type="meal_log",
+                payload=payload,
+                suffix="rating-stale-baseline",
+                concurrency_strategy="field_patch",
+            )
+
+            refreshed = db.get(MealLogFood, entries[0].id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.rating, Decimal("4.0"))
 
     def test_rating_decimal_commit_reopens_and_reverts_without_false_conflict(self) -> None:
         with self.SessionLocal() as db:
@@ -923,6 +975,57 @@ class AIRevertLowRiskAdaptersTest(AIAgentInfraTestCase):
                 ),
                 2,
             )
+
+    def test_shopping_field_patch_does_not_require_stale_timestamp(self) -> None:
+        with self.SessionLocal() as db:
+            item = ShoppingListItem(
+                id="shopping-task-11-stale-update",
+                family_id=self.family.id,
+                ingredient_id="ingredient-tomato",
+                title="番茄",
+                quantity=Decimal("1"),
+                unit="个",
+                reason="before",
+                done=False,
+                created_by=self.user.id,
+                updated_by=self.user.id,
+            )
+            db.add(item)
+            db.flush()
+            payload = {
+                "draftType": "shopping_list",
+                "schemaVersion": "shopping_list_operation.v1",
+                "sourceDraftId": None,
+                "operations": [{
+                    "operationId": "shopping-stale-update",
+                    "action": "update",
+                    "targetId": item.id,
+                    "baseUpdatedAt": "2020-01-01T00:00:00+00:00",
+                    "before": {},
+                    "payload": {
+                        "title": item.title,
+                        "quantity": 2,
+                        "unit": item.unit,
+                        "ingredient_id": item.ingredient_id,
+                        "food_id": None,
+                        "quantity_mode": "track_quantity",
+                        "display_label": None,
+                        "reason": "after",
+                    },
+                }],
+            }
+
+            self._execute_receipt(
+                db,
+                draft_type="shopping_list",
+                payload=payload,
+                suffix="shopping-stale-update",
+                concurrency_strategy="field_patch",
+            )
+
+            refreshed = db.get(ShoppingListItem, item.id)
+            assert refreshed is not None
+            self.assertEqual(refreshed.quantity, Decimal("2"))
 
     def test_shopping_add_decimal_commit_reopens_and_reverts_created_row(self) -> None:
         with self.SessionLocal() as db:

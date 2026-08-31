@@ -357,11 +357,34 @@ def _resolve_trusted_source(
     if trusted.kind != source.get("kind") or entity_id not in trusted.entity_versions:
         return None
     trusted_version = trusted.entity_versions.get(entity_id)
-    if trusted_version is not None and source.get("rowVersion") != trusted_version:
-        return None
-    if trusted_version is None and "rowVersion" in source and source.get("rowVersion") is not None:
+    declared_version = source.get("rowVersion")
+    if trusted_version is not None:
+        # rowVersion is server provenance, not a model-authored fact.  Accept
+        # an omitted/null declaration and persist the trusted value back into
+        # the normalized evidence.  A non-null declaration remains checked so
+        # the model cannot forge a version boundary.
+        if declared_version is None:
+            source["rowVersion"] = trusted_version
+        elif not _versions_equal(declared_version, trusted_version):
+            return None
+    elif declared_version is not None:
+        # A source that has no server version (for example a candidate
+        # resolver or current UI identity) cannot be upgraded by the model.
         return None
     return trusted
+
+
+def _versions_equal(left: Any, right: Any) -> bool:
+    """Compare provenance versions without rejecting JSON number/string forms."""
+    if type(left) is int and type(right) is int:
+        return left == right
+    if isinstance(left, str) and isinstance(right, str):
+        return left == right
+    if isinstance(left, str) and type(right) is int and left.strip().isdigit():
+        return int(left.strip()) == right
+    if type(left) is int and isinstance(right, str) and right.strip().isdigit():
+        return left == int(right.strip())
+    return left == right
 
 
 def _canonical_from_resolution_source(
@@ -924,7 +947,14 @@ def _collect_tool_item_facts(
     identity_only: bool = False,
 ) -> None:
     entity_id = str(item.get("id") or "").strip()
-    version = item.get("rowVersion") if "rowVersion" in item else item.get("updatedAt")
+    if "rowVersion" in item:
+        version = item.get("rowVersion")
+    elif "row_version" in item:
+        version = item.get("row_version")
+    elif "updatedAt" in item:
+        version = item.get("updatedAt")
+    else:
+        version = item.get("updated_at")
     if entity_id:
         versions[entity_id] = version
         values[entity_id] = (

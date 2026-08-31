@@ -819,7 +819,7 @@ class WorkspaceGraphRunner:
             next_status = WAITING_APPROVAL
         elif operation is not None and not is_operation_completed(operation.get("status")):
             next_status = FAILED
-        elif decision == "rejected" or self._approval_resume_payload_from_decision(serialized) is not None:
+        elif decision == "rejected" or self._approval_requires_orchestrator_resume(serialized):
             next_status = RUNNING
         run_id = str(approval.get("run_id") or "")
         if run_id:
@@ -1290,6 +1290,47 @@ class WorkspaceGraphRunner:
             return None
         metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
         return approval_resume_payload_from_metadata(metadata)
+
+    def _approval_has_continuation(self, decision_result: dict[str, Any]) -> bool:
+        draft_id = approval_resume_draft_id(decision_result)
+        draft = self.db.get(AITaskDraft, draft_id) if draft_id else None
+        metadata = draft.ai_metadata if draft is not None and isinstance(draft.ai_metadata, dict) else {}
+        return (
+            continuation_from_metadata(metadata) is not None
+            or approval_resume_payload_from_metadata(metadata) is not None
+        )
+
+    def _approval_requires_orchestrator_resume(
+        self,
+        decision_result: dict[str, Any],
+        *,
+        run: AIAgentRun | None = None,
+    ) -> bool:
+        """Whether approval completion still needs a model/tool turn.
+
+        A terminal write can use the lightweight natural-language follow-up,
+        but multi-skill/product-loop approvals must return to the orchestrator
+        so downstream drafts and tools are still produced.
+        """
+        if self._approval_has_continuation(decision_result):
+            return True
+        if run is None:
+            approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
+            run_id = str(approval.get("run_id") or "")
+            if run_id:
+                run = self.db.get(AIAgentRun, run_id)
+        if run is not None:
+            if str(run.intent or "") == "multi_skill":
+                return True
+            summary = run.context_summary if isinstance(run.context_summary, dict) else {}
+            routing = summary.get("routing") if isinstance(summary.get("routing"), dict) else {}
+            routed_skills = routing.get("skills") if isinstance(routing.get("skills"), list) else []
+            orchestrator_summary = summary.get("orchestrator") if isinstance(summary.get("orchestrator"), dict) else {}
+            injected_skills = orchestrator_summary.get("injectedSkills") if isinstance(orchestrator_summary.get("injectedSkills"), list) else []
+            if len({str(key) for key in [*routed_skills, *injected_skills] if str(key)}) > 1:
+                return True
+        draft = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
+        return str(draft.get("draft_type") or draft.get("draftType") or "") in {"meal_plan", "shopping_list"}
 
     def _pop_fast_approval_decision(self, state: WorkspaceGraphState, approval_id: str) -> dict[str, Any] | None:
         if not approval_id:

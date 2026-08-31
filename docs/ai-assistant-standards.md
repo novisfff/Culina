@@ -308,7 +308,7 @@ Script 约束：
 
 同一 Draft/version 不得切换人工/策略语义，也不得提交不同 payload。审批失败或 stale `baseUpdatedAt` 冲突时，应返回结构化 `currentValue` 和 `recoveryHint`；不要静默重建草稿、覆盖原审批事实或自动改写用户提交值。
 
-连接级临时数据库失败可以把原 Draft 标记为 `pending_retry`。`pending_retry 不重新调用模型`：重试入口在任何 prompt/provider replay 前拦截，重新锁定同一 Run、同一 Draft、同一 payload hash、同一 Operation 和当前授权/目标，只恢复原领域提交；人工路径则只恢复唯一的 `.retry` 审批。若授权、版本、操作者、目标或幂等事实已变化，必须拒绝重试。
+连接级临时数据库失败可以把原 Draft 标记为 `pending_retry`。`pending_retry 不重新调用模型`：重试入口在任何 prompt/provider replay 前拦截，重新锁定同一 Run、同一 Draft、同一 payload hash、同一 Operation 和当前授权/目标，只恢复原领域提交；人工路径则只恢复唯一的 `.retry` 审批。重试按动作并发语义复核：完整实体更新仍要求版本一致，显式 set/field patch 会锁定并重读最新目标；若授权、操作者、目标或幂等事实已变化，必须拒绝重试。
 
 ### 8.2 意图清晰度与逐值证据
 
@@ -321,7 +321,7 @@ Script 约束：
 
 模型不得因为 Draft 看起来合理而升级档位；缺少证据、非法枚举或省略 `intentEvidence` 一律按 `inferred`/缺证据处理并降级人工确认。只有 `explicit_complete` 和 `explicit_context_resolved` 有资格继续策略评估。
 
-证据字段固定为 `sourceQuotes`、`resolutionSources`、`ambiguityCodes` 和 `defaultedFields`。`sourceQuotes` 必须是当前用户消息中的真实连续文本；`resolutionSources` 只接受同家庭的 `current_ui_context`、本轮受信 Tool 结果或成功读取的 `conversation_artifact`，并绑定 reference、entity 和 row version。通配数组路径不能证明所有项目；歧义或关键默认值会关闭免确认。
+证据字段固定为 `sourceQuotes`、`resolutionSources`、`ambiguityCodes` 和 `defaultedFields`。`sourceQuotes` 必须是当前用户消息中的真实连续文本；`resolutionSources` 只接受同家庭的 `current_ui_context`、本轮受信 Tool 结果或成功读取的 `conversation_artifact`，并绑定 reference、entity 和服务端 provenance。`rowVersion` 可由模型省略，服务端会按可信来源自动补全；模型提供的非空版本仍必须与服务端 provenance 一致。通配数组路径不能证明所有项目；歧义或关键默认值会关闭免确认。
 
 服务端按动作策略生成关键字段清单，然后进行逐值验证，不采信“模型声称已覆盖该字段”：每个具体 payload 路径都必须从 quote 或可信 source 得出唯一 canonical value，再按字段类型与归一化业务 payload 的期望值比较。数量/份数/评分使用精确十进制比较，单位先做服务端别名归一化，日期、餐别、布尔方向、动作、实体 ID 和文本分别使用其 canonical matcher。只有值相等的路径进入服务端 `verified_values`；证据原文、服务端验证值/reason codes 与业务 payload 分栏持久化。
 

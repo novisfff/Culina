@@ -15,6 +15,7 @@ from app.services.ai_auto_execution.policy_types import (
     EffectiveAuthorization,
     IntentEvidenceValidation,
     TrustedResolutionSource,
+    ConcurrencyStrategy,
 )
 
 
@@ -48,6 +49,38 @@ class AutoExecutionPolicyRegistry:
 
     def supports_draft_type(self, draft_type: str) -> bool:
         return any(draft_type in policy.draft_types for policy in self._policies)
+
+    def concurrency_strategy(
+        self,
+        *,
+        policy_key: str | None,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy:
+        """Return the server-owned concurrency contract for one policy action.
+
+        A payload never selects its own strategy.  The caller must provide the
+        policy key captured during policy evaluation; a missing or mismatched
+        key deliberately falls back to the strict entity-version contract.
+        """
+        if not policy_key:
+            return "entity_version"
+        policy = next((item for item in self._policies if item.key == policy_key), None)
+        if policy is None or draft_type not in policy.draft_types or not policy.matches(
+            draft_type=draft_type,
+            payload=payload,
+        ):
+            return "entity_version"
+        resolver = getattr(policy, "concurrency_strategy", None)
+        if not callable(resolver):
+            return "entity_version"
+        strategy = resolver(draft_type=draft_type, payload=payload)
+        return strategy if strategy in {
+            "entity_version",
+            "field_patch",
+            "idempotent_set",
+            "insert",
+        } else "entity_version"
 
     def evaluate(self, context: AutoExecutionPolicyContext) -> AutoExecutionDecision:
         policy = self.resolve_policy(

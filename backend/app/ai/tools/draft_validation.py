@@ -189,11 +189,21 @@ def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, pay
         target = shopping_by_id.get(target_id)
         if target is None:
             raise ValueError("购物清单操作必须引用真实购物项")
+        supplied_base_updated_at = operation.get("baseUpdatedAt") or operation.get("base_updated_at")
+        # Low-risk patch/set actions may omit the concurrency fact because the
+        # server can bind the initial draft to the current target.  Preserve an
+        # explicitly supplied value so manual approval still detects a stale
+        # draft instead of silently refreshing its baseline.
+        base_updated_at = (
+            _normalize_base_updated_at(supplied_base_updated_at)
+            if supplied_base_updated_at
+            else target.updated_at.isoformat()
+        )
         normalized_record: dict[str, Any] = {
             "operationId": _normalize_operation_id(operation.get("operationId") or operation.get("operation_id")),
             "action": action,
             "targetId": target.id,
-            "baseUpdatedAt": _normalize_base_updated_at(operation.get("baseUpdatedAt") or operation.get("base_updated_at")),
+            "baseUpdatedAt": base_updated_at,
             "before": _serialize_shopping_before(target),
             "payload": {"reason": str((operation.get("payload") or {}).get("reason") or "")},
         }
@@ -554,7 +564,15 @@ def _normalize_meal_log_operation_draft(
     if not target_id:
         raise ValueError("餐食记录操作必须引用真实记录")
     meal_log = _load_meal_log_target(db, family_id=family_id, meal_log_id=target_id)
-    base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
+    supplied_base_updated_at = payload.get("baseUpdatedAt") or payload.get("base_updated_at")
+    # Rating may omit the concurrency fact because the server can bind the
+    # initial draft to the current target.  Preserve an explicit value so a
+    # manually approved stale draft still fails strict OCC.
+    base_updated_at = (
+        _normalize_base_updated_at(supplied_base_updated_at)
+        if supplied_base_updated_at
+        else meal_log.updated_at.isoformat()
+    )
     if phase == "approval":
         if not isinstance(payload.get("before"), dict):
             raise ValueError("确认阶段缺少餐食记录原始快照")
@@ -911,18 +929,25 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
     if not target_id:
         raise ValueError("食物资料操作必须引用真实食物")
     food = _load_by_id(db, Food, family_id=family_id, ids=[target_id], label="食物")[target_id]
-    base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
     if action == "set_favorite":
         favorite = bool((payload.get("payload") or {}).get("favorite"))
+        supplied_base_updated_at = payload.get("baseUpdatedAt") or payload.get("base_updated_at")
         return {
             "draftType": "food_profile",
             "schemaVersion": "food_profile_operation.v1",
             "action": "set_favorite",
             "targetId": food.id,
-            "baseUpdatedAt": base_updated_at,
+            # The favorite action may omit the concurrency fact.  When one is
+            # supplied, keep it so manual approval retains strict OCC.
+            "baseUpdatedAt": (
+                _normalize_base_updated_at(supplied_base_updated_at)
+                if supplied_base_updated_at
+                else food.updated_at.isoformat()
+            ),
             "before": _serialize_food_before(food),
             "payload": {"favorite": favorite},
         }
+    base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
     incoming_payload = payload.get("payload") or {}
     before = _serialize_food_before(food)
     normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=incoming_payload)

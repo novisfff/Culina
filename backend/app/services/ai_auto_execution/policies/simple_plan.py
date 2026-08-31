@@ -17,6 +17,7 @@ from app.services.ai_auto_execution.policies._common import (
 from app.services.ai_auto_execution.policy_types import (
     ActionPolicyEvaluation,
     AutoExecutionPolicyContext,
+    ConcurrencyStrategy,
     CriticalEvidenceRequirement,
 )
 from app.services.inventory_operation_locking import lock_inventory_targets
@@ -43,6 +44,15 @@ class SimplePlanPolicy:
             and "items" in payload
             and "operations" not in payload
         )
+
+    def concurrency_strategy(
+        self,
+        *,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy:
+        del draft_type, payload
+        return "insert"
 
     def evidence_requirements(
         self,

@@ -14,11 +14,11 @@ from app.services.ai_auto_execution.policies._common import (
     decimal_value,
     denied,
     requirements_verified,
-    version_matches,
 )
 from app.services.ai_auto_execution.policy_types import (
     ActionPolicyEvaluation,
     AutoExecutionPolicyContext,
+    ConcurrencyStrategy,
     CriticalEvidenceRequirement,
 )
 from app.services.meal_log_versions import lock_meal_log_write_targets
@@ -32,6 +32,15 @@ class MealRatingPolicy:
 
     def matches(self, *, draft_type: str, payload: dict[str, Any]) -> bool:
         return draft_type == "meal_log" and payload.get("action") == "rate_food"
+
+    def concurrency_strategy(
+        self,
+        *,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy:
+        del draft_type, payload
+        return "field_patch"
 
     def evidence_requirements(
         self,
@@ -109,8 +118,6 @@ class MealRatingPolicy:
         )
         if meal_log is None:
             return denied()
-        if not version_matches(meal_log.updated_at, payload.get("baseUpdatedAt")):
-            return denied("target_stale")
         if (
             meal_log.created_by != context.actor_user_id
             and context.actor_user_id not in set(meal_log.participant_user_ids or [])

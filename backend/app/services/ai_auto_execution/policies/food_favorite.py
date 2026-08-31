@@ -12,11 +12,11 @@ from app.services.ai_auto_execution.policies._common import (
     allowed,
     denied,
     requirements_verified,
-    version_matches,
 )
 from app.services.ai_auto_execution.policy_types import (
     ActionPolicyEvaluation,
     AutoExecutionPolicyContext,
+    ConcurrencyStrategy,
     CriticalEvidenceRequirement,
 )
 
@@ -29,6 +29,15 @@ class FoodFavoritePolicy:
 
     def matches(self, *, draft_type: str, payload: dict[str, Any]) -> bool:
         return draft_type == "food_profile" and payload.get("action") == "set_favorite"
+
+    def concurrency_strategy(
+        self,
+        *,
+        draft_type: str,
+        payload: dict[str, Any],
+    ) -> ConcurrencyStrategy:
+        del draft_type, payload
+        return "idempotent_set"
 
     def evidence_requirements(
         self,
@@ -70,8 +79,6 @@ class FoodFavoritePolicy:
         )
         if food is None:
             return denied()
-        if not version_matches(food.updated_at, payload.get("baseUpdatedAt")):
-            return denied("target_stale")
         requirements = self.evidence_requirements(
             db=context.db,
             family_id=context.family_id,

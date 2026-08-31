@@ -72,7 +72,10 @@ INTENT_EVIDENCE_SCHEMA: dict[str, Any] = {
                     },
                     "referenceId": {"type": "string", "minLength": 1, "maxLength": 120},
                     "entityId": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "rowVersion": {"type": ["integer", "string", "null"]},
+                    "rowVersion": {
+                        "type": ["integer", "string", "null"],
+                        "description": "可省略；服务端依据可信 Tool/Artifact provenance 自动绑定，模型不需要填写或猜测。",
+                    },
                 },
             },
         },
@@ -646,21 +649,27 @@ SHOPPING_OPERATION_ITEM_SCHEMA["anyOf"] = [
     },
     {
         "description": "更新购物项。",
-        "required": ["action", "targetId", "baseUpdatedAt", "payload"],
+        "required": ["action", "targetId", "payload"],
         "properties": {
             "action": {"enum": ["update"]},
             "targetId": {"type": "string", "minLength": 1},
-            "baseUpdatedAt": {"type": "string", "minLength": 1},
+            "baseUpdatedAt": {
+                "type": ["string", "null"],
+                "description": "可省略；服务端按目标当前版本归一化，模型不需要填写。",
+            },
             "payload": {**SHOPPING_OPERATION_PAYLOAD_SCHEMA, "required": ["title"]},
         },
     },
     {
         "description": "标记购物项买到或未买到。",
-        "required": ["action", "targetId", "baseUpdatedAt", "payload"],
+        "required": ["action", "targetId", "payload"],
         "properties": {
             "action": {"enum": ["set_done"]},
             "targetId": {"type": "string", "minLength": 1},
-            "baseUpdatedAt": {"type": "string", "minLength": 1},
+            "baseUpdatedAt": {
+                "type": ["string", "null"],
+                "description": "可省略；服务端按目标当前版本归一化，模型不需要填写。",
+            },
             "payload": {
                 "type": "object",
                 "additionalProperties": False,
@@ -859,12 +868,15 @@ MEAL_LOG_DRAFT_SCHEMA.update(
             },
             {
                 "description": "更新餐食记录评分。",
-                "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+                "required": ["draftType", "schemaVersion", "action", "targetId", "payload"],
                 "properties": {
                     "schemaVersion": {"enum": ["meal_log_operation.v1"]},
                     "action": {"enum": ["rate_food"]},
                     "targetId": {"type": "string", "minLength": 1},
-                    "baseUpdatedAt": {"type": "string", "minLength": 1},
+                    "baseUpdatedAt": {
+                        "type": ["string", "null"],
+                        "description": "可省略；服务端按目标当前版本归一化，模型不需要填写。",
+                    },
                     "payload": MEAL_LOG_RATING_PAYLOAD_SCHEMA,
                 },
             },
@@ -1090,12 +1102,15 @@ FOOD_PROFILE_DRAFT_SCHEMA: dict[str, Any] = {
         },
         {
             "description": "操作式收藏状态草稿。",
-            "required": ["draftType", "schemaVersion", "action", "targetId", "baseUpdatedAt", "payload"],
+            "required": ["draftType", "schemaVersion", "action", "targetId", "payload"],
             "properties": {
                 "schemaVersion": {"enum": ["food_profile_operation.v1"]},
                 "action": {"enum": ["set_favorite"]},
                 "targetId": {"type": "string", "minLength": 1},
-                "baseUpdatedAt": {"type": "string", "minLength": 1},
+                "baseUpdatedAt": {
+                    "type": ["string", "null"],
+                    "description": "可省略；服务端按目标当前版本归一化，模型不需要填写。",
+                },
                 "payload": {
                     "type": "object",
                     "required": ["favorite"],

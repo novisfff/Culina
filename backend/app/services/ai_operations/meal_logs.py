@@ -18,7 +18,7 @@ from app.schemas.meal_logs import CreateMealLogRequest, MealLogFoodRatingIn, Upd
 from app.schemas.meal_recording import RecordMealRequest
 from app.services.activity import log_activity
 from app.services.ai_auto_execution.catalog import AUTO_EXECUTION_CATALOG
-from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
+from app.services.ai_auto_execution.policy_types import AICacheScope, ConcurrencyStrategy, DraftExecutionReceipt
 from app.services.food_plan_locking import FoodPlanConflict, lock_plan_item_after_food
 from app.services.food_stock import apply_food_stock_consume
 from app.services.meal_log_references import MealLogReferenceError, lock_and_validate_meal_log_references
@@ -244,6 +244,7 @@ def execute_meal_log_draft(
     user_id: str,
     payload: dict[str, Any],
     assert_updated_at_matches: UpdatedAtValidator,
+    concurrency_strategy: ConcurrencyStrategy = "entity_version",
     revert_capture: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     action = str(payload.get("action") or "")
@@ -294,12 +295,15 @@ def execute_meal_log_draft(
             raise AIConflictError(exc.message) from exc
 
         meal_log = locked.meal_log
-        # Keep baseUpdatedAt compatibility for old drafts after locks/revalidation.
-        assert_updated_at_matches(
-            actual=meal_log.updated_at,
-            expected=str(payload.get("baseUpdatedAt")),
-            label="餐食记录",
-        )
+        # Full-detail updates retain the entity OCC contract.  Rating-only
+        # writes are explicit field patches: the lock/re-read above supplies
+        # the latest row and unrelated meal-log edits must not block them.
+        if concurrency_strategy not in {"field_patch", "idempotent_set", "insert"}:
+            assert_updated_at_matches(
+                actual=meal_log.updated_at,
+                expected=str(payload.get("baseUpdatedAt")),
+                label="餐食记录",
+            )
         if action == "update_details":
             draft = payload.get("payload") or {}
             participant_user_ids = draft.get("participantUserIds")
@@ -546,6 +550,7 @@ def execute_meal_log_draft_receipt(context: DraftExecuteContext) -> DraftExecuti
         user_id=context.user_id,
         payload=context.payload,
         assert_updated_at_matches=context.assert_updated_at_matches,
+        concurrency_strategy=context.concurrency_strategy,
         revert_capture=revert_context,
     )
     payload = context.payload

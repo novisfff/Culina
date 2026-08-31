@@ -274,6 +274,14 @@ class ApprovalResumeHandler:
                 injection_history=injection_history,
             )
         if resume_artifact is None:
+            if self.runner._approval_requires_orchestrator_resume(serialized, run=run):
+                return approval_resolved_state_patch(
+                    state=state,
+                    serialized=serialized,
+                    status="running",
+                    run_artifacts=run_artifacts,
+                    approval_artifacts=approval_artifacts,
+                )
             self.runner.approval_followup_streamer.stream_followup(state, serialized, terminal_status="completed")
             if run is not None:
                 run.status = "completed"
@@ -546,6 +554,14 @@ class ApprovalResumeHandler:
                 injection_history=injection_history,
             )
         if resume_artifact is None:
+            if self.runner._approval_requires_orchestrator_resume(serialized, run=run):
+                return approval_resolved_state_patch(
+                    state=state,
+                    serialized=serialized,
+                    status="running",
+                    run_artifacts=run_artifacts,
+                    approval_artifacts=approval_artifacts,
+                )
             self.runner.approval_followup_streamer.stream_followup(state, serialized, terminal_status="completed")
             if run is not None:
                 run.status = "completed"
