@@ -487,6 +487,7 @@ jobs:
 
   pr-gate:
     name: PR Gate
+    runs-on: ubuntu-latest
     if: always()
     needs:
       - classify
