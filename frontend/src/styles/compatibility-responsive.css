@@ -204,6 +204,12 @@
     flex: 0 0 var(--control-height-touch);
   }
 
+  .mobile-dashboard-page .mobile-dashboard-logo {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+  }
+
   :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page)
     :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) {
     gap: var(--space-3);

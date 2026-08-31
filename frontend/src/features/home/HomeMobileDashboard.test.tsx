@@ -748,5 +748,8 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(compatibilityStyles).toMatch(
       /:is\(\.mobile-food-page,[\s\S]*?\)\s+:is\(\.mobile-food-brand,[\s\S]*?\) strong \{[^}]*font-size: var\(--text-md\);[^}]*line-height: 1\.2;[^}]*font-weight: 700;/s,
     );
+    expect(compatibilityStyles).toMatch(
+      /\.mobile-dashboard-page \.mobile-dashboard-logo \{[^}]*width: 46px;[^}]*height: 46px;[^}]*flex-basis: 46px;/s,
+    );
   });
 });
