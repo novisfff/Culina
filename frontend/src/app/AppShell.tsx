@@ -468,9 +468,6 @@ export function AppShell({
       <div className="page-glow page-glow-left" />
       <div className="page-glow page-glow-right" />
       <div className={sidebarCollapsed ? 'app-frame sidebar-collapsed' : 'app-frame sidebar-expanded'}>
-        <span className="app-shell-current-user" aria-label={`当前用户：${userName}`}>
-          {userName}
-        </span>
         <aside className="sidebar-shell card">
           <div className="sidebar-top">
             <div className="sidebar-brand">
@@ -578,33 +575,6 @@ export function AppShell({
         </aside>
 
         <div className={isAiActive ? 'app-content app-content-ai' : 'app-content'}>
-          <nav className="tabbar" aria-label="顶部导航">
-            <div className="tabbar-inner">
-              <AppNotificationCenter
-                items={notifications}
-                isLoading={notificationsLoading}
-                variant="desktop"
-                onDismissBackgroundTask={onDismissBackgroundTask}
-                onRetryBackgroundTask={onRetryBackgroundTask}
-                retryingBackgroundTaskId={retryingBackgroundTaskId}
-                onOpenModelUsageAlert={onOpenModelUsageAlert}
-                onDismissModelUsageAlert={onDismissModelUsageAlert}
-              />
-              <div className="tabbar-scroll">
-                {PRIMARY_NAV_ITEMS.map((item) => (
-                  <button
-                    key={item.key}
-                    className={activeTab === item.key ? 'tab-button active' : 'tab-button'}
-                    type="button"
-                    onClick={() => onTabChange(item.key)}
-                    aria-current={activeTab === item.key ? 'page' : undefined}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </nav>
           {children}
         </div>
       </div>

@@ -358,14 +358,10 @@ describe('AppShell primary navigation', () => {
   it('keeps the desktop information order and centers AI on mobile', () => {
     renderAppShell(<div>内容</div>, 'eat');
     const desktopExpected = ['首页', '吃什么', '食材', 'AI', '家庭'];
-    for (const name of ['侧边导航', '顶部导航', '底部导航']) {
-      const expected = name === '底部导航'
-        ? ['首页', '吃什么', 'AI', '食材', '家庭']
-        : desktopExpected;
+    for (const name of ['侧边导航', '底部导航']) {
+      const expected = name === '底部导航' ? ['首页', '吃什么', 'AI', '食材', '家庭'] : desktopExpected;
       const navigation = within(screen.getByRole('navigation', { name }));
-      const buttons = navigation.getAllByRole('button').filter((node) =>
-        name === '顶部导航' ? node.classList.contains('tab-button') : true,
-      );
+      const buttons = navigation.getAllByRole('button');
       expect(buttons.map((node) => node.textContent?.trim())).toEqual(expected);
     }
     expect(screen.queryByRole('button', { name: '菜谱' })).not.toBeInTheDocument();
