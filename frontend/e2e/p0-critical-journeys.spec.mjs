@@ -35,11 +35,7 @@ test.describe('P0 unauthenticated entry', () => {
     await expect(page.getByRole('button', { name: '进入家庭厨房' })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await stabilizeDarwinVisualGutter(page);
-    // The hosted tablet compositor rounds the card width to 561px while the
-    // stable baseline is 560px; keep the interaction assertions active there.
-    if (!(process.env.CI && testInfo.project.name === 'tablet-1180x820')) {
-      await expect(page.locator('.login-card')).toHaveScreenshot('login-card.png');
-    }
+    await expect(page.locator('.login-card')).toHaveScreenshot('login-card.png');
     await attachCheckpointScreenshot(page, testInfo, 'checkpoint-login-entry');
 
     const loginRequestPromise = page.waitForRequest(
@@ -123,11 +119,6 @@ test.describe('P0 authenticated family workflow', () => {
     await expect(mealComposer).toBeVisible();
     await expect(mealComposer.getByRole('heading', { name: '确认时间' })).toBeVisible();
     await expect(mealComposer.getByRole('heading', { name: '添加食物' })).toBeVisible();
-    if (process.env.CI && testInfo.project.name === 'tablet-1180x820') {
-      await page.addStyleTag({
-        content: '.meal-composer-modal.workspace-modal { width: 680px !important; max-width: 680px !important; box-sizing: border-box !important; transform: scaleX(0.999); }',
-      });
-    }
     await expect(mealComposer).toHaveScreenshot('meal-composer.png', { timeout: 15_000 });
     await attachCheckpointScreenshot(page, testInfo, 'checkpoint-meal-composer');
 
