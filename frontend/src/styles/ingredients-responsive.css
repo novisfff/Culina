@@ -253,6 +253,10 @@
   }
 
   .ingredients-workspace:has(.mobile-ingredient-page) {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0;
     padding-bottom: 0;
   }
@@ -272,10 +276,18 @@
 
   .mobile-ingredient-page {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     width: min(100%, 480px);
+    min-width: 0;
+    max-width: 100%;
     margin: 0 auto;
     padding: 14px 0 0;
+  }
+
+  .mobile-ingredient-page > * {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .mobile-ingredient-topbar,
@@ -293,6 +305,9 @@
   .mobile-ingredient-topbar {
     position: relative;
     z-index: var(--z-mobile-topbar);
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     justify-content: space-between;
     gap: 14px;
     padding: 0 10px;
@@ -301,6 +316,10 @@
   .mobile-ingredient-brand {
     min-width: 0;
     gap: 10px;
+  }
+
+  .mobile-ingredient-brand > div {
+    min-width: 0;
   }
 
   .mobile-ingredient-logo {
@@ -582,6 +601,7 @@
   .mobile-ingredient-section-head svg {
     width: 18px;
     height: 18px;
+    flex: 0 0 18px;
   }
 
   .mobile-ingredient-panel {

@@ -312,11 +312,11 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
             onClick={() => props.openInventoryOverlay()}
           >
             {props.renderIcon('plus')}
-            快速加入库存
+            快速入库
           </button>
           <button className="mobile-ingredient-secondary" type="button" onClick={() => props.openShoppingOverlay()}>
             {props.renderIcon('shopping')}
-            加入采购清单
+            加采购
           </button>
         </div>
       </header>

@@ -5,6 +5,32 @@ import { describe, expect, it } from 'vitest';
 const sourcePath = resolve(__dirname, 'IngredientMobileView.tsx');
 
 describe('IngredientMobileView shared overlay usage', () => {
+  it('keeps the compact mobile quick action labels and stable icons', () => {
+    const mobileSource = readFileSync(sourcePath, 'utf8');
+    const mobileCss = readFileSync(resolve(__dirname, '../../styles/ingredients-responsive.css'), 'utf8');
+
+    expect(mobileSource).toContain('快速盘点');
+    expect(mobileSource).toContain('快速入库');
+    expect(mobileSource).toContain('加采购');
+    expect(mobileSource).not.toContain('快速加入库存');
+    expect(mobileSource).not.toContain('加入采购清单\n          </button>');
+    expect(mobileCss).toMatch(
+      /\.mobile-ingredient-primary svg,[\s\S]*?\.mobile-ingredient-section-head svg\s*\{[^}]*flex:\s*0 0 18px;/s,
+    );
+  });
+
+  it('keeps the mobile page within the padded app viewport', () => {
+    const mobileCss = readFileSync(resolve(__dirname, '../../styles/ingredients-responsive.css'), 'utf8');
+    const workspaceRule = mobileCss.match(/\.ingredients-workspace:has\(\.mobile-ingredient-page\)\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const pageRule = mobileCss.match(/\.mobile-ingredient-page\s*\{([^}]*)\}/s)?.[1] ?? '';
+
+    expect(workspaceRule).toContain('width: 100%');
+    expect(workspaceRule).toContain('min-width: 0');
+    expect(workspaceRule).toContain('max-width: 100%');
+    expect(pageRule).toContain('min-width: 0');
+    expect(pageRule).toContain('max-width: 100%');
+  });
+
   it('uses the shared overlay frame for the mobile shopping drawer', () => {
     const source = readFileSync(sourcePath, 'utf8');
 
