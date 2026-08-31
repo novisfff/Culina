@@ -189,11 +189,26 @@
   :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
     margin: 0;
     padding: 0 10px;
+    min-height: var(--control-height-touch);
   }
 
   .mobile-dashboard-hero > .mobile-dashboard-topbar {
     margin: 0;
     padding-top: 14px;
+    padding-inline: 0;
+  }
+
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+    flex: 0 0 var(--control-height-touch);
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) button {
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
   }
 }
 
