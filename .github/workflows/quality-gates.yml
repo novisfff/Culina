@@ -5,14 +5,57 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Classify PR Gates
+    runs-on: ubuntu-latest
+    outputs:
+      risk: ${{ steps.classify.outputs.risk }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      full: ${{ steps.classify.outputs.full }}
+      domains: ${{ steps.classify.outputs.domains }}
+      frontend_scopes: ${{ steps.classify.outputs.frontend_scopes }}
+      frontend_focus: ${{ steps.classify.outputs.frontend_focus }}
+      frontend_typecheck: ${{ steps.classify.outputs.frontend_typecheck }}
+      frontend_full: ${{ steps.classify.outputs.frontend_full }}
+      frontend_style: ${{ steps.classify.outputs.frontend_style }}
+      frontend_build: ${{ steps.classify.outputs.frontend_build }}
+      frontend_e2e: ${{ steps.classify.outputs.frontend_e2e }}
+      frontend_ai_contract: ${{ steps.classify.outputs.frontend_ai_contract }}
+      backend_service: ${{ steps.classify.outputs.backend_service }}
+      backend_ai: ${{ steps.classify.outputs.backend_ai }}
+      ai_evals: ${{ steps.classify.outputs.ai_evals }}
+      backend_search: ${{ steps.classify.outputs.backend_search }}
+      backend_mysql: ${{ steps.classify.outputs.backend_mysql }}
+      backend_migration: ${{ steps.classify.outputs.backend_migration }}
+      dependency_audit: ${{ steps.classify.outputs.dependency_audit }}
+      deployment_smokes: ${{ steps.classify.outputs.deployment_smokes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Test gate classifier
+        run: node --test .github/scripts/classify-pr-gates.test.mjs
+      - name: Classify changed paths and risk
+        id: classify
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node .github/scripts/classify-pr-gates.mjs
+
   backend-service:
     name: Backend Service Tests
+    needs: classify
+    if: needs.classify.outputs.backend_service == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -33,6 +76,8 @@ jobs:
 
   backend-ai:
     name: Backend AI Tests
+    needs: classify
+    if: needs.classify.outputs.backend_ai == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -53,6 +98,8 @@ jobs:
 
   ai-skill-evals:
     name: AI Skill Evaluation Gate
+    needs: classify
+    if: needs.classify.outputs.ai_evals == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -83,6 +130,8 @@ jobs:
 
   backend-search:
     name: Backend Search Tests
+    needs: classify
+    if: needs.classify.outputs.backend_search == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -103,6 +152,8 @@ jobs:
 
   backend-mysql-suite:
     name: Backend MySQL (${{ matrix.suite }})
+    needs: classify
+    if: needs.classify.outputs.backend_mysql == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -149,7 +200,7 @@ jobs:
 
   backend-model-usage:
     name: Backend Model Usage Tests
-    if: always()
+    if: ${{ always() && needs.backend-mysql-suite.result != 'skipped' }}
     needs: backend-mysql-suite
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -165,6 +216,8 @@ jobs:
 
   backend-migration-smoke:
     name: Alembic Head and Migration Smoke
+    needs: classify
+    if: needs.classify.outputs.backend_migration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -206,6 +259,8 @@ jobs:
 
   production-dependency-audit:
     name: Production Dependency Audit
+    needs: classify
+    if: needs.classify.outputs.dependency_audit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -227,8 +282,66 @@ jobs:
       - name: Audit production dependency graphs
         run: npm run audit:prod
 
+  frontend-typecheck:
+    name: Frontend Typecheck
+    needs: classify
+    if: needs.classify.outputs.frontend_typecheck == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Run frontend typecheck
+        run: npm run frontend:typecheck
+
+  frontend-domain-tests:
+    name: Frontend Domain Tests
+    needs: classify
+    if: needs.classify.outputs.frontend_focus == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FRONTEND_TEST_SCOPES: ${{ needs.classify.outputs.frontend_scopes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Run selected frontend domain tests
+        run: node .github/scripts/run-frontend-domain-tests.mjs
+
+  frontend-ai-contract:
+    name: Frontend AI Contract
+    needs: classify
+    if: needs.classify.outputs.frontend_ai_contract == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Run AI workspace contract tests
+        run: npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts
+
   frontend-vitest-shard:
     name: Frontend Vitest Shard ${{ matrix.shard }}/2
+    needs: classify
+    if: needs.classify.outputs.frontend_full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -249,7 +362,7 @@ jobs:
 
   frontend-vitest:
     name: Frontend Vitest
-    if: always()
+    if: ${{ always() && needs.frontend-vitest-shard.result != 'skipped' }}
     needs: frontend-vitest-shard
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -265,6 +378,8 @@ jobs:
 
   frontend-style-drift:
     name: Frontend Incremental Style Drift
+    needs: classify
+    if: needs.classify.outputs.frontend_style == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -373,6 +488,8 @@ jobs:
 
   frontend-build:
     name: Frontend Build
+    needs: classify
+    if: needs.classify.outputs.frontend_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -389,6 +506,8 @@ jobs:
 
   frontend-e2e-p0:
     name: Frontend E2E P0
+    needs: classify
+    if: needs.classify.outputs.frontend_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -419,6 +538,8 @@ jobs:
 
   deployment-compose-smokes:
     name: Compose Media and WebSocket Smokes
+    needs: classify
+    if: needs.classify.outputs.deployment_smokes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -455,3 +576,64 @@ jobs:
             frontend/test-results/
           if-no-files-found: warn
           retention-days: 14
+
+  pr-gate:
+    name: PR Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - classify
+      - frontend-domain-tests
+      - frontend-typecheck
+      - frontend-vitest
+      - frontend-style-drift
+      - frontend-build
+      - frontend-e2e-p0
+      - frontend-ai-contract
+      - backend-service
+      - backend-ai
+      - ai-skill-evals
+      - backend-search
+      - backend-model-usage
+      - backend-migration-smoke
+      - production-dependency-audit
+      - deployment-compose-smokes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify selected gates
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          REQUIRE_FRONTEND_FOCUS: ${{ needs.classify.outputs.frontend_focus }}
+          RESULT_FRONTEND_FOCUS: ${{ needs.frontend-domain-tests.result }}
+          REQUIRE_FRONTEND_TYPECHECK: ${{ needs.classify.outputs.frontend_typecheck }}
+          RESULT_FRONTEND_TYPECHECK: ${{ needs.frontend-typecheck.result }}
+          REQUIRE_FRONTEND_FULL: ${{ needs.classify.outputs.frontend_full }}
+          RESULT_FRONTEND_FULL: ${{ needs.frontend-vitest.result }}
+          REQUIRE_FRONTEND_STYLE: ${{ needs.classify.outputs.frontend_style }}
+          RESULT_FRONTEND_STYLE: ${{ needs.frontend-style-drift.result }}
+          REQUIRE_FRONTEND_BUILD: ${{ needs.classify.outputs.frontend_build }}
+          RESULT_FRONTEND_BUILD: ${{ needs.frontend-build.result }}
+          REQUIRE_FRONTEND_E2E: ${{ needs.classify.outputs.frontend_e2e }}
+          RESULT_FRONTEND_E2E: ${{ needs.frontend-e2e-p0.result }}
+          REQUIRE_FRONTEND_AI_CONTRACT: ${{ needs.classify.outputs.frontend_ai_contract }}
+          RESULT_FRONTEND_AI_CONTRACT: ${{ needs.frontend-ai-contract.result }}
+          REQUIRE_BACKEND_SERVICE: ${{ needs.classify.outputs.backend_service }}
+          RESULT_BACKEND_SERVICE: ${{ needs.backend-service.result }}
+          REQUIRE_BACKEND_AI: ${{ needs.classify.outputs.backend_ai }}
+          RESULT_BACKEND_AI: ${{ needs.backend-ai.result }}
+          REQUIRE_AI_EVALS: ${{ needs.classify.outputs.ai_evals }}
+          RESULT_AI_EVALS: ${{ needs.ai-skill-evals.result }}
+          REQUIRE_BACKEND_SEARCH: ${{ needs.classify.outputs.backend_search }}
+          RESULT_BACKEND_SEARCH: ${{ needs.backend-search.result }}
+          REQUIRE_BACKEND_MYSQL: ${{ needs.classify.outputs.backend_mysql }}
+          RESULT_BACKEND_MYSQL: ${{ needs.backend-model-usage.result }}
+          REQUIRE_BACKEND_MIGRATION: ${{ needs.classify.outputs.backend_migration }}
+          RESULT_BACKEND_MIGRATION: ${{ needs.backend-migration-smoke.result }}
+          REQUIRE_DEPENDENCY_AUDIT: ${{ needs.classify.outputs.dependency_audit }}
+          RESULT_DEPENDENCY_AUDIT: ${{ needs.production-dependency-audit.result }}
+          REQUIRE_DEPLOYMENT_SMOKES: ${{ needs.classify.outputs.deployment_smokes }}
+          RESULT_DEPLOYMENT_SMOKES: ${{ needs.deployment-compose-smokes.result }}
+        run: node .github/scripts/verify-pr-gates.mjs

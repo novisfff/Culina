@@ -1,0 +1,409 @@
+#!/usr/bin/env node
+
+import { spawnSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+export const GATE_KEYS = Object.freeze([
+  'frontend_focus',
+  'frontend_typecheck',
+  'frontend_full',
+  'frontend_style',
+  'frontend_build',
+  'frontend_e2e',
+  'frontend_ai_contract',
+  'backend_service',
+  'backend_ai',
+  'ai_evals',
+  'backend_search',
+  'backend_mysql',
+  'backend_migration',
+  'dependency_audit',
+  'deployment_smokes',
+]);
+
+const RISK_RANK = Object.freeze({ docs: 0, unit: 1, page: 2, high: 3, full: 4 });
+const FULL_FRONTEND_SCOPES = Object.freeze([
+  'src/api',
+  'src/app',
+  'src/auth',
+  'src/components',
+  'src/features',
+  'src/hooks',
+  'src/lib',
+]);
+
+function normalizePath(value) {
+  return value.replaceAll('\\', '/').replace(/^\.?\//, '');
+}
+
+function matchesAny(path, patterns) {
+  return patterns.some((pattern) => pattern.test(path));
+}
+
+function isDocumentationPath(path) {
+  return path === 'AGENTS.md' || path.startsWith('docs/') || /\.(md|mdx)$/i.test(path);
+}
+
+function isFrontendPath(path) {
+  return path.startsWith('frontend/');
+}
+
+function isBackendPath(path) {
+  return path.startsWith('backend/');
+}
+
+function setGate(result, gate, reason) {
+  result.gates[gate] = true;
+  if (reason && !result.reasons.includes(reason)) result.reasons.push(reason);
+}
+
+function setDomain(result, domain) {
+  if (!result.domains.includes(domain)) result.domains.push(domain);
+}
+
+function addFrontendScope(result, scope) {
+  if (!result.frontendScopes.includes(scope)) result.frontendScopes.push(scope);
+}
+
+function elevateRisk(result, risk) {
+  if (RISK_RANK[risk] > RISK_RANK[result.risk]) result.risk = risk;
+}
+
+function markFull(result, reason = '无法可靠分类，升级为全量相关门禁') {
+  elevateRisk(result, 'full');
+  result.full = true;
+  for (const gate of GATE_KEYS) setGate(result, gate);
+  // Focused and full Vitest jobs are mutually exclusive.
+  result.gates.frontend_focus = false;
+  result.frontendScopes = [...FULL_FRONTEND_SCOPES];
+  if (!result.reasons.includes(reason)) result.reasons.push(reason);
+}
+
+function markFrontendUnit(result, path) {
+  setDomain(result, 'frontend');
+  elevateRisk(result, 'unit');
+  setGate(result, 'frontend_focus', '前端 helper/model/API 变更运行对应业务域测试');
+  setGate(result, 'frontend_typecheck');
+
+  if (path.startsWith('frontend/src/lib/')) addFrontendScope(result, 'src/lib');
+  else if (path.startsWith('frontend/src/hooks/')) addFrontendScope(result, 'src/hooks');
+  else if (path.startsWith('frontend/src/api/')) addFrontendScope(result, 'src/api');
+  else if (path.startsWith('frontend/scripts/')) addFrontendScope(result, 'scripts');
+  else if (path.startsWith('frontend/src/app/')) addFrontendScope(result, 'src/app');
+  else if (path.startsWith('frontend/src/auth/')) addFrontendScope(result, 'src/auth');
+  else if (path.startsWith('frontend/src/components/')) {
+    const [, , , domain] = path.split('/');
+    addFrontendScope(result, domain ? `src/components/${domain}` : 'src/components');
+  } else if (path.startsWith('frontend/src/features/')) {
+    const [, , , domain] = path.split('/');
+    addFrontendScope(result, domain ? `src/features/${domain}` : 'src/features');
+  }
+}
+
+function markFrontendPage(result, path) {
+  setDomain(result, 'frontend');
+  elevateRisk(result, 'page');
+  setGate(result, 'frontend_focus', '前端页面/状态变更运行对应业务域测试');
+  setGate(result, 'frontend_typecheck');
+  setGate(result, 'frontend_build', '页面/状态变更需要构建验证');
+
+  if (path.startsWith('frontend/src/app/')) addFrontendScope(result, 'src/app');
+  else if (path.startsWith('frontend/src/auth/')) addFrontendScope(result, 'src/auth');
+  else if (path.startsWith('frontend/src/components/')) {
+    const [, , , domain] = path.split('/');
+    addFrontendScope(result, domain ? `src/components/${domain}` : 'src/components');
+  } else if (path.startsWith('frontend/src/features/')) {
+    const [, , , domain] = path.split('/');
+    addFrontendScope(result, domain ? `src/features/${domain}` : 'src/features');
+  } else if (path.startsWith('frontend/src/lib/')) addFrontendScope(result, 'src/lib');
+  else if (path.startsWith('frontend/src/hooks/')) addFrontendScope(result, 'src/hooks');
+  else if (path.startsWith('frontend/src/api/')) addFrontendScope(result, 'src/api');
+}
+
+function markFrontendHighRisk(result, path, reason) {
+  markFrontendPage(result, path);
+  elevateRisk(result, 'high');
+  setGate(result, 'frontend_e2e', reason);
+}
+
+function classifyFrontendPath(result, path) {
+  if (path.startsWith('frontend/e2e/')) {
+    setDomain(result, 'frontend');
+    elevateRisk(result, 'high');
+    setGate(result, 'frontend_e2e', 'Playwright 关键路径或测试变更');
+    setGate(result, 'frontend_build');
+    return true;
+  }
+
+  if (path.startsWith('frontend/src/styles/') || /(?:mobile|responsive|navigation|nav|sidebar|overlay|shell)/i.test(path)) {
+    markFrontendHighRisk(result, path, '响应式、导航、移动端或全局样式变更需要 E2E');
+    setGate(result, 'frontend_style');
+    if (path.startsWith('frontend/src/styles/')) result.gates.frontend_focus = false;
+    return true;
+  }
+
+  if (path.startsWith('frontend/src/lib/aiWorkspaceContracts.') || path.startsWith('frontend/src/components/ai/') || path.startsWith('frontend/src/api/aiApi.') || path.startsWith('frontend/src/api/aiVoiceApi.')) {
+    markFrontendPage(result, path);
+    setGate(result, 'frontend_ai_contract', 'AI workspace 变更需要跨端 contract 测试');
+    if (path.startsWith('frontend/src/lib/')) addFrontendScope(result, 'src/lib');
+    return true;
+  }
+
+  const filename = path.split('/').at(-1) ?? '';
+  if (/(?:model|helper|options|viewmodel)\.(?:ts|tsx)$/i.test(filename)) {
+    markFrontendUnit(result, path);
+    return true;
+  }
+
+  if (path.startsWith('frontend/src/lib/') || path.startsWith('frontend/src/hooks/') || path.startsWith('frontend/src/api/')) {
+    const isPageState = /(?:Workspace|Dialog|Page|View)\.(?:ts|tsx)$/.test(filename);
+    if (isPageState) markFrontendPage(result, path);
+    else markFrontendUnit(result, path);
+    return true;
+  }
+
+  if (path.startsWith('frontend/src/app/') || path.startsWith('frontend/src/auth/') || path.startsWith('frontend/src/components/') || path.startsWith('frontend/src/features/')) {
+    if (/\.(?:test|spec)\.(?:ts|tsx|mjs)$/.test(path)) markFrontendUnit(result, path);
+    else markFrontendPage(result, path);
+    return true;
+  }
+
+  if (path.startsWith('frontend/scripts/')) {
+    markFull(result, '前端构建、预算或门禁脚本变更');
+    return true;
+  }
+
+  return false;
+}
+
+function classifyBackendPath(result, path) {
+  if (path.startsWith('backend/app/ai/') || path.startsWith('backend/app/api/ai') || path.startsWith('backend/app/schemas/ai') || path.startsWith('backend/app/services/ai_') || path.startsWith('backend/tests/ai_') || path.startsWith('backend/tests/ai/')) {
+    setDomain(result, 'backend-ai');
+    elevateRisk(result, 'high');
+    setGate(result, 'backend_ai', 'AI Runtime、Skill、Tool 或审批流变更');
+    if (path.includes('/skills/') || path.includes('/evals/') || path.startsWith('backend/tests/ai_evals/')) setGate(result, 'ai_evals', 'AI Skill catalog/eval 变更');
+    return true;
+  }
+
+  if (path.startsWith('backend/app/services/search/') || path.startsWith('backend/app/api/search') || path.startsWith('backend/app/repos/search') || path.startsWith('backend/app/schemas/search') || path.startsWith('backend/tests/search/')) {
+    setDomain(result, 'backend-search');
+    elevateRisk(result, 'high');
+    setGate(result, 'backend_search', 'Search provider、索引或排序变更');
+    return true;
+  }
+
+  if (path.startsWith('backend/app/services/family_model_settings/') || path.startsWith('backend/app/api/family_model_settings') || path.startsWith('backend/app/repos/family_model_settings/') || path.startsWith('backend/app/schemas/family_model_settings') || path.startsWith('backend/tests/family_model_settings/') || path.startsWith('backend/app/services/model_usage/') || path.startsWith('backend/app/api/model_usage') || path.startsWith('backend/app/repos/model_usage/') || path.startsWith('backend/app/schemas/model_usage') || path.startsWith('backend/app/models/model_usage') || path.startsWith('backend/app/models/family_model_settings') || path.startsWith('backend/tests/model_usage/')) {
+    setDomain(result, 'backend-model-usage');
+    elevateRisk(result, 'high');
+    setGate(result, 'backend_mysql', 'Model usage/family model settings 需要 MySQL suite');
+    if (path.startsWith('backend/app/models/')) setGate(result, 'backend_migration', '持久化模型变更需要 migration smoke');
+    return true;
+  }
+
+  if (path.startsWith('backend/alembic/') || path.startsWith('backend/app/models/') || path.startsWith('backend/app/db/') || path.startsWith('backend/scripts/check_alembic')) {
+    setDomain(result, 'backend-migration');
+    elevateRisk(result, 'high');
+    setGate(result, 'backend_migration', 'Migration 或持久化模型变更需要 migration smoke');
+    if (path.startsWith('backend/app/models/')) setGate(result, 'backend_service', '模型变更补充普通后端服务测试');
+    return true;
+  }
+
+  if (path.startsWith('backend/app/') || path.startsWith('backend/tests/')) {
+    setDomain(result, 'backend-service');
+    elevateRisk(result, 'page');
+    setGate(result, 'backend_service', '普通后端 route/service/repo 变更');
+    return true;
+  }
+
+  return false;
+}
+
+const FULL_REPOSITORY_PATTERNS = Object.freeze([
+  /^\.github\//,
+  /^(?:package(?:-lock)?\.json|tsconfig[^/]*|Makefile|\.nvmrc)$/,
+  /^frontend\/(?:package(?:-lock)?\.json|vite\.config\.|tsconfig|playwright\.config\.)/,
+  /^backend\/(?:requirements[^/]*|pyproject\.toml|alembic\.ini|ci-test-groups\.json)$/,
+  /^frontend\/src\/(?:App\.tsx|api\/types\.ts|api\/request\.ts|api\/client\.ts|api\/queryKeys\.ts|api\/cacheInvalidation\.ts|test\/|components\/ui-kit(?:\/|\.))/,
+  /^frontend\/src\/styles\/00-ui-kit\.css$/,
+  /^backend\/app\/core\/(?:security|deps|config|enums)\.py$/,
+]);
+
+const DEPENDENCY_PATTERNS = Object.freeze([
+  /^(?:package(?:-lock)?\.json|frontend\/package(?:-lock)?\.json|backend\/requirements[^/]*|backend\/pyproject\.toml)$/,
+]);
+
+const DEPLOYMENT_PATTERNS = Object.freeze([
+  /^deploy\//,
+  /^(?:Dockerfile|\.dockerignore)/,
+  /^frontend\/playwright\.deployment\.config\./,
+  /^frontend\/e2e\/realtime-websocket-deployment\.spec\./,
+]);
+
+export function classifyChangedFiles(inputFiles, { eventName = 'pull_request' } = {}) {
+  const files = [...new Set(inputFiles.map(normalizePath).filter(Boolean))].sort();
+  const result = {
+    changedFiles: files,
+    docsOnly: false,
+    full: false,
+    risk: 'docs',
+    domains: [],
+    frontendScopes: [],
+    gates: Object.fromEntries(GATE_KEYS.map((gate) => [gate, false])),
+    reasons: [],
+  };
+
+  if (eventName !== 'pull_request') {
+    markFull(result, `${eventName} 不是普通 PR，执行完整门禁`);
+    return result;
+  }
+
+  if (files.length === 0) {
+    markFull(result, '没有取得 PR 文件列表，按 fail-closed 处理');
+    return result;
+  }
+
+  const nonDocumentationFiles = files.filter((file) => !isDocumentationPath(file));
+  if (nonDocumentationFiles.length === 0) {
+    result.docsOnly = true;
+    result.risk = 'docs';
+    result.reasons.push('仅文档/规则改动，不运行业务测试');
+    return result;
+  }
+
+  for (const path of nonDocumentationFiles) {
+    if (matchesAny(path, FULL_REPOSITORY_PATTERNS)) {
+      markFull(result, '共享配置、公共契约或 CI 规则变更');
+      continue;
+    }
+
+    if (matchesAny(path, DEPENDENCY_PATTERNS)) {
+      markFull(result, '依赖清单变更影响整个构建和运行时');
+      setGate(result, 'dependency_audit');
+      continue;
+    }
+
+    if (matchesAny(path, DEPLOYMENT_PATTERNS)) {
+      setDomain(result, 'deployment');
+      elevateRisk(result, 'high');
+      setGate(result, 'deployment_smokes', '部署、媒体或 WebSocket 传输变更');
+      continue;
+    }
+
+    const classified = isFrontendPath(path)
+      ? classifyFrontendPath(result, path)
+      : isBackendPath(path)
+        ? classifyBackendPath(result, path)
+        : false;
+
+    if (!classified) markFull(result, `未知路径 ${path} 无法安全分类`);
+  }
+
+  if (result.domains.length > 1 && result.domains.includes('frontend') && result.domains.some((domain) => domain.startsWith('backend'))) {
+    markFull(result, '前后端跨域改动，升级为全量相关门禁');
+  }
+
+  if (result.domains.includes('frontend') && result.frontendScopes.length > 1) {
+    markFull(result, '多个前端业务域同时变更，升级为全量相关门禁');
+  }
+
+  if (result.domains.length > 2) {
+    markFull(result, '多个业务域同时变更，升级为全量相关门禁');
+  }
+
+  return result;
+}
+
+function parseNameStatusOutput(buffer) {
+  const tokens = buffer.toString('utf8').split('\0').filter(Boolean);
+  const files = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const status = tokens[index];
+    if (/^[RC]/.test(status)) {
+      index += 1;
+      if (tokens[index]) files.push(tokens[index]);
+      index += 1;
+      if (tokens[index]) files.push(tokens[index]);
+    } else {
+      index += 1;
+      if (tokens[index]) files.push(tokens[index]);
+    }
+  }
+  return files;
+}
+
+export function readChangedFilesFromGit(baseSha, headSha) {
+  if (!baseSha || !headSha) throw new Error('GITHUB_BASE_SHA and GITHUB_HEAD_SHA/GITHUB_SHA are required for PR classification');
+  const command = spawnSync('git', ['diff', '--name-status', '--find-renames', '--diff-filter=ACDMRTUXB', '-z', baseSha, headSha], {
+    encoding: 'buffer',
+    maxBuffer: 1024 * 1024 * 4,
+  });
+  if (command.error) throw command.error;
+  if (command.status !== 0) throw new Error(command.stderr?.toString('utf8') || `git diff exited with ${command.status}`);
+  return parseNameStatusOutput(command.stdout);
+}
+
+function parseCliFiles(argv) {
+  const filesIndex = argv.indexOf('--files');
+  if (filesIndex === -1) return null;
+  return argv.slice(filesIndex + 1).filter((value) => value !== '--');
+}
+
+function writeGitHubOutputs(result) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (outputPath) {
+    const outputs = {
+      risk: result.risk,
+      docs_only: String(result.docsOnly),
+      full: String(result.full),
+      domains: JSON.stringify(result.domains),
+      frontend_scopes: JSON.stringify(result.frontendScopes),
+      classification: JSON.stringify(result),
+    };
+    for (const gate of GATE_KEYS) outputs[gate] = String(result.gates[gate]);
+    let content = '';
+    for (const [key, value] of Object.entries(outputs)) {
+      if (key === 'classification') content += `${key}<<CLASSIFICATION_EOF\n${value}\nCLASSIFICATION_EOF\n`;
+      else content += `${key}=${value}\n`;
+    }
+    appendFileSync(outputPath, content);
+  }
+
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    const selectedGates = GATE_KEYS.filter((gate) => result.gates[gate]);
+    const summary = [
+      '## PR 门禁分类',
+      '',
+      `- 风险：**${result.risk}**`,
+      `- 业务域：${result.domains.length ? result.domains.join('、') : '文档'}`,
+      `- 选中门禁：${selectedGates.length ? selectedGates.join('、') : '无业务门禁'}`,
+      '',
+      '分类依据：',
+      ...result.reasons.map((reason) => `- ${reason}`),
+    ].join('\n');
+    appendFileSync(summaryPath, `${summary}\n`);
+  }
+}
+
+export function main(argv = process.argv.slice(2), env = process.env) {
+  const eventName = env.GITHUB_EVENT_NAME || 'pull_request';
+  const cliFiles = parseCliFiles(argv);
+  const files = cliFiles ?? (eventName === 'pull_request'
+    ? readChangedFilesFromGit(env.GITHUB_BASE_SHA, env.GITHUB_HEAD_SHA || env.GITHUB_SHA)
+    : []);
+  const result = classifyChangedFiles(files, { eventName });
+  writeGitHubOutputs(result);
+  console.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+const isMain = process.argv[1] && pathToFileURL(fileURLToPath(import.meta.url)).href === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  }
+}
