@@ -18,6 +18,12 @@
     align-content: stretch;
   }
 
+  .ai-workspace-route-shell {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .ai-workspace-shell {
     height: 100%;
   }
