@@ -26,6 +26,7 @@
     "frontend:smoke": "npm --prefix frontend run smoke",
     "frontend:typecheck": "npm --prefix frontend run typecheck --",
     "frontend:quality": "npm --prefix frontend run quality --",
+    "frontend:governance": "npm --prefix frontend run check:governance --",
     "frontend:audit:prod": "npm audit --prefix frontend --omit=dev --audit-level=high",
     "backend:venv": "python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements-dev.txt",
     "backend:init-db": "cd backend && .venv/bin/python scripts/init_mysql.py",

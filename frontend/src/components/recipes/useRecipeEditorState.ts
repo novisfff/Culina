@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Difficulty, Ingredient } from '../../api/types';
+import type { Difficulty, Ingredient } from '../../api/types/recipe';
 import {
   MAX_STEP_KEY_POINTS,
 } from './RecipeWorkspaceOptions';

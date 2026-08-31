@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { MealLogCandidate, MealType } from '../../api/types';
+import type { MealLogCandidate, MealType } from '../../api/types/meal';
 
 export type UseMealCandidateDataArgs = {
   open: boolean;

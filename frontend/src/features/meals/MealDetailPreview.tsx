@@ -1,4 +1,4 @@
-import type { Food, MealLog, Member } from '../../api/types';
+import type { Food, MealLog, Member } from '../../api/types/meal';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { Avatar, Badge } from '../../components/ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';

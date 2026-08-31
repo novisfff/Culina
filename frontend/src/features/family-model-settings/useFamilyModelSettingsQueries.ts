@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { familyModelSettingsApi } from '../../api/familyModelSettingsApi';
 import { queryKeys } from '../../api/queryKeys';
-import type { UserRole } from '../../api/types';
+import type { UserRole } from '../../api/types/modelUsage';
 
 export interface UseFamilyModelSettingsQueriesArgs {
   familyId: string;

@@ -1,4 +1,4 @@
-import type { MealType } from '../../api/types';
+import type { MealType } from '../../api/types/recipe';
 import type { RecipeQuickFilter, RecipeSortMode } from './workspaceModel';
 
 export const SHOW_RECIPE_PLAN_MANAGEMENT = false;

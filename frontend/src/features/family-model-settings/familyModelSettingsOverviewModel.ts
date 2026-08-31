@@ -1,4 +1,4 @@
-import type { FamilyModelCapability, FamilyModelSettings } from '../../api/types';
+import type { FamilyModelCapability, FamilyModelSettings } from '../../api/types/modelUsage';
 import type { FamilyModelSettingsDraft } from './familyModelSettingsModel';
 import { FAMILY_MODEL_REQUIRED_METERS, validateFamilyModelPriceRates, validateMoneyInput } from './familyModelSettingsModel';
 import { profileSupportsCapability } from './familyModelSettingsOptions';

@@ -1,4 +1,4 @@
-import type { ModelUsageMeasurementHealth } from '../../api/types';
+import type { ModelUsageMeasurementHealth } from '../../api/types/modelUsage';
 import { StatusBadge } from '../../components/ui-kit';
 import { actionableModelUsageHealthNotices } from './modelUsageModel';
 

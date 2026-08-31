@@ -95,7 +95,7 @@ type IngredientCatalogCardComponent = ComponentType<{
   onDetail: () => void;
 }>;
 
-type IngredientHubPageProps = {
+export type IngredientHubPageProps = {
   noticeToast: ReactNode;
   overlays: OverlayLayerProps;
   workspaceMetrics: Array<{ label: string; value: string; detail?: string }>;

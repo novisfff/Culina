@@ -40,6 +40,7 @@ import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './
 import { AiRunDebugDrawer } from './AiRunDebugDrawer';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
+import { AiWorkspaceRoute } from './AiWorkspaceRoute';
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -1527,6 +1528,7 @@ export function AiWorkspace({
     forceScrollKey: latestUserMessageScrollKey(displayedMessages),
   });
   return (
+    <AiWorkspaceRoute>
     <AiResultCardReplacementProvider onResultCard={replaceOperationResultCard}>
     <AiOperationRevertProvider>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
@@ -1816,5 +1818,6 @@ export function AiWorkspace({
     </main>
     </AiOperationRevertProvider>
     </AiResultCardReplacementProvider>
+    </AiWorkspaceRoute>
   );
 }

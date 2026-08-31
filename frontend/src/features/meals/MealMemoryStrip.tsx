@@ -1,4 +1,4 @@
-import type { MealInsight } from '../../api/types';
+import type { MealInsight } from '../../api/types/meal';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { buildMealInsightPresentation } from './MealLogWorkspaceModel';

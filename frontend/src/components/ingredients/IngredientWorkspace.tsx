@@ -1,20 +1,5 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react';
-import { createPortal } from 'react-dom';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppLogoIcon } from '../../app/shellIcons';
-import { api } from '../../api/client';
-import { queryKeys } from '../../api/queryKeys';
-import { invalidateAfterFoodChanged, invalidateAfterInventoryChanged, invalidateAfterInventoryOperation } from '../../api/cacheInvalidation';
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { invalidateAfterFoodChanged } from '../../api/cacheInvalidation';
 import type {
   ConsumeInventoryResponse,
   CorrectInventoryExpiryDateRequest,
@@ -29,70 +14,68 @@ import type {
   InventoryItem,
   InventoryOverviewItem,
   InventoryStatus,
-  MealLogCandidate,
   MealType,
-  RecordMealPayload,
   RecordMealResponse,
-  RecordMealTarget,
   Recipe,
   ShoppingListItem,
   UpsertIngredientInventoryStateRequest,
 } from '../../api/types';
-import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { formatDate, getFoodCoverAsset, todayKey } from '../../lib/ui';
-import { addDateKeyDays, businessDateKey } from '../../lib/date';
+import { todayKey } from '../../lib/ui';
+import { businessDateKey } from '../../lib/date';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { usePagedList } from '../../hooks/usePagedList';
 import { useNotice } from '../../hooks/useNotice';
 import {
   ActionButton,
-  FormActions,
-  WorkspaceDrawer,
-  WorkspaceModal,
-  WorkspaceOverlayFrame,
 } from '../ui-kit';
-import { getIngredientAvailableQuantityInDefault } from '../../lib/ingredientUnits';
 import { tracksIngredientQuantity } from '../../lib/ingredientTracking';
 import type { ExpiryInventoryActionGroup } from '../../features/inventory/inventoryActionModel';
+import { createMealBusinessDate, createMealRecordDateOptions } from '../../features/meals/MealComposerModel';
+import { IngredientInventoryCard } from './IngredientInventoryCard';
+import { ShoppingHistoryRow as IngredientShoppingHistoryRow } from './ShoppingHistoryRow';
+import { ShoppingWorkRow } from './ShoppingWorkRow';
+import { IngredientWorkspaceIcon, type IngredientWorkspaceIconName } from './IngredientWorkspaceIcon';
+import { IngredientWorkspaceEditorOverlay } from './IngredientWorkspaceEditorOverlay';
+import { IngredientWorkspaceDesktopActions } from './IngredientWorkspaceDesktopActions';
+import { IngredientWorkspaceNotice } from './IngredientWorkspaceNotice';
 import {
-  buildRecordMealPayload,
-  canSubmitWithCandidateResolution,
-  createMealBusinessDate,
-  createMealRecordDateOptions,
-  deriveCandidatePresentation,
-  type MealCandidateResolution,
-} from '../../features/meals/MealComposerModel';
-import {
-  extractMealRecordErrorCode,
-  messageFromMealRecordReason,
-} from '../../features/meals/mealRecordErrors';
-import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
-import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
+  isPendingShopping,
+  resolveErrorMessage,
+} from './ingredientWorkspaceHelpers';
+import { IngredientQuickDetailPopover } from './IngredientQuickDetailPopover';
+import { IngredientCatalogCard as ExtractedIngredientCatalogCard } from './IngredientCatalogCard';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
 import {
   buildIngredientSummaries,
-  buildIngredientPriorityActionGroups,
   buildInventoryCardPresentation,
   buildInventoryCardStatus,
+  buildInventorySummaryLine,
+  buildInventoryTotalLabel,
+  buildCatalogCardStatus,
+  buildCatalogExpandedNote,
+  getIngredientAlertTone,
+  resolveShoppingReason,
   countDisposableExpiredInventoryItems,
   filterIngredientSummariesByCatalogStatus,
   type IngredientSummaryViewModel,
   type IngredientWorkspacePanel,
-  type InventoryStorageOverviewViewModel,
   type ShoppingCardViewModel,
 } from './workspaceModel';
 import {
   defaultIngredientForm,
-  formatNumericString,
   type IngredientCreateFormState,
 } from './ingredientWorkspaceForms';
 import { IngredientDetailView } from './IngredientDetailView';
 import { IngredientDetailPage } from './IngredientDetailPage';
-import { IngredientEditorView } from './IngredientEditorView';
-import { IngredientHubPage } from './IngredientHubPage';
-import { IngredientInventoryPanelContextProvider } from './IngredientWorkspacePanels';
+import { IngredientWorkspaceHubRoute } from './IngredientWorkspaceHubRoute';
+import type { IngredientHubPageProps } from './IngredientHubPage';
+import { IngredientWorkspaceMobileDetailPopover } from './IngredientWorkspaceMobileDetailPopover';
+import {
+  IngredientStorageIcon,
+  IngredientStorageIllustration,
+  IngredientStorageOverviewCard,
+} from './IngredientStorageOverviewCard';
 import {
   buildUnifiedInventoryGroups,
   buildUnifiedInventorySummary,
@@ -106,7 +89,6 @@ import { useIngredientWorkspaceData } from './useIngredientWorkspaceData';
 import { useIngredientEditorState } from './useIngredientEditorState';
 import { useIngredientActionState } from './useIngredientActionState';
 import {
-  resolveExpiryInventoryActionGroup,
   useIngredientOverlayState,
 } from './useIngredientOverlayState';
 import {
@@ -119,476 +101,24 @@ import {
   type PersistedIngredientWorkspaceState,
   useIngredientWorkspaceState,
 } from './useIngredientWorkspaceState';
-
-type ScrollableChipRailProps = {
-  ariaLabel: string;
-  railClassName: string;
-  children: ReactNode;
-};
-
-type IngredientWorkspaceProps = {
-  ingredients: Ingredient[];
-  foods: Food[];
-  inventoryItems: InventoryItem[];
-  inventoryStates?: IngredientInventoryState[];
-  recipes: Recipe[];
-  shoppingItems: ShoppingListItem[];
-  /** Ordinary Food recording owner (Task 15). */
-  recordMeal?: (payload: import('../../api/types').RecordMealPayload) => Promise<import('../../api/types').RecordMealResponse>;
-  loadMealCandidates?: (
-    date: string,
-    mealType: MealType,
-  ) => Promise<import('../../api/types').MealLogCandidate[]>;
-  onRecordSuccess?: (response: import('../../api/types').RecordMealResponse) => void;
-  recordResult?: import('../../features/meals/useMealRecordResultState').MealRecordResult | null;
-  isRevertingRecord?: boolean;
-  recordRevertError?: string | null;
-  recordRateError?: string | null;
-  onRevertRecord?: () => void | Promise<void>;
-  onViewRecord?: () => void;
-  onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
-  onDismissRecord?: () => void;
-  isRecordingMeal?: boolean;
-  /** Shared shopping intake entry. Shopping-origin restock must open this, not local create+done. */
-  openShoppingIntake?: (args?: { selectedItemId?: string }) => void;
-  openReconciliation?: (args?: { scope?: 'suggested' | 'refrigerated' | 'frozen' | 'room_temperature' | 'all' }) => void;
-  openOperationHistory?: (operationId?: string) => void;
-  operationBanner?: ReactNode;
-  notificationCenter?: ReactNode;
-  navigationRequest?:
-    | { target: 'catalog'; requestId: number }
-    | { target: 'create'; requestId: number }
-    | { target: 'detail'; ingredientId: string; requestId: number }
-    | { target: 'shopping'; ingredientId: string; requestId: number }
-    | { target: 'priority'; requestId: number }
-    | null;
-  onNavigationRequestConsumed?: (requestId: number) => void;
-  createIngredient: (payload: {
-    name: string;
-    category: string;
-    default_unit: string;
-    quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
-    unit_conversions: IngredientUnitConversion[];
-    default_storage: string;
-    default_expiry_mode: IngredientExpiryMode;
-    default_expiry_days?: number | null;
-    default_low_stock_threshold?: number | null;
-    notes: string;
-    media_ids: string[];
-  }) => Promise<Ingredient>;
-  updateIngredient: (
-    ingredientId: string,
-    payload: {
-      expected_row_version: number;
-      name: string;
-      category: string;
-      default_unit: string;
-      quantity_tracking_mode?: Ingredient['quantity_tracking_mode'];
-      unit_conversions: IngredientUnitConversion[];
-      default_storage: string;
-      default_expiry_mode: IngredientExpiryMode;
-      default_expiry_days?: number | null;
-      default_low_stock_threshold?: number | null;
-      notes: string;
-      media_ids: string[];
-    }
-  ) => Promise<Ingredient>;
-  transitionIngredientTrackingMode?: (
-    ingredientId: string,
-    payload: import('../../api/types').IngredientTrackingModeTransitionRequest
-  ) => Promise<Ingredient>;
-  createInventory: (payload: {
-    ingredient_id: string;
-    quantity?: number | null;
-    unit?: string | null;
-    status: InventoryStatus;
-    purchase_date: string;
-    expiry_date?: string;
-    storage_location: string;
-    notes: string;
-    low_stock_threshold?: number;
-  }) => Promise<InventoryItem>;
-  upsertInventoryState: (
-    ingredientId: string,
-    payload: UpsertIngredientInventoryStateRequest,
-  ) => Promise<IngredientInventoryState>;
-  consumeInventory: (payload: {
-    ingredient_id: string;
-    quantity?: number | null;
-    unit?: string | null;
-  }) => Promise<ConsumeInventoryResponse>;
-  disposeExpiredInventory: (payload: DisposeExpiredInventoryRequest) => Promise<DisposeExpiredInventoryResponse | unknown>;
-  snoozeInventoryExpiryAlerts?: (payload: SnoozeExpiryAlertsRequest) => Promise<unknown>;
-  correctInventoryExpiryDate?: (
-    inventoryItemId: string,
-    payload: CorrectInventoryExpiryDateRequest,
-  ) => Promise<unknown>;
-  createShoppingItem: (payload: {
-    title: string;
-    quantity?: number | null;
-    unit?: string | null;
-    ingredient_id?: string | null;
-    food_id?: string | null;
-    quantity_mode?: ShoppingListItem['quantity_mode'];
-    display_label?: string | null;
-    reason: string;
-  }) => Promise<ShoppingListItem>;
-  updateShoppingItem: (payload: {
-    itemId: string;
-    payload: {
-      expected_row_version: number;
-      title?: string;
-      quantity?: number | null;
-      unit?: string | null;
-      ingredient_id?: string | null;
-      food_id?: string | null;
-      quantity_mode?: ShoppingListItem['quantity_mode'];
-      display_label?: string | null;
-      reason?: string;
-      done?: boolean;
-    };
-  }) => Promise<ShoppingListItem>;
-  deleteShoppingItem: (itemId: string, expectedRowVersion: number) => Promise<void>;
-  isCreatingIngredient?: boolean;
-  isUpdatingIngredient?: boolean;
-  isCreatingInventory?: boolean;
-  isConsumingInventory?: boolean;
-  isDisposingExpiredInventory?: boolean;
-  isCreatingShopping?: boolean;
-  isUpdatingShopping?: boolean;
-};
-
-/** Inventory-only deduct dialog (no meal record). */
-type FoodStockDeductDialogState = {
-  item: InventoryOverviewItem;
-  stockQuantity: string;
-  error: string | null;
-};
-
-/** Optional inventory follow-up after a successful ordinary record. */
-type FoodStockInventoryFollowUpState = {
-  item: InventoryOverviewItem;
-  stockQuantity: string;
-  error: string | null;
-};
-
-type FoodQuickRecordState = {
-  food: Food;
-  item: InventoryOverviewItem;
-  date: string;
-  mealType: MealType;
-  target: RecordMealTarget;
-  selectedCandidateId: string | null;
-  candidateMode: 'none' | 'single' | 'multi';
-  candidates: MealLogCandidate[];
-  candidateResolution: MealCandidateResolution;
-  targetTouchedByUser: boolean;
-  clientRequestId: string;
-  busy: boolean;
-  error: string | null;
-};
-
-function createClientRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-type FoodStockAdjustDialogState = {
-  item: InventoryOverviewItem;
-  quantity: string;
-  unit: string;
-  expiryDate: string;
-  purchaseSource: string;
-  error: string | null;
-};
-
-const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10'];
-const FOOD_STOCK_RESTOCK_EXPIRY_PRESETS = [
-  { value: 7, label: '7 天' },
-  { value: 30, label: '30 天' },
-  { value: 90, label: '90 天' },
-];
-const FOOD_STOCK_RESTOCK_SOURCE_PRESETS = ['超市', '便利店', '网购', '盒马'];
-
-function getDefaultFoodStockMealType(hour = new Date().getHours()): MealType {
-  if (hour >= 5 && hour < 10) return 'breakfast';
-  if (hour >= 10 && hour < 15) return 'lunch';
-  if (hour >= 15 && hour < 21) return 'dinner';
-  return 'snack';
-}
-
-function resolveErrorMessage(reason: unknown, fallback: string) {
-  return reason instanceof Error && reason.message.trim() ? reason.message : fallback;
-}
-
-function isPendingShopping(item: ShoppingListItem) {
-  return !item.done;
-}
-
-type IngredientAlertTone = 'warning' | 'danger';
-type IngredientWorkspaceIconName =
-  | 'logo'
-  | 'archive'
-  | 'inventory'
-  | 'shopping'
-  | 'search'
-  | 'filter'
-  | 'status'
-  | 'reset'
-  | 'alert'
-  | 'bell'
-  | 'check'
-  | 'chevronDown'
-  | 'link'
-  | 'metricList'
-  | 'metricCircle'
-  | 'sort'
-  | 'plus'
-  | 'star'
-  | 'stocked'
-  | 'total'
-  | 'calendar'
-  | 'scale'
-  | 'swap'
-  | 'edit'
-  | 'clock'
-  | 'user'
-  | 'lightbulb'
-  | 'exclamation'
-  | 'image';
-
-function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconName }) {
-  switch (props.name) {
-    case 'logo':
-      return <AppLogoIcon />;
-    case 'archive':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="5" y="4.5" width="14" height="15" rx="2" />
-          <path d="M8.5 8.5h7" />
-          <path d="M8.5 12h7" />
-          <path d="M8.5 15.5h4.5" />
-        </svg>
-      );
-    case 'inventory':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 9.5h14v9H5z" />
-          <path d="M7 9.5 8.5 5h7L17 9.5" />
-          <path d="M9 14h6" />
-        </svg>
-      );
-    case 'shopping':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 7h1.5l1.2 8.2h7.8l1.3-5.6H8.2" />
-          <circle cx="10" cy="18" r="1.2" />
-          <circle cx="16" cy="18" r="1.2" />
-        </svg>
-      );
-    case 'search':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="m16 16 4 4" />
-        </svg>
-      );
-    case 'filter':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 7h14" />
-          <path d="M8 12h8" />
-          <path d="M10.5 17h3" />
-        </svg>
-      );
-    case 'status':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5.5 8h13" />
-          <path d="M5.5 12h13" />
-          <path d="M5.5 16h13" />
-          <path d="M9 6.7v2.6" />
-          <path d="M15 10.7v2.6" />
-          <path d="M11.5 14.7v2.6" />
-        </svg>
-      );
-    case 'reset':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 8.5A6.5 6.5 0 1 1 6.7 15" />
-          <path d="M7 5v3.5h3.5" />
-        </svg>
-      );
-    case 'alert':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 5.5 20 19H4z" />
-          <path d="M12 10v4" />
-          <path d="M12 17h.01" />
-        </svg>
-      );
-    case 'bell':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 9a6 6 0 0 1 12 0c0 7 3 6 3 8H3c0-2 3-1 3-8" />
-          <path d="M10 20a2 2 0 0 0 4 0" />
-        </svg>
-      );
-    case 'check':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m6 12.4 4 4L18.5 8" />
-        </svg>
-      );
-    case 'chevronDown':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m7 10 5 5 5-5" />
-        </svg>
-      );
-    case 'link':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9.4 14.6 14.6 9.4" />
-          <path d="M10.8 7.2 12 6a4 4 0 0 1 5.7 5.7l-1.2 1.2" />
-          <path d="M13.2 16.8 12 18a4 4 0 0 1-5.7-5.7l1.2-1.2" />
-        </svg>
-      );
-    case 'metricList':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="6.5" y="5" width="11" height="14" rx="2" />
-          <path d="M9.2 9h5.6" />
-          <path d="M9.2 12h5.6" />
-          <path d="M9.2 15h3.6" />
-          <path d="M15.2 3.8v3.4" />
-        </svg>
-      );
-    case 'metricCircle':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="7" />
-        </svg>
-      );
-    case 'sort':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 5v14" />
-          <path d="m5 8 3-3 3 3" />
-          <path d="M16 19V5" />
-          <path d="m13 16 3 3 3-3" />
-        </svg>
-      );
-    case 'plus':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="7" />
-          <path d="M12 8.5v7" />
-          <path d="M8.5 12h7" />
-        </svg>
-      );
-    case 'star':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m12 4.5 2.1 4.3 4.7.7-3.4 3.3.8 4.7-4.2-2.2-4.2 2.2.8-4.7-3.4-3.3 4.7-.7z" />
-        </svg>
-      );
-    case 'stocked':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 9h12v9H6z" />
-          <path d="M8 9V6h8v3" />
-          <path d="M9.5 13.5h5" />
-        </svg>
-      );
-    case 'total':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="5" y="5" width="14" height="14" rx="3" />
-          <path d="M9 9h6" />
-          <path d="M9 12h6" />
-          <path d="M9 15h4" />
-        </svg>
-      );
-    case 'calendar':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="5" y="6" width="14" height="13" rx="2" />
-          <path d="M8 4.5v3" />
-          <path d="M16 4.5v3" />
-          <path d="M5 10h14" />
-          <path d="M9 14h3.5" />
-          <path d="M9 16.5h2" />
-        </svg>
-      );
-    case 'scale':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8.5 19h7" />
-          <path d="M12 16.5V5" />
-          <path d="M7 7h10" />
-          <path d="m7 7-3 6h6z" />
-          <path d="m17 7-3 6h6z" />
-        </svg>
-      );
-    case 'swap':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7 8h11" />
-          <path d="m15 5 3 3-3 3" />
-          <path d="M17 16H6" />
-          <path d="m9 13-3 3 3 3" />
-        </svg>
-      );
-    case 'edit':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 18h12" />
-          <path d="M7.5 14.5 15 7l2 2-7.5 7.5H7.5z" />
-          <path d="m14 8 2 2" />
-        </svg>
-      );
-    case 'clock':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="7" />
-          <path d="M12 8v4.2l2.8 1.6" />
-        </svg>
-      );
-    case 'user':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="8.2" r="3" />
-          <path d="M6.5 19a5.5 5.5 0 0 1 11 0" />
-        </svg>
-      );
-    case 'lightbulb':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 17h6" />
-          <path d="M10 20h4" />
-          <path d="M8.5 13.8a5.2 5.2 0 1 1 7 0c-.7.6-1 1.2-1.1 2H9.6c-.1-.8-.4-1.4-1.1-2z" />
-        </svg>
-      );
-    case 'exclamation':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 6.8v7.2" />
-          <path d="M12 17.4h.01" />
-        </svg>
-      );
-    case 'image':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="5" y="6" width="14" height="12" rx="2" />
-          <circle cx="9" cy="10" r="1.3" />
-          <path d="m7 16 3.3-3.4 2.4 2.4 1.5-1.6L17 16" />
-        </svg>
-      );
-  }
-}
+import { buildIngredientImagePayload, formatExpiryRuleLabel, formatLowStockRuleLabel } from './ingredientWorkspaceModels';
+import { buildIngredientDetailViewModel } from './IngredientWorkspaceViewModel';
+import { ScrollableChipRail } from './ScrollableChipRail';
+import {
+  useIngredientFoodStockState,
+} from './useIngredientFoodStockState';
+import { IngredientFoodStockRecordController } from './IngredientFoodStockRecordController';
+import { useIngredientFoodStockActions } from './useIngredientFoodStockActions';
+import { useIngredientWorkspaceSearch } from './useIngredientWorkspaceSearch';
+import {
+  useIngredientInventoryRefresh,
+  useIngredientInventoryOperationInvalidation,
+} from './useIngredientInventoryRefresh';
+import { useIngredientFoodLookup } from './useIngredientFoodLookup';
+import { useIngredientFoodStockMealRecord } from './useIngredientFoodStockMealRecord';
+import { useIngredientFoodStockNavigation } from './useIngredientFoodStockNavigation';
+import { useIngredientWorkspaceNavigationEffects } from './useIngredientWorkspaceNavigationEffects';
+import type { IngredientWorkspaceProps } from './IngredientWorkspaceTypes';
 
 const PANEL_ITEMS: Array<{ value: IngredientWorkspacePanel; label: string; icon: IngredientWorkspaceIconName }> = [
   { value: 'catalog', label: '食材库', icon: 'archive' },
@@ -603,1172 +133,10 @@ const CATALOG_STATUS_FILTERS: Array<{ value: CatalogStatusFilter; label: string 
   { value: 'lowStock', label: '库存不足' },
   { value: 'stable', label: '正常' },
 ];
-function formatExpiryRuleLabel(ingredient: Ingredient) {
-  const expiryMode =
-    ingredient.default_expiry_mode === 'days' ||
-    ingredient.default_expiry_mode === 'manual_date' ||
-    ingredient.default_expiry_mode === 'none'
-      ? ingredient.default_expiry_mode
-      : 'none';
-  if (expiryMode === 'days') {
-    return ingredient.default_expiry_days ? `买后 ${ingredient.default_expiry_days} 天到期` : '按买后天数计算到期';
-  }
-  if (expiryMode === 'manual_date') {
-    return '补充库存时填写包装到期日';
-  }
-  return '默认不设置到期日';
-}
-
-function formatLowStockRuleLabel(ingredient: Ingredient) {
-  return ingredient.default_low_stock_threshold !== null && ingredient.default_low_stock_threshold !== undefined
-    ? `少于 ${ingredient.default_low_stock_threshold} ${ingredient.default_unit} 时提醒`
-    : '没有设置低库存提醒';
-}
-
-function buildIngredientImagePayload(form: IngredientCreateFormState): AiRenderPayload {
-  return {
-    entity_type: 'ingredient',
-    title: form.name.trim() || '家庭食材',
-    category: form.category.trim(),
-    notes: form.notes.trim(),
-  };
-}
-
-function ScrollableChipRail(props: ScrollableChipRailProps) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [hasOverflow, setHasOverflow] = useState(false);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return;
-    }
-
-    let frame = 0;
-    const updateScrollState = () => {
-      cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        const overflow = viewport.scrollWidth > viewport.clientWidth + 4;
-        const nextCanScrollLeft = viewport.scrollLeft > 4;
-        const nextCanScrollRight = viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 4;
-        setHasOverflow((current) => (current === overflow ? current : overflow));
-        setCanScrollLeft((current) => (current === nextCanScrollLeft ? current : nextCanScrollLeft));
-        setCanScrollRight((current) => (current === nextCanScrollRight ? current : nextCanScrollRight));
-      });
-    };
-
-    updateScrollState();
-    viewport.addEventListener('scroll', updateScrollState, { passive: true });
-
-    const observer = new ResizeObserver(() => {
-      updateScrollState();
-    });
-    observer.observe(viewport);
-    if (contentRef.current) {
-      observer.observe(contentRef.current);
-    }
-
-    return () => {
-      cancelAnimationFrame(frame);
-      viewport.removeEventListener('scroll', updateScrollState);
-      observer.disconnect();
-    };
-  }, [props.children]);
-
-  function scrollByDirection(direction: -1 | 1) {
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return;
-    }
-    viewport.scrollBy({
-      left: direction * Math.max(180, viewport.clientWidth * 0.72),
-      behavior: 'smooth',
-    });
-  }
-
-  function handleViewportKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (!hasOverflow) {
-      return;
-    }
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      scrollByDirection(-1);
-      return;
-    }
-    if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      scrollByDirection(1);
-      return;
-    }
-    if (event.key === 'Home') {
-      event.preventDefault();
-      viewportRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
-      return;
-    }
-    if (event.key === 'End') {
-      event.preventDefault();
-      viewportRef.current?.scrollTo({ left: viewportRef.current.scrollWidth, behavior: 'smooth' });
-    }
-  }
-
-  const shellClassName = [
-    'ingredients-chip-rail-shell',
-    hasOverflow ? 'has-overflow' : '',
-    canScrollLeft ? 'can-scroll-left' : '',
-    canScrollRight ? 'can-scroll-right' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <div className={shellClassName}>
-      <button
-        className="ingredients-chip-rail-button ingredients-chip-rail-button-left"
-        type="button"
-        aria-label="向左查看更多分类"
-        onClick={() => scrollByDirection(-1)}
-        disabled={!hasOverflow || !canScrollLeft}
-      >
-        <span aria-hidden="true">‹</span>
-      </button>
-      <div
-        ref={viewportRef}
-        className="ingredients-chip-rail-viewport"
-        aria-label={props.ariaLabel}
-        onKeyDown={handleViewportKeyDown}
-        tabIndex={hasOverflow ? 0 : -1}
-      >
-        <div ref={contentRef} className={props.railClassName}>
-          {props.children}
-        </div>
-      </div>
-      <button
-        className="ingredients-chip-rail-button ingredients-chip-rail-button-right"
-        type="button"
-        aria-label="向右查看更多分类"
-        onClick={() => scrollByDirection(1)}
-        disabled={!hasOverflow || !canScrollRight}
-      >
-        <span aria-hidden="true">›</span>
-      </button>
-    </div>
-  );
-}
-
-function getIngredientAlertTone(summary: IngredientSummaryViewModel): IngredientAlertTone {
-  return summary.alerts.some((item) => item.tone === 'danger') ? 'danger' : 'warning';
-}
-
-function getBatchTone(alerts: Array<{ tone: 'warning' | 'danger' }>): 'default' | 'warning' | 'danger' {
-  if (alerts.some((item) => item.tone === 'danger')) {
-    return 'danger';
-  }
-  if (alerts.length > 0) {
-    return 'warning';
-  }
-  return 'default';
-}
-
-function buildInventorySummaryLine(summary: IngredientSummaryViewModel) {
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    const level = summary.inventoryState?.availability_level;
-    if (level === 'sufficient' || level === 'present_unknown') return '有库存';
-    if (level === 'low') return '少量';
-    if (level === 'absent') return '没有库存';
-    return '未确认';
-  }
-  if (summary.quantitySummaries.length === 0) {
-    return '还没有库存';
-  }
-
-  return summary.quantitySummaries
-    .slice(0, 2)
-    .map((item) => item.label)
-    .join(' · ');
-}
-
-function buildInventoryRowDescription(summary: IngredientSummaryViewModel) {
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    return `${summary.primaryStorage} · 库存状态：${buildInventorySummaryLine(summary)}`;
-  }
-  if (summary.inventoryItems.length === 0) {
-    return `${summary.primaryStorage} · 还没有库存，适合先补充第一批常用量。`;
-  }
-  if (summary.quantitySummaries.length === 0) {
-    return `${summary.primaryStorage} · 当前没有可用库存，可处理到期库存或补充新的库存。`;
-  }
-
-  return [
-    buildInventorySummaryLine(summary),
-    summary.primaryStorage,
-    summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
-
-function buildInventoryTotalLabel(summary: IngredientSummaryViewModel) {
-  if (!tracksIngredientQuantity(summary.ingredient)) {
-    return buildInventorySummaryLine(summary);
-  }
-  const totalQuantity = getIngredientAvailableQuantityInDefault(summary.ingredient, summary.inventoryItems);
-  if (totalQuantity <= 0) {
-    return `0 ${summary.ingredient.default_unit || '个'}`;
-  }
-  return `${formatNumericString(totalQuantity)} ${summary.ingredient.default_unit || '个'}`;
-}
-
-type CatalogCardStatusTone = 'stable' | 'warning' | 'danger' | 'empty';
-
-function buildCatalogCardStatus(summary: IngredientSummaryViewModel): {
-  label: string;
-  tone: CatalogCardStatusTone;
-  stockLine: string;
-  hint: string;
-} {
-  const expiredAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity === 'expired');
-  const expiringAlert = summary.alerts.find((item) => item.kind === 'expiry' && item.severity !== 'expired');
-  const firstWarningAlert = summary.alerts.find((item) => item.tone === 'warning');
-  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
-  const availableLabel = tracksQuantity
-    ? summary.quantitySummaries[0]?.label ?? '还没有库存'
-    : buildInventorySummaryLine(summary);
-  const stockLine = tracksQuantity
-    ? summary.inventoryItems.length > 0
-      ? `库存 ${availableLabel} · ${summary.inventoryItems.length} 批`
-      : `库存 ${availableLabel}`
-    : `库存状态 ${availableLabel} · 只记录有无`;
-
-  if (expiredAlert) {
-    return {
-      label: '已过期',
-      tone: 'danger',
-      stockLine,
-      hint: '优先处理过期库存',
-    };
-  }
-
-  if (expiringAlert) {
-    return {
-      label: '临期',
-      tone: expiringAlert.tone === 'danger' ? 'danger' : 'warning',
-      stockLine,
-      hint: '建议优先安排使用',
-    };
-  }
-
-  if (summary.quantitySummaries.length === 0) {
-    return {
-      label: '还没有可用库存',
-      tone: 'empty',
-      stockLine,
-      hint: summary.inventoryItems.length > 0 ? '可补货或加入采购清单' : '建议先加入库存',
-    };
-  }
-
-  if (firstWarningAlert) {
-    return {
-      label: '库存偏低',
-      tone: 'warning',
-      stockLine,
-      hint: '建议加入采购清单或补货',
-    };
-  }
-
-  return {
-    label: '库存正常',
-    tone: 'stable',
-    stockLine,
-    hint: summary.latestPurchaseDate ? `最近补货 ${formatDate(summary.latestPurchaseDate)}` : '可以记录用量或补货',
-  };
-}
-
-function buildCatalogExpandedNote(summary: IngredientSummaryViewModel) {
-  if (summary.ingredient.notes.trim()) {
-    return summary.ingredient.notes.trim();
-  }
-  if (summary.latestPurchaseDate) {
-    return `最近补货于 ${formatDate(summary.latestPurchaseDate)}，当前主要放在 ${summary.primaryStorage}。`;
-  }
-  if (summary.inventoryItems.length > 0) {
-    return `当前有 ${summary.inventoryItems.length} 批库存，可继续补货或查看详情。`;
-  }
-  return '这项食材还没有库存，先补充一些会更方便。';
-}
-
-function resolveShoppingReason(summary: IngredientSummaryViewModel) {
-  if (summary.alerts.some((item) => item.kind === 'lowStock')) {
-    return '库存偏低，准备补货';
-  }
-  if (summary.alerts.some((item) => item.kind === 'expiry')) {
-    return '备一份新的，替换临期库存';
-  }
-  return '加入近期采购清单';
-}
-
-type InventoryStorageOverviewCardProps = {
-  item: InventoryStorageOverviewViewModel;
-  active: boolean;
-  onSelect: () => void;
-};
-
-function InventoryStorageIcon(props: { storage: string }) {
-  if (props.storage === '冷冻') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3v18" />
-        <path d="m8 5 4 4 4-4" />
-        <path d="m8 19 4-4 4 4" />
-        <path d="M4.2 7.5 19.8 16.5" />
-        <path d="m4.8 12.9 5.5-1.5-1.5-5.5" />
-        <path d="m19.2 11.1-5.5 1.5 1.5 5.5" />
-        <path d="M19.8 7.5 4.2 16.5" />
-        <path d="m15.2 5.9-1.5 5.5 5.5 1.5" />
-        <path d="m8.8 18.1 1.5-5.5-5.5-1.5" />
-      </svg>
-    );
-  }
-  if (props.storage === '常温') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="5" y="5" width="14" height="16" rx="1.8" />
-        <path d="M5 10h14" />
-        <path d="M12 10v11" />
-        <path d="M8.5 14v2" />
-        <path d="M15.5 14v2" />
-        <path d="M9 7.5h6" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="6" y="4" width="12" height="17" rx="2" />
-      <path d="M6 10h12" />
-      <path d="M9 7h6" />
-      <path d="M9 14v3" />
-      <path d="M15 14v3" />
-    </svg>
-  );
-}
-
-function resolveInventoryStorageAsset(storage: string) {
-  if (storage === '冷冻') {
-    return '/assets/asset_storage_freezer_frozen.webp';
-  }
-  if (storage === '常温') {
-    return '/assets/asset_storage_pantry_roomtemp.webp';
-  }
-  return '/assets/asset_storage_fridge_chilled.webp';
-}
-
-function InventoryStorageIllustration(props: { storage: string }) {
-  return (
-    <img
-      src={resolveInventoryStorageAsset(props.storage)}
-      alt=""
-      className="ingredients-inventory-storage-illustration"
-    />
-  );
-}
-
-function InventoryStorageOverviewCard(props: InventoryStorageOverviewCardProps) {
-  const className = [
-    'ingredients-inventory-overview-card',
-    `tone-${props.item.tone}`,
-    `storage-${props.item.key}`,
-    props.active ? 'active' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <button type="button" className={className} onClick={props.onSelect} aria-pressed={props.active}>
-      <span className="ingredients-inventory-overview-illustration">
-        <InventoryStorageIllustration storage={props.item.key} />
-      </span>
-      <div className="ingredients-inventory-overview-card-head">
-        <span className="ingredients-inventory-overview-card-title">
-          <span className="ingredients-inventory-overview-card-icon">
-            <InventoryStorageIcon storage={props.item.key} />
-          </span>
-          {props.item.label}
-          {props.active && <span className="ingredients-inventory-overview-card-focus">当前查看</span>}
-        </span>
-        <span className="ingredients-inventory-overview-card-action" aria-hidden="true">
-          {props.active ? '✓' : '›'}
-        </span>
-      </div>
-      <div className="ingredients-inventory-overview-card-body">
-        <div className="ingredients-inventory-overview-card-metric">
-          <strong>{props.item.ingredientCount}</strong>
-          <span>种食材</span>
-        </div>
-        <div className="ingredients-inventory-overview-card-metric">
-          <strong>{props.item.totalBatches}</strong>
-          <span>库存批次</span>
-        </div>
-        <div className="ingredients-inventory-overview-card-metric">
-          <strong>{props.item.alertCount}</strong>
-          <span>条提醒</span>
-        </div>
-      </div>
-      <p className="ingredients-inventory-overview-card-status">
-        <span aria-hidden="true" />
-        {props.item.statusLabel}
-      </p>
-    </button>
-  );
-}
-
-type ShoppingWorkRowProps = {
-  card: ShoppingCardViewModel;
-  onComplete: () => void;
-  onDetail?: () => void;
-  isBusy?: boolean;
-};
-
-function ShoppingWorkRow(props: ShoppingWorkRowProps) {
-  const { card } = props;
-  const linkedSummary = card.linkedSummary;
-  const imageUrl = resolveAssetUrl(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
-  const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
-  const footerNote =
-    card.statusTone === 'danger'
-      ? '已过期，建议优先购买并加入库存。'
-      : card.hasAttention
-        ? '有库存提醒，建议优先购买并加入库存。'
-        : card.footerNote;
-  const rowClassName = [
-    'shopping-work-row',
-    `tone-${card.tone}`,
-    card.hasAttention ? 'has-attention' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <article className={rowClassName}>
-      <div className="shopping-work-row-accent-bar" aria-hidden="true" />
-      <div className="shopping-work-row-main">
-        <div className="shopping-work-row-leading">
-          <div className={hasCustomImage ? 'shopping-work-row-media' : 'shopping-work-row-media is-placeholder'}>
-            <MediaWithPlaceholder src={imageUrl} alt={card.title} />
-          </div>
-        </div>
-
-        <div className="shopping-work-row-copy">
-          <div className="shopping-work-row-head">
-            <div className="shopping-work-row-titleblock">
-              <h3 className="shopping-work-row-title">{card.title}</h3>
-              <strong className="shopping-work-row-quantity">{card.headline}</strong>
-              <div className="shopping-work-row-badges">
-                <span className={`shopping-work-row-source tone-${card.tone}`}>{card.sourceLabel}</span>
-                <span className={`shopping-work-row-status tone-${card.statusTone}`}>{card.statusLabel}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="shopping-work-row-meta-line">
-            <p className="shopping-work-row-subline" title={card.subline}>
-              {card.subline}
-            </p>
-            {card.contextTags.length > 0 && (
-              <div className="shopping-work-row-context">
-                {card.contextTags.map((tag) => (
-                  <span key={`${card.shoppingItem.id}-${tag}`} className="shopping-work-row-context-tag">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {footerNote && (
-            <div className="shopping-work-row-inline-note">
-              <span className="shopping-work-row-inline-note-icon" aria-hidden="true">💡</span>
-              <span className="shopping-work-row-inline-note-text">{footerNote}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="shopping-work-row-actions">
-          <ActionButton
-            tone="primary"
-            type="button"
-            className="shopping-work-row-primary-action"
-            onClick={props.onComplete}
-            disabled={props.isBusy}
-          >
-            已购买并加入库存
-          </ActionButton>
-          {props.onDetail ? (
-            <ActionButton
-              tone="secondary"
-              size="compact"
-              type="button"
-              className="shopping-work-row-detail-action"
-              onClick={props.onDetail}
-              disabled={props.isBusy}
-            >
-              查看详情
-            </ActionButton>
-          ) : (
-            <div className="shopping-work-row-action-note">
-              {card.linkedFood ? '买回后补充成品库存' : '买回后按当前名称加入库存'}
-            </div>
-          )}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-type ShoppingHistoryRowProps = {
-  card: ShoppingCardViewModel;
-  onRestore: () => void;
-  onDetail?: () => void;
-  isBusy?: boolean;
-};
-
-function ShoppingHistoryRow(props: ShoppingHistoryRowProps) {
-  const { card } = props;
-  const linkedSummary = card.linkedSummary;
-  const imageUrl = resolveAssetUrl(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
-  const hasCustomImage = Boolean(linkedSummary?.ingredient.image?.url ?? card.linkedFood?.images?.[0]?.url);
-  const completedDateLabel = card.updatedAt ? formatDate(card.updatedAt) : null;
-
-  return (
-    <article className="shopping-history-row">
-      <div className="shopping-history-row-main">
-        <div className="shopping-history-row-leading">
-          <div className={hasCustomImage ? 'shopping-history-row-media' : 'shopping-history-row-media is-placeholder'}>
-            <MediaWithPlaceholder src={imageUrl} alt={card.title} />
-          </div>
-        </div>
-
-        <div className="shopping-history-row-copy">
-          <div className="shopping-history-row-head">
-            <h4 className="shopping-history-row-title">{card.title}</h4>
-            <strong className="shopping-history-row-quantity">{card.quantityLabel}</strong>
-            <span className="shopping-history-row-source">{card.sourceLabel}</span>
-            {completedDateLabel && (
-              <span className="shopping-history-row-date-tag">
-                <span className="shopping-history-row-date-icon" aria-hidden="true">📅</span>
-                {completedDateLabel} 已买
-              </span>
-            )}
-          </div>
-          <p className="shopping-history-row-meta">
-            {card.reasonLabel ? `${card.reasonLabel} · ` : ''}{card.contextLine}
-          </p>
-        </div>
-
-        <div className="shopping-history-row-actions">
-          {props.onDetail ? (
-            <ActionButton
-              tone="tertiary"
-              size="compact"
-              type="button"
-              className="shopping-history-detail-action"
-              onClick={props.onDetail}
-              disabled={props.isBusy}
-            >
-              查看详情
-            </ActionButton>
-          ) : null}
-          <ActionButton
-            tone="secondary"
-            size="compact"
-            type="button"
-            className="shopping-history-restore-action"
-            onClick={props.onRestore}
-            disabled={props.isBusy}
-          >
-            再次加入采购清单
-          </ActionButton>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-type InventoryIngredientCardProps = {
-  summary: IngredientSummaryViewModel;
-  onRestock: () => void;
-  onConsume: () => void;
-  onAddShopping: () => void;
-  onDetail: () => void;
-  onDestroyExpired: () => void;
-};
-
-function InventoryIngredientCard(props: InventoryIngredientCardProps) {
-  const { summary } = props;
-  const status = buildInventoryCardStatus(summary);
-  const presentation = buildInventoryCardPresentation(summary, businessDateKey());
-  const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
-  const alertTone = summary.alerts.length > 0 ? getIngredientAlertTone(summary) : null;
-  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
-  const hasCustomImage = Boolean(summary.ingredient.image?.url);
-  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
-  const metaLine = [summary.ingredient.category || '未分类', summary.primaryStorage].join(' · ');
-  const totalInventoryLabel = buildInventoryTotalLabel(summary);
-  const cardClassName = [
-    'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-summary ingredient-visual-card-inventory ingredient-work-card inventory-ingredient-card',
-    `tone-${status.tone}`,
-    alertTone ? `ingredient-work-card-has-${alertTone}` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <article className={cardClassName}>
-      <div className="ingredient-work-card-primary">
-        <div className="ingredient-work-card-toggle">
-          <button
-            type="button"
-            className="ingredient-visual-media ingredient-visual-media-button inventory-ingredient-card-media"
-            onClick={props.onDetail}
-            aria-label={`查看 ${summary.ingredient.name} 详情`}
-          >
-            <div
-              className={
-                hasCustomImage
-                  ? 'ingredient-visual-canvas'
-                  : 'ingredient-visual-canvas ingredient-visual-canvas-placeholder'
-              }
-            >
-              <MediaWithPlaceholder
-                className="ingredient-visual-cover-frame"
-                imageClassName="ingredient-visual-cover"
-                src={imageUrl}
-                srcSet={buildMediaSrcSet(summary.ingredient.image)}
-                sizes={buildMediaSizes('card')}
-                alt={summary.ingredient.name}
-              />
-            </div>
-            <span className="ingredient-visual-entry-hint" aria-hidden="true">
-              <span>↗</span>
-            </span>
-            {alertTone && (
-              <span className={`ingredient-visual-corner ingredient-visual-corner-${alertTone}`}>
-                {summary.alerts.length} 条提醒
-              </span>
-            )}
-          </button>
-
-          <div className="ingredient-visual-body inventory-ingredient-card-body">
-            <div className="ingredient-visual-title-row inventory-ingredient-card-title-row">
-              <h3>{summary.ingredient.name}</h3>
-              <span
-                className={`inventory-maintenance-chip is-confirmation is-${presentation.confirmationTone}`}
-                title={
-                  presentation.lastConfirmedAt
-                    ? `上次确认 ${formatDate(presentation.lastConfirmedAt.slice(0, 10))}`
-                    : '未确认库存'
-                }
-              >
-                {presentation.confirmationLabel}
-              </span>
-            </div>
-            <p className="ingredient-visual-meta" title={metaLine}>
-              {metaLine}
-            </p>
-            <div className="inventory-ingredient-card-stockline">
-              <div className="inventory-ingredient-card-stockline-head">
-                <span className="inventory-ingredient-card-stockline-label">可用库存</span>
-                {presentation.hasExpiryInfo && presentation.expiryLabel && presentation.expiryTone ? (
-                  <span
-                    className={`inventory-ingredient-card-expiry-badge tone-${presentation.expiryTone}`}
-                    title={`最早 ${presentation.expiryDateLabel} 到期`}
-                  >
-                    {presentation.expiryLabel}
-                  </span>
-                ) : null}
-              </div>
-              <strong>{presentation.headline}</strong>
-              <p title={presentation.secondary}>{presentation.secondary}</p>
-              <div className="inventory-ingredient-card-data-row">
-                {tracksQuantity ? (
-                  <>
-                    <span>总库存 {totalInventoryLabel}</span>
-                    <span>{summary.inventoryItems.length} 批库存</span>
-                  </>
-                ) : (
-                  <>
-                    <span>库存状态 {totalInventoryLabel}</span>
-                    <span>只记录有无</span>
-                  </>
-                )}
-                <span>{summary.alerts.length} 条提醒</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="ingredient-work-card-actions inventory-ingredient-card-actions">
-          {canDestroyExpired ? (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onDestroyExpired}
-              title="查看并确认处理已过期库存"
-              >
-                查看提醒
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onDetail}
-              >
-                查看详情
-              </ActionButton>
-            </>
-          ) : tracksQuantity && summary.quantitySummaries.length > 0 ? (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onConsume}
-              >
-                记录用量
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onRestock}
-              >
-                补货
-              </ActionButton>
-            </>
-          ) : !tracksQuantity && summary.inventoryItems.length > 0 ? (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onDetail}
-              >
-                查看详情
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onRestock}
-              >
-                补充库存
-              </ActionButton>
-            </>
-          ) : (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onRestock}
-              >
-                {summary.inventoryItems.length > 0 ? '补货' : '加入库存'}
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onAddShopping}
-              >
-                加入采购清单
-              </ActionButton>
-            </>
-          )}
-        </div>
-
-        <div className="ingredient-work-card-footer inventory-ingredient-card-footer">
-          <span className="ingredient-work-card-footer-note inventory-ingredient-card-footer-note">
-            {presentation.footerNote}
-          </span>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-type IngredientQuickDetailPopoverProps = {
-  summary: IngredientSummaryViewModel;
-  anchorElement: HTMLElement | null;
-  onClose: () => void;
-  onRestock: () => void;
-  onConsume: () => void;
-  onAddShopping: () => void;
-  onHandleAlert: () => void;
-  onDetail: () => void;
-};
-
-function IngredientQuickDetailPopover(props: IngredientQuickDetailPopoverProps) {
-  const { summary } = props;
-  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
-  const hasCustomImage = Boolean(summary.ingredient.image?.url);
-  const status = buildCatalogCardStatus(summary);
-  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [placement, setPlacement] = useState<'left' | 'right'>('left');
-  const [position, setPosition] = useState<CSSProperties>({ top: 16, left: 16 });
-
-  useLayoutEffect(() => {
-    const node = popoverRef.current;
-    if (!node) return;
-    const parentCard = props.anchorElement;
-    if (!parentCard) return;
-
-    const parentRect = parentCard.getBoundingClientRect();
-    const popoverRect = node.getBoundingClientRect();
-    const popoverWidth = node.offsetWidth || popoverRect.width;
-    const popoverHeight = node.offsetHeight || popoverRect.height;
-    const alignsRight = window.innerWidth - parentRect.right < 300;
-    const desiredLeft = alignsRight
-      ? parentRect.right - popoverWidth - 10
-      : parentRect.left + 10;
-    const left = Math.min(
-      Math.max(16, desiredLeft),
-      Math.max(16, window.innerWidth - popoverWidth - 16),
-    );
-    const top = Math.min(
-      Math.max(16, parentRect.top + 10),
-      Math.max(16, window.innerHeight - popoverHeight - 16),
-    );
-
-    setPlacement(alignsRight ? 'right' : 'left');
-    setPosition({ top, left });
-  }, [props.anchorElement]);
-
-  return createPortal(
-    <WorkspaceOverlayFrame
-      rootClassName="ingredient-quick-detail-overlay-root"
-      backdropClassName="ingredient-quick-detail-backdrop"
-      labelledBy="quick-popover-title"
-      onClose={props.onClose}
-    >
-      <div
-        ref={popoverRef}
-        className={`ingredient-quick-detail-popover place-${placement}`}
-        style={position}
-        onClick={(e) => e.stopPropagation()}
-        data-workspace-overlay-panel="true"
-      >
-        <div className="ingredient-quick-detail-head">
-          <div className="ingredient-quick-detail-media-frame">
-            <div
-              className={
-                hasCustomImage
-                  ? 'ingredient-quick-detail-media'
-                  : 'ingredient-quick-detail-media is-placeholder'
-              }
-            >
-              <MediaWithPlaceholder src={imageUrl} alt={summary.ingredient.name} />
-            </div>
-          </div>
-          <div className="ingredient-quick-detail-titles">
-            <div className="ingredient-quick-detail-title-row">
-              <h4 id="quick-popover-title" className="ingredient-quick-detail-title">
-                {summary.ingredient.name}
-              </h4>
-              <span className="ingredient-quick-detail-category-badge">
-                {summary.ingredient.category || '未分类'} · {summary.primaryStorage || summary.ingredient.default_storage || '常温'}
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="ingredient-quick-detail-close-btn"
-            onClick={props.onClose}
-            aria-label="关闭浮窗"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className={`ingredient-quick-detail-status-banner tone-${status.tone}`}>
-          <div className="ingredient-quick-detail-status-banner-head">
-            <span className="ingredient-quick-detail-status-icon" aria-hidden="true">
-              {summary.alerts.length > 0 ? '⚠️' : '🟢'}
-            </span>
-            <strong>
-              {summary.alerts.length > 0 ? `${summary.alerts.length} 条提醒需要处理` : '库存正常'}
-            </strong>
-          </div>
-          {summary.alerts.length > 0 ? (
-            <div className="ingredient-quick-detail-alerts-list">
-              {summary.alerts.map((alert) => (
-                <span key={alert.id} className={`ingredient-quick-detail-alert-pill tone-${alert.tone}`}>
-                  {alert.title}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="ingredient-quick-detail-grid">
-          <div className="ingredient-quick-detail-card">
-            <span className="ingredient-quick-detail-card-label">当前库存</span>
-            <strong className="ingredient-quick-detail-card-value">{buildInventorySummaryLine(summary)}</strong>
-          </div>
-          <div className="ingredient-quick-detail-card">
-            <span className="ingredient-quick-detail-card-label">最近补货</span>
-            <strong className="ingredient-quick-detail-card-value">
-              {summary.latestPurchaseDate ? formatDate(summary.latestPurchaseDate) : '还没有补货记录'}
-            </strong>
-          </div>
-          <div className="ingredient-quick-detail-card ingredient-quick-detail-card-full">
-            <span className="ingredient-quick-detail-card-label">备注与用途</span>
-            <p className="ingredient-quick-detail-card-text">{buildCatalogExpandedNote(summary)}</p>
-          </div>
-        </div>
-
-        <div className="ingredient-quick-detail-footer">
-          <button
-            type="button"
-            className="ingredient-quick-detail-full-link"
-            onClick={() => {
-              props.onClose();
-              props.onDetail();
-            }}
-          >
-            查看详情 ↗
-          </button>
-        </div>
-      </div>
-    </WorkspaceOverlayFrame>,
-    document.body,
-  );
-}
-
-type IngredientCatalogCardProps = {
-  summary: IngredientSummaryViewModel;
-  expanded: boolean;
-  onToggle: () => void;
-  onRestock: () => void;
-  onConsume: () => void;
-  onAddShopping: () => void;
-  onHandleAlert: () => void;
-  onDetail: () => void;
-};
-
-function IngredientCatalogCard(props: IngredientCatalogCardProps) {
-  const { summary, expanded } = props;
-  const cardRef = useRef<HTMLElement | null>(null);
-  const hasCustomImage = Boolean(summary.ingredient.image?.url);
-  const imageUrl = resolveMediaUrl(summary.ingredient.image, 'card');
-  const alertTone = getIngredientAlertTone(summary);
-  const status = buildCatalogCardStatus(summary);
-  const tracksQuantity = tracksIngredientQuantity(summary.ingredient);
-  const canConsume = tracksQuantity && summary.availableInventoryItems.length > 0;
-  const canDestroyExpired = countDisposableExpiredInventoryItems(summary, businessDateKey()) > 0;
-  const metaLine = [
-    summary.ingredient.category || '未分类',
-    summary.primaryStorage || summary.ingredient.default_storage || '常温',
-  ].join(' · ');
-  const cardClassName = [
-    'ingredient-card ingredient-card-interactive ingredient-visual-card ingredient-visual-card-catalog ingredient-work-card',
-    expanded ? 'is-popover-open' : '',
-    summary.alerts.length > 0 ? `ingredient-work-card-has-${alertTone}` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <article ref={cardRef} className={cardClassName}>
-      <div className="ingredient-work-card-primary">
-        <div className="ingredient-work-card-toggle">
-          <button
-            type="button"
-            className="ingredient-visual-media ingredient-visual-media-button"
-            onClick={props.onDetail}
-            aria-label={`查看 ${summary.ingredient.name} 详情`}
-          >
-            <div
-              className={
-                hasCustomImage
-                  ? 'ingredient-visual-canvas'
-                  : 'ingredient-visual-canvas ingredient-visual-canvas-placeholder'
-              }
-            >
-              <MediaWithPlaceholder
-                className="ingredient-visual-cover-frame"
-                imageClassName="ingredient-visual-cover"
-                src={imageUrl}
-                srcSet={buildMediaSrcSet(summary.ingredient.image)}
-                sizes={buildMediaSizes('card')}
-                alt={summary.ingredient.name}
-              />
-            </div>
-            <span className="ingredient-visual-entry-hint" aria-hidden="true">
-              <span>↗</span>
-            </span>
-            {summary.alerts.length > 0 && (
-              <span className={`ingredient-visual-corner ingredient-visual-corner-${alertTone}`}>
-                {summary.alerts.length} 条提醒
-              </span>
-            )}
-          </button>
-          <div className="ingredient-visual-body">
-            <div className="ingredient-visual-title-row">
-              <h3>{summary.ingredient.name}</h3>
-              <ActionButton
-                tone="tertiary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-more-icon"
-                onClick={props.onToggle}
-                aria-expanded={expanded}
-                aria-label={`${expanded ? '关闭' : '查看'} ${summary.ingredient.name} 快捷操作`}
-              >
-                <span aria-hidden="true">•••</span>
-              </ActionButton>
-            </div>
-            <p className="ingredient-visual-meta" title={metaLine}>
-              {metaLine}
-            </p>
-            <div className={`ingredient-catalog-status tone-${status.tone}`}>
-              <div className="ingredient-catalog-status-head">
-                <span>{status.label}</span>
-                {summary.alerts.length > 0 && <small>{summary.alerts.length} 条提醒</small>}
-              </div>
-              <p>{status.stockLine}</p>
-              <strong>{status.hint}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="ingredient-work-card-actions">
-          {canDestroyExpired ? (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onHandleAlert}
-              >
-                查看提醒
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onDetail}
-              >
-                查看详情
-              </ActionButton>
-            </>
-          ) : canConsume ? (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onConsume}
-              >
-                记录用量
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onRestock}
-              >
-                补货
-              </ActionButton>
-            </>
-          ) : !tracksQuantity && summary.inventoryItems.length > 0 ? (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onDetail}
-              >
-                查看详情
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onRestock}
-              >
-                补充库存
-              </ActionButton>
-            </>
-          ) : (
-            <>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-primary"
-                onClick={props.onRestock}
-              >
-              {summary.inventoryItems.length > 0 ? '补货' : '加入库存'}
-              </ActionButton>
-              <ActionButton
-                tone="secondary"
-                size="compact"
-                type="button"
-                className="ingredient-work-card-action-button ingredient-work-card-action-button-secondary"
-                onClick={props.onAddShopping}
-              >
-                加入采购清单
-              </ActionButton>
-            </>
-          )}
-        </div>
-
-        <div className="ingredient-work-card-footer">
-          <span className="ingredient-work-card-footer-note">
-            <span className="ingredient-work-card-footer-icon" aria-hidden="true">
-              i
-            </span>
-            {!tracksQuantity ? '只记录是否有库存，做菜时不按数量扣减' : canConsume ? '可用库存不含过期记录' : '当前没有可用库存'}
-          </span>
-        </div>
-      </div>
-
-      {expanded && (
-        <IngredientQuickDetailPopover
-          summary={summary}
-          anchorElement={cardRef.current}
-          onClose={props.onToggle}
-          onRestock={props.onRestock}
-          onConsume={props.onConsume}
-          onAddShopping={props.onAddShopping}
-          onHandleAlert={props.onHandleAlert}
-          onDetail={props.onDetail}
-        />
-      )}
-    </article>
-  );
-}
 
 export function IngredientWorkspace(props: IngredientWorkspaceProps) {
-  const queryClient = useQueryClient();
+  const lookupFood = useIngredientFoodLookup();
+  const invalidateInventoryOperation = useIngredientInventoryOperationInvalidation();
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   const foodStockRecordDateOptions = useMemo(
@@ -1779,13 +147,21 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   const [transientIngredient, setTransientIngredient] = useState<Ingredient | null>(null);
   const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null);
   // Compact ordinary Food record (Task 15) — independent of inventory.
-  const [quickRecord, setQuickRecord] = useState<FoodQuickRecordState | null>(null);
-  // Optional inventory follow-up after successful record (separate command).
-  const [inventoryFollowUp, setInventoryFollowUp] = useState<FoodStockInventoryFollowUpState | null>(null);
-  // Inventory-only deduct (no meal).
-  const [foodStockDeductDialog, setFoodStockDeductDialog] = useState<FoodStockDeductDialogState | null>(null);
-  const [foodStockAdjustDialog, setFoodStockAdjustDialog] = useState<FoodStockAdjustDialogState | null>(null);
-  const [foodStockSubmitting, setFoodStockSubmitting] = useState<'meal' | 'adjust' | null>(null);
+  const {
+    quickRecord,
+    setQuickRecord,
+    inventoryFollowUp,
+    setInventoryFollowUp,
+    foodStockDeductDialog,
+    setFoodStockDeductDialog,
+    foodStockAdjustDialog,
+    setFoodStockAdjustDialog,
+    foodStockSubmitting,
+    setFoodStockSubmitting,
+    setFoodStockRestockQuantity,
+    setFoodStockRestockExpiryDays,
+    setFoodStockRestockSource,
+  } = useIngredientFoodStockState(todayDate);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(
     persistedWorkspaceState.editingIngredientId ?? null
   );
@@ -1870,117 +246,35 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     editingIngredientId,
     ingredientForm,
   });
-  const normalizedInventorySearch = inventorySearch.trim();
-  const normalizedCatalogSearch = catalogSearch.trim();
-  const inventorySearchComposition = useSearchCompositionState();
-  const catalogSearchComposition = useSearchCompositionState();
-  const inventorySearchValue = useDebouncedSearchValue(inventorySearch, { isComposing: inventorySearchComposition.isComposing });
-  const catalogSearchValue = useDebouncedSearchValue(catalogSearch, { isComposing: catalogSearchComposition.isComposing });
-  const catalogSearchQuery = useQuery({
-    queryKey: queryKeys.ingredientSearch(catalogSearchValue),
-    queryFn: () => api.getIngredients({ q: catalogSearchValue, limit: 100 }),
-    enabled: Boolean(catalogSearchValue),
-    placeholderData: keepPreviousData,
+  const {
+    catalogSearchComposition,
+    inventorySearchComposition,
+    inventoryOverviewQuery,
+    appliedCatalogSearch,
+    appliedInventorySearch,
+    catalogSearchMatchedIngredientIds,
+    inventorySearchMatchedIngredientIds,
+    searchAwareIngredients,
+    searchAwareInventoryItems,
+    unifiedInventoryItems,
+    entryFilterBaseUnifiedInventoryItems,
+    filteredUnifiedInventoryItems,
+    unifiedInventoryGroups,
+    unifiedInventorySummary,
+    unifiedInventoryEntrySummary,
+    mobileFoodStockItems,
+    isCatalogSearchFetching,
+    isInventorySearchFetching,
+  } = useIngredientWorkspaceSearch({
+    ingredients: props.ingredients,
+    inventoryItems: props.inventoryItems,
+    catalogSearch,
+    inventorySearch,
+    inventorySourceFilter,
+    inventoryEntryFilter,
+    inventoryQuickFilter,
+    inventoryStorageFocus,
   });
-  const inventorySearchQuery = useQuery({
-    queryKey: queryKeys.inventorySearch(inventorySearchValue),
-    queryFn: () => api.getInventory({ q: inventorySearchValue }),
-    enabled: Boolean(inventorySearchValue),
-    placeholderData: keepPreviousData,
-  });
-  const inventoryOverviewQuery = useQuery({
-    queryKey: queryKeys.inventoryOverview(inventorySourceFilter, inventorySearchValue),
-    queryFn: () => api.getInventoryOverview({ scope: inventorySourceFilter, q: inventorySearchValue }),
-    placeholderData: (previous) => previous,
-  });
-  const [appliedCatalogSearch, setAppliedCatalogSearch] = useState('');
-  const [appliedCatalogResults, setAppliedCatalogResults] = useState<Ingredient[]>([]);
-  const [appliedInventorySearch, setAppliedInventorySearch] = useState('');
-  const [appliedInventoryResults, setAppliedInventoryResults] = useState<InventoryItem[]>([]);
-  useEffect(() => {
-    if (!normalizedCatalogSearch) {
-      setAppliedCatalogSearch('');
-      setAppliedCatalogResults([]);
-      return;
-    }
-    if (catalogSearchValue && !catalogSearchQuery.isPlaceholderData && catalogSearchQuery.data) {
-      setAppliedCatalogSearch(catalogSearchValue);
-      setAppliedCatalogResults(catalogSearchQuery.data);
-    }
-  }, [catalogSearchQuery.data, catalogSearchQuery.isPlaceholderData, catalogSearchValue, normalizedCatalogSearch]);
-  useEffect(() => {
-    if (!normalizedInventorySearch) {
-      setAppliedInventorySearch('');
-      setAppliedInventoryResults([]);
-      return;
-    }
-    if (inventorySearchValue && !inventorySearchQuery.isPlaceholderData && inventorySearchQuery.data) {
-      setAppliedInventorySearch(inventorySearchValue);
-      setAppliedInventoryResults(inventorySearchQuery.data);
-    }
-  }, [inventorySearchQuery.data, inventorySearchQuery.isPlaceholderData, inventorySearchValue, normalizedInventorySearch]);
-  const inventorySearchMatchedIngredientIds = useMemo(
-    () =>
-      appliedInventorySearch
-        ? Array.from(new Set(appliedInventoryResults.map((item) => item.ingredient_id)))
-        : [],
-    [appliedInventoryResults, appliedInventorySearch]
-  );
-  const catalogSearchMatchedIngredientIds = useMemo(
-    () => (appliedCatalogSearch ? Array.from(new Set(appliedCatalogResults.map((item) => item.id))) : []),
-    [appliedCatalogResults, appliedCatalogSearch]
-  );
-  const searchAwareIngredients = appliedCatalogSearch ? appliedCatalogResults : props.ingredients;
-  const searchAwareInventoryItems =
-    appliedInventorySearch ? appliedInventoryResults : props.inventoryItems;
-  const unifiedInventoryItems = inventoryOverviewQuery.data?.items ?? [];
-  const entryFilterBaseUnifiedInventoryItems = useMemo(
-    () =>
-      filterUnifiedInventoryItems(unifiedInventoryItems, {
-        source: inventorySourceFilter,
-        entry: 'all',
-        quick: inventoryQuickFilter,
-        storage: inventoryStorageFocus,
-        search: appliedInventorySearch,
-      }),
-    [appliedInventorySearch, inventoryQuickFilter, inventorySourceFilter, inventoryStorageFocus, unifiedInventoryItems]
-  );
-  const filteredUnifiedInventoryItems = useMemo(
-    () =>
-      filterUnifiedInventoryItems(entryFilterBaseUnifiedInventoryItems, {
-        source: inventorySourceFilter,
-        entry: inventoryEntryFilter,
-        quick: inventoryQuickFilter,
-        storage: inventoryStorageFocus,
-        search: appliedInventorySearch,
-      }),
-    [appliedInventorySearch, entryFilterBaseUnifiedInventoryItems, inventoryEntryFilter, inventoryQuickFilter, inventorySourceFilter, inventoryStorageFocus]
-  );
-  const unifiedInventoryGroups = useMemo(
-    () => buildUnifiedInventoryGroups(filteredUnifiedInventoryItems),
-    [filteredUnifiedInventoryItems]
-  );
-  const unifiedInventorySummary = useMemo(
-    () => buildUnifiedInventorySummary(filteredUnifiedInventoryItems),
-    [filteredUnifiedInventoryItems]
-  );
-  const unifiedInventoryEntrySummary = useMemo(
-    () => buildUnifiedInventorySummary(entryFilterBaseUnifiedInventoryItems),
-    [entryFilterBaseUnifiedInventoryItems]
-  );
-  const mobileFoodStockItems = useMemo(
-    () => unifiedInventoryItems.filter((item) => item.source_type === 'food'),
-    [unifiedInventoryItems]
-  );
-  const isCatalogSearchFetching =
-    Boolean(normalizedCatalogSearch) &&
-    !catalogSearchComposition.isComposing &&
-    (appliedCatalogSearch !== normalizedCatalogSearch || catalogSearchQuery.isFetching);
-  const isInventorySearchFetching =
-    Boolean(normalizedInventorySearch) &&
-    !inventorySearchComposition.isComposing &&
-    (appliedInventorySearch !== normalizedInventorySearch || inventorySearchQuery.isFetching);
-
   const {
     summaries,
     catalogCategories,
@@ -2080,7 +374,7 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     onTrackingTransitionSettled: async () => {
       // Invalidate only after the dual-write path finishes (success or recovered transition),
       // so inventory/state refresh does not land under an open transition dialog.
-      await invalidateAfterInventoryOperation(queryClient);
+      await invalidateInventoryOperation();
     },
     showNotice,
     resolveErrorMessage,
@@ -2134,61 +428,13 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   });
 
   // Consume shopping/priority navigation once by requestId; do not keep shopping form state in home.
-  const handledSideEffectNavigationRequestIdRef = useRef<number | null>(null);
-  useEffect(() => {
-    const request = props.navigationRequest;
-    if (!request || handledSideEffectNavigationRequestIdRef.current === request.requestId) {
-      return;
-    }
-
-    if (request.target === 'shopping') {
-      const ingredient = props.ingredients.find((item) => item.id === request.ingredientId);
-      if (!ingredient) {
-        // Wait until the real ingredient is available; shopping always requires ingredientId.
-        return;
-      }
-      handledSideEffectNavigationRequestIdRef.current = request.requestId;
-      openShoppingOverlay({ ingredient, reason: '库存不足' });
-      props.onNavigationRequestConsumed?.(request.requestId);
-      return;
-    }
-
-    if (request.target === 'create') {
-      handledSideEffectNavigationRequestIdRef.current = request.requestId;
-      editorState.openCreateView();
-      props.onNavigationRequestConsumed?.(request.requestId);
-      return;
-    }
-
-    if (request.target === 'priority') {
-      handledSideEffectNavigationRequestIdRef.current = request.requestId;
-      // Desktop: focus the complete priority list under the shared 需处理 catalog filter.
-      // Mobile: scroll/focus the existing 今天先处理 section.
-      const focusPrioritySurface = () => {
-        const mobileSection = document.getElementById('mobile-ingredient-priority');
-        if (mobileSection) {
-          mobileSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          if (typeof mobileSection.focus === 'function') {
-            mobileSection.focus({ preventScroll: true });
-          }
-          return;
-        }
-        const desktopList =
-          document.getElementById('ingredient-priority-list') ??
-          document.querySelector('.ingredients-catalog-grid, .ingredient-grid-catalog');
-        if (desktopList instanceof HTMLElement) {
-          desktopList.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          if (typeof desktopList.focus === 'function') {
-            desktopList.focus({ preventScroll: true });
-          }
-        }
-      };
-      window.requestAnimationFrame(() => {
-        window.setTimeout(focusPrioritySurface, 0);
-      });
-      props.onNavigationRequestConsumed?.(request.requestId);
-    }
-  }, [props.navigationRequest?.requestId, props.ingredients, props.onNavigationRequestConsumed]);
+  useIngredientWorkspaceNavigationEffects({
+    ingredients: props.ingredients,
+    navigationRequest: props.navigationRequest,
+    onNavigationRequestConsumed: props.onNavigationRequestConsumed,
+    openCreateView: editorState.openCreateView,
+    openShoppingOverlay,
+  });
   const selectedInventoryIngredient =
     ingredientOptions.find((item) => item.id === inventoryForm.ingredientId) ?? null;
 
@@ -2222,51 +468,10 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     storageShelfMaxDisplayColumns: STORAGE_SHELF_MAX_DISPLAY_COLUMNS,
   });
 
-  async function refreshInventoryActionGroup(ingredientId: string): Promise<ExpiryInventoryActionGroup | null> {
-    await invalidateAfterInventoryChanged(queryClient);
-    await queryClient.invalidateQueries({ queryKey: queryKeys.shoppingList });
-    const [freshInventory, freshStates, freshIngredients, freshShopping] = await Promise.all([
-      queryClient.fetchQuery({
-        queryKey: queryKeys.inventory,
-        queryFn: () => api.getInventory(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.inventoryStates,
-        queryFn: () => api.listInventoryStates(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.ingredients,
-        queryFn: () => api.getIngredients(),
-      }),
-      queryClient.fetchQuery({
-        queryKey: queryKeys.shoppingList,
-        queryFn: () => api.getShoppingList(),
-      }),
-    ]);
-    const groups = buildIngredientPriorityActionGroups({
-      inventoryItems: freshInventory,
-      ingredients: freshIngredients,
-      shoppingItems: freshShopping,
-      inventoryStates: freshStates,
-      referenceDate: inventoryActionReferenceDate,
-    });
-    const freshSummaries = buildIngredientSummaries({
-      ingredients: freshIngredients,
-      inventoryItems: freshInventory,
-      inventoryStates: freshStates,
-      recipes: props.recipes,
-      referenceDate: inventoryActionReferenceDate,
-      shoppingItems: freshShopping,
-    });
-    // Include dispose-only (future-snoozed expired) batches so 409 recovery does not
-    // mis-close dialogs that were opened from inventory detail disposal.
-    return resolveExpiryInventoryActionGroup({
-      ingredientId,
-      inventoryActionGroups: groups,
-      summaries: freshSummaries,
-      referenceDate: inventoryActionReferenceDate,
-    });
-  }
+  const refreshInventoryActionGroup = useIngredientInventoryRefresh({
+    recipes: props.recipes,
+    referenceDate: inventoryActionReferenceDate,
+  });
 
   const {
     submitInventory,
@@ -2299,12 +504,8 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     upsertInventoryState: props.upsertInventoryState,
     consumeInventory: props.consumeInventory,
     disposeExpiredInventory: props.disposeExpiredInventory,
-    snoozeInventoryExpiryAlerts:
-      props.snoozeInventoryExpiryAlerts ??
-      (async (payload) => api.snoozeInventoryExpiryAlerts(payload)),
-    correctInventoryExpiryDate:
-      props.correctInventoryExpiryDate ??
-      (async (inventoryItemId, payload) => api.correctInventoryExpiryDate(inventoryItemId, payload)),
+    snoozeInventoryExpiryAlerts: props.snoozeInventoryExpiryAlerts,
+    correctInventoryExpiryDate: props.correctInventoryExpiryDate,
     refreshInventoryActionGroup,
     createShoppingItem: props.createShoppingItem,
     updateShoppingItem: props.updateShoppingItem,
@@ -2313,51 +514,15 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
   });
 
   const desktopActions = (
-    <div className="ingredients-actions">
-      {activePanel === 'catalog' && (
-        <ActionButton tone="primary" type="button" onClick={editorState.openCreateView}>
-          新增食材
-        </ActionButton>
-      )}
-      {activePanel === 'inventory' && (
-        <>
-          <ActionButton
-            tone="primary"
-            type="button"
-            onClick={() => props.openReconciliation?.({ scope: 'suggested' })}
-          >
-            快速盘点
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={() => openInventoryOverlay()}>
-            快速加入库存
-          </ActionButton>
-          {props.openOperationHistory ? (
-            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
-              变更记录
-            </ActionButton>
-          ) : null}
-        </>
-      )}
-      {activePanel === 'shopping' && (
-        <>
-          <ActionButton
-            tone="primary"
-            type="button"
-            onClick={() => props.openShoppingIntake?.()}
-          >
-            记录本次购买
-          </ActionButton>
-          <ActionButton tone="secondary" type="button" onClick={() => openShoppingOverlay()}>
-            新增采购内容
-          </ActionButton>
-          {props.openOperationHistory ? (
-            <ActionButton tone="tertiary" type="button" onClick={() => props.openOperationHistory?.()}>
-              变更记录
-            </ActionButton>
-          ) : null}
-        </>
-      )}
-    </div>
+    <IngredientWorkspaceDesktopActions
+      activePanel={activePanel}
+      onCreateIngredient={editorState.openCreateView}
+      onReconciliation={() => props.openReconciliation?.({ scope: 'suggested' })}
+      onInventoryOverlay={openInventoryOverlay}
+      onShoppingIntake={() => props.openShoppingIntake?.()}
+      onShoppingOverlay={openShoppingOverlay}
+      onOperationHistory={props.openOperationHistory ? () => props.openOperationHistory?.() : undefined}
+    />
   );
   const activePanelBackLabel =
     activePanel === 'inventory' ? '返回库存' : activePanel === 'shopping' ? '返回采购' : '返回食材库';
@@ -2365,53 +530,17 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     '--ingredients-catalog-columns': String(catalogColumns),
     '--ingredients-catalog-card-width': `${catalogCardWidth}px`,
   } as CSSProperties;
-  const noticeToast = notice ? (
-    <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
-      <span className="recipe-notice-icon">
-        <IngredientWorkspaceIcon name={notice.tone === 'success' ? 'check' : 'exclamation'} />
-      </span>
-      <span className="recipe-notice-copy">
-        <strong>{notice.title}</strong>
-        <small>{notice.message}</small>
-      </span>
-      <button type="button" onClick={clearNotice} aria-label="关闭提示">
-        ×
-      </button>
-    </div>
-  ) : null;
+  const noticeToast = <IngredientWorkspaceNotice notice={notice} onClose={clearNotice} />;
   const openCreateView = editorState.openCreateView;
   const openEditView = editorState.openEditView;
   const goBackFromIngredientForm = editorState.goBackFromIngredientForm;
   const applyIngredientCategoryPreset = editorState.applyIngredientCategoryPreset;
-  const submitIngredient = editorState.submitIngredient;
-  const handleCreateSubmit = editorState.handleCreateSubmit;
-  const isEditingIngredient = editorState.isEditingIngredient;
   const isIngredientFormSubmitting = Boolean(props.isCreatingIngredient || props.isUpdatingIngredient);
   const closeIngredientFormIfAllowed = () => {
     if (!isIngredientFormSubmitting) {
       goBackFromIngredientForm();
     }
   };
-  const ingredientVisibleCategoryPresets = editorState.ingredientVisibleCategoryPresets;
-  const ingredientCategoryIsVisiblePreset = editorState.ingredientCategoryIsVisiblePreset;
-  const showIngredientCategoryCustomInput = editorState.showIngredientCategoryCustomInput;
-  const ingredientUnitAdvancedOpen = editorState.ingredientUnitAdvancedOpen;
-  const setIngredientUnitAdvancedOpen = editorState.setIngredientUnitAdvancedOpen;
-  const setIngredientCustomCategoryOpen = editorState.setIngredientCustomCategoryOpen;
-  const ingredientUsesCustomUnit = editorState.ingredientUsesCustomUnit;
-  const ingredientUnitOptions = editorState.ingredientUnitOptions;
-  const ingredientUsesCustomStorage = editorState.ingredientUsesCustomStorage;
-  const ingredientDefaultExpiryRangeValue = editorState.ingredientDefaultExpiryRangeValue;
-  const ingredientLowStockEnabled = editorState.ingredientLowStockEnabled;
-  const ingredientLowStockValue = editorState.ingredientLowStockValue;
-  const ingredientLowStockStep = editorState.ingredientLowStockStep;
-  const ingredientLowStockQuickValues = editorState.ingredientLowStockQuickValues;
-  const ingredientImageComposer = editorState.ingredientImageComposer;
-  const ingredientPreviewImage = editorState.ingredientPreviewImage;
-  const createSummaryItems = editorState.createSummaryItems;
-  const createChecklistItems = editorState.createChecklistItems;
-  const createCanSubmit = editorState.createCanSubmit;
-  const trimmedIngredientUnit = editorState.trimmedIngredientUnit;
   const overlayLayerProps = {
     overlayMode,
     closeOverlay,
@@ -2444,100 +573,23 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     isCreatingShopping: props.isCreatingShopping,
   } as const;
 
-  function findUnifiedInventoryItemBySourceId(sourceId: string) {
-    return unifiedInventoryItems.find((item) => item.source_id === sourceId);
-  }
-
-  function handleOpenFoodStockFromInventory(foodId: string) {
-    const item = findUnifiedInventoryItemBySourceId(foodId);
-    if (item) {
-      setFoodStockAdjustDialog({
-        item,
-        quantity: '1',
-        unit: item.unit || '份',
-        expiryDate: item.expiry_date ?? '',
-        purchaseSource: item.purchase_source ?? '',
-        error: null,
-      });
-      return;
-    }
-    showNotice({
-      tone: 'warning',
-      title: '暂时无法补充库存',
-      message: '这项成品库存还没有加载完成，请稍后再试。',
-    });
-  }
-
-  /** Primary 减扣: open compact recordMeal. Inventory is a separate optional follow-up. */
-  function handleRecordFoodStockMeal(foodId: string) {
-    const item = findUnifiedInventoryItemBySourceId(foodId);
-    if (!item) {
-      showNotice({
-        tone: 'warning',
-        title: '暂时无法打开扣减流程',
-        message: '这项成品库存还没有加载完成，请稍后再试。',
-      });
-      return;
-    }
-    const food =
-      props.foods.find((entry) => entry.id === foodId) ??
-      readyFoodOptions.find((entry) => entry.id === foodId) ??
-      null;
-    if (!food) {
-      // Inventory-only path when Food entity is not loaded.
-      setFoodStockDeductDialog({
-        item,
-        stockQuantity: item.quantity && item.quantity > 0 ? '1' : '',
-        error: null,
-      });
-      return;
-    }
-    setQuickRecord({
-      food,
-      item,
-      date: mealBusinessDate,
-      mealType: getDefaultFoodStockMealType(),
-      target: { kind: 'new' },
-      selectedCandidateId: null,
-      candidateMode: 'none',
-      candidates: [],
-      candidateResolution: { status: 'loading' },
-      targetTouchedByUser: false,
-      clientRequestId: createClientRequestId(),
-      busy: false,
-      error: null,
-    });
-  }
-
-  async function handleAddFoodShopping(foodId: string) {
-    let food = readyFoodOptions.find((item) => item.id === foodId) ?? null;
-    if (!food) {
-      const item = findUnifiedInventoryItemBySourceId(foodId);
-      if (!item) {
-        showNotice({ tone: 'warning', title: '暂时无法加入采购清单', message: '这项成品信息还没有加载完成，请稍后再试。' });
-        return;
-      }
-      try {
-        const candidates = await api.getFoods({ q: item.title, limit: 20 });
-        food = candidates.find((candidate) => candidate.id === foodId) ?? null;
-      } catch (error) {
-        showNotice({
-          tone: 'warning',
-          title: '暂时无法加入采购清单',
-          message: resolveErrorMessage(error, '这项成品信息暂时没有查到，请稍后再试。'),
-        });
-        return;
-      }
-      if (food) {
-        setTransientShoppingFood(food);
-      }
-    }
-    if (!food) {
-      showNotice({ tone: 'warning', title: '暂时无法加入采购清单', message: '这项成品信息暂时没有查到，请稍后再试。' });
-      return;
-    }
-    openShoppingOverlay({ food, reason: '补充成品库存' });
-  }
+  const {
+    handleOpenFoodStockFromInventory,
+    handleRecordFoodStockMeal,
+    handleAddFoodShopping,
+  } = useIngredientFoodStockNavigation({
+    unifiedInventoryItems,
+    foods: props.foods,
+    readyFoodOptions,
+    lookupFood,
+    setFoodStockAdjustDialog,
+    setFoodStockDeductDialog,
+    setQuickRecord,
+    setTransientShoppingFood,
+    mealBusinessDate,
+    showNotice,
+    openShoppingOverlay,
+  });
 
   function handleInventoryEntryFilterChange(nextFilter: InventoryEntryFilter) {
     setInventoryEntryFilter(nextFilter);
@@ -2553,357 +605,30 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
     setInventorySourceFilter('all');
   }
 
-  function setFoodStockRestockQuantity(quantity: string) {
-    if (!foodStockAdjustDialog) {
-      return;
-    }
-    setFoodStockAdjustDialog({ ...foodStockAdjustDialog, quantity, error: null });
-  }
 
-  function setFoodStockRestockExpiryDays(days: number | null) {
-    if (!foodStockAdjustDialog) {
-      return;
-    }
-    setFoodStockAdjustDialog({
-      ...foodStockAdjustDialog,
-      expiryDate: days === null ? '' : addDateKeyDays(todayDate, days),
-      error: null,
-    });
-  }
+  const { submitCompactFoodRecord } = useIngredientFoodStockMealRecord({
+    quickRecord,
+    setQuickRecord,
+    setInventoryFollowUp,
+    loadMealCandidates: props.loadMealCandidates,
+    recordMeal: props.recordMeal,
+    recipes: props.recipes,
+    onRecordSuccess: props.onRecordSuccess,
+  });
 
-  function setFoodStockRestockSource(source: string) {
-    if (!foodStockAdjustDialog) {
-      return;
-    }
-    setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: source, error: null });
-  }
+  const { submitInventoryFollowUp, submitFoodStockDeductDialog, submitFoodStockAdjustDialog } = useIngredientFoodStockActions({
+    foodStockSubmitting,
+    setFoodStockSubmitting,
+    inventoryFollowUp,
+    setInventoryFollowUp,
+    foodStockDeductDialog,
+    setFoodStockDeductDialog,
+    foodStockAdjustDialog,
+    setFoodStockAdjustDialog,
+    showNotice,
+  });
 
-  // Load candidates for compact Food record.
-  useEffect(() => {
-    if (!quickRecord) return;
-    let cancelled = false;
-    const { date, mealType } = quickRecord;
-    const loader = props.loadMealCandidates;
-    if (!loader) {
-      setQuickRecord((current) =>
-        current && current.date === date && current.mealType === mealType
-          ? {
-              ...current,
-              candidates: [],
-              candidateMode: 'none',
-              candidateResolution: { status: 'ready' },
-            }
-          : current,
-      );
-      return;
-    }
-    setQuickRecord((current) =>
-      current && current.date === date && current.mealType === mealType
-        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
-        : current,
-    );
-    void (async () => {
-      try {
-        const candidates = await loader(date, mealType);
-        if (cancelled) return;
-        const presentation = deriveCandidatePresentation(candidates, mealType);
-        setQuickRecord((current) => {
-          if (!current || current.date !== date || current.mealType !== mealType) return current;
-          return {
-            ...current,
-            candidates,
-            candidateMode: presentation.mode,
-            candidateResolution: { status: 'ready' },
-            ...(current.targetTouchedByUser
-              ? {}
-              : {
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                }),
-          };
-        });
-      } catch (reason) {
-        if (cancelled) return;
-        const message =
-          reason instanceof Error && reason.message.trim()
-            ? reason.message
-            : '暂时无法加载可选餐食，请重试';
-        setQuickRecord((current) =>
-          current && current.date === date && current.mealType === mealType
-            ? {
-                ...current,
-                candidateResolution: { status: 'error', message },
-                error: message,
-              }
-            : current,
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, props.loadMealCandidates]);
-
-  async function submitCompactFoodRecord() {
-    if (!quickRecord || quickRecord.busy) return;
-    if (!props.recordMeal) {
-      setQuickRecord((current) =>
-        current ? { ...current, error: '记录功能暂不可用，请稍后再试。' } : current,
-      );
-      return;
-    }
-    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error:
-                current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
-                  : '正在查找可加入的餐食…',
-            }
-          : current,
-      );
-      return;
-    }
-    const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
-    let payload: RecordMealPayload;
-    try {
-      payload = buildRecordMealPayload({
-        clientRequestId: quickRecord.clientRequestId,
-        date: quickRecord.date,
-        mealType: quickRecord.mealType,
-        target: quickRecord.target,
-        foods: [
-          {
-            kind: 'existing',
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            servings: 1,
-            cover,
-          },
-        ],
-      });
-    } catch (reason) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error:
-                reason instanceof Error && reason.message.trim()
-                  ? reason.message
-                  : '餐食记录失败，请重试',
-            }
-          : current,
-      );
-      return;
-    }
-
-    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
-    try {
-      const response = await props.recordMeal(payload);
-      const followUpItem = quickRecord.item;
-      setQuickRecord(null);
-      props.onRecordSuccess?.(response);
-      // Offer independent inventory follow-up; cancelling it does not roll back the meal.
-      setInventoryFollowUp({
-        item: followUpItem,
-        stockQuantity: followUpItem.quantity && followUpItem.quantity > 0 ? '1' : '',
-        error: null,
-      });
-    } catch (reason) {
-      const code = extractMealRecordErrorCode(reason);
-      if (code === 'meal_log_stale' && props.loadMealCandidates) {
-        try {
-          const refreshed = await props.loadMealCandidates(quickRecord.date, quickRecord.mealType);
-          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
-          setQuickRecord((current) =>
-            current
-              ? {
-                  ...current,
-                  busy: false,
-                  candidates: refreshed,
-                  candidateMode: presentation.mode,
-                  candidateResolution: { status: 'ready' },
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                  targetTouchedByUser: false,
-                  error: '这顿饭刚被家人更新，请重新确认',
-                }
-              : current,
-          );
-          return;
-        } catch {
-          // fall through
-        }
-      }
-      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
-        setQuickRecord((current) =>
-          current
-            ? {
-                ...current,
-                busy: false,
-                clientRequestId: createClientRequestId(),
-                error:
-                  code === 'record_operation_reverted'
-                    ? '上次记录已撤销，请再试一次'
-                    : '记录内容已变化，请再试一次',
-              }
-            : current,
-        );
-        return;
-      }
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
-            }
-          : current,
-      );
-    }
-  }
-
-  async function submitInventoryFollowUp(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!inventoryFollowUp || foodStockSubmitting) return;
-    const parsedQuantity = parseUnifiedFoodStockQuantity(inventoryFollowUp.stockQuantity, '扣减数量');
-    if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setInventoryFollowUp({
-        ...inventoryFollowUp,
-        error: parsedQuantity.error ?? '请输入大于 0 的扣减数量。',
-      });
-      return;
-    }
-    const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
-      parsedQuantity.quantity,
-      inventoryFollowUp.item.quantity,
-      inventoryFollowUp.item.unit || '份',
-    );
-    if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
-      setInventoryFollowUp({
-        ...inventoryFollowUp,
-        error: resolvedQuantity.error ?? '当前库存不足。',
-      });
-      return;
-    }
-    setFoodStockSubmitting('meal');
-    try {
-      await api.consumeFoodStock(inventoryFollowUp.item.source_id, {
-        expected_row_version: inventoryFollowUp.item.row_version,
-        quantity: resolvedQuantity.quantity,
-        unit: inventoryFollowUp.item.unit || '份',
-        note: '从库存页扣减成品库存',
-      });
-      invalidateAfterFoodChanged(queryClient);
-      setInventoryFollowUp(null);
-      showNotice({
-        tone: 'success',
-        title: '已扣减库存',
-        message: `${inventoryFollowUp.item.title} 已扣减 ${resolvedQuantity.quantity} ${inventoryFollowUp.item.unit || '份'}。`,
-      });
-    } catch (error) {
-      // Inventory failure must not affect the already-published meal result bar.
-      setInventoryFollowUp({
-        ...inventoryFollowUp,
-        error: error instanceof Error ? error.message : '扣减库存失败，请稍后再试。',
-      });
-    } finally {
-      setFoodStockSubmitting(null);
-    }
-  }
-
-  async function submitFoodStockDeductDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!foodStockDeductDialog || foodStockSubmitting) return;
-    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockDeductDialog.stockQuantity, '扣减数量');
-    if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setFoodStockDeductDialog({
-        ...foodStockDeductDialog,
-        error: parsedQuantity.error ?? '请输入大于 0 的扣减数量。',
-      });
-      return;
-    }
-    const resolvedQuantity = resolveUnifiedFoodStockDeductQuantity(
-      parsedQuantity.quantity,
-      foodStockDeductDialog.item.quantity,
-      foodStockDeductDialog.item.unit || '份',
-    );
-    if (resolvedQuantity.error || resolvedQuantity.quantity === null) {
-      setFoodStockDeductDialog({
-        ...foodStockDeductDialog,
-        error: resolvedQuantity.error ?? '当前库存不足。',
-      });
-      return;
-    }
-    setFoodStockSubmitting('meal');
-    try {
-      await api.consumeFoodStock(foodStockDeductDialog.item.source_id, {
-        expected_row_version: foodStockDeductDialog.item.row_version,
-        quantity: resolvedQuantity.quantity,
-        unit: foodStockDeductDialog.item.unit || '份',
-        note: '从库存页扣减成品库存',
-      });
-      invalidateAfterFoodChanged(queryClient);
-      setFoodStockDeductDialog(null);
-      showNotice({
-        tone: 'success',
-        title: '已扣减库存',
-        message: `${foodStockDeductDialog.item.title} 已扣减 ${resolvedQuantity.quantity} ${foodStockDeductDialog.item.unit || '份'}。`,
-      });
-    } catch (error) {
-      setFoodStockDeductDialog({
-        ...foodStockDeductDialog,
-        error: error instanceof Error ? error.message : '扣减库存失败，请稍后再试。',
-      });
-    } finally {
-      setFoodStockSubmitting(null);
-    }
-  }
-
-  async function submitFoodStockAdjustDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!foodStockAdjustDialog || foodStockSubmitting) {
-      return;
-    }
-    const parsedQuantity = parseUnifiedFoodStockQuantity(foodStockAdjustDialog.quantity);
-    if (parsedQuantity.error || parsedQuantity.quantity === null) {
-      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, error: parsedQuantity.error ?? '请输入大于 0 的数量。' });
-      return;
-    }
-    const payload = {
-      expected_row_version: foodStockAdjustDialog.item.row_version,
-      quantity: parsedQuantity.quantity,
-      unit: foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份',
-      expiry_date: foodStockAdjustDialog.expiryDate || null,
-      purchase_source: foodStockAdjustDialog.purchaseSource || null,
-      note: '从库存页补充成品库存',
-    };
-    setFoodStockSubmitting('adjust');
-    try {
-      await api.restockFoodStock(foodStockAdjustDialog.item.source_id, payload);
-      invalidateAfterFoodChanged(queryClient);
-      setFoodStockAdjustDialog(null);
-      showNotice({
-        tone: 'success',
-        title: '库存已补充',
-        message: `${foodStockAdjustDialog.item.title} 已补充 ${parsedQuantity.quantity} ${payload.unit}。`,
-      });
-    } catch (error) {
-      setFoodStockAdjustDialog({
-        ...foodStockAdjustDialog,
-        error: error instanceof Error ? error.message : '库存调整失败，请稍后再试。',
-      });
-    } finally {
-      setFoodStockSubmitting(null);
-    }
-  }
-
-  const renderIngredientHubPage = (mobileDetailPopover?: ReactNode) => (
-    <IngredientInventoryPanelContextProvider
-      value={{
+  const inventoryPanelContext = {
         inventorySourceFilter,
         onInventorySourceFilterChange: setInventorySourceFilter,
         inventoryEntryFilter,
@@ -2917,160 +642,130 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
         onOpenFoodStock: handleOpenFoodStockFromInventory,
         onRecordFoodStockMeal: handleRecordFoodStockMeal,
         onAddFoodShopping: handleAddFoodShopping,
-      }}
-    >
-      <IngredientHubPage
-        noticeToast={noticeToast}
-        overlays={overlayLayerProps}
-        workspaceMetrics={workspaceMetrics}
-        desktopActions={desktopActions}
-        panelItems={PANEL_ITEMS.map((item) => ({
+      } as const;
+  const hubPageProps = {
+        noticeToast,
+        overlays: overlayLayerProps,
+        workspaceMetrics,
+        desktopActions,
+        panelItems: PANEL_ITEMS.map((item) => ({
           ...item,
           icon: <IngredientWorkspaceIcon name={item.icon} />,
-        }))}
-        activePanel={activePanel}
-        openWorkspacePanel={openWorkspacePanel}
-        allAlertsCount={priorityActionCount}
-        stockedIngredientCount={stockedIngredientCount}
-        pendingShoppingCount={pendingShopping.length}
-        summariesCount={summaries.length}
-        catalogSearch={catalogSearch}
-        setCatalogSearch={setCatalogSearch}
-        mobileIngredientFilter={mobileIngredientFilter}
-        setMobileIngredientFilter={setMobileIngredientFilter}
-        mobileInventoryEntryFilter={mobileInventoryEntryFilter}
-        setMobileInventoryEntryFilter={setMobileInventoryEntryFilter}
-        mobileStorageFocus={mobileStorageFocus}
-        setMobileStorageFocus={setMobileStorageFocus}
-        mobilePriorityRows={mobilePriorityRows}
-        mobilePrioritySummaries={mobilePrioritySummaries}
-        mobileFoodStockItems={mobileFoodStockItems}
-        mobileStorageCards={mobileStorageCards}
-        mobileCatalogSummaries={mobileCatalogSummaries}
-        mobileCatalogResetKey={mobileCatalogResetKey}
-        mobileShoppingCards={mobileShoppingCards}
-        mobileShoppingGroups={mobileShoppingGroups}
-        mobileHasCatalogFilters={mobileHasCatalogFiltersForUi}
-        notificationCenter={props.notificationCenter}
-        openDetailView={openDetailView}
-        openInventoryOverlay={openInventoryOverlay}
-        openConsumeOverlay={openConsumeOverlay}
-        openShoppingOverlay={openShoppingOverlay}
-        openDestroyExpiredOverlay={openDestroyExpiredOverlay}
-        openCreateView={openCreateView}
-        openInventoryFromShopping={(item) => {
+        })),
+        activePanel,
+        openWorkspacePanel,
+        allAlertsCount: priorityActionCount,
+        stockedIngredientCount: stockedIngredientCount,
+        pendingShoppingCount: pendingShopping.length,
+        summariesCount: summaries.length,
+        catalogSearch,
+        setCatalogSearch,
+        mobileIngredientFilter,
+        setMobileIngredientFilter,
+        mobileInventoryEntryFilter,
+        setMobileInventoryEntryFilter,
+        mobileStorageFocus,
+        setMobileStorageFocus,
+        mobilePriorityRows,
+        mobilePrioritySummaries,
+        mobileFoodStockItems,
+        mobileStorageCards,
+        mobileCatalogSummaries,
+        mobileCatalogResetKey,
+        mobileShoppingCards,
+        mobileShoppingGroups,
+        mobileHasCatalogFilters: mobileHasCatalogFiltersForUi,
+        notificationCenter: props.notificationCenter,
+        openDetailView,
+        openInventoryOverlay,
+        openConsumeOverlay,
+        openShoppingOverlay,
+        openDestroyExpiredOverlay,
+        openCreateView,
+        openInventoryFromShopping: (item) => {
           if (props.openShoppingIntake) {
             props.openShoppingIntake({ selectedItemId: item.id });
             return;
           }
           openInventoryFromShopping(item);
-        }}
-        openShoppingIntake={props.openShoppingIntake}
-        openReconciliation={props.openReconciliation}
-        operationBanner={props.operationBanner}
-        openFoodStockMeal={handleRecordFoodStockMeal}
-        openFoodStockEditor={handleOpenFoodStockFromInventory}
-        openFoodShopping={handleAddFoodShopping}
-        buildPriorityStatus={buildInventoryCardStatus}
-        buildCatalogStatus={buildCatalogCardStatus}
-        buildInventorySummaryLine={buildInventorySummaryLine}
-        buildShoppingReason={resolveShoppingReason}
-        countDisposableExpiredItems={(summary) => countDisposableExpiredInventoryItems(summary, businessDateKey())}
-        renderStorageIllustration={InventoryStorageIllustration}
-        renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-        isUpdatingShopping={props.isUpdatingShopping}
-        isCreatingInventory={props.isCreatingInventory}
-        isCatalogSearchFetching={isCatalogSearchFetching}
-        onCatalogSearchCompositionStart={catalogSearchComposition.onCompositionStart}
-        onCatalogSearchCompositionEnd={catalogSearchComposition.onCompositionEnd}
-        catalogCountLabel={catalogCountLabel}
-        catalogCategoryFilter={catalogCategoryFilter}
-        catalogStatusFilter={catalogStatusFilter}
-        catalogCategories={catalogCategories}
-        catalogStatusItems={CATALOG_STATUS_FILTERS}
-        catalogStatusCounts={catalogStatusCounts}
-        filteredSummaries={filteredSummaries}
-        visibleFilteredSummaries={visibleFilteredSummaries}
-        hasMoreCatalogSummaries={catalogCardPager.hasMore}
-        isLoadingMoreCatalogSummaries={catalogCardPager.isLoadingMore}
-        onLoadMoreCatalogSummaries={catalogCardPager.loadMore}
-        catalogLoadMoreRef={catalogCardPager.sentinelRef}
-        expandedCatalogIngredientId={expandedCatalogIngredientId}
-        catalogGridStyle={catalogGridStyle}
-        setCatalogCategoryFilter={setCatalogCategoryFilter}
-        setCatalogStatusFilter={setCatalogStatusFilter}
-        openInventoryPanel={openInventoryPanel}
-        toggleCatalogCard={toggleCatalogCard}
-        catalogMeasureRef={catalogMeasureRef}
-        ScrollableChipRail={ScrollableChipRail}
-        IngredientCatalogCard={IngredientCatalogCard}
-        inventorySearch={inventorySearch}
-        isInventorySearchFetching={isInventorySearchFetching}
-        onInventorySearchCompositionStart={inventorySearchComposition.onCompositionStart}
-        onInventorySearchCompositionEnd={inventorySearchComposition.onCompositionEnd}
-        setInventorySearch={setInventorySearch}
-        inventoryQuickFilter={inventoryQuickFilter}
-        setInventoryQuickFilter={handleInventoryQuickFilterChange}
-        inventoryStorageFocus={inventoryStorageFocus}
-        setInventoryStorageFocus={setInventoryStorageFocus}
-        inventorySortMode={inventorySortMode}
-        setInventorySortMode={setInventorySortMode}
-        focusedInventorySummaries={focusedInventorySummaries}
-        inventoryStorageOverview={inventoryStorageOverview}
-        inventoryGroups={inventoryGroups}
-        InventoryStorageOverviewCard={InventoryStorageOverviewCard}
-        InventoryIngredientCard={InventoryIngredientCard}
-        shoppingOverview={shoppingOverview}
-        shoppingFocus={shoppingFocus}
-        setShoppingFocus={setShoppingFocus}
-        shoppingSearch={shoppingSearch}
-        setShoppingSearch={setShoppingSearch}
-        pendingShoppingCards={pendingShoppingCards}
-        visiblePendingShoppingCards={visiblePendingShoppingCards}
-        visiblePendingShoppingGroups={visiblePendingShoppingGroups}
-        completedShoppingCards={completedShoppingCards}
-        visibleCompletedShoppingCards={visibleCompletedShoppingCards}
-        activeShoppingOverview={activeShoppingOverview}
-        showCompletedShopping={showCompletedShopping}
-        setShowCompletedShopping={setShowCompletedShopping}
-        onUpdateShoppingItem={props.updateShoppingItem}
-        onDeleteShoppingItem={props.deleteShoppingItem}
-        ShoppingWorkRow={ShoppingWorkRow}
-        ShoppingHistoryRow={ShoppingHistoryRow}
-        mobileDetailPopover={mobileDetailPopover}
-      />
-    </IngredientInventoryPanelContextProvider>
-  );
+        },
+        openShoppingIntake: props.openShoppingIntake,
+        openReconciliation: props.openReconciliation,
+        operationBanner: props.operationBanner,
+        openFoodStockMeal: handleRecordFoodStockMeal,
+        openFoodStockEditor: handleOpenFoodStockFromInventory,
+        openFoodShopping: handleAddFoodShopping,
+        buildPriorityStatus: buildInventoryCardStatus,
+        buildCatalogStatus: buildCatalogCardStatus,
+        buildInventorySummaryLine,
+        buildShoppingReason: resolveShoppingReason,
+        countDisposableExpiredItems: (summary) => countDisposableExpiredInventoryItems(summary, businessDateKey()),
+        renderStorageIllustration: IngredientStorageIllustration,
+        renderIcon: (name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />,
+        isUpdatingShopping: props.isUpdatingShopping,
+        isCreatingInventory: props.isCreatingInventory,
+        isCatalogSearchFetching: isCatalogSearchFetching,
+        onCatalogSearchCompositionStart: catalogSearchComposition.onCompositionStart,
+        onCatalogSearchCompositionEnd: catalogSearchComposition.onCompositionEnd,
+        catalogCountLabel,
+        catalogCategoryFilter,
+        catalogStatusFilter,
+        catalogCategories,
+        catalogStatusItems: CATALOG_STATUS_FILTERS,
+        catalogStatusCounts: catalogStatusCounts,
+        filteredSummaries,
+        visibleFilteredSummaries,
+        hasMoreCatalogSummaries: catalogCardPager.hasMore,
+        isLoadingMoreCatalogSummaries: catalogCardPager.isLoadingMore,
+        onLoadMoreCatalogSummaries: catalogCardPager.loadMore,
+        catalogLoadMoreRef: catalogCardPager.sentinelRef,
+        expandedCatalogIngredientId,
+        catalogGridStyle,
+        setCatalogCategoryFilter,
+        setCatalogStatusFilter,
+        openInventoryPanel,
+        toggleCatalogCard,
+        catalogMeasureRef,
+        ScrollableChipRail: ScrollableChipRail,
+        IngredientCatalogCard: ExtractedIngredientCatalogCard,
+        inventorySearch,
+        isInventorySearchFetching: isInventorySearchFetching,
+        onInventorySearchCompositionStart: inventorySearchComposition.onCompositionStart,
+        onInventorySearchCompositionEnd: inventorySearchComposition.onCompositionEnd,
+        setInventorySearch,
+        inventoryQuickFilter,
+        setInventoryQuickFilter: handleInventoryQuickFilterChange,
+        inventoryStorageFocus,
+        setInventoryStorageFocus,
+        inventorySortMode,
+        setInventorySortMode,
+        focusedInventorySummaries,
+        inventoryStorageOverview,
+        inventoryGroups,
+        InventoryStorageOverviewCard: IngredientStorageOverviewCard,
+        InventoryIngredientCard: IngredientInventoryCard,
+        shoppingOverview,
+        shoppingFocus,
+        setShoppingFocus,
+        shoppingSearch,
+        setShoppingSearch,
+        pendingShoppingCards,
+        visiblePendingShoppingCards,
+        visiblePendingShoppingGroups,
+        completedShoppingCards,
+        visibleCompletedShoppingCards,
+        activeShoppingOverview,
+        showCompletedShopping,
+        setShowCompletedShopping,
+        onUpdateShoppingItem: props.updateShoppingItem,
+        onDeleteShoppingItem: props.deleteShoppingItem,
+        ShoppingWorkRow: ShoppingWorkRow,
+        ShoppingHistoryRow: IngredientShoppingHistoryRow,
+        mobileDetailPopover: undefined,
+      } satisfies IngredientHubPageProps;
 
   if (workspaceView === 'detail' && selectedIngredient) {
-    const detailQuantityLabel = selectedIngredient.quantitySummaries[0]?.label ?? '还没有库存';
-    const detailMetricItems = [
-      {
-        icon: 'stocked' as const,
-        label: '当前库存',
-        value: detailQuantityLabel,
-        tone: 'green',
-      },
-      {
-        icon: 'link' as const,
-        label: '相关菜谱',
-        value: `${selectedIngredient.recipeReferences.length}`,
-        tone: 'brown',
-      },
-      {
-        icon: 'scale' as const,
-        label: '默认单位',
-        value: selectedIngredient.ingredient.default_unit || '个',
-        tone: 'brown',
-      },
-      {
-        icon: 'bell' as const,
-        label: '当前提醒',
-        value: `${selectedIngredient.alerts.length}`,
-        tone: selectedIngredient.alerts.length > 0 ? 'red' : 'green',
-      },
-    ];
-    const detailStorageLabel = selectedIngredient.primaryStorage || selectedIngredient.ingredient.default_storage || '常温';
+    const { detailStorageLabel, detailMetricItems } = buildIngredientDetailViewModel(selectedIngredient);
 
     const detailViewProps = {
       activePanelBackLabel,
@@ -3099,25 +794,18 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
           />
         </div>
         <div className="ingredients-detail-mobile-only">
-          {renderIngredientHubPage(
-            <WorkspaceOverlayFrame
-              rootClassName="ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"
-              backdropClassName="mobile-ingredient-detail-popover-backdrop"
-              onClose={goBackToWorkspace}
-            >
-              <WorkspaceDrawer
-                eyebrow={selectedIngredient.ingredient.category || '食材'}
-                title={selectedIngredient.ingredient.name}
-                description={selectedIngredient.ingredient.notes || `适合做${selectedIngredient.recipeReferences.slice(0, 2).map((recipe) => recipe.title).join('、') || '日常菜'}`}
-                closeLabel="关闭"
-                closeAriaLabel="关闭食材详情"
-                className="mobile-ingredient-detail-popover-panel ingredient-detail-drawer"
-                onClose={goBackToWorkspace}
-              >
-                <IngredientDetailView {...detailViewProps} />
-              </WorkspaceDrawer>
-            </WorkspaceOverlayFrame>
-          )}
+          <IngredientWorkspaceHubRoute
+            inventoryPanelContext={inventoryPanelContext}
+            pageProps={{
+              ...hubPageProps,
+              mobileDetailPopover: (
+                <IngredientWorkspaceMobileDetailPopover
+                  detailViewProps={detailViewProps}
+                  onClose={goBackToWorkspace}
+                />
+              ),
+            }}
+          />
         </div>
       </>
     );
@@ -3125,539 +813,55 @@ export function IngredientWorkspace(props: IngredientWorkspaceProps) {
 
   return (
     <>
-      {renderIngredientHubPage()}
-
-      {workspaceView === 'create' && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root"
-          closeOnBackdrop={!isIngredientFormSubmitting}
-          onClose={closeIngredientFormIfAllowed}
-        >
-          <WorkspaceModal
-            title={isEditingIngredient ? '编辑食材' : '新增食材'}
-            description={isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存食材信息。' : '填写基础信息、图片和备注后，就能继续加入库存。'}
-            eyebrow="食材信息"
-            className="ingredient-editor-modal"
-            closeLabel="关闭"
-            onClose={closeIngredientFormIfAllowed}
-          >
-            <IngredientEditorView
-              embedded
-              activePanelBackLabel={activePanelBackLabel}
-              isEditingIngredient={isEditingIngredient}
-              ingredientForm={ingredientForm}
-              setIngredientForm={setIngredientForm}
-              ingredientVisibleCategoryPresets={ingredientVisibleCategoryPresets}
-              ingredientCategoryIsVisiblePreset={ingredientCategoryIsVisiblePreset}
-              showIngredientCategoryCustomInput={showIngredientCategoryCustomInput}
-              setIngredientCustomCategoryOpen={setIngredientCustomCategoryOpen}
-              applyIngredientCategoryPreset={applyIngredientCategoryPreset}
-              ingredientUnitAdvancedOpen={ingredientUnitAdvancedOpen}
-              setIngredientUnitAdvancedOpen={setIngredientUnitAdvancedOpen}
-              ingredientUnitOptions={ingredientUnitOptions}
-              ingredientUsesCustomUnit={ingredientUsesCustomUnit}
-              ingredientUsesCustomStorage={ingredientUsesCustomStorage}
-              trimmedIngredientUnit={trimmedIngredientUnit}
-              ingredientDefaultExpiryRangeValue={ingredientDefaultExpiryRangeValue}
-              ingredientLowStockEnabled={ingredientLowStockEnabled}
-              ingredientLowStockValue={ingredientLowStockValue}
-              ingredientLowStockStep={ingredientLowStockStep}
-              ingredientLowStockQuickValues={ingredientLowStockQuickValues}
-              ingredientPreviewImage={ingredientPreviewImage}
-              createSummaryItems={createSummaryItems}
-              createChecklistItems={createChecklistItems}
-              createCanSubmit={createCanSubmit}
-              ingredientImageState={ingredientImageComposer.state}
-              trackingTransitionDraft={editorState.trackingTransitionDraft}
-              trackingTransitionBusy={editorState.trackingTransitionBusy}
-              trackingTransitionError={editorState.trackingTransitionError}
-              onCancelTrackingTransition={editorState.cancelTrackingTransition}
-              onUpdatePresenceResolution={editorState.updatePresenceResolution}
-              onUpdateExactResolution={editorState.updateExactResolution}
-              onConfirmTrackingTransition={() => void editorState.confirmTrackingTransition()}
-              onUploadImage={(files) => void ingredientImageComposer.upload(files)}
-              onGenerateImage={(mode) => void ingredientImageComposer.generate(mode)}
-              onResetImage={ingredientImageComposer.reset}
-              onSubmit={handleCreateSubmit}
-              onSaveWithoutRestock={() => void submitIngredient(false)}
-              onBack={closeIngredientFormIfAllowed}
-              isCreatingIngredient={props.isCreatingIngredient}
-              isUpdatingIngredient={props.isUpdatingIngredient}
-              renderIcon={(name) => <IngredientWorkspaceIcon name={name as IngredientWorkspaceIconName} />}
-              renderStorageIcon={(storage) => <InventoryStorageIcon storage={storage} />}
-              ScrollableChipRail={ScrollableChipRail}
-            />
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {/* Shared ordinary-record result bar; preserved if inventory follow-up is dismissed/fails. */}
-      <MealRecordResultBar
-        result={props.recordResult ?? null}
-        isReverting={props.isRevertingRecord}
-        revertError={props.recordRevertError}
-        rateError={props.recordRateError}
-        onRevert={props.onRevertRecord}
-        onView={props.onViewRecord}
-        onRate={props.onRateRecord}
-        onDismiss={props.onDismissRecord}
+      <IngredientWorkspaceHubRoute
+        inventoryPanelContext={inventoryPanelContext}
+        pageProps={hubPageProps}
       />
 
-      {quickRecord ? (
-        <MealQuickRecordView
-          open
-          prefilledFood={{
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            cover: getFoodCoverAsset(quickRecord.food, props.recipes) ?? null,
-            servings: 1,
-          }}
-          date={quickRecord.date}
-          mealType={quickRecord.mealType}
-          dateOptions={foodStockRecordDateOptions}
-          candidates={quickRecord.candidates}
-          selectedCandidateId={quickRecord.selectedCandidateId}
-          candidateMode={quickRecord.candidateMode}
-          target={quickRecord.target}
-          busy={quickRecord.busy || Boolean(props.isRecordingMeal)}
-          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
-          error={quickRecord.error}
-          overlayRootClassName="ingredient-workspace-overlay-root"
-          onClose={() => {
-            if (!quickRecord.busy) setQuickRecord(null);
-          }}
-          onDateChange={(date) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    date,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onMealTypeChange={(mealType) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    mealType,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onTargetChange={(target, selectedCandidateId) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    target,
-                    selectedCandidateId:
-                      selectedCandidateId ??
-                      (target.kind === 'existing' ? target.meal_log_id : null),
-                    targetTouchedByUser: true,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onSubmit={() => {
-            void submitCompactFoodRecord();
-          }}
-        />
-      ) : null}
+      <IngredientWorkspaceEditorOverlay
+        open={workspaceView === 'create'}
+        activePanelBackLabel={activePanelBackLabel}
+        ingredientForm={ingredientForm}
+        setIngredientForm={setIngredientForm}
+        editorState={editorState}
+        isCreatingIngredient={props.isCreatingIngredient}
+        isUpdatingIngredient={props.isUpdatingIngredient}
+        onClose={closeIngredientFormIfAllowed}
+      />
 
-      {inventoryFollowUp && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
-          closeOnBackdrop={foodStockSubmitting !== 'meal'}
-          onClose={() => {
-            // Cancelling inventory follow-up does not roll back the meal.
-            if (foodStockSubmitting !== 'meal') {
-              setInventoryFollowUp(null);
-            }
-          }}
-        >
-          <WorkspaceModal
-            eyebrow="成品库存"
-            title="更新库存"
-            description="餐已记下。可选继续扣减库存；取消不影响刚才的记录。"
-            className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
-            closeLabel="关闭"
-            onClose={() => {
-              if (foodStockSubmitting !== 'meal') {
-                setInventoryFollowUp(null);
-              }
-            }}
-            footerActions={
-              <FormActions
-                primaryLabel="确认扣减"
-                primaryType="submit"
-                primaryForm="ingredients-food-stock-inventory-followup-form"
-                isSubmitting={foodStockSubmitting === 'meal'}
-                secondaryLabel="跳过"
-                onSecondary={() => setInventoryFollowUp(null)}
-              />
-            }
-          >
-            <form
-              id="ingredients-food-stock-inventory-followup-form"
-              className="ingredients-food-stock-form ingredients-food-stock-quick-form"
-              onSubmit={submitInventoryFollowUp}
-            >
-              <div className="ingredients-food-stock-quick-hero">
-                <span className="ingredients-food-stock-quick-cover">
-                  <MediaWithPlaceholder
-                    src={resolveMediaUrl(inventoryFollowUp.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(inventoryFollowUp.item.image)}
-                    sizes={buildMediaSizes('thumb')}
-                    alt=""
-                    emptyLabel="成品图片"
-                    showLabel={false}
-                  />
-                </span>
-                <span className="ingredients-food-stock-quick-copy">
-                  <strong>{inventoryFollowUp.item.title}</strong>
-                  <small>
-                    {[
-                      inventoryFollowUp.item.category || '成品',
-                      inventoryFollowUp.item.storage_location || '常温',
-                      `库存 ${inventoryFollowUp.item.quantity_label}`,
-                    ].join(' · ')}
-                  </small>
-                </span>
-              </div>
-              <label className="ingredients-food-stock-field">
-                <span>扣减数量</span>
-                <div className="ingredients-food-stock-inline-input">
-                  <input
-                    className="text-input"
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={inventoryFollowUp.stockQuantity}
-                    disabled={foodStockSubmitting === 'meal'}
-                    onChange={(event) =>
-                      setInventoryFollowUp({
-                        ...inventoryFollowUp,
-                        stockQuantity: event.target.value,
-                        error: null,
-                      })
-                    }
-                  />
-                  <em>{inventoryFollowUp.item.unit || '份'}</em>
-                </div>
-              </label>
-              {inventoryFollowUp.error ? (
-                <p className="form-error ingredients-food-stock-error" role="alert">
-                  {inventoryFollowUp.error}
-                </p>
-              ) : null}
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {foodStockDeductDialog && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
-          closeOnBackdrop={foodStockSubmitting !== 'meal'}
-          onClose={() => {
-            if (foodStockSubmitting !== 'meal') {
-              setFoodStockDeductDialog(null);
-            }
-          }}
-        >
-          <WorkspaceModal
-            eyebrow="成品库存"
-            title="扣减库存"
-            description="只扣库存，不保存餐食记录。"
-            className="ingredients-food-stock-modal ingredients-food-stock-quick-modal"
-            closeLabel="关闭"
-            onClose={() => {
-              if (foodStockSubmitting !== 'meal') {
-                setFoodStockDeductDialog(null);
-              }
-            }}
-            footerActions={
-              <FormActions
-                primaryLabel="确认扣减"
-                primaryType="submit"
-                primaryForm="ingredients-food-stock-deduct-form"
-                isSubmitting={foodStockSubmitting === 'meal'}
-                secondaryLabel="取消"
-                onSecondary={() => setFoodStockDeductDialog(null)}
-              />
-            }
-          >
-            <form
-              id="ingredients-food-stock-deduct-form"
-              className="ingredients-food-stock-form ingredients-food-stock-quick-form"
-              onSubmit={submitFoodStockDeductDialog}
-            >
-              <div className="ingredients-food-stock-quick-hero">
-                <span className="ingredients-food-stock-quick-cover">
-                  <MediaWithPlaceholder
-                    src={resolveMediaUrl(foodStockDeductDialog.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(foodStockDeductDialog.item.image)}
-                    sizes={buildMediaSizes('thumb')}
-                    alt=""
-                    emptyLabel="成品图片"
-                    showLabel={false}
-                  />
-                </span>
-                <span className="ingredients-food-stock-quick-copy">
-                  <strong>{foodStockDeductDialog.item.title}</strong>
-                  <small>
-                    {[
-                      foodStockDeductDialog.item.category || '成品',
-                      foodStockDeductDialog.item.storage_location || '常温',
-                      `库存 ${foodStockDeductDialog.item.quantity_label}`,
-                    ].join(' · ')}
-                  </small>
-                </span>
-              </div>
-              <div className="ingredients-food-stock-no-record-note">
-                <strong>不保存餐食记录</strong>
-                <span>这次只从成品库存里扣掉数量，适合清点、丢失或已经记录过的情况。</span>
-              </div>
-              <label className="ingredients-food-stock-field">
-                <span>扣减数量</span>
-                <div className="ingredients-food-stock-inline-input">
-                  <input
-                    className="text-input"
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={foodStockDeductDialog.stockQuantity}
-                    disabled={foodStockSubmitting === 'meal'}
-                    onChange={(event) =>
-                      setFoodStockDeductDialog({
-                        ...foodStockDeductDialog,
-                        stockQuantity: event.target.value,
-                        error: null,
-                      })
-                    }
-                  />
-                  <em>{foodStockDeductDialog.item.unit || '份'}</em>
-                </div>
-              </label>
-              {foodStockDeductDialog.error ? (
-                <p className="form-error ingredients-food-stock-error" role="alert">
-                  {foodStockDeductDialog.error}
-                </p>
-              ) : null}
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {foodStockAdjustDialog && (
-        <WorkspaceOverlayFrame
-          rootClassName="ingredient-workspace-overlay-root ingredients-food-stock-overlay-root"
-          closeOnBackdrop={foodStockSubmitting !== 'adjust'}
-          onClose={() => {
-            if (foodStockSubmitting !== 'adjust') {
-              setFoodStockAdjustDialog(null);
-            }
-          }}
-        >
-          <WorkspaceModal
-            eyebrow="成品库存"
-            title="补充库存"
-            description="补充数量和到期信息；存放位置统一在食物信息中设置。"
-            className="ingredients-food-stock-modal ingredients-food-stock-restock-modal"
-            closeLabel="关闭"
-            onClose={() => {
-              if (foodStockSubmitting !== 'adjust') {
-                setFoodStockAdjustDialog(null);
-              }
-            }}
-            footerActions={
-              <FormActions
-                primaryLabel="确认补充"
-                primaryType="submit"
-                primaryForm="ingredients-food-stock-adjust-form"
-                isSubmitting={foodStockSubmitting === 'adjust'}
-                secondaryLabel="取消"
-                onSecondary={() => setFoodStockAdjustDialog(null)}
-              />
-            }
-          >
-            <form id="ingredients-food-stock-adjust-form" className="ingredients-food-stock-form ingredients-food-stock-restock-form" onSubmit={submitFoodStockAdjustDialog}>
-              <div className="ingredients-food-stock-quick-hero ingredients-food-stock-restock-hero">
-                <span className="ingredients-food-stock-quick-cover">
-                  <MediaWithPlaceholder
-                    src={resolveMediaUrl(foodStockAdjustDialog.item.image, 'card')}
-                    srcSet={buildMediaSrcSet(foodStockAdjustDialog.item.image)}
-                    sizes={buildMediaSizes('thumb')}
-                    alt=""
-                    emptyLabel="成品图片"
-                    showLabel={false}
-                  />
-                </span>
-                <span className="ingredients-food-stock-quick-copy">
-                  <strong>{foodStockAdjustDialog.item.title}</strong>
-                  <small>
-                    {[foodStockAdjustDialog.item.category || '成品', foodStockAdjustDialog.item.storage_location || '常温', `当前 ${foodStockAdjustDialog.item.quantity_label}`].join(' · ')}
-                  </small>
-                </span>
-              </div>
-
-              <div className="ingredients-food-stock-summary ingredients-food-stock-restock-summary">
-                  <strong>补充后更新成品库存</strong>
-                <span>
-                  存放位置：{foodStockAdjustDialog.item.storage_location || '常温'}，如需调整请到食物信息修改。
-                </span>
-              </div>
-
-              <section className="ingredients-food-stock-restock-section">
-                <div className="ingredients-food-stock-restock-section-head">
-                  <strong>补充数量</strong>
-                  <span>常用数量点一下就填好</span>
-                </div>
-                <div className="ingredients-food-stock-restock-unit-row">
-                  <label className="ingredients-food-stock-field">
-                    <span>数量</span>
-                    <input
-                      className="text-input"
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={foodStockAdjustDialog.quantity}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onChange={(event) =>
-                        setFoodStockAdjustDialog({ ...foodStockAdjustDialog, quantity: event.target.value, error: null })
-                      }
-                    />
-                  </label>
-                  <label className="ingredients-food-stock-field">
-                    <span>单位</span>
-                    <input
-                      className="text-input"
-                      value={foodStockAdjustDialog.unit}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onChange={(event) =>
-                        setFoodStockAdjustDialog({ ...foodStockAdjustDialog, unit: event.target.value, error: null })
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-quantity-presets" aria-label="常用补充数量">
-                  {FOOD_STOCK_RESTOCK_QUANTITY_PRESETS.map((quantity) => (
-                    <button
-                      key={quantity}
-                      type="button"
-                      className={foodStockAdjustDialog.quantity === quantity ? 'active' : ''}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onClick={() => setFoodStockRestockQuantity(quantity)}
-                    >
-                      +{quantity}
-                      <span>{foodStockAdjustDialog.unit || foodStockAdjustDialog.item.unit || '份'}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="ingredients-food-stock-restock-section">
-                <div className="ingredients-food-stock-restock-section-head">
-                  <strong>到期信息</strong>
-                  <span>不确定可以先不填</span>
-                </div>
-                <label className="ingredients-food-stock-field">
-                  <span>到期日</span>
-                  <input
-                    className="text-input"
-                    type="date"
-                    value={foodStockAdjustDialog.expiryDate}
-                    disabled={foodStockSubmitting === 'adjust'}
-                    onChange={(event) =>
-                      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, expiryDate: event.target.value, error: null })
-                    }
-                  />
-                </label>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-expiry-presets" aria-label="常用到期时间">
-                  <button
-                    type="button"
-                    className={foodStockAdjustDialog.expiryDate ? '' : 'active'}
-                    disabled={foodStockSubmitting === 'adjust'}
-                    onClick={() => setFoodStockRestockExpiryDays(null)}
-                  >
-                    不设置到期日
-                  </button>
-                  {FOOD_STOCK_RESTOCK_EXPIRY_PRESETS.map((preset) => {
-                    const presetDate = addDateKeyDays(todayDate, preset.value);
-                    return (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        className={foodStockAdjustDialog.expiryDate === presetDate ? 'active' : ''}
-                        disabled={foodStockSubmitting === 'adjust'}
-                        onClick={() => setFoodStockRestockExpiryDays(preset.value)}
-                      >
-                        {preset.label}
-                        <span>{formatDate(presetDate)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="ingredients-food-stock-restock-helper">包装没有明确日期时可以留空，之后可在食物信息中修改，或下次补充库存时再填写。</p>
-              </section>
-
-              <section className="ingredients-food-stock-restock-section">
-                <div className="ingredients-food-stock-restock-section-head">
-                  <strong>购买来源</strong>
-                  <span>方便下次再选和回看</span>
-                </div>
-                <label className="ingredients-food-stock-field">
-                  <span>购买来源</span>
-                  <input
-                    className="text-input"
-                    placeholder="例如：楼下超市、京东、盒马"
-                    value={foodStockAdjustDialog.purchaseSource}
-                    disabled={foodStockSubmitting === 'adjust'}
-                    onChange={(event) =>
-                      setFoodStockAdjustDialog({ ...foodStockAdjustDialog, purchaseSource: event.target.value, error: null })
-                    }
-                  />
-                </label>
-                <div className="ingredients-food-stock-restock-presets ingredients-food-stock-source-presets" aria-label="常用购买来源">
-                  {FOOD_STOCK_RESTOCK_SOURCE_PRESETS.map((source) => (
-                    <button
-                      key={source}
-                      type="button"
-                      className={foodStockAdjustDialog.purchaseSource === source ? 'active' : ''}
-                      disabled={foodStockSubmitting === 'adjust'}
-                      onClick={() => setFoodStockRestockSource(source)}
-                    >
-                      {source}
-                    </button>
-                  ))}
-                </div>
-              </section>
-              {foodStockAdjustDialog.error ? (
-                <p className="form-error ingredients-food-stock-error" role="alert">
-                  {foodStockAdjustDialog.error}
-                </p>
-              ) : null}
-            </form>
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
+      <IngredientFoodStockRecordController
+        recipes={props.recipes}
+        todayDate={todayDate}
+        dateOptions={foodStockRecordDateOptions}
+        state={{
+          quickRecord,
+          setQuickRecord,
+          inventoryFollowUp,
+          setInventoryFollowUp,
+          foodStockDeductDialog,
+          setFoodStockDeductDialog,
+          foodStockAdjustDialog,
+          setFoodStockAdjustDialog,
+          foodStockSubmitting,
+          setFoodStockSubmitting,
+          setFoodStockRestockQuantity,
+          setFoodStockRestockExpiryDays,
+          setFoodStockRestockSource,
+        }}
+        recordResult={props.recordResult}
+        isRevertingRecord={props.isRevertingRecord}
+        recordRevertError={props.recordRevertError}
+        recordRateError={props.recordRateError}
+        onRevertRecord={props.onRevertRecord}
+        onViewRecord={props.onViewRecord}
+        onRateRecord={props.onRateRecord}
+        onDismissRecord={props.onDismissRecord}
+        isRecordingMeal={props.isRecordingMeal}
+        submitCompactFoodRecord={submitCompactFoodRecord}
+        submitInventoryFollowUp={submitInventoryFollowUp}
+        submitFoodStockDeductDialog={submitFoodStockDeductDialog}
+        submitFoodStockAdjustDialog={submitFoodStockAdjustDialog}
+      />
     </>
   );
 }

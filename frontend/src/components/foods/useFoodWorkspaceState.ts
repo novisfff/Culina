@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe, UpdateFoodPayload } from '../../api/types';
+import type { Food, FoodPayload, FoodScene, FoodType, MealType, Recipe, UpdateFoodPayload } from '../../api/types/food';
 import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
 import { splitTags } from '../../lib/ui';
 import type { FoodGovernanceIssue, FoodWorkspaceLens } from './FoodWorkspaceOptions';

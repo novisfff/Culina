@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { InventoryOperationResult } from '../../api/types';
+import type { InventoryOperationResult } from '../../api/types/inventory';
 import { ActionButton } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 
@@ -49,6 +49,19 @@ export function selectRecentBannerOperation(
     .filter((operation) => isOperationStillRevertible(operation, nowMs))
     .sort((left, right) => Date.parse(right.applied_at) - Date.parse(left.applied_at));
   return eligible[0] ?? null;
+}
+
+export function selectRecentBannerOperationWithOverride(
+  operations: InventoryOperationResult[],
+  override: InventoryOperationResult | null,
+  nowMs: number,
+): InventoryOperationResult | null {
+  const fromList = selectRecentBannerOperation(operations, nowMs);
+  const fromOverride = override ? selectRecentBannerOperation([override], nowMs) : null;
+  if (fromOverride && (!fromList || Date.parse(fromOverride.applied_at) >= Date.parse(fromList.applied_at))) {
+    return fromOverride;
+  }
+  return fromList;
 }
 
 export function operationTypeLabel(operationType: InventoryOperationResult['operation_type']) {

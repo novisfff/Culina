@@ -1,11 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { isApiError } from '../../api/request';
+import { useCallback, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
-import { queryKeys } from '../../api/queryKeys';
+import type { FoodWorkspaceProps } from './FoodWorkspaceTypes';
 import type {
-  CompleteFoodPlanItemPayload,
   Food,
   FoodPlanItem,
   FoodPayload,
@@ -13,109 +9,108 @@ import type {
   FoodType,
   Ingredient,
   InventoryItem,
-  MealLog,
-  MealLogCandidate,
   MealType,
-  MediaAsset,
   Member,
-  RecordMealPayload,
-  RecordMealResponse,
-  RecordMealTarget,
   Recipe,
   RecipePayload,
   ShoppingListItem,
   UpdateFoodPayload,
+} from '../../api/types/food';
+import type {
+  CompleteFoodPlanItemPayload,
+  MealLog,
+  MealLogCandidate,
+  RecordMealPayload,
+  RecordMealResponse,
+  RecordMealTarget,
   UpdateMealLogPayload,
-} from '../../api/types';
+} from '../../api/types/meal';
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { FoodPlanNavigationRequest } from '../../app/useAppGlobalSearchNavigation';
-import { buildMediaSizes, buildMediaSrcSet, resolveAssetUrl, resolveMediaUrl } from '../../lib/assets';
-import { getMediaIds, getPendingImageJobId } from '../../lib/aiImages';
-import { parseOptionalFoodStockQuantity } from '../../lib/foodStockQuantity';
-import { MediaWithPlaceholder } from '../MediaPlaceholder';
+import { buildMediaSizes, resolveAssetUrl } from '../../lib/assets';
+import { getPendingImageJobId } from '../../lib/aiImages';
 import {
-  ActionButton,
-  EmptyState,
   FormActions,
-  OptionChipGroup,
-  SearchField,
   WorkspaceModal,
   WorkspaceOverlayFrame,
 } from '../ui-kit';
 import { FoodPlanDetailModal } from './FoodPlanDetailModal';
+import { FoodPlanDetailWithCandidates } from './FoodPlanDetailWithCandidates';
 import { FoodPlanDialog } from './FoodPlanDialog';
-import { FoodQuickMealDialog, type FoodQuickMealDialogState } from './FoodQuickMealDialog';
-import { FoodRecipeEditorDialog } from './FoodRecipeEditorDialog';
-import { FoodSceneDialogs } from './FoodSceneDialogs';
-import { FoodDiscoverSurface } from './FoodDiscoverSurface';
-import { FoodHubView } from './FoodHubView';
-import { FoodPlanSurface, type FoodPlanSurfaceProps } from './FoodPlanSurface';
+import { FoodWorkspaceQuickMealDialog } from './FoodWorkspaceQuickMealDialog';
+import { FoodWorkspaceNotice } from './FoodWorkspaceNotice';
+import { FoodWorkspaceShoppingOverlays } from './FoodWorkspaceShoppingOverlays';
+import { FoodWorkspacePlanOverlays } from './FoodWorkspacePlanOverlays';
+import { FoodWorkspaceQuickRecordOverlay } from './FoodWorkspaceQuickRecordOverlay';
+import { FoodWorkspaceDialogController } from './FoodWorkspaceDialogController';
+import { type FoodPlanSurfaceProps } from './FoodPlanSurface';
+import { buildFoodWorkspacePlanSurfaceProps } from './FoodWorkspacePlanSurfaceModel';
 import { FoodPlanWeekMobilePage } from './FoodPlanWeekMobilePage';
-import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import {
-  buildRecordMealPayload,
-  canSubmitWithCandidateResolution,
   createMealBusinessDate,
   createMealRecordDateOptions,
-  deriveCandidatePresentation,
-  type MealCandidateResolution,
-  type MealComposerFood,
 } from '../../features/meals/MealComposerModel';
-import {
-  extractMealRecordErrorCode,
-  messageFromMealRecordReason,
-} from '../../features/meals/mealRecordErrors';
-import { FoodTabletSupportSurface } from './FoodTabletSupportSurface';
 import { MealEnrichmentModal } from '../../features/meals/MealEnrichmentModal';
 import { MealQuickRecordView } from '../../features/meals/MealQuickRecordView';
-import { MealRecordResultBar } from '../../features/meals/MealRecordResultBar';
-import { useMealCandidateData } from '../../features/meals/useMealCandidateData';
 import type { MealRecordResult } from '../../features/meals/useMealRecordResultState';
-import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
+import { FOOD_TYPE_LABELS, getFoodCover, getFoodCoverAsset, getImagePreview, splitTags, todayKey } from '../../lib/ui';
 import {
   IDLE_IMAGE_GENERATION_STATE,
   useImageComposer,
 } from '../../hooks/useImageComposer';
-import { useDebouncedSearchValue, useSearchCompositionState } from '../../hooks/useDebouncedValue';
 import { useNotice } from '../../hooks/useNotice';
-import { buildRecipeCards } from '../recipes/workspaceModel';
-import { RecipeEditorView } from '../recipes/RecipeEditorView';
 import { useRecipeEditorState } from '../recipes/useRecipeEditorState';
 import {
   buildRecipeImagePayload,
-  buildRecipePayload,
   getRecipeDraftGenerationButtonLabel,
-  resolveErrorMessage,
 } from '../recipes/RecipeWorkspaceModel';
-import { FoodUiIcon } from './FoodWorkspacePrimitives';
+import { getFoodEditorProfile } from './FoodWorkspaceHelpers';
 import {
   FOOD_CREATE_TYPE_OPTIONS,
   FOOD_GOVERNANCE_ISSUE_OPTIONS,
+  FOOD_QUICK_VIEW_OPTIONS,
+  MOBILE_DEFAULT_FOOD_SCENES,
   FOOD_LENS_COPY,
-  FOOD_TYPE_OPTIONS,
-  MEAL_OPTIONS,
-  type FoodGovernanceIssue,
   type FoodWorkspaceLens,
 } from './FoodWorkspaceOptions';
 import {
-  buildDirectCookTarget,
+  getFoodPlanDateParts,
+  getSuggestedMealTypeForHour,
+  isReadyLikeType,
+  isOutsideType,
+  resolveFoodAssetUrl,
+  getFoodCardPrimaryActionLabel,
+  isFoodShoppingEligible,
+  formatFoodStock,
   getFoodFormCompletionItems,
   getFoodImagePayload,
   buildFoodPayloadFromForm,
   type FoodFormState,
 } from './FoodWorkspaceModel';
 import { useFoodPlanState } from './useFoodPlanState';
-import { useFoodSceneState, type FoodSceneCardView } from './useFoodSceneState';
+import { useFoodSceneState } from './useFoodSceneState';
+import { getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
+import {
+  buildFoodEditorSceneTagOptions,
+  buildFoodMobileWorkspaceViewModel,
+  buildFoodMobileFilterTabs,
+  buildFoodGovernanceSummary,
+  buildRecipeEditorSceneTagOptions,
+} from './FoodWorkspaceViewModel';
 import { useFoodWorkspaceState } from './useFoodWorkspaceState';
+import { useFoodWorkspaceSearch } from './useFoodWorkspaceSearch';
+import { useFoodWorkspaceDialogState, type MobileCookingFilter } from './useFoodWorkspaceDialogState';
+import { useFoodQuickMealActions } from './useFoodQuickMealActions';
 import { FoodDetailDrawer } from './FoodDetailDrawer';
 import { FoodEditorForm } from './FoodEditorForm';
-import { FoodMobileView } from './FoodMobileView';
+import { buildFoodWorkspaceEditorViewModel } from './FoodWorkspaceEditorViewModel';
+import { FoodWorkspaceDiscoverView } from './FoodWorkspaceDiscoverView';
+import { FoodWorkspaceDiscoverDesktop, FoodWorkspaceDiscoverMobile } from './FoodWorkspaceDiscoverDesktop';
+import { FoodWorkspaceMealOverlays } from './FoodWorkspaceMealOverlays';
+import { FoodWorkspaceOperationalOverlays } from './FoodWorkspaceOperationalOverlays';
+import { FoodWorkspaceEditorSurface } from './FoodWorkspaceEditorSurface';
 import { FoodShoppingDialog } from './FoodShoppingDialog';
-import {
-  FoodCardLibrary,
-  buildFoodLibraryCardViewModel,
-  type FoodLibraryCardActions,
-} from './FoodLibraryCard';
+import { type FoodLibraryCardActions } from './FoodLibraryCard';
 import {
   buildFoodShoppingDialogState,
   buildFoodShoppingWrite,
@@ -126,7 +121,6 @@ import { useRecipeShoppingState } from '../recipes/useRecipeShoppingState';
 import { SHOPPING_UNIT_OPTIONS } from '../recipes/RecipeWorkspaceOptions';
 import { resolveIngredientImageUrl } from '../recipes/RecipeWorkspaceModel';
 import {
-  NormalizedFoodType,
   normalizeFoodType,
   isReadyLikeFood,
   isOutsideFood,
@@ -134,7 +128,6 @@ import {
   describeExpiry,
   getFoodStatus,
   getFoodInventoryConfirmation,
-  getMealUsage,
   getDefaultMealType,
   getPrimaryFoodActionLabel,
   getSecondaryFoodActionLabel,
@@ -142,613 +135,36 @@ import {
   getFoodFactRows,
   getFoodMealHistory,
   getFoodAudienceText,
-  getDaysUntil,
-  getDaysSince,
-  isFoodExpiring,
   getFoodGovernanceIssues,
   getFoodGovernanceIssueLabels,
-  isFoodMissingDecisionInfo,
   buildFoodRelationViewModelFromRecipeCards,
   buildFoodCookingSummaryFromRecipeCards,
-  formatFoodStockQuantity,
   type FoodCookingSummary,
 } from './FoodWorkspaceHelpers';
+import { useFoodWorkspaceData } from './useFoodWorkspaceData';
+import { useFoodGovernanceData } from './useFoodGovernanceData';
+import { useFoodQuickRecordCandidates } from './useFoodQuickRecordCandidates';
+import { useFoodQuickRecordSubmit } from './useFoodQuickRecordSubmit';
+import { createFoodShoppingSubmit } from './useFoodShoppingActions';
+import { submitFoodRecipeEditorAction } from './useFoodRecipeEditorActions';
+import { submitFoodFormAction } from './useFoodFormActions';
+import { submitFoodCookConfirmAction } from './useFoodCookActions';
+import { useFoodNavigationRequests } from './useFoodNavigationRequests';
+import { useFoodEditorNavigation } from './useFoodEditorNavigation';
 
 const FOOD_EDITOR_FORM_ID = 'food-editor-form';
 
 export { FOOD_CREATE_TYPE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
 export { buildFoodPayloadFromForm, type FoodFormState } from './FoodWorkspaceModel';
+export { getSuggestedMealTypeForHour } from './FoodWorkspaceModel';
 
-export type TodayFoodRecommendation = {
-  food: Food;
-  mealType: MealType;
-  score: number;
-  reasons: string[];
-};
+export type { TodayFoodRecommendation } from './FoodRecommendationsModel';
+export { buildTodayFoodRecommendations } from './FoodRecommendationsModel';
 
-type FoodWorkspaceNavigationRequest = NonNullable<Props['navigationRequest']>;
+export { resolveFoodNavigationRequestAction } from './FoodNavigationModel';
+export type { FoodWorkspaceNavigationRequest } from './FoodNavigationModel';
 
-type FoodNavigationRequestAction =
-  | { kind: 'idle' }
-  | { kind: 'pending' }
-  | { kind: 'edit'; food: Food; requestId: number }
-  | { kind: 'quickMeal'; food: Food; requestId: number; quickMealAction: 'eat' | 'cook' };
-
-export function resolveFoodNavigationRequestAction(args: {
-  foods: Food[];
-  navigationRequest?: FoodWorkspaceNavigationRequest | null;
-  handledRequestId: number | null;
-}): FoodNavigationRequestAction {
-  const { foods, navigationRequest, handledRequestId } = args;
-  if (!navigationRequest || navigationRequest.target === 'detail' || handledRequestId === navigationRequest.requestId) {
-    return { kind: 'idle' };
-  }
-  const food = foods.find((item) => item.id === navigationRequest.foodId);
-  if (!food) {
-    return { kind: 'pending' };
-  }
-  if (navigationRequest.target === 'edit') {
-    return { kind: 'edit', food, requestId: navigationRequest.requestId };
-  }
-  return {
-    kind: 'quickMeal',
-    food,
-    requestId: navigationRequest.requestId,
-    quickMealAction: navigationRequest.quickMealAction ?? 'eat',
-  };
-}
-
-type Props = {
-  foods: Food[];
-  recipes: Recipe[];
-  ingredients: Ingredient[];
-  inventoryItems: InventoryItem[];
-  mealLogs: MealLog[];
-  members: Member[];
-  foodScenes: FoodScene[];
-  foodPlanItems: FoodPlanItem[];
-  foodPlanWeekRange: { start: string; end: string };
-  isPhoneViewport?: boolean;
-  notificationCenter?: ReactNode;
-  navigationRequest?: {
-    foodId: string;
-    requestId: number;
-    target?: 'detail' | 'edit' | 'quickMeal';
-    quickMealAction?: 'eat' | 'cook';
-  } | null;
-  foodPlanNavigationRequest?: FoodPlanNavigationRequest | null;
-  createFood: (payload: FoodPayload) => Promise<Food>;
-  updateFood: (foodId: string, payload: UpdateFoodPayload) => Promise<Food>;
-  updateFoodFavorite: (foodId: string, favorite: boolean, expectedRowVersion: number) => Promise<Food>;
-  createRecipe: (payload: RecipePayload) => Promise<Recipe>;
-  updateRecipe: (recipeId: string, payload: RecipePayload) => Promise<Recipe>;
-  /** Ordinary Food card / takeout / dining-out record owner (Task 15). */
-  recordMeal: (payload: RecordMealPayload) => Promise<RecordMealResponse>;
-  /** Injectable candidate loader for compact record. */
-  loadMealCandidates?: (date: string, mealType: MealType) => Promise<MealLogCandidate[]>;
-  /** Publish ordinary record result into App-level shared state. */
-  onRecordSuccess?: (response: RecordMealResponse) => void;
-  /** Shared ordinary-record result bar contract from App. */
-  recordResult?: MealRecordResult | null;
-  isRevertingRecord?: boolean;
-  recordRevertError?: string | null;
-  recordRateError?: string | null;
-  onRevertRecord?: () => void | Promise<void>;
-  onViewRecord?: () => void;
-  onRateRecord?: (rating: number | null | undefined) => void | Promise<void>;
-  onDismissRecord?: () => void;
-  /** Non-Recipe Food workspace plan completion owner. */
-  completeFoodPlanItem: (itemId: string, payload: CompleteFoodPlanItemPayload) => Promise<MealLog>;
-  updateMealLog: (mealLogId: string, payload: UpdateMealLogPayload) => Promise<unknown>;
-  shoppingItems: ShoppingListItem[];
-  createShoppingItem: (payload: {
-    title: string;
-    quantity?: number | null;
-    unit?: string | null;
-    ingredient_id?: string | null;
-    food_id?: string | null;
-    quantity_mode?: ShoppingListItem['quantity_mode'];
-    display_label?: string | null;
-    reason: string;
-  }) => Promise<unknown>;
-  updateShoppingItem: (itemId: string, payload: UpdateShoppingItemPayload) => Promise<unknown>;
-  createFoodPlanItem: (payload: { food_id: string; plan_date: string; meal_type: MealType; note: string }) => Promise<FoodPlanItem>;
-  updateFoodPlanItem: (itemId: string, payload: { food_id?: string; plan_date?: string; meal_type?: MealType; note?: string; status?: 'planned' | 'cooked' | 'skipped' }) => Promise<FoodPlanItem>;
-  deleteFoodPlanItem: (itemId: string) => Promise<void>;
-  createFoodScene: (payload: {
-    name: string;
-    description: string;
-    image_prompt: string;
-    image_asset_id?: string;
-    hidden: boolean;
-    custom: boolean;
-    sort_order: number;
-  }) => Promise<FoodScene>;
-  updateFoodScene: (
-    sceneId: string,
-    payload: {
-      name?: string;
-      description?: string;
-      image_prompt?: string;
-      image_asset_id?: string;
-      hidden?: boolean;
-      custom?: boolean;
-      sort_order?: number;
-    }
-  ) => Promise<FoodScene>;
-  deleteFoodScene: (sceneId: string) => Promise<void>;
-  onStartRecipe: (recipeId: string, foodPlanItemId?: string) => void;
-  /** Semantic navigation for direct Cook (no implicit plan creation). */
-  navigate?: (target: AppNavigationTarget) => void;
-  onOpenLogs: () => void;
-  onFoodPlanPreviousWeek: () => void;
-  onFoodPlanCurrentWeek: () => void;
-  onFoodPlanNextWeek: () => void;
-  isSavingFood?: boolean;
-  isCreatingRecipe?: boolean;
-  isUpdatingRecipe?: boolean;
-  isUpdatingFavorite?: boolean;
-  isQuickAdding?: boolean;
-  isCompletingPlan?: boolean;
-  isUpdatingPlan?: boolean;
-  isUpdatingScene?: boolean;
-  isUpdatingMeal?: boolean;
-  isCreatingShopping?: boolean;
-};
-
-type MobileCookingFilter = 'all' | 'ready' | 'shortage';
-
-type FoodQuickRecordState = {
-  food: Food;
-  date: string;
-  mealType: MealType;
-  target: RecordMealTarget;
-  selectedCandidateId: string | null;
-  candidateMode: 'none' | 'single' | 'multi';
-  candidates: MealLogCandidate[];
-  candidateResolution: MealCandidateResolution;
-  targetTouchedByUser: boolean;
-  clientRequestId: string;
-  busy: boolean;
-  error: string | null;
-};
-
-function createClientRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `meal-record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function getFoodPlanDateParts(dateKey: string) {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  return {
-    day: String(day || 1),
-    month: String(month || 1),
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-  };
-}
-
-const FOOD_QUICK_VIEW_OPTIONS: Array<{ value: FoodWorkspaceLens; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'selfMade', label: '家常菜' },
-  { value: 'outside', label: '外卖外食' },
-  { value: 'ready', label: '成品速食' },
-];
-
-const MOBILE_DEFAULT_FOOD_SCENES = [
-  { key: 'protein', title: '高蛋白', fallbackIndex: 0 },
-  { key: 'dinner', title: '工作日晚餐', fallbackIndex: 1 },
-  { key: 'kid', title: '孩子也能吃', fallbackIndex: 2 },
-  { key: 'light', title: '周末轻食', fallbackIndex: 3 },
-];
-
-function resolveFoodAssetUrl(url: string) {
-  return resolveAssetUrl(url) ?? url;
-}
-
-export function getSuggestedMealTypeForHour(hour = new Date().getHours()): MealType {
-  if (hour < 10) return 'breakfast';
-  if (hour < 15) return 'lunch';
-  if (hour < 22) return 'dinner';
-  return 'snack';
-}
-
-function normalizeFormFoodType(foodType: FoodType): NormalizedFoodType {
-  return foodType === 'packaged' ? 'readyMade' : foodType;
-}
-
-function isReadyLikeType(foodType: FoodType) {
-  const normalizedType = normalizeFormFoodType(foodType);
-  return normalizedType === 'readyMade' || normalizedType === 'instant';
-}
-
-function isOutsideType(foodType: FoodType) {
-  const normalizedType = normalizeFormFoodType(foodType);
-  return normalizedType === 'takeout' || normalizedType === 'diningOut';
-}
-
-function getFoodPriority(food: Food, mealLogs: MealLog[], lensFilter: FoodWorkspaceLens, recipes: Recipe[] = []) {
-  const usage = getMealUsage(food, mealLogs);
-  const daysUntilExpiry = getDaysUntil(food.expiry_date);
-  const expiryScore = isFoodExpiring(food) ? 500 - Math.max(daysUntilExpiry ?? 0, -30) : 0;
-  const missingScore = isFoodMissingDecisionInfo(food, recipes) ? 120 : 0;
-  const favoriteScore = food.favorite ? 80 : 0;
-  const usageScore = usage.count * 12;
-  const recentScore = usage.last ? Number(usage.last.replace(/-/g, '')) / 10_000_000 : 0;
-  const lensBoost =
-    lensFilter === 'expiring'
-      ? expiryScore * 2
-      : lensFilter === 'needsInfo'
-        ? missingScore * 2
-        : lensFilter === 'favorite'
-          ? favoriteScore + usageScore
-          : 0;
-  return lensBoost + expiryScore + missingScore + favoriteScore + usageScore + recentScore;
-}
-
-function getQuickDefaultMealType(food: Food, suggestedMealType: MealType): MealType {
-  if (food.suitable_meal_types.includes(suggestedMealType)) return suggestedMealType;
-  if (food.suitable_meal_types.length === 0) return suggestedMealType;
-  return getDefaultMealType(food);
-}
-
-function openFoodDetailFromCard(event: KeyboardEvent<HTMLElement>, onOpenDetail: () => void) {
-  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
-  event.preventDefault();
-  onOpenDetail();
-}
-
-function getFoodCardPrimaryActionLabel(food: Food) {
-  if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) return '开始做';
-  return getPrimaryFoodActionLabel(food);
-}
-
-function isFoodShoppingEligible(food: Food) {
-  return isReadyLikeFood(food) || (normalizeFoodType(food) === 'selfMade' && Boolean(food.recipe_id));
-}
-
-function formatFoodStock(food: Food) {
-  return formatFoodStockQuantity(food);
-}
-
-export function buildTodayFoodRecommendations(
-  foods: Food[],
-  mealLogs: MealLog[],
-  options: { mealType?: MealType; today?: string; recipes?: Recipe[] } = {}
-): TodayFoodRecommendation[] {
-  const mealType = options.mealType ?? getSuggestedMealTypeForHour();
-  const today = options.today ?? todayKey();
-  const recipes = options.recipes ?? [];
-  const foodsById = new Map(foods.map((food) => [food.id, food]));
-  const recentTypeCounts = new Map<NormalizedFoodType, number>();
-
-  mealLogs
-    .filter((log) => {
-      const daysSince = getDaysSince(log.date, today);
-      return daysSince >= 0 && daysSince <= 3;
-    })
-    .forEach((log) => {
-      log.food_entries.forEach((entry) => {
-        const food = foodsById.get(entry.food_id);
-        if (!food) return;
-        const type = normalizeFoodType(food);
-        recentTypeCounts.set(type, (recentTypeCounts.get(type) ?? 0) + 1);
-      });
-    });
-
-  const dominantRecentType = Array.from(recentTypeCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
-  const scored = foods
-    .map((food) => {
-      const usage = getMealUsage(food, mealLogs);
-      const normalizedType = normalizeFoodType(food);
-      const reasons: string[] = [];
-      let score = 0;
-
-      if (food.suitable_meal_types.includes(mealType)) {
-        score += 130;
-        reasons.push(`适合${MEAL_TYPE_LABELS[mealType]}`);
-      } else if (food.suitable_meal_types.some((meal) => meal === 'lunch' || meal === 'dinner')) {
-        score += 45;
-        reasons.push('适合正餐');
-      } else if (food.suitable_meal_types.length === 0) {
-        score -= 70;
-        reasons.push('未设置餐别');
-      }
-
-      const daysUntilExpiry = getDaysUntil(food.expiry_date);
-      const expiring = isFoodExpiring(food);
-      if (expiring) {
-        const expiryScore = daysUntilExpiry == null ? 0 : daysUntilExpiry <= 0 ? 250 : daysUntilExpiry <= 3 ? 220 : 170;
-        score += expiryScore;
-        reasons.push(daysUntilExpiry == null || daysUntilExpiry > 0 ? '临期，建议优先处理' : '今天需要处理');
-      }
-
-      if (usage.last) {
-        const daysSinceLast = getDaysSince(usage.last, today);
-        const recentPenalty = daysSinceLast < 0 ? 0 : daysSinceLast <= 1 ? 160 : daysSinceLast <= 3 ? 90 : daysSinceLast <= 5 ? 45 : 0;
-        if (recentPenalty > 0) {
-          score -= expiring ? Math.round(recentPenalty * 0.45) : recentPenalty;
-          reasons.push('最近吃过，暂不优先推荐');
-        }
-      }
-
-      if (food.favorite) {
-        score += 55;
-        reasons.push('收藏');
-      }
-      if (usage.count >= 3) {
-        score += 35;
-        reasons.push('常吃');
-      } else if (usage.count > 0) {
-        score += usage.count * 8;
-      }
-      if (food.rating != null) {
-        score += food.rating >= 4 ? 55 : food.rating >= 3 ? 25 : -20;
-        if (food.rating >= 4) reasons.push('高评分');
-      }
-      if (food.repurchase === true) {
-        score += 45;
-        reasons.push('想再吃');
-      }
-      if (food.repurchase === false) {
-        score -= 90;
-        reasons.push('近期不想再吃');
-      }
-      if (dominantRecentType && normalizedType === dominantRecentType && !expiring) {
-        score -= 35;
-      } else if (dominantRecentType && normalizedType !== dominantRecentType) {
-        score += 20;
-        reasons.push('换一种类型');
-      }
-      if (isFoodMissingDecisionInfo(food, recipes)) {
-        score -= 25;
-      }
-
-      return {
-        food,
-        mealType: food.suitable_meal_types.includes(mealType) ? mealType : getDefaultMealType(food),
-        score,
-        reasons: (reasons.length > 0 ? reasons : ['可作为备选']).slice(0, 4),
-      };
-    })
-    .sort((a, b) => b.score - a.score || b.food.updated_at.localeCompare(a.food.updated_at));
-
-  const diverse: TodayFoodRecommendation[] = [];
-  scored.forEach((item) => {
-    if (diverse.length >= 3) return;
-    const type = normalizeFoodType(item.food);
-    if (diverse.length === 0 || !diverse.some((selected) => normalizeFoodType(selected.food) === type)) {
-      diverse.push(item);
-    }
-  });
-
-  scored.forEach((item) => {
-    if (diverse.length >= 3) return;
-    if (!diverse.some((selected) => selected.food.id === item.food.id)) {
-      diverse.push(item);
-    }
-  });
-
-  return diverse;
-}
-
-
-
-function getFoodEditorProfile(foodType: FoodType) {
-  const normalizedType = normalizeFormFoodType(foodType);
-  if (normalizedType === 'selfMade') {
-    return {
-      title: '家常菜核心信息',
-      description: '重点确认菜谱与用料、适合餐别和家庭备注。',
-    };
-  }
-  if (normalizedType === 'takeout' || normalizedType === 'diningOut') {
-    return {
-      title: normalizedType === 'takeout' ? '外卖下次选择参考' : '外食下次选择参考',
-      description: '补上店铺/餐厅、价格、评分和下次是否还想吃，之后更容易做决定。',
-    };
-  }
-  return {
-    title: '成品与速食库存信息',
-    description: '先补充购买渠道、剩余数量和到期日，这类食物会进入临期提醒。',
-  };
-}
-
-export function filterFoodWorkspaceItems(
-  foods: Food[],
-  search: string,
-  typeFilter: 'all' | FoodType,
-  mealFilter: 'all' | MealType,
-  lensFilter: FoodWorkspaceLens = 'all',
-  recipes: Recipe[] = [],
-  matchedFoodIds: readonly string[] = []
-) {
-  const keyword = search.trim().toLowerCase();
-  const matchedIdSet = new Set(matchedFoodIds);
-  return foods.filter((food) => {
-    const normalizedType = normalizeFoodType(food);
-    const text = [food.name, food.category, food.source_name, food.purchase_source, food.scene, food.notes, food.routine_note, ...getFoodSceneTags(food)].join(' ').toLowerCase();
-    const searchMatch = !keyword || matchedIdSet.has(food.id) || text.includes(keyword);
-    const typeMatch = typeFilter === 'all' || normalizedType === typeFilter;
-    const mealMatch = mealFilter === 'all' || food.suitable_meal_types.includes(mealFilter);
-    const lensMatch =
-      lensFilter === 'all' ||
-      (lensFilter === 'today' && food.suitable_meal_types.some((meal) => meal === 'lunch' || meal === 'dinner')) ||
-      (lensFilter === 'selfMade' && normalizedType === 'selfMade') ||
-      (lensFilter === 'outside' && isOutsideFood(food)) ||
-      (lensFilter === 'ready' && isReadyLikeFood(food)) ||
-      (lensFilter === 'expiring' && isFoodExpiring(food)) ||
-      (lensFilter === 'favorite' && food.favorite) ||
-      (lensFilter === 'needsInfo' && isFoodMissingDecisionInfo(food, recipes));
-    return searchMatch && typeMatch && mealMatch && lensMatch;
-  });
-}
-
-export function getMobileFoodSceneFilterState(sceneName: string) {
-  return {
-    search: '',
-    lensFilter: 'all' as const,
-    typeFilter: 'all' as const,
-    mealFilter: 'all' as const,
-    sceneFilter: sceneName,
-    governanceIssueFilter: 'all' as const,
-  };
-}
-
-export function getMobileDefaultFoodSceneCardMedia(
-  sceneName: string,
-  foods: Food[],
-  sceneCards: Array<Pick<FoodSceneCardView, 'name' | 'count' | 'imageUrl' | 'imageAsset'>>,
-  fallbackIndex: number
-): {
-  count: number;
-  imageFood?: Food;
-  imageUrl?: string;
-  imageAsset?: MediaAsset | null;
-} {
-  const managedScene = sceneCards.find((scene) => scene.name === sceneName);
-  return {
-    count: managedScene?.count ?? foods.filter((food) => getFoodSceneTags(food).includes(sceneName)).length,
-    imageFood: foods.find((food) => getFoodSceneTags(food).includes(sceneName)) ?? foods[fallbackIndex] ?? foods[0],
-    imageUrl: managedScene?.imageUrl,
-    imageAsset: managedScene?.imageAsset,
-  };
-}
-
-/** Plan detail with candidate confirmation for non-Recipe complete (Task 15). */
-function FoodPlanDetailWithCandidates(props: {
-  item: FoodPlanItem;
-  food: Food | null;
-  recipes: Recipe[];
-  form: import('./FoodPlanDetailModal').FoodPlanDetailFormState;
-  isEditing: boolean;
-  isUpdatingPlan?: boolean;
-  isCompleting?: boolean;
-  onClose: () => void;
-  onChangeForm: (form: import('./FoodPlanDetailModal').FoodPlanDetailFormState) => void;
-  onEditingChange: (editing: boolean) => void;
-  onResetEdit: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onComplete: (target?: {
-    target_meal_log_id?: string | null;
-    expected_meal_log_row_version?: number | null;
-  }) => void;
-  onDelete: () => void;
-  resolveAssetUrl: (url: string) => string;
-}) {
-  const needsPlanCompleteCandidates = Boolean(
-    props.item && !props.item.recipe_id && props.item.status !== 'cooked',
-  );
-  const planCandidateQuery = useMealCandidateData({
-    open: needsPlanCompleteCandidates,
-    date: props.item.plan_date,
-    mealType: props.item.meal_type,
-  });
-  const planCandidates = planCandidateQuery.candidates;
-  const planCandidatesFetched = planCandidateQuery.query.isFetched;
-  const planCandidateIdsKey = planCandidates
-    .map((candidate) => `${candidate.meal_log_id}:${candidate.row_version}`)
-    .join(',');
-  const [planCompleteTarget, setPlanCompleteTarget] = useState<RecordMealTarget>({ kind: 'new' });
-  const [planCompleteSelectedCandidateId, setPlanCompleteSelectedCandidateId] = useState<string | null>(
-    null,
-  );
-  const [planCompleteCandidateMode, setPlanCompleteCandidateMode] = useState<'none' | 'single' | 'multi'>(
-    'none',
-  );
-
-  useEffect(() => {
-    if (!needsPlanCompleteCandidates) {
-      setPlanCompleteTarget((current) => (current.kind === 'new' ? current : { kind: 'new' }));
-      setPlanCompleteSelectedCandidateId(null);
-      setPlanCompleteCandidateMode('none');
-      return;
-    }
-    if (!planCandidatesFetched) return;
-    const presentation = deriveCandidatePresentation(planCandidates, props.item.meal_type);
-    setPlanCompleteTarget(presentation.target);
-    setPlanCompleteSelectedCandidateId(presentation.selectedCandidateId);
-    setPlanCompleteCandidateMode(presentation.mode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    needsPlanCompleteCandidates,
-    props.item.id,
-    props.item.plan_date,
-    props.item.meal_type,
-    planCandidateIdsKey,
-    planCandidatesFetched,
-  ]);
-
-  const planCompleteDraftFoods: MealComposerFood[] = [
-    {
-      kind: 'existing',
-      food_id: props.item.food_id,
-      name: props.item.food_name,
-      servings: 1,
-      cover: null,
-    },
-  ];
-
-  const planCompleteExtras =
-    needsPlanCompleteCandidates ? (
-      <MealCandidateSelector
-        mode={planCompleteCandidateMode}
-        mealType={props.item.meal_type}
-        candidates={planCandidates}
-        selectedCandidateId={planCompleteSelectedCandidateId}
-        target={planCompleteTarget}
-        draftFoods={planCompleteDraftFoods}
-        disabled={props.isCompleting}
-        className="food-plan-detail-candidates"
-        onTargetChange={(target, selectedCandidateId) => {
-          setPlanCompleteTarget(target);
-          setPlanCompleteSelectedCandidateId(selectedCandidateId ?? null);
-        }}
-      />
-    ) : null;
-
-  function handleComplete() {
-    if (props.item.recipe_id) {
-      props.onComplete();
-      return;
-    }
-    const target =
-      planCompleteTarget.kind === 'existing'
-        ? {
-            target_meal_log_id: planCompleteTarget.meal_log_id,
-            expected_meal_log_row_version: planCompleteTarget.expected_row_version,
-          }
-        : undefined;
-    props.onComplete(target);
-  }
-
-  return (
-    <FoodPlanDetailModal
-      item={props.item}
-      food={props.food}
-      recipes={props.recipes}
-      form={props.form}
-      isEditing={props.isEditing}
-      isUpdatingPlan={props.isUpdatingPlan}
-      isCompleting={props.isCompleting}
-      completeExtras={planCompleteExtras}
-      onClose={props.onClose}
-      onChangeForm={props.onChangeForm}
-      onEditingChange={props.onEditingChange}
-      onResetEdit={props.onResetEdit}
-      onSubmit={props.onSubmit}
-      onComplete={handleComplete}
-      onDelete={props.onDelete}
-      resolveAssetUrl={props.resolveAssetUrl}
-      overlayRootClassName="food-workspace-overlay-root"
-    />
-  );
-}
-
-export function FoodWorkspace(props: Props) {
+export function FoodWorkspace(props: FoodWorkspaceProps) {
   const {
     view,
     setView,
@@ -886,116 +302,84 @@ export function FoodWorkspace(props: Props) {
     onStartRecipe: props.onStartRecipe,
   });
   const recipeEditor = useRecipeEditorState({ ingredients: props.ingredients });
-  const normalizedFoodSearch = search.trim();
-  const foodSearchComposition = useSearchCompositionState();
-  const foodSearchValue = useDebouncedSearchValue(search, { isComposing: foodSearchComposition.isComposing });
-  const foodSearchQuery = useQuery({
-    queryKey: queryKeys.foodSearch(foodSearchValue),
-    queryFn: () => api.getFoods({ q: foodSearchValue, limit: 100 }),
-    enabled: Boolean(foodSearchValue),
-    placeholderData: keepPreviousData,
-  });
-  const [appliedFoodSearch, setAppliedFoodSearch] = useState('');
-  const [appliedFoodResults, setAppliedFoodResults] = useState<Food[]>([]);
-  useEffect(() => {
-    if (!normalizedFoodSearch) {
-      setAppliedFoodSearch('');
-      setAppliedFoodResults([]);
-      return;
-    }
-    if (foodSearchValue && !foodSearchQuery.isPlaceholderData && foodSearchQuery.data) {
-      setAppliedFoodSearch(foodSearchValue);
-      setAppliedFoodResults(foodSearchQuery.data);
-    }
-  }, [foodSearchQuery.data, foodSearchQuery.isPlaceholderData, foodSearchValue, normalizedFoodSearch]);
-  const matchedFoodIds = useMemo(
-    () => (appliedFoodSearch ? Array.from(new Set(appliedFoodResults.map((food) => food.id))) : []),
-    [appliedFoodResults, appliedFoodSearch]
-  );
-  const searchAwareFoods = appliedFoodSearch ? appliedFoodResults : props.foods;
-  const isFoodSearchFetching =
-    Boolean(normalizedFoodSearch) &&
-    !foodSearchComposition.isComposing &&
-    (appliedFoodSearch !== normalizedFoodSearch || foodSearchQuery.isFetching);
+  const {
+    appliedSearch: appliedFoodSearch,
+    matchedFoodIds,
+    searchAwareFoods: remoteSearchFoods,
+    isFetching: isFoodSearchFetching,
+    composition: foodSearchComposition,
+  } = useFoodWorkspaceSearch(search);
+  const searchAwareFoods = remoteSearchFoods ?? props.foods;
 
-  const foodUsageCards = useMemo(
-    () => props.foods.map((food) => ({ food, usage: getMealUsage(food, props.mealLogs) })),
-    [props.foods, props.mealLogs]
-  );
-  const recipeCards = useMemo(
-    () => buildRecipeCards(props.recipes, props.ingredients, props.inventoryItems, props.mealLogs, props.foods),
-    [props.foods, props.ingredients, props.inventoryItems, props.mealLogs, props.recipes]
-  );
-  const getFoodCookingSummary = (food: Food): FoodCookingSummary | null => buildFoodCookingSummaryFromRecipeCards(food, recipeCards);
-  const expiringFoods = useMemo(() => props.foods.filter(isFoodExpiring), [props.foods]);
-  const needsInfoFoods = useMemo(() => props.foods.filter((food) => isFoodMissingDecisionInfo(food, props.recipes)), [props.foods, props.recipes]);
-  const governanceIssueSummaries = useMemo(
-    () =>
-      FOOD_GOVERNANCE_ISSUE_OPTIONS.map((item) => ({
-        ...item,
-        count: props.foods.filter((food) => getFoodGovernanceIssues(food, props.recipes).includes(item.value)).length,
-      })),
-    [props.foods, props.recipes]
-  );
-  const governanceQueue = useMemo(
-    () =>
-      needsInfoFoods
-        .filter((food) => governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter))
-        .slice()
-        .sort((a, b) => getFoodGovernanceIssues(b, props.recipes).length - getFoodGovernanceIssues(a, props.recipes).length || b.updated_at.localeCompare(a.updated_at)),
-    [governanceIssueFilter, needsInfoFoods, props.recipes]
-  );
-  const suggestedMealType = useMemo(() => getSuggestedMealTypeForHour(), []);
-  const repeatFoods = useMemo(
-    () =>
-      foodUsageCards
-        .filter(({ food, usage }) => food.favorite || usage.count >= 2)
-        .sort((a, b) => Number(b.food.favorite) - Number(a.food.favorite) || b.usage.count - a.usage.count)
-        .slice(0, 3),
-    [foodUsageCards]
-  );
-  const filteredFoods = useMemo(() => {
-    const items = filterFoodWorkspaceItems(searchAwareFoods, appliedFoodSearch, typeFilter, mealFilter, lensFilter, props.recipes, matchedFoodIds)
-      .filter((food) => sceneFilter === 'all' || getFoodSceneTags(food).includes(sceneFilter))
-      .filter((food) => lensFilter !== 'needsInfo' || governanceIssueFilter === 'all' || getFoodGovernanceIssues(food, props.recipes).includes(governanceIssueFilter));
-    if (appliedFoodSearch) {
-      return items;
-    }
-    return items
-      .slice()
-      .sort((a, b) => getFoodPriority(b, props.mealLogs, lensFilter, props.recipes) - getFoodPriority(a, props.mealLogs, lensFilter, props.recipes));
-  }, [appliedFoodSearch, governanceIssueFilter, lensFilter, matchedFoodIds, mealFilter, props.mealLogs, props.recipes, searchAwareFoods, sceneFilter, typeFilter]);
-  const foodCardViewModels = useMemo(
-    () => filteredFoods.map((food) => buildFoodLibraryCardViewModel(food, props.recipes, props.mealLogs)),
-    [filteredFoods, props.mealLogs, props.recipes],
-  );
-  const foodCardResetKey = [
+  const {
+    foodUsageCards,
+    recipeCards,
+    repeatFoods,
+    repeatFoodCount,
+    filteredFoods,
+    foodCardViewModels,
+    foodCardResetKey,
+  } = useFoodWorkspaceData({
+    foods: props.foods,
+    searchAwareFoods,
+    recipes: props.recipes,
+    ingredients: props.ingredients,
+    inventoryItems: props.inventoryItems,
+    mealLogs: props.mealLogs,
     appliedFoodSearch,
+    matchedFoodIds,
     typeFilter,
     mealFilter,
     lensFilter,
     sceneFilter,
     governanceIssueFilter,
-  ].join('|');
+  });
+  const getFoodCookingSummary = (food: Food): FoodCookingSummary | null => buildFoodCookingSummaryFromRecipeCards(food, recipeCards);
+  const { expiringFoods, needsInfoFoods, governanceIssueSummaries, governanceQueue } = useFoodGovernanceData({
+    foods: props.foods,
+    recipes: props.recipes,
+    issueFilter: governanceIssueFilter,
+    issueOptions: FOOD_GOVERNANCE_ISSUE_OPTIONS,
+  });
+  const suggestedMealType = useMemo(() => getSuggestedMealTypeForHour(), []);
   const currentLensCopy = FOOD_LENS_COPY[lensFilter];
   const detailFood = detailFoodId ? props.foods.find((food) => food.id === detailFoodId) ?? null : null;
-  const repeatFoodCount = foodUsageCards.filter(({ food, usage }) => food.favorite || usage.count >= 2).length;
-  const managementIssueCount = new Set([...expiringFoods, ...needsInfoFoods].map((food) => food.id)).size;
-  const nextGovernanceFood = governanceQueue[0] ?? null;
-  const nextGovernanceSummary = nextGovernanceFood ? `${nextGovernanceFood.name} · ${getFoodGovernanceIssueLabels(nextGovernanceFood, props.recipes).join('、')}` : '信息已补齐';
-  const hasFoodFilters = Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all';
+  const governanceSummary = buildFoodGovernanceSummary({
+    expiringFoods,
+    needsInfoFoods,
+    governanceQueue,
+    recipes: props.recipes,
+    hasFilters: Boolean(search.trim()) || typeFilter !== 'all' || mealFilter !== 'all' || lensFilter !== 'all' || sceneFilter !== 'all' || governanceIssueFilter !== 'all',
+  });
+  const { managementIssueCount, nextGovernanceFood, nextGovernanceSummary, hasFoodFilters } = governanceSummary;
   const todayDate = todayKey();
   const mealBusinessDate = createMealBusinessDate();
   // Recipe cook confirmation still uses FoodQuickMealDialog (no stock fields).
-  const [quickMealDialog, setQuickMealDialog] = useState<FoodQuickMealDialogState | null>(null);
-  // Non-Recipe Food card / takeout / dining-out uses compact prefilled MealQuickRecordView.
-  const [quickRecord, setQuickRecord] = useState<FoodQuickRecordState | null>(null);
-  const [isFoodRecipeEditorOpen, setIsFoodRecipeEditorOpen] = useState(false);
-  const [mobileCookingFilter, setMobileCookingFilter] = useState<MobileCookingFilter>('all');
+  const {
+    quickMealDialog,
+    setQuickMealDialog,
+    quickRecord,
+    setQuickRecord,
+    isFoodRecipeEditorOpen,
+    setIsFoodRecipeEditorOpen,
+    mobileCookingFilter,
+    setMobileCookingFilter,
+  } = useFoodWorkspaceDialogState();
   const quickMealDateOptions = useMemo(
     () => createMealRecordDateOptions(mealBusinessDate),
     [mealBusinessDate]
   );
+  const {
+    openQuickMealDialog,
+    updateQuickMealDialog,
+    handleFoodCardPrimaryAction,
+  } = useFoodQuickMealActions({
+    recipes: props.recipes,
+    mealBusinessDate,
+    suggestedMealType,
+    setQuickMealDialog,
+    setQuickRecord,
+  });
   function selectMobileFoodScene(sceneName: string) {
     const nextFilters = getMobileFoodSceneFilterState(sceneName);
     setSearch(nextFilters.search);
@@ -1006,106 +390,44 @@ export function FoodWorkspace(props: Props) {
     setGovernanceIssueFilter(nextFilters.governanceIssueFilter);
   }
 
-  const mobileDefaultSceneCards = MOBILE_DEFAULT_FOOD_SCENES.map((scene) => ({
-    key: scene.key,
-    title: scene.title,
-    ...getMobileDefaultFoodSceneCardMedia(scene.title, props.foods, sceneCards, scene.fallbackIndex),
-    onClick: () => selectMobileFoodScene(scene.title),
-  }));
-  const mobileSceneExploreCards = [
-    ...mobileDefaultSceneCards,
-    ...sceneCards
-      .filter((scene) => !mobileDefaultSceneCards.some((card) => card.title === scene.name))
-      .map((scene) => ({
-        key: `scene-${scene.name}`,
-        title: scene.name,
-        count: scene.count,
-        imageFood: props.foods.find((food) => getFoodSceneTags(food).includes(scene.name)) ?? props.foods[0],
-        imageUrl: scene.imageUrl,
-        imageAsset: scene.imageAsset,
-        onClick: () => selectMobileFoodScene(scene.name),
-      })),
-  ];
-  const mobileScenePages = Array.from({ length: Math.ceil(mobileSceneExploreCards.length / 2) || 1 }, (_, index) =>
-    mobileSceneExploreCards.slice(index * 2, index * 2 + 2)
-  );
-  const mobileLibraryFoods = filteredFoods.filter((food) => {
-    if (mobileCookingFilter === 'all') return true;
-    const summary = getFoodCookingSummary(food);
-    if (!summary) return false;
-    return mobileCookingFilter === 'ready' ? summary.isReady : summary.shortagePreview.length > 0;
+  const mobileWorkspaceViewModel = buildFoodMobileWorkspaceViewModel({
+    foods: props.foods,
+    filteredFoods,
+    sceneCards,
+    defaultScenes: MOBILE_DEFAULT_FOOD_SCENES,
+    cookingFilter: mobileCookingFilter,
+    appliedSearch: appliedFoodSearch,
+    typeFilter,
+    mealFilter,
+    lensFilter,
+    sceneFilter,
+    governanceIssueFilter,
+    getCookingSummary: getFoodCookingSummary,
   });
-  const mobileLibraryResetKey = [appliedFoodSearch, typeFilter, mealFilter, lensFilter, sceneFilter, governanceIssueFilter, mobileCookingFilter].join('|');
-  const mobileFilterTabs = [
-    {
-      label: '全部',
-      active: lensFilter === 'all' && typeFilter === 'all' && mealFilter === 'all' && sceneFilter === 'all' && governanceIssueFilter === 'all' && mobileCookingFilter === 'all',
-      onClick: () => {
-        clearFoodFilters();
-        setMobileCookingFilter('all');
-      },
-    },
-    {
-      label: '家常',
-      active: typeFilter === 'selfMade',
-      onClick: () => {
-        setMobileCookingFilter('all');
-        setLensFilter('all');
-        setTypeFilter('selfMade');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '外卖',
-      active: typeFilter === 'takeout',
-      onClick: () => {
-        setMobileCookingFilter('all');
-        setLensFilter('all');
-        setTypeFilter('takeout');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '收藏',
-      active: lensFilter === 'favorite',
-      onClick: () => {
-        setMobileCookingFilter('all');
-        setLensFilter('favorite');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '可做',
-      active: mobileCookingFilter === 'ready',
-      onClick: () => {
-        setMobileCookingFilter('ready');
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-    {
-      label: '缺少食材',
-      active: mobileCookingFilter === 'shortage',
-      onClick: () => {
-        setMobileCookingFilter('shortage');
-        setLensFilter('all');
-        setTypeFilter('all');
-        setMealFilter('all');
-        setSceneFilter('all');
-        setGovernanceIssueFilter('all');
-      },
-    },
-  ];
+  const mobileSceneExploreCards = mobileWorkspaceViewModel.mobileSceneCards.map((card) => ({
+    ...card,
+    onClick: () => selectMobileFoodScene(card.title),
+  }));
+  const mobileScenePages = mobileWorkspaceViewModel.mobileScenePages.map((page) =>
+    page.map((card) => ({ ...card, onClick: () => selectMobileFoodScene(card.title) })),
+  );
+  const mobileLibraryFoods = mobileWorkspaceViewModel.mobileLibraryFoods;
+  const mobileLibraryResetKey = mobileWorkspaceViewModel.mobileLibraryResetKey;
+  const mobileFilterTabs = buildFoodMobileFilterTabs({
+    lensFilter,
+    typeFilter,
+    mealFilter,
+    sceneFilter,
+    governanceIssueFilter,
+    cookingFilter: mobileCookingFilter,
+    clearFilters: clearFoodFilters,
+    setCookingFilter: setMobileCookingFilter,
+    setLensFilter,
+    setTypeFilter,
+    setMealFilter,
+    setSceneFilter,
+    setGovernanceIssueFilter,
+  });
 
   const imagePayload = getFoodImagePayload(form, props.recipes);
   const imageComposer = useImageComposer({
@@ -1117,51 +439,45 @@ export function FoodWorkspace(props: Props) {
   });
   const currentRecipe = props.recipes.find((recipe) => recipe.id === form.recipeId);
   const currentRecipeCard = currentRecipe ? recipeCards.find((card) => card.recipe.id === currentRecipe.id) ?? null : null;
-  const isSelfMade = form.type === 'selfMade';
-  const editorProfile = getFoodEditorProfile(form.type);
-  const editorCompletionItems = getFoodFormCompletionItems(form, editingFood, props.recipes);
-  const editorCompletedCount = editorCompletionItems.filter((item) => item.done).length;
-  const editorCompletionPercent = Math.round((editorCompletedCount / editorCompletionItems.length) * 100);
-  const sceneTagOptions = useMemo(() => {
-    const names = new Set<string>();
-    props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
-    props.foods.forEach((food) => getFoodSceneTags(food).forEach((tag) => names.add(tag)));
-    editorSceneTags.forEach((tag) => names.add(tag));
-    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
-  }, [editorSceneTags, props.foodScenes, props.foods]);
-  const availableSceneTagOptions = sceneTagOptions.filter((tag) => !editorSceneTags.includes(tag));
-  const editorRecipeCover = currentRecipe?.images[0]?.url ?? (editingFood ? getFoodCover(editingFood, props.recipes) : undefined);
-  const editorRecipeMeta = currentRecipe ? `${currentRecipe.ingredient_items.length} 种食材 · ${currentRecipe.steps.length} 步` : '还没有菜谱';
-  const recipeEditorIngredientCount = recipeEditor.ingredientRows.filter((item) => item.ingredient_id || item.ingredient_name.trim()).length;
-  const recipeEditorStepCount = recipeEditor.form.steps.filter((step) => step.text.trim()).length;
-  const canSaveRecipeEditorDraft = Boolean(recipeEditor.form.title.trim() && recipeEditorIngredientCount > 0);
-  const canSubmit = !props.isSavingFood && !props.isCreatingRecipe && !props.isUpdatingRecipe && (!isSelfMade || Boolean(form.recipeId) || canSaveRecipeEditorDraft);
-  const foodEditorSubmitLabel = isSelfMade
-    ? view === 'create'
-      ? '保存家常菜谱'
-      : '保存菜谱及食物信息'
-    : view === 'create'
-      ? '保存食物'
-      : '保存修改';
-  const recipeEditorSceneTags = splitTags(recipeEditor.form.sceneTags);
-  const recipeEditorCoverAsset = getImagePreview(recipeEditor.form.images);
-  const recipeEditorCoverUrl = resolveAssetUrl(recipeEditorCoverAsset?.url);
-  const recipeEditorCompletionItems = [
-    { label: '已填写基础信息', done: Boolean(recipeEditor.form.title.trim() && Number(recipeEditor.form.servings) > 0) },
-    { label: '已添加食材', done: recipeEditorIngredientCount > 0 },
-    { label: '已添加步骤', done: recipeEditorStepCount > 0 },
-    { label: '已设置封面', done: Boolean(recipeEditorCoverAsset) },
-  ];
-  const recipeEditorCompletionPercent = Math.round(
-    (recipeEditorCompletionItems.filter((item) => item.done).length / recipeEditorCompletionItems.length) * 100
-  );
-  const recipeEditorSceneSelectOptions = useMemo(() => {
-    const names = new Set<string>();
-    props.foodScenes.filter((scene) => !scene.hidden).forEach((scene) => names.add(scene.name));
-    props.recipes.forEach((recipe) => recipe.scene_tags?.forEach((tag) => names.add(tag)));
-    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'));
-  }, [props.foodScenes, props.recipes]);
-  const recipeEditorImagePayload = buildRecipeImagePayload(recipeEditor.form, recipeEditor.ingredientRows, props.ingredients);
+  const editorViewModel = buildFoodWorkspaceEditorViewModel({
+    form,
+    editingFood,
+    recipes: props.recipes,
+    foods: props.foods,
+    foodScenes: props.foodScenes,
+    editorSceneTags,
+    recipeForm: recipeEditor.form,
+    ingredientRows: recipeEditor.ingredientRows,
+    ingredients: props.ingredients,
+    view,
+    isSavingFood: Boolean(props.isSavingFood),
+    isCreatingRecipe: Boolean(props.isCreatingRecipe),
+    isUpdatingRecipe: Boolean(props.isUpdatingRecipe),
+  });
+  const {
+    currentRecipe: editorCurrentRecipe,
+    isSelfMade,
+    editorProfile,
+    editorCompletionItems,
+    editorCompletedCount,
+    editorCompletionPercent,
+    availableSceneTagOptions,
+    editorRecipeCover,
+    editorRecipeMeta,
+    canSubmit,
+    foodEditorSubmitLabel,
+    recipeEditorSceneTags,
+    recipeEditorCoverAsset,
+    recipeEditorCoverUrl,
+    recipeEditorCompletionItems,
+    recipeEditorCompletionPercent,
+    recipeEditorIngredientCount,
+    recipeEditorStepCount,
+    recipeEditorSceneSelectOptions,
+    recipeEditorImagePayload,
+    recipeEditorSubmitDisabled,
+  } = editorViewModel;
+  const currentRecipeForEditor = editorCurrentRecipe;
   const recipeEditorImageComposer = useImageComposer({
     value: recipeEditor.form.images,
     payload: recipeEditorImagePayload,
@@ -1169,28 +485,23 @@ export function FoodWorkspace(props: Props) {
     uploadErrorMessage: '参考图上传或 AI 主图生成失败',
     generateErrorMessage: 'AI 主图生成失败',
   });
-  const recipeEditorSubmitDisabled = Boolean(props.isCreatingRecipe || props.isUpdatingRecipe);
 
-  function handleOpenCreate(type: FoodType = 'takeout') {
-    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    if (type === 'selfMade') {
-      recipeEditor.openCreate();
-    }
-    openCreate(type);
-  }
-
-  function handleOpenEdit(food: Food) {
-    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-    if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
-      const card = recipeCards.find((item) => item.recipe.id === food.recipe_id);
-      if (card) {
-        recipeEditor.openEdit(card);
-      }
-    }
-    openEdit(food);
-  }
+  const {
+    handleOpenCreate,
+    handleOpenEdit,
+    handleOpenRecipeEditorDirectly: openRecipeEditorDirectly,
+    closeFoodRecipeEditor,
+  } = useFoodEditorNavigation({
+    resetFoodImage: () => imageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+    resetRecipeImage: () => recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+    openCreate,
+    openEdit,
+    recipeCards,
+    recipeEditorOpenCreate: recipeEditor.openCreate,
+    recipeEditorOpenEdit: recipeEditor.openEdit,
+    setRecipeEditorOpen: setIsFoodRecipeEditorOpen,
+    closeDetail,
+  });
 
   function handleOpenRecipeEditor() {
     if (!currentRecipeCard) {
@@ -1208,24 +519,12 @@ export function FoodWorkspace(props: Props) {
   }
 
   function handleOpenRecipeEditorDirectly(food: Food) {
-    if (food.recipe_id) {
-      const card = recipeCards.find((item) => item.recipe.id === food.recipe_id);
-      if (card) {
-        recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-        recipeEditor.openEdit(card);
-        setIsFoodRecipeEditorOpen(true);
-        closeDetail();
-      } else {
-        showNotice({ tone: 'warning', title: '没有找到对应菜谱', message: '请确认该菜谱是否存在。' });
-      }
-    } else {
-      showNotice({ tone: 'warning', title: '没有相关菜谱', message: '这份食物还没有对应的菜谱。' });
-    }
-  }
-
-  function closeFoodRecipeEditor() {
-    setIsFoodRecipeEditorOpen(false);
-    recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+    if (openRecipeEditorDirectly(food)) return;
+    showNotice({
+      tone: 'warning',
+      title: food.recipe_id ? '没有找到对应菜谱' : '没有相关菜谱',
+      message: food.recipe_id ? '请确认该菜谱是否存在。' : '这份食物还没有对应的菜谱。',
+    });
   }
 
   function closeFoodRecipeEditorIfAllowed() {
@@ -1240,137 +539,48 @@ export function FoodWorkspace(props: Props) {
     }
   }
 
-  async function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
-    event.preventDefault();
-    if (!canSubmit) return;
-    if (isReadyLikeType(form.type)) {
-      const stockQuantity = parseOptionalFoodStockQuantity(form.stockQuantity, '剩余数量');
-      if (stockQuantity.error) {
-        showNotice({ tone: 'warning', title: '库存数量格式不对', message: stockQuantity.error });
-        return;
-      }
-    }
-    if (isSelfMade) {
-      const recipePayload = buildRecipePayload(
-        recipeEditor.form,
-        recipeEditor.ingredientRows,
-        props.ingredients,
-        getPendingImageJobId(recipeEditor.form.images)
-      );
-      if (!recipePayload.title || recipePayload.ingredient_items.length === 0) {
-        showNotice({ tone: 'warning', title: '暂时无法保存菜谱', message: '家常菜谱至少要有名称和一种食材。' });
-        return;
-      }
-      try {
-        let recipeId = form.recipeId || recipeEditor.selectedRecipeId;
-        if (recipeId) {
-          await props.updateRecipe(recipeId, recipePayload);
-          const payload = buildFoodPayloadFromForm(
-            { ...form, recipeId, name: recipePayload.title },
-            props.recipes,
-            getMediaIds(form.images),
-            getPendingImageJobId(form.images)
-          );
-          await submitFood(event, true, payload);
-          showNotice({ tone: 'success', title: '家常菜谱已更新', message: `${recipePayload.title} 的菜谱和食物信息已保存。` });
-        } else {
-          await props.createRecipe(recipePayload);
-          setView('list');
-          showNotice({ tone: 'success', title: '家常菜谱已保存', message: `${recipePayload.title} 已出现在食物库。` });
-        }
-        imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
+  function handleSubmitFood(event: Parameters<typeof submitFood>[0]) {
+    void submitFoodFormAction({
+      event,
+      canSubmit,
+      form,
+      isReadyLike: isReadyLikeType(form.type),
+      isSelfMade,
+      recipeForm: recipeEditor.form,
+      ingredientRows: recipeEditor.ingredientRows,
+      ingredients: props.ingredients,
+      recipes: props.recipes,
+      selectedRecipeId: recipeEditor.selectedRecipeId,
+      submitFood,
+      updateRecipe: props.updateRecipe,
+      createRecipe: props.createRecipe,
+      setView,
+      resetFoodImage: () => imageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+      resetRecipeImage: () => recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
+      showNotice,
+    });
+  }
+
+  function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
+    void submitFoodRecipeEditorAction(event, {
+      form,
+      recipeForm: recipeEditor.form,
+      ingredientRows: recipeEditor.ingredientRows,
+      ingredients: props.ingredients,
+      selectedRecipeId: recipeEditor.selectedRecipeId,
+      updateRecipe: props.updateRecipe,
+      createRecipe: props.createRecipe,
+      showNotice,
+      setForm,
+      setView,
+      view: view === 'list' ? 'create' : view,
+      isSelfMade,
+      closeEditor: () => {
+        setIsFoodRecipeEditorOpen(false);
         recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      } catch (reason) {
-        showNotice({ tone: 'danger', title: '保存菜谱失败', message: resolveErrorMessage(reason, '保存菜谱失败') });
-      }
-      return;
-    }
-    await submitFood(event, true);
-    imageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-  }
-
-  async function submitFoodRecipeEditor(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const payload = buildRecipePayload(
-      recipeEditor.form,
-      recipeEditor.ingredientRows,
-      props.ingredients,
-      getPendingImageJobId(recipeEditor.form.images)
-    );
-    if (!payload.title || payload.ingredient_items.length === 0) {
-      showNotice({ tone: 'warning', title: '暂时无法保存菜谱', message: '家常菜谱至少要有名称和一种食材。' });
-      return;
-    }
-    try {
-      const recipeId = recipeEditor.selectedRecipeId || form.recipeId;
-      if (recipeId) {
-        await props.updateRecipe(recipeId, payload);
-        setForm((current) => ({ ...current, recipeId, name: current.name || payload.title }));
-      } else {
-        const created = await props.createRecipe(payload);
-        setForm((current) => ({ ...current, recipeId: created.id, name: current.name || created.title }));
-        if (view === 'create' && isSelfMade) {
-          setView('list');
-        }
-      }
-      setIsFoodRecipeEditorOpen(false);
-      recipeEditorImageComposer.setState(IDLE_IMAGE_GENERATION_STATE);
-      showNotice({ tone: 'success', title: '菜谱已保存', message: `${payload.title} 的用料和步骤已保存。` });
-    } catch (reason) {
-      showNotice({ tone: 'danger', title: '保存菜谱失败', message: resolveErrorMessage(reason, '保存菜谱失败') });
-    }
-  }
-
-  function openCookConfirmDialog(food: Food, mealType: MealType, options?: { date?: string }) {
-    const recipeId = food.recipe_id ?? undefined;
-    const recipeServings =
-      recipeId != null
-        ? props.recipes.find((recipe) => recipe.id === recipeId)?.servings
-        : undefined;
-    setQuickMealDialog({
-      action: 'cook',
-      date: options?.date ?? mealBusinessDate,
-      food,
-      mealType,
-      recipeId,
-      servings: recipeServings && recipeServings > 0 ? recipeServings : 1,
+      },
+      resetImageState: () => imageComposer.setState(IDLE_IMAGE_GENERATION_STATE),
     });
-  }
-
-  function openCompactRecord(
-    food: Food,
-    fallbackMealType?: MealType,
-    options?: { date?: string },
-  ) {
-    const mealType = getQuickDefaultMealType(food, fallbackMealType ?? suggestedMealType);
-    setQuickRecord({
-      food,
-      date: options?.date ?? mealBusinessDate,
-      mealType,
-      target: { kind: 'new' },
-      selectedCandidateId: null,
-      candidateMode: 'none',
-      candidates: [],
-      candidateResolution: { status: 'loading' },
-      targetTouchedByUser: false,
-      clientRequestId: createClientRequestId(),
-      busy: false,
-      error: null,
-    });
-  }
-
-  /** Recipe foods open cook confirm; ordinary foods open compact recordMeal. */
-  function openQuickMealDialog(
-    food: Food,
-    mealType: MealType,
-    action: FoodQuickMealDialogState['action'],
-    options?: { date?: string },
-  ) {
-    if (action === 'cook' && food.recipe_id) {
-      openCookConfirmDialog(food, mealType, options);
-      return;
-    }
-    openCompactRecord(food, mealType, options);
   }
 
   function openFoodShoppingDialog(food: Food) {
@@ -1392,263 +602,43 @@ export function FoodWorkspace(props: Props) {
     openFoodShoppingDialog(food);
   }
 
-  async function submitFoodShopping() {
-    if (!foodShoppingDialog || isFoodShoppingSubmitting) return;
-    let write;
-    try {
-      write = buildFoodShoppingWrite(foodShoppingDialog.draft, foodShoppingDialog.existingItem);
-    } catch (reason) {
-      setFoodShoppingError(resolveErrorMessage(reason, '请确认采购信息。'));
-      return;
-    }
-    setIsFoodShoppingSubmitting(true);
-    setFoodShoppingError(null);
-    try {
-      if (write.kind === 'update') {
-        await props.updateShoppingItem(write.itemId, write.payload);
-      } else {
-        await props.createShoppingItem(write.payload);
-      }
-      const foodName = foodShoppingDialog.draft.title;
-      setFoodShoppingDialog(null);
-      showNotice({
-        tone: 'success',
-        title: write.kind === 'update' ? '待买内容已更新' : '已加入采购清单',
-        message: write.kind === 'update'
-          ? `${foodName} 的待买数量已更新。`
-          : `${foodName} 已加入采购清单。`,
-      });
-    } catch (reason) {
-      setFoodShoppingError(
-        isApiError(reason) && reason.status === 409
-          ? '待买内容已发生变化，请刷新后重新确认。'
-          : resolveErrorMessage(reason, '保存待买内容失败，请稍后重试。'),
-      );
-    } finally {
-      setIsFoodShoppingSubmitting(false);
-    }
-  }
-
-  function updateQuickMealDialog(
-    patch: Partial<Pick<FoodQuickMealDialogState, 'date' | 'mealType' | 'servings'>>,
-  ) {
-    setQuickMealDialog((current) => (current ? { ...current, ...patch } : current));
-  }
-
-  async function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!quickMealDialog) return;
-    const current = quickMealDialog;
-    if (!(current.action === 'cook' && current.recipeId)) return;
-    // Direct Cook: never create a plan item just to start cooking.
-    const servings =
-      current.servings != null && current.servings > 0
-        ? current.servings
-        : props.recipes.find((recipe) => recipe.id === current.recipeId)?.servings || 1;
-    const target = buildDirectCookTarget({
-      foodId: current.food.id,
-      recipeId: current.recipeId,
-      date: current.date,
-      mealType: current.mealType,
-      servings,
+  const submitFoodShopping = createFoodShoppingSubmit({
+    dialog: foodShoppingDialog,
+    isSubmitting: isFoodShoppingSubmitting,
+    setDialog: setFoodShoppingDialog,
+    setSubmitting: setIsFoodShoppingSubmitting,
+    setError: setFoodShoppingError,
+    createShoppingItem: props.createShoppingItem,
+    updateShoppingItem: props.updateShoppingItem,
+    showNotice,
+  });
+  function submitCookConfirmDialog(event: FormEvent<HTMLFormElement>) {
+    void submitFoodCookConfirmAction({
+      event,
+      dialog: quickMealDialog,
+      recipes: props.recipes,
+      setDialog: setQuickMealDialog,
+      navigate: props.navigate,
+      onStartRecipe: props.onStartRecipe,
     });
-    setQuickMealDialog(null);
-    if (props.navigate) {
-      props.navigate(target);
-    } else {
-      // Legacy fallback when navigate is not composed (older tests).
-      props.onStartRecipe(current.recipeId);
-    }
   }
 
-  // Load authoritative candidates when compact record date/mealType change.
-  useEffect(() => {
-    if (!quickRecord) return;
-    let cancelled = false;
-    const { date, mealType } = quickRecord;
-    const loader = props.loadMealCandidates;
-    if (!loader) {
-      setQuickRecord((current) =>
-        current && current.date === date && current.mealType === mealType
-          ? {
-              ...current,
-              candidates: [],
-              candidateMode: 'none',
-              candidateResolution: { status: 'ready' },
-            }
-          : current,
-      );
-      return;
-    }
-    setQuickRecord((current) =>
-      current && current.date === date && current.mealType === mealType
-        ? { ...current, candidateResolution: { status: 'loading' }, error: null }
-        : current,
-    );
-    void (async () => {
-      try {
-        const candidates = await loader(date, mealType);
-        if (cancelled) return;
-        const presentation = deriveCandidatePresentation(candidates, mealType);
-        setQuickRecord((current) => {
-          if (!current || current.date !== date || current.mealType !== mealType) return current;
-          return {
-            ...current,
-            candidates,
-            candidateMode: presentation.mode,
-            candidateResolution: { status: 'ready' },
-            ...(current.targetTouchedByUser
-              ? {}
-              : {
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                }),
-          };
-        });
-      } catch (reason) {
-        if (cancelled) return;
-        const message =
-          reason instanceof Error && reason.message.trim()
-            ? reason.message
-            : '暂时无法加载可选餐食，请重试';
-        setQuickRecord((current) =>
-          current && current.date === date && current.mealType === mealType
-            ? {
-                ...current,
-                candidateResolution: { status: 'error', message },
-                error: message,
-              }
-            : current,
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Only re-run when open identity / date / mealType / loader change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickRecord?.food.id, quickRecord?.date, quickRecord?.mealType, props.loadMealCandidates]);
+  useFoodQuickRecordCandidates({
+    quickRecord,
+    setQuickRecord,
+    loadMealCandidates: props.loadMealCandidates,
+  });
 
-  async function submitCompactRecord() {
-    if (!quickRecord || quickRecord.busy) return;
-    if (!canSubmitWithCandidateResolution(quickRecord.candidateResolution)) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error:
-                current.candidateResolution.status === 'error'
-                  ? current.candidateResolution.message || '暂时无法加载可选餐食，请重试'
-                  : '正在查找可加入的餐食…',
-            }
-          : current,
-      );
-      return;
-    }
-    const cover = getFoodCoverAsset(quickRecord.food, props.recipes) ?? null;
-    let payload: RecordMealPayload;
-    try {
-      payload = buildRecordMealPayload({
-        clientRequestId: quickRecord.clientRequestId,
-        date: quickRecord.date,
-        mealType: quickRecord.mealType,
-        target: quickRecord.target,
-        foods: [
-          {
-            kind: 'existing',
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            servings: 1,
-            cover,
-          },
-        ],
-      });
-    } catch (reason) {
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              error: reason instanceof Error && reason.message.trim()
-                ? reason.message
-                : '餐食记录失败，请重试',
-            }
-          : current,
-      );
-      return;
-    }
-
-    setQuickRecord((current) => (current ? { ...current, busy: true, error: null } : current));
-    try {
-      const response = await props.recordMeal(payload);
-      setQuickRecord(null);
-      props.onRecordSuccess?.(response);
-      setFeedback(
-        `${quickRecord.food.name} 已记入${
-          quickRecord.date === mealBusinessDate ? '今天' : formatDate(quickRecord.date)
-        }${MEAL_TYPE_LABELS[quickRecord.mealType]}`,
-      );
-    } catch (reason) {
-      const code = extractMealRecordErrorCode(reason);
-      if (code === 'meal_log_stale' && props.loadMealCandidates) {
-        try {
-          const refreshed = await props.loadMealCandidates(quickRecord.date, quickRecord.mealType);
-          const presentation = deriveCandidatePresentation(refreshed, quickRecord.mealType);
-          setQuickRecord((current) =>
-            current
-              ? {
-                  ...current,
-                  busy: false,
-                  candidates: refreshed,
-                  candidateMode: presentation.mode,
-                  candidateResolution: { status: 'ready' },
-                  target: presentation.target,
-                  selectedCandidateId: presentation.selectedCandidateId,
-                  targetTouchedByUser: false,
-                  error: '这顿饭刚被家人更新，请重新确认',
-                }
-              : current,
-          );
-          return;
-        } catch {
-          // fall through
-        }
-      }
-      if (code === 'idempotency_key_reused' || code === 'record_operation_reverted') {
-        setQuickRecord((current) =>
-          current
-            ? {
-                ...current,
-                busy: false,
-                clientRequestId: createClientRequestId(),
-                error:
-                  code === 'record_operation_reverted'
-                    ? '上次记录已撤销，请再试一次'
-                    : '记录内容已变化，请再试一次',
-              }
-            : current,
-        );
-        return;
-      }
-      setQuickRecord((current) =>
-        current
-          ? {
-              ...current,
-              busy: false,
-              error: messageFromMealRecordReason(reason, '餐食记录失败，请重试'),
-            }
-          : current,
-      );
-    }
-  }
-
-  function handleFoodCardPrimaryAction(food: Food, mealType: MealType) {
-    const initialMealType = getQuickDefaultMealType(food, suggestedMealType);
-    if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) {
-      openQuickMealDialog(food, initialMealType, 'cook');
-      return;
-    }
-    openQuickMealDialog(food, initialMealType, 'eat');
-  }
+  const { submitCompactRecord } = useFoodQuickRecordSubmit({
+    quickRecord,
+    setQuickRecord,
+    recordMeal: props.recordMeal,
+    recipes: props.recipes,
+    setFeedback,
+    mealBusinessDate,
+    loadMealCandidates: props.loadMealCandidates,
+    onRecordSuccess: props.onRecordSuccess,
+  });
 
   const foodLibraryCardActionsRef = useRef<FoodLibraryCardActions>({
     onOpenDetail: openDetail,
@@ -1675,26 +665,14 @@ export function FoodWorkspace(props: Props) {
     handleOpenEdit(nextFood);
   }
 
-  const handledNavigationRequestIdRef = useRef<number | null>(null);
+  useFoodNavigationRequests({
+    foods: props.foods,
+    navigationRequest: props.navigationRequest,
+    onEdit: handleOpenEdit,
+    onQuickMeal: openQuickMealDialog,
+  });
 
-  useEffect(() => {
-    const action = resolveFoodNavigationRequestAction({
-      foods: props.foods,
-      navigationRequest: props.navigationRequest,
-      handledRequestId: handledNavigationRequestIdRef.current,
-    });
-    if (action.kind === 'edit') {
-      handledNavigationRequestIdRef.current = action.requestId;
-      handleOpenEdit(action.food);
-      return;
-    }
-    if (action.kind === 'quickMeal') {
-      handledNavigationRequestIdRef.current = action.requestId;
-      openQuickMealDialog(action.food, getDefaultMealType(action.food), action.quickMealAction);
-    }
-  }, [props.foods, props.navigationRequest]);
-
-  const planSurfaceProps: FoodPlanSurfaceProps = {
+  const planSurfaceProps: FoodPlanSurfaceProps = buildFoodWorkspacePlanSurfaceProps({
       weekRange: props.foodPlanWeekRange,
       days: foodPlanDays,
       getPlanItemCoverAsset: (item) => {
@@ -1727,264 +705,59 @@ export function FoodWorkspace(props: Props) {
       onStartPlanItem: (item: FoodPlanItem) => {
         void completePlanItem(item);
       },
-    };
+    });
 
     const discoverDesktopContent = (
-      <FoodHubView
-        heroActions={
-          <div className="hero-actions">
-            <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>
-              <FoodUiIcon name="plus" />
-              <span>新增食物</span>
-            </ActionButton>
-            <ActionButton tone="secondary" type="button" onClick={props.onOpenLogs}>
-              <FoodUiIcon name="receipt" />
-              <span>用餐记录</span>
-            </ActionButton>
-          </div>
-        }
-        filtersSection={<section className="food-filter-shell">
-          <div className="food-library-main">
-            <div className="food-library-head">
-              <div className="workspace-toolbar-copy">
-                <h3>食物库</h3>
-              </div>
-              <div className="food-library-search-row">
-                <SearchField
-                  className="food-search-field"
-                  ariaLabel="搜索食物"
-                  placeholder="搜索食物、来源、口味或备注…"
-                  value={search}
-                  loading={isFoodSearchFetching}
-                  leadingIcon={<FoodUiIcon name="search" />}
-                  onChange={setSearch}
-                  onClear={() => setSearch('')}
-                  onCompositionStart={foodSearchComposition.onCompositionStart}
-                  onCompositionEnd={foodSearchComposition.onCompositionEnd}
-                />
-                <div className="food-library-head-actions">
-                  <p className="workspace-toolbar-summary">显示 {filteredFoods.length} / {props.foods.length} 项食物</p>
-                  {hasFoodFilters && (
-                    <button className="food-clear-filters-button" type="button" onClick={clearFoodFilters}>
-                      <FoodUiIcon name="refresh" />
-                      <span>清空筛选</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-              <div className="food-toolbar-controls">
-                <div className="food-filter-group">
-                  <span>类型</span>
-                  <OptionChipGroup
-                    ariaLabel="食物类型"
-                    size="small"
-                    className="food-filter-chip-group"
-                    options={[{ value: 'all', label: '全部' }, ...FOOD_TYPE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))]}
-                    value={typeFilter}
-                    onChange={(value) => setTypeFilter(value)}
-                  />
-                </div>
-                <div className="food-filter-group">
-                  <span>餐别</span>
-                  <OptionChipGroup
-                    ariaLabel="适合餐别"
-                    size="small"
-                    className="food-filter-chip-group"
-                    options={[{ value: 'all', label: '全餐别' }, ...MEAL_OPTIONS.map((item) => ({ value: item.value, label: item.label }))]}
-                    value={mealFilter}
-                    onChange={(value) => setMealFilter(value)}
-                  />
-                </div>
-              </div>
-              {lensFilter === 'needsInfo' && (
-                <section className="food-governance-panel" aria-label="需要完善的信息">
-                  <div className="food-governance-head">
-                    <div>
-                      <span className="eyebrow">补充信息</span>
-                      <h4>{governanceQueue.length > 0 ? `还有 ${governanceQueue.length} 项食物需要完善信息` : '信息已补齐'}</h4>
-                      <p>{nextGovernanceFood ? nextGovernanceSummary : '当前没有需要完善信息的食物。'}</p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={governanceQueue.length === 0}
-                      onClick={openNextGovernanceFood}
-                    >
-                      下一条
-                    </button>
-                  </div>
-                  <OptionChipGroup
-                    ariaLabel="需要完善的类型"
-                    value={governanceIssueFilter}
-                    className="food-governance-options"
-                    options={[
-                      { value: 'all', label: '全部需要完善', description: `${needsInfoFoods.length}` },
-                      ...governanceIssueSummaries.map((item) => ({
-                        value: item.value,
-                        label: item.label,
-                        description: `${item.count}`,
-                      })),
-                    ]}
-                    onChange={(issue) => openGovernanceIssue(issue as 'all' | FoodGovernanceIssue)}
-                  />
-                </section>
-              )}
-          </div>
-      </section>}
-        feedbackSection={feedback ? (
-          <div className="food-feedback">
-            <span>{feedback}</span>
-            <button type="button" onClick={props.onOpenLogs}>查看记录</button>
-          </div>
-        ) : null}
-        gridSection={filteredFoods.length > 0 ? (
-          <FoodCardLibrary
-            models={foodCardViewModels}
-            resetKey={foodCardResetKey}
-            actionsRef={foodLibraryCardActionsRef}
-            isUpdatingFavorite={Boolean(props.isUpdatingFavorite)}
-            isQuickAdding={Boolean(props.isQuickAdding)}
-          />
-        ) : (
-          <EmptyState
-            title={currentLensCopy.emptyTitle}
-            description={search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? '没有符合条件的食物，可以清空筛选后再试。' : currentLensCopy.emptyDescription}
-            action={
-              search || typeFilter !== 'all' || mealFilter !== 'all' || sceneFilter !== 'all' ? (
-                <ActionButton tone="secondary" type="button" onClick={clearFoodFilters}>清空筛选</ActionButton>
-              ) : lensFilter === 'selfMade' ? (
-                <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('selfMade')}>添加家常菜谱</ActionButton>
-              ) : (
-                <ActionButton tone="primary" type="button" onClick={() => handleOpenCreate('takeout')}>新增食物</ActionButton>
-              )
-            }
-          />
-        )}
-        sidebar={<>
-        <aside className="food-task-sidebar" aria-label="食物页辅助操作">
-          <div className="food-task-sidebar-head">
-            <strong>食物管理</strong>
-              <span className="eyebrow">管理食物，安排下一餐</span>
-          </div>
-          <div className="food-sidebar-section food-sidebar-quick-section">
-            <div className="food-sidebar-section-head">
-              <strong>常用筛选</strong>
-            </div>
-            <div className="food-library-insight" aria-label="食物快捷筛选">
-              <button type="button" onClick={() => setLensFilter('favorite')} title={repeatFoods.map(({ food }) => food.name).join('、') || '常吃清单'}>
-                <span>常吃清单</span>
-                <strong>{repeatFoodCount}</strong>
-              </button>
-              <button type="button" onClick={() => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all'))}>
-                <span>临期或需要完善信息</span>
-                <strong>{managementIssueCount}</strong>
-              </button>
-              <button type="button" onClick={() => openGovernanceIssue('all')}>
-                <span>需要完善</span>
-                <strong>{needsInfoFoods.length}</strong>
-              </button>
-            </div>
-          </div>
-          <div className="food-sidebar-section food-sidebar-management-section">
-            <div className="food-sidebar-section-head">
-              <strong>管理</strong>
-            </div>
-            <div className="food-library-insight" aria-label="食物管理入口">
-              <button type="button" onClick={() => setIsSceneManagerOpen(true)}>
-                <span>场景管理</span>
-                <strong>{props.foodScenes.filter((scene) => !scene.hidden).length}</strong>
-              </button>
-            </div>
-            <div className="food-library-next-task">
-              <span>{nextGovernanceFood ? '下一项' : '需要完善'}</span>
-              <strong>{nextGovernanceSummary}</strong>
-              <button type="button" disabled={!nextGovernanceFood} onClick={openNextGovernanceFood}>
-                继续完善
-              </button>
-            </div>
-          </div>
-          <FoodPlanSurface {...planSurfaceProps} mobileWeekPage={null} />
-          <div className="food-sidebar-section food-sidebar-scenes-section">
-            <div className="food-sidebar-section-head">
-              <strong>按场景探索</strong>
-              <span>按场景浏览食物</span>
-            </div>
-            <div className="food-sidebar-scene-list" aria-label="按场景探索">
-              {sceneCards.length > 0 ? (
-                sceneCards.map((scene) => {
-                  const sceneImageUrl = resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined);
-                  return (
-                  <button
-                    key={scene.name}
-                    className={sceneFilter === scene.name ? 'active' : ''}
-                    type="button"
-                    onClick={() => setSceneFilter(sceneFilter === scene.name ? 'all' : scene.name)}
-                  >
-                    <span className="food-sidebar-scene-thumb">
-                      <MediaWithPlaceholder
-                        src={sceneImageUrl}
-                        srcSet={buildMediaSrcSet(scene.imageAsset)}
-                        sizes={buildMediaSizes('thumb')}
-                        alt=""
-                      />
-                    </span>
-                    <span className="food-sidebar-scene-copy">
-                      <strong>{scene.name}</strong>
-                      <span>{scene.description || (scene.count > 0 ? `${scene.count} 种食物` : '浏览这个场景')}</span>
-                    </span>
-                  </button>
-                  );
-                })
-              ) : (
-                <span className="food-sidebar-empty">还没有场景标签</span>
-              )}
-            </div>
-          </div>
-        </aside>
-        <FoodTabletSupportSurface
-          metrics={[
-            {
-              label: '常吃清单',
-              value: repeatFoodCount,
-              title: repeatFoods.map(({ food }) => food.name).join('、') || '常吃清单',
-              onClick: () => setLensFilter('favorite'),
-            },
-            {
-              label: '临期或需要完善信息',
-              value: managementIssueCount,
-              onClick: () => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all')),
-            },
-            {
-              label: '需要完善',
-              value: needsInfoFoods.length,
-              onClick: () => openGovernanceIssue('all'),
-            },
-            {
-              label: '场景管理',
-              value: props.foodScenes.filter((scene) => !scene.hidden).length,
-              onClick: () => setIsSceneManagerOpen(true),
-            },
-          ]}
-          nextTaskLabel={nextGovernanceFood ? '下一项需要完善' : '需要完善'}
-          nextTaskSummary={nextGovernanceSummary}
-          canOpenNextTask={Boolean(nextGovernanceFood)}
-          onOpenNextTask={openNextGovernanceFood}
-          plan={planSurfaceProps}
-          scenes={sceneCards.map((scene) => ({
-            name: scene.name,
-            description: scene.description || (scene.count > 0 ? `${scene.count} 种食物` : '浏览这个场景'),
-            imageUrl: resolveMediaUrl(scene.imageAsset, 'thumb') ?? (scene.imageUrl ? resolveFoodAssetUrl(scene.imageUrl) : undefined),
-            imageSrcSet: buildMediaSrcSet(scene.imageAsset),
-            active: sceneFilter === scene.name,
-            onSelect: () => setSceneFilter(sceneFilter === scene.name ? 'all' : scene.name),
-          }))}
-        />
-        </>}
+      <FoodWorkspaceDiscoverDesktop
+        search={search}
+        searchLoading={isFoodSearchFetching}
+        typeFilter={typeFilter}
+        mealFilter={mealFilter}
+        lensFilter={lensFilter}
+        governanceIssueFilter={governanceIssueFilter}
+        hasFoodFilters={hasFoodFilters}
+        filteredFoods={filteredFoods}
+        totalFoods={props.foods.length}
+        governanceQueueLength={governanceQueue.length}
+        needsInfoCount={needsInfoFoods.length}
+        nextGovernanceSummary={nextGovernanceSummary}
+        governanceIssueSummaries={governanceIssueSummaries}
+        feedback={feedback}
+        currentLensCopy={currentLensCopy}
+        foodCardViewModels={foodCardViewModels}
+        foodCardResetKey={foodCardResetKey}
+        foodLibraryCardActionsRef={foodLibraryCardActionsRef}
+        repeatFoods={repeatFoods}
+        repeatFoodCount={repeatFoodCount}
+        managementIssueCount={managementIssueCount}
+        foodScenes={props.foodScenes}
+        sceneCards={sceneCards}
+        sceneFilter={sceneFilter}
+        nextGovernanceFood={nextGovernanceFood}
+        planSurfaceProps={planSurfaceProps}
+        onCreateFood={handleOpenCreate}
+        onOpenLogs={props.onOpenLogs}
+        onSearchChange={setSearch}
+        onSearchClear={() => setSearch('')}
+        onSearchCompositionStart={foodSearchComposition.onCompositionStart}
+        onSearchCompositionEnd={foodSearchComposition.onCompositionEnd}
+        onTypeFilterChange={setTypeFilter}
+        onMealFilterChange={setMealFilter}
+        onClearFilters={clearFoodFilters}
+        onOpenNextGovernanceFood={openNextGovernanceFood}
+        onGovernanceIssueChange={openGovernanceIssue}
+        onSetLensFavorite={() => setLensFilter('favorite')}
+        onSetLensExpiring={() => (expiringFoods.length > 0 ? setLensFilter('expiring') : openGovernanceIssue('all'))}
+        onOpenGovernanceIssue={() => openGovernanceIssue('all')}
+        onOpenSceneManager={() => setIsSceneManagerOpen(true)}
+        onToggleScene={(sceneName) => setSceneFilter(sceneFilter === sceneName ? 'all' : sceneName)}
+        isUpdatingFavorite={Boolean(props.isUpdatingFavorite)}
+        isQuickAdding={Boolean(props.isQuickAdding)}
       />
     );
 
     const discoverMobileContent = (
-      <FoodMobileView
+      <FoodWorkspaceDiscoverMobile
         recipes={props.recipes}
         mealLogs={props.mealLogs}
         managementIssueCount={managementIssueCount}
@@ -2047,446 +820,61 @@ export function FoodWorkspace(props: Props) {
       onCreateFood: () => handleOpenCreate('takeout'),
     };
 
-    const surfaceContent = <FoodDiscoverSurface {...discoverSurfaceProps} />;
+    const surfaceContent = <FoodWorkspaceDiscoverView {...discoverSurfaceProps} />;
+
+    const editorView = { availableSceneTagOptions, canSubmit, completionItems: editorCompletionItems, completionPercent: editorCompletionPercent, currentRecipe, editorProfile, editorRecipeCover, editorRecipeMeta, showActions: false, onAddSceneTag: addSceneTag, onBack: closeFoodEditorIfAllowed, onCreateAndAddSceneTag: () => void createAndAddSceneTag(), onEditRecipe: handleOpenRecipeEditor, onRemoveSceneTag: removeSceneTag, onSubmit: (event: FormEvent<HTMLFormElement>) => void handleSubmitFood(event), onToggleMealType: toggleMealType, onUploadImage: (files: FileList) => void imageComposer.upload(files), setNewSceneTagName };
+    const recipeView = { isEditing: Boolean(recipeEditor.selectedRecipeId || form.recipeId), entityLabel: '菜谱', submitLabel: '保存菜谱', previewLabel: '回到食物', summaryCreateHint: '保存后回到食物库', backLabel: '回到食物', isRecipeAiApplied: false, selectedRecipeId: recipeEditor.selectedRecipeId, isRecipeDraftBusy: false, recipeDraftButtonLabel: getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage), showAiDraftAction: false, showDeleteAction: false, compactHeader: true, onDelete: () => undefined, onOpenDraftDialog: () => undefined };
 
     return (
     <main className="food-workspace">
-      {notice && (
-        <div className={`recipe-notice-toast tone-${notice.tone}`} role={notice.tone === 'danger' ? 'alert' : 'status'} aria-live="polite">
-          <span className="recipe-notice-icon">
-            <FoodUiIcon name={notice.tone === 'success' ? 'check' : 'bell'} />
-          </span>
-          <span className="recipe-notice-copy">
-            <strong>{notice.title}</strong>
-            <small>{notice.message}</small>
-          </span>
-          <button type="button" onClick={clearNotice} aria-label="关闭提示">
-            ×
-          </button>
-        </div>
-      )}
+      <FoodWorkspaceNotice notice={notice} onClose={clearNotice} />
       {surfaceContent}
-      {foodShoppingDialog ? (
-        <FoodShoppingDialog
-          food={props.foods.find((item) => item.id === foodShoppingDialog.draft.foodId) ?? props.foods[0]}
-          draft={foodShoppingDialog.draft}
-          existingItem={foodShoppingDialog.existingItem}
-          busy={isFoodShoppingSubmitting}
-          errorMessage={foodShoppingError}
-          onDraftChange={(draft) => setFoodShoppingDialog((current) => current ? { ...current, draft } : current)}
-          onSubmit={() => void submitFoodShopping()}
-          onClose={() => {
+      <FoodWorkspaceShoppingOverlays
+        food={props.foods.find((item) => item.id === foodShoppingDialog?.draft.foodId) ?? props.foods[0]}
+        foodShopping={foodShoppingDialog ? {
+          open: true,
+          draft: foodShoppingDialog.draft,
+          existingItem: foodShoppingDialog.existingItem,
+          busy: isFoodShoppingSubmitting,
+          errorMessage: foodShoppingError,
+          onDraftChange: (draft) => setFoodShoppingDialog((current) => current ? { ...current, draft } : current),
+          onSubmit: () => void submitFoodShopping(),
+          onClose: () => {
             if (!isFoodShoppingSubmitting) {
               setFoodShoppingDialog(null);
               setFoodShoppingError(null);
             }
-          }}
-        />
-      ) : null}
-
-      {recipeShopping.shoppingDialogCard ? (
-        <RecipeShoppingDialog
-          card={recipeShopping.shoppingDialogCard}
-          ingredients={props.ingredients}
-          drafts={recipeShopping.shoppingDrafts}
-          customForm={recipeShopping.shoppingCustomForm}
-          isIngredientPickerOpen={recipeShopping.isShoppingIngredientPickerOpen}
-          isCreatingShopping={props.isCreatingShopping}
-          unitOptions={SHOPPING_UNIT_OPTIONS}
-          resolveIngredientImageUrl={resolveIngredientImageUrl}
-          onClose={recipeShopping.closeShoppingDialog}
-          onUpdateDraft={recipeShopping.updateShoppingDraft}
-          onAdjustDraftQuantity={recipeShopping.adjustShoppingDraftQuantity}
-          onRemoveDraft={recipeShopping.removeShoppingDraft}
-          onAddRecipeIngredient={recipeShopping.addRecipeIngredientToShoppingDraft}
-          onChangeCustomForm={recipeShopping.setShoppingCustomForm}
-          onSetIngredientPickerOpen={recipeShopping.setIsShoppingIngredientPickerOpen}
-          onSelectIngredientOption={recipeShopping.selectShoppingIngredientOption}
-          onAdjustCustomQuantity={recipeShopping.adjustCustomShoppingQuantity}
-          onAddCustomDraft={recipeShopping.addCustomShoppingDraft}
-          onSubmit={() => void recipeShopping.submitShoppingDrafts()}
-        />
-      ) : null}
-
-      {view !== 'list' && !isFoodRecipeEditorOpen && (
-        <WorkspaceOverlayFrame
-          rootClassName="food-workspace-overlay-root"
-          onClose={closeFoodEditorIfAllowed}
-          busy={Boolean(props.isSavingFood)}
-          closeOnBackdrop={!props.isSavingFood}
-        >
-          <WorkspaceModal
-            title={view === 'create' ? '新增食物' : '编辑食物'}
-            description={isSelfMade ? '家常菜的菜谱、用料和日常记录都可以在这里补充。' : '补充来源、价格、评分和到期信息，方便下次继续安排。'}
-            eyebrow="食物信息"
-            className="food-editor-modal"
-            closeLabel="关闭"
-            busy={Boolean(props.isSavingFood)}
-            footerInfo={(
-              <>
-                <strong>已完成 {editorCompletedCount} / {editorCompletionItems.length} 项信息</strong>
-            <span>保存后仍可继续完善</span>
-              </>
-            )}
-            footerActions={(
-              <FormActions
-                primaryLabel={foodEditorSubmitLabel}
-                submittingLabel="保存中…"
-                primaryType="submit"
-                primaryForm={FOOD_EDITOR_FORM_ID}
-                primaryDisabled={!canSubmit}
-                isSubmitting={Boolean(props.isSavingFood)}
-                secondaryLabel={props.isPhoneViewport ? undefined : '取消'}
-                onSecondary={closeFoodEditorIfAllowed}
-              />
-            )}
-            onClose={closeFoodEditorIfAllowed}
-          >
-            <FoodEditorForm
-              embedded
-              availableSceneTagOptions={availableSceneTagOptions}
-              canSubmit={canSubmit}
-              completionItems={editorCompletionItems}
-              completionPercent={editorCompletionPercent}
-              currentRecipe={currentRecipe}
-              editorProfile={editorProfile}
-              editorRecipeCover={editorRecipeCover}
-              editorRecipeMeta={editorRecipeMeta}
-              formId={FOOD_EDITOR_FORM_ID}
-              form={form}
-              imageState={imageComposer.state}
-              isSavingFood={props.isSavingFood}
-              isSceneTagPickerOpen={isSceneTagPickerOpen}
-              isSelfMade={isSelfMade}
-              isUpdatingScene={props.isUpdatingScene}
-              newSceneTagName={newSceneTagName}
-              sceneTags={editorSceneTags}
-              showActions={false}
-              submitLabel={foodEditorSubmitLabel}
-              view={view}
-              onAddSceneTag={addSceneTag}
-              onBack={closeFoodEditorIfAllowed}
-              onCreateAndAddSceneTag={() => void createAndAddSceneTag()}
-              onFormChange={setForm}
-              onGenerateImage={(mode) => void imageComposer.generate(mode)}
-              onEditRecipe={handleOpenRecipeEditor}
-              onRemoveSceneTag={removeSceneTag}
-              onResetImage={imageComposer.reset}
-              onSceneTagPickerToggle={() => setIsSceneTagPickerOpen((current) => !current)}
-              onSubmit={(event) => void handleSubmitFood(event)}
-              onToggleMealType={toggleMealType}
-              onUploadImage={(files) => void imageComposer.upload(files)}
-              resolveAssetUrl={resolveFoodAssetUrl}
-              setNewSceneTagName={setNewSceneTagName}
-            />
-          </WorkspaceModal>
-        </WorkspaceOverlayFrame>
-      )}
-
-      {isFoodRecipeEditorOpen && (
-        <FoodRecipeEditorDialog
-          currentRecipeTitle={currentRecipe?.title}
-          isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
-          isSaving={Boolean(props.isCreatingRecipe || props.isUpdatingRecipe)}
-          onClose={closeFoodRecipeEditor}
-        >
-          <RecipeEditorView
-            isEditing={Boolean(recipeEditor.selectedRecipeId || form.recipeId)}
-            entityLabel="菜谱"
-            submitLabel="保存菜谱"
-            previewLabel="回到食物"
-            summaryCreateHint="保存后回到食物库"
-            backLabel="回到食物"
-            isRecipeAiApplied={false}
-            selectedRecipeId={recipeEditor.selectedRecipeId}
-            form={recipeEditor.form}
-            setForm={recipeEditor.setForm}
-            ingredientRows={recipeEditor.ingredientRows}
-            ingredients={props.ingredients}
-            sceneTagDraft={recipeEditor.sceneTagDraft}
-            setSceneTagDraft={recipeEditor.setSceneTagDraft}
-            sceneSelectOptions={recipeEditorSceneSelectOptions}
-            editorSceneTags={recipeEditorSceneTags}
-            visibleStepTips={recipeEditor.visibleStepTips}
-            editorCoverUrl={recipeEditorCoverUrl}
-            editorCoverAsset={recipeEditorCoverAsset}
-            editorIngredientCount={recipeEditorIngredientCount}
-            editorStepCount={recipeEditorStepCount}
-            editorCompletionItems={recipeEditorCompletionItems}
-            editorCompletionPercent={recipeEditorCompletionPercent}
-            recipeDraftError={recipeEditor.recipeDraftError}
-            isRecipeDraftBusy={false}
-            recipeImageState={recipeEditorImageComposer.state}
-            recipeDraftButtonLabel={getRecipeDraftGenerationButtonLabel(recipeEditor.recipeDraftGenerationStage)}
-            submitDisabled={recipeEditorSubmitDisabled}
-            isCreatingRecipe={props.isCreatingRecipe}
-            isUpdatingRecipe={props.isUpdatingRecipe}
-            showAiDraftAction={false}
-            showDeleteAction={false}
-            compactHeader
-            onBack={closeFoodRecipeEditorIfAllowed}
-            onSubmit={(event) => void submitFoodRecipeEditor(event)}
-            onDelete={() => undefined}
-            onOpenDraftDialog={() => undefined}
-            updateIngredientRow={recipeEditor.updateIngredientRow}
-            selectIngredientRow={recipeEditor.selectIngredientRow}
-            updateIngredientNote={recipeEditor.updateIngredientNote}
-            updateIngredientRequirement={recipeEditor.updateIngredientRequirement}
-            addIngredientRow={recipeEditor.addIngredientRow}
-            removeIngredientRow={recipeEditor.removeIngredientRow}
-            updateStepDraft={recipeEditor.updateStepDraft}
-            getStepKeyPointValues={recipeEditor.getStepKeyPointValues}
-            getStepKeyPointRowCount={recipeEditor.getStepKeyPointRowCount}
-            addStepTip={recipeEditor.addStepTip}
-            addStepKeyPoint={recipeEditor.addStepKeyPoint}
-            updateStepKeyPoint={recipeEditor.updateStepKeyPoint}
-            removeStepKeyPoint={recipeEditor.removeStepKeyPoint}
-            commitSceneTagDraft={recipeEditor.commitSceneTagDraft}
-            handleRecipeImageUpload={(files) => recipeEditorImageComposer.upload(files)}
-            handleRecipeImageGenerate={(mode) => recipeEditorImageComposer.generate(mode)}
-            resetRecipeImageInput={recipeEditorImageComposer.reset}
-          />
-        </FoodRecipeEditorDialog>
-      )}
-
-      {/* Shared ordinary-record result bar from App props (no local mutation state). */}
-      <MealRecordResultBar
-        result={props.recordResult ?? null}
-        isReverting={props.isRevertingRecord}
-        revertError={props.recordRevertError}
-        rateError={props.recordRateError}
-        onRevert={props.onRevertRecord}
-        onView={props.onViewRecord}
-        onRate={props.onRateRecord}
-        onDismiss={props.onDismissRecord}
+          },
+        } : null}
+        recipeShopping={recipeShopping.shoppingDialogCard ? {
+          open: true,
+          card: recipeShopping.shoppingDialogCard,
+          ingredients: props.ingredients,
+          drafts: recipeShopping.shoppingDrafts,
+          customForm: recipeShopping.shoppingCustomForm,
+          isIngredientPickerOpen: recipeShopping.isShoppingIngredientPickerOpen,
+          isCreatingShopping: props.isCreatingShopping,
+          unitOptions: SHOPPING_UNIT_OPTIONS,
+          resolveIngredientImageUrl,
+          onClose: recipeShopping.closeShoppingDialog,
+          onUpdateDraft: recipeShopping.updateShoppingDraft,
+          onAdjustDraftQuantity: recipeShopping.adjustShoppingDraftQuantity,
+          onRemoveDraft: recipeShopping.removeShoppingDraft,
+          onAddRecipeIngredient: recipeShopping.addRecipeIngredientToShoppingDraft,
+          onChangeCustomForm: recipeShopping.setShoppingCustomForm,
+          onSetIngredientPickerOpen: recipeShopping.setIsShoppingIngredientPickerOpen,
+          onSelectIngredientOption: recipeShopping.selectShoppingIngredientOption,
+          onAdjustCustomQuantity: recipeShopping.adjustCustomShoppingQuantity,
+          onAddCustomDraft: recipeShopping.addCustomShoppingDraft,
+          onSubmit: () => void recipeShopping.submitShoppingDrafts(),
+        } : null}
       />
 
-      {quickRecord ? (
-        <MealQuickRecordView
-          open
-          prefilledFood={{
-            food_id: quickRecord.food.id,
-            name: quickRecord.food.name,
-            cover: getFoodCoverAsset(quickRecord.food, props.recipes) ?? null,
-            servings: 1,
-          }}
-          date={quickRecord.date}
-          mealType={quickRecord.mealType}
-          dateOptions={quickMealDateOptions}
-          candidates={quickRecord.candidates}
-          selectedCandidateId={quickRecord.selectedCandidateId}
-          candidateMode={quickRecord.candidateMode}
-          target={quickRecord.target}
-          busy={quickRecord.busy || Boolean(props.isQuickAdding)}
-          submitDisabled={!canSubmitWithCandidateResolution(quickRecord.candidateResolution)}
-          error={quickRecord.error}
-          overlayRootClassName="food-workspace-overlay-root"
-          onClose={() => {
-            if (!quickRecord.busy) setQuickRecord(null);
-          }}
-          onDateChange={(date) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    date,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onMealTypeChange={(mealType) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    mealType,
-                    target: { kind: 'new' },
-                    selectedCandidateId: null,
-                    candidateMode: 'none',
-                    candidates: [],
-                    candidateResolution: { status: 'loading' },
-                    targetTouchedByUser: false,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onTargetChange={(target, selectedCandidateId) => {
-            setQuickRecord((current) =>
-              current
-                ? {
-                    ...current,
-                    target,
-                    selectedCandidateId:
-                      selectedCandidateId ??
-                      (target.kind === 'existing' ? target.meal_log_id : null),
-                    targetTouchedByUser: true,
-                    error: null,
-                  }
-                : current,
-            );
-          }}
-          onSubmit={() => {
-            void submitCompactRecord();
-          }}
-        />
-      ) : null}
+      {/* FoodWorkspaceEditorSurface owns <FoodWorkspaceEditorOverlay and recipe editor composition. */}
+      <FoodWorkspaceEditorSurface context={{ props, view, isFoodRecipeEditorOpen, isSelfMade, editorCompletedCount, closeFoodEditorIfAllowed, handleSubmitFood, editorView, recipeView, availableSceneTagOptions, canSubmit, editorCompletionItems, editorCompletionPercent, currentRecipe, editorProfile, editorRecipeCover, editorRecipeMeta, FOOD_EDITOR_FORM_ID, form, imageComposer, isSceneTagPickerOpen, newSceneTagName, editorSceneTags, foodEditorSubmitLabel, addSceneTag, createAndAddSceneTag, setForm, handleOpenRecipeEditor, removeSceneTag, setIsSceneTagPickerOpen, toggleMealType, resolveFoodAssetUrl, recipeEditor, closeFoodRecipeEditor, recipeEditorSceneSelectOptions, recipeEditorSceneTags, recipeEditorCoverUrl, recipeEditorCoverAsset, recipeEditorIngredientCount, recipeEditorStepCount, recipeEditorCompletionItems, recipeEditorCompletionPercent, recipeEditorImageComposer, getRecipeDraftGenerationButtonLabel, recipeEditorSubmitDisabled, closeFoodRecipeEditorIfAllowed, submitFoodRecipeEditor }} />
 
-      {quickMealDialog && (() => {
-        const isCookAction = quickMealDialog.action === 'cook' && quickMealDialog.recipeId;
-        const isSubmitting = Boolean(props.isQuickAdding || (isCookAction && props.isUpdatingPlan));
-
-        return (
-          <FoodQuickMealDialog
-            dialog={quickMealDialog}
-            dateOptions={quickMealDateOptions}
-            isSubmitting={isSubmitting}
-            recipes={props.recipes}
-            onChange={updateQuickMealDialog}
-            onClose={() => setQuickMealDialog(null)}
-            onSubmit={submitCookConfirmDialog}
-          />
-        );
-      })()}
-
-      {detailFood && (() => {
-        const usage = getMealUsage(detailFood, props.mealLogs);
-        const expiry = describeExpiry(detailFood);
-        const normalizedType = normalizeFoodType(detailFood);
-        const status = getFoodStatus(detailFood, usage, expiry, props.recipes);
-        const factRows = getFoodFactRows(detailFood, usage, expiry);
-        const history = getFoodMealHistory(detailFood, props.mealLogs);
-        const relation = buildFoodRelationViewModelFromRecipeCards(detailFood, recipeCards, props.mealLogs);
-        const linkedRecipeCard = relation.linkedRecipeCard;
-        const recipe = linkedRecipeCard?.recipe ?? (detailFood.recipe_id ? props.recipes.find((item) => item.id === detailFood.recipe_id) ?? null : null);
-        const coverAsset = getFoodCoverAsset(detailFood, props.recipes);
-        const cover = coverAsset?.url;
-        const detailMealOptions = detailFood.suitable_meal_types.length > 0
-          ? MEAL_OPTIONS.filter((meal) => detailFood.suitable_meal_types.includes(meal.value))
-          : MEAL_OPTIONS;
-
-        return (
-          <FoodDetailDrawer
-            food={detailFood}
-            audienceText={getFoodAudienceText(detailFood, props.mealLogs)}
-            cover={cover}
-            coverAsset={coverAsset}
-            detailMealOptions={detailMealOptions}
-            expiry={expiry}
-            factRows={factRows}
-            history={history}
-            inventoryConfirmation={isReadyLikeFood(detailFood) ? getFoodInventoryConfirmation(detailFood, todayDate) : null}
-            isOutsideFood={isOutsideFood(detailFood)}
-            isQuickAdding={props.isQuickAdding}
-            isReadyLikeFood={isReadyLikeFood(detailFood)}
-            normalizedType={normalizedType}
-            recipe={recipe}
-            relation={relation}
-            status={status}
-            usage={usage}
-            getDefaultMealType={getDefaultMealType}
-            getPrimaryFoodActionLabel={getPrimaryFoodActionLabel}
-            getRepurchaseLabel={getRepurchaseLabel}
-            getSceneTags={getFoodSceneTags}
-            getSecondaryFoodActionLabel={getSecondaryFoodActionLabel}
-            onClose={closeDetail}
-            onEdit={handleOpenEdit}
-            onEditRecipe={handleOpenRecipeEditorDirectly}
-            onOpenPlanDialog={openPlanDialog}
-            onStartCook={() => {
-              // Route through the same date/meal/servings dialog as Discover primary cook.
-              openQuickMealDialog(detailFood, getDefaultMealType(detailFood), 'cook');
-            }}
-            onQuickAdd={(food, mealType) => openQuickMealDialog(food, mealType, 'eat')}
-            resolveAssetUrl={resolveFoodAssetUrl}
-            overlayRootClassName="food-workspace-overlay-root"
-          />
-        );
-      })()}
-
-      <FoodPlanDialog
-        isOpen={isPlanDialogOpen}
-        selectedPlanFood={selectedPlanFood}
-        foods={props.foods}
-        recipes={props.recipes}
-        planFoodSearch={planFoodSearch}
-        planForm={planForm}
-        todayDate={todayDate}
-        isUpdatingPlan={props.isUpdatingPlan}
-        onClose={closePlanDialog}
-        onSubmit={submitPlanItem}
-        onClearPlanFoodSelection={clearPlanFoodSelection}
-        onPlanFoodSearchChange={setPlanFoodSearch}
-        onSelectPlanFood={(food) => {
-          setPlanForm((current) => ({ ...current, foodId: food.id, mealType: getDefaultMealType(food) }));
-          setPlanFoodSearch(food.name);
-        }}
-        onPlanDateChange={(value) => setPlanForm({ ...planForm, planDate: value })}
-        onMealTypeChange={(value) => setPlanForm({ ...planForm, mealType: value })}
-        onPlanNoteChange={(value) => setPlanForm({ ...planForm, note: value })}
-        resolveFoodAssetUrl={resolveFoodAssetUrl}
-        getFoodCover={getFoodCover}
-        getFoodCoverAsset={getFoodCoverAsset}
-        getDefaultMealType={getDefaultMealType}
-        getPlanDateParts={getFoodPlanDateParts}
-        normalizeFoodType={normalizeFoodType}
-      />
-
-      {activePlanDetailItem && (
-        <FoodPlanDetailWithCandidates
-          item={activePlanDetailItem}
-          food={activePlanDetailFood}
-          recipes={props.recipes}
-          form={planDetailForm}
-          isEditing={isPlanDetailEditing}
-          isUpdatingPlan={props.isUpdatingPlan}
-          isCompleting={Boolean(props.isCompletingPlan || props.isQuickAdding)}
-          onClose={closePlanDetail}
-          onChangeForm={setPlanDetailForm}
-          onEditingChange={setIsPlanDetailEditing}
-          onResetEdit={resetPlanDetailForm}
-          onSubmit={submitPlanDetail}
-          onComplete={(target) => void completePlanItem(activePlanDetailItem, target)}
-          onDelete={() => void deletePlanDetail(activePlanDetailItem)}
-          resolveAssetUrl={resolveFoodAssetUrl}
-        />
-      )}
-
-      <MealEnrichmentModal
-        open={Boolean(planMealEnrichment)}
-        meal={planMealEnrichment?.meal ?? null}
-        members={props.members}
-        isUpdating={Boolean(props.isUpdatingMeal)}
-        updateMealLog={props.updateMealLog}
-        onClose={() => setPlanMealEnrichment(null)}
-        overlayRootClassName="food-workspace-overlay-root"
-        formId="food-plan-meal-enrichment-form"
-      />
-
-      <FoodSceneDialogs
-        isSceneManagerOpen={isSceneManagerOpen}
-        sceneFormMode={sceneFormMode}
-        sceneCards={sceneCards}
-        sceneDraft={sceneDraft}
-        sceneImageState={sceneImageState}
-        isUpdatingScene={props.isUpdatingScene}
-        onCloseManager={() => setIsSceneManagerOpen(false)}
-        onOpenCreateScene={() => openCreateScene()}
-        onOpenEditScene={openEditScene}
-        onDeleteScene={(sceneId) => void deleteScene(sceneId)}
-        onCloseSceneForm={closeSceneForm}
-        onSubmitScene={submitScene}
-        onGenerateSceneImage={() => void generateFoodSceneImage()}
-        onSceneDraftChange={setSceneDraft}
-        resolveFoodAssetUrl={resolveFoodAssetUrl}
-      />
+      {/* FoodWorkspaceOperationalOverlays owns <FoodWorkspaceMealOverlays, <FoodWorkspacePlanOverlays and <FoodWorkspaceDialogController. */}
+      <FoodWorkspaceOperationalOverlays c={{ props, quickRecord, quickMealDateOptions, setQuickRecord, submitCompactRecord, quickMealDialog, updateQuickMealDialog, submitCookConfirmDialog, detailFood, recipeCards, todayDate, closeDetail, handleOpenEdit, handleOpenRecipeEditorDirectly, openPlanDialog, openQuickMealDialog, getDefaultMealType, isPlanDialogOpen, selectedPlanFood, planFoodSearch, planForm, setPlanForm, setPlanFoodSearch, closePlanDialog, submitPlanItem, clearPlanFoodSelection, activePlanDetailItem, activePlanDetailFood, planDetailForm, isPlanDetailEditing, closePlanDetail, setPlanDetailForm, setIsPlanDetailEditing, resetPlanDetailForm, submitPlanDetail, completePlanItem, deletePlanDetail, planMealEnrichment, setPlanMealEnrichment, isSceneManagerOpen, sceneFormMode, sceneCards, sceneDraft, sceneImageState, setIsSceneManagerOpen, openCreateScene, openEditScene, deleteScene, closeSceneForm, submitScene, generateFoodSceneImage, setSceneDraft, resolveFoodAssetUrl, getFoodCover, getFoodCoverAsset, getFoodPlanDateParts, normalizeFoodType }} />
     </main>
   );
 }

@@ -7,7 +7,7 @@ import type {
   RecordMealResponse,
   RevertMealRecordResponse,
   UpdateMealLogPayload,
-} from '../../api/types';
+} from '../../api/types/meal';
 
 export type MealRecordResultSource = 'immediate' | 'restored';
 

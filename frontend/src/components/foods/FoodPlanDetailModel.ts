@@ -1,4 +1,4 @@
-import type { Food } from '../../api/types';
+import type { Food } from '../../api/types/food';
 import { todayKey } from '../../lib/date';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import {

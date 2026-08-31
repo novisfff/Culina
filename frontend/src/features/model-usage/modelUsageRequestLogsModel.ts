@@ -3,7 +3,7 @@ import type {
   ModelUsageFamilyRequestFilters,
   ModelUsagePersonalRequestFilters,
   ModelUsageScope,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 
 export type ModelUsageRequestStatus = '' | 'priced' | 'estimated' | 'unpriced' | 'needs_review';
 

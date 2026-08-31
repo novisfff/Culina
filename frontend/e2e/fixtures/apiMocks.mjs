@@ -1508,6 +1508,15 @@ async function fulfillFamilyModelSettingsMock({
 const p0Fixtures = {
   '/api/activity-highlights': activityHighlightsFixture,
   '/api/activity-logs': [],
+  '/api/ai/conversations': [],
+  '/api/ai/status': {
+    configured: true,
+    enabled: true,
+    supports_vision: false,
+    status: 'ready',
+    detail: 'AI 已就绪。',
+    capabilities: {},
+  },
   '/api/auth/me': authSnapshot,
   '/api/family': family,
   '/api/food-plan': homePlanItems,

@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import type { Food, MealType, Recipe, MediaAsset } from '../../api/types';
+import type { Food, MealType, Recipe, MediaAsset } from '../../api/types/food';
 import { FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { useFoodResourceSearch } from '../../hooks/useFoodResourceSearch';

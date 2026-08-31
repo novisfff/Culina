@@ -1,4 +1,4 @@
-import type { Food, ShoppingListItem } from '../../api/types';
+import type { Food, ShoppingListItem } from '../../api/types/food';
 import type { UpdateShoppingItemPayload } from '../../api/ingredientsApi';
 import { parseFoodStockQuantity } from '../../lib/foodStockQuantity';
 

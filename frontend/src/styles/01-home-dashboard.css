@@ -2031,7 +2031,7 @@
 .dashboard-food-cover .media-placeholder-label,
 .dashboard-food-cover .media-placeholder-glow,
 .dashboard-food-cover .media-placeholder-spark {
-  display: none !important;
+  display: none;
 }
 
 /* Three-question desktop home */
@@ -3979,7 +3979,8 @@
 
 .home-dashboard-lower-grid .home-required-actions .home-question-more {
   width: auto;
-  min-height: var(--control-height-compact);
+  min-height: var(--control-height);
+  height: var(--control-height);
   align-self: end;
   justify-self: end;
   margin: 0;

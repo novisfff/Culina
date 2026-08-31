@@ -324,19 +324,19 @@
 
 .ai-draft-remove-button,
 .ai-ingredient-profile-remove-conversion {
-  border: 1px solid rgba(217, 75, 61, 0.22) !important;
-  background: #fdf5f4 !important;
-  color: #c0392b !important;
-  font-weight: 600 !important;
-  transition: all 0.2s ease !important;
+  border: 1px solid rgba(217, 75, 61, 0.22);
+  background: #fdf5f4;
+  color: #c0392b;
+  font-weight: 600;
+  transition: all 0.2s ease;
 }
 
 .ai-draft-remove-button:hover,
 .ai-ingredient-profile-remove-conversion:hover {
-  background: #fce8e6 !important;
-  border-color: rgba(217, 75, 61, 0.42) !important;
-  color: #a82315 !important;
-  box-shadow: 0 2px 8px rgba(217, 75, 61, 0.12) !important;
+  background: #fce8e6;
+  border-color: rgba(217, 75, 61, 0.42);
+  color: #a82315;
+  box-shadow: 0 2px 8px rgba(217, 75, 61, 0.12);
 }
 
 .ai-draft-item-card .compact-input {
@@ -1621,8 +1621,8 @@ fieldset.ai-inventory-intake-conversion {
 
   .ai-confirmation-grid-three,
   .ai-confirmation-grid-compact {
-    grid-template-columns: minmax(0, 1fr) !important;
-    max-width: none !important;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
   }
 
   .ai-inventory-intake-resolved-list li,

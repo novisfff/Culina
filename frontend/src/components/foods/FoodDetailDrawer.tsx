@@ -1,4 +1,5 @@
-import type { Food, MealLog, MealType, Recipe, MediaAsset } from '../../api/types';
+import type { Food, MealType, Recipe, MediaAsset } from '../../api/types/food';
+import type { MealLog } from '../../api/types/meal';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, formatDate } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';

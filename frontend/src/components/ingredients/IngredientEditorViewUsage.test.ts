@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const editorSourcePath = resolve(__dirname, 'IngredientEditorView.tsx');
 const ingredientsStylePath = resolve(__dirname, '../../styles/04-ingredients-workspace.css');
-const mobileStylePath = resolve(__dirname, '../../styles/07-mobile.css');
+const mobileStylePath = resolve(__dirname, '../../styles/ingredients-responsive.css');
 
 const staleStorageChoiceClasses = [
   'ingredients-storage-choice-row',
@@ -37,7 +37,7 @@ describe('IngredientEditorView tracking transition guard', () => {
   it('renders a blocking confirmation surface for tracking mode changes', () => {
     const editorSource = readFileSync(editorSourcePath, 'utf8');
     const editorStateSource = readFileSync(resolve(__dirname, 'useIngredientEditorState.ts'), 'utf8');
-    const mutationsSource = readFileSync(resolve(__dirname, '../../app/useAppMutations.ts'), 'utf8');
+    const mutationsSource = readFileSync(resolve(__dirname, '../../app/mutations/useIngredientMutations.ts'), 'utf8');
 
     expect(editorSource).toContain('ingredients-tracking-transition-modal');
     expect(editorSource).toContain('切换为只记录库存状态');

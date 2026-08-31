@@ -1,8 +1,66 @@
-import type { Food, FoodPayload, FoodPlanItem, FoodType, ImageInputValue, MealType, Recipe } from '../../api/types';
+import type { ImageInputValue } from '../../api/types';
+import type { Food, FoodPayload, FoodPlanItem, FoodType, MealType, Recipe } from '../../api/types/food';
 import type { AppNavigationTarget, CookLaunchContext } from '../../app/appNavigationModel';
 import type { AiRenderPayload } from '../../lib/aiImages';
 import { formatFoodStockNumber } from '../../lib/foodStockQuantity';
 import { FOOD_TYPE_LABELS, emptyImages, getFoodCover, splitTags } from '../../lib/ui';
+import { resolveAssetUrl } from '../../lib/assets';
+import type { NormalizedFoodType } from './FoodWorkspaceHelpers';
+import {
+  normalizeFoodType,
+  isReadyLikeFood,
+  isOutsideFood,
+  getPrimaryFoodActionLabel,
+  formatFoodStockQuantity,
+} from './FoodWorkspaceHelpers';
+
+export function getFoodPlanDateParts(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return {
+    day: String(day || 1),
+    month: String(month || 1),
+    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
+  };
+}
+
+export function resolveFoodAssetUrl(url: string) {
+  return resolveAssetUrl(url) ?? url;
+}
+
+export function getSuggestedMealTypeForHour(hour = new Date().getHours()): MealType {
+  if (hour < 10) return 'breakfast';
+  if (hour < 15) return 'lunch';
+  if (hour < 22) return 'dinner';
+  return 'snack';
+}
+
+export function normalizeFormFoodType(foodType: FoodType): NormalizedFoodType {
+  return foodType === 'packaged' ? 'readyMade' : foodType;
+}
+
+export function isReadyLikeType(foodType: FoodType) {
+  const normalizedType = normalizeFormFoodType(foodType);
+  return normalizedType === 'readyMade' || normalizedType === 'instant';
+}
+
+export function isOutsideType(foodType: FoodType) {
+  const normalizedType = normalizeFormFoodType(foodType);
+  return normalizedType === 'takeout' || normalizedType === 'diningOut';
+}
+
+export function getFoodCardPrimaryActionLabel(food: Food) {
+  if (normalizeFoodType(food) === 'selfMade' && food.recipe_id) return '开始做';
+  return getPrimaryFoodActionLabel(food);
+}
+
+export function isFoodShoppingEligible(food: Food) {
+  return isReadyLikeFood(food) || (normalizeFoodType(food) === 'selfMade' && Boolean(food.recipe_id));
+}
+
+export function formatFoodStock(food: Food) {
+  return formatFoodStockQuantity(food);
+}
 
 /** Direct Cook navigation target from a user-confirmed quick-meal dialog. */
 export function buildDirectCookTarget(args: {

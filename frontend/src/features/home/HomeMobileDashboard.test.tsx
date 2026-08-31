@@ -616,7 +616,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
   });
 
   it('keeps the weekly menu mobile layout vertically compact', () => {
-    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
     expect(mobileStyles).toMatch(/\.home-compact-days\.is-mobile-grid > button \{[^}]*min-height: 60px;/s);
     expect(mobileStyles).toMatch(
       /\.home-compact-calendar \{[^}]*padding: 8px 8px 4px;/s,
@@ -631,7 +631,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
   });
 
   it('gives mobile meal content the full row before fixed more and add actions', () => {
-    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
 
     expect(mobileStyles).toMatch(
       /\.home-compact-meal-grid\.is-mobile-list \.home-compact-meal-slot \{[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*min-height: 72px;/s,
@@ -648,7 +648,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
   });
 
   it('keeps required actions vertically compact on mobile without shrinking touch targets', () => {
-    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
 
     expect(mobileStyles).toMatch(
       /\.home-required-actions \{[^}]*gap: var\(--space-1\);[^}]*padding-block: var\(--space-4\);[^}]*padding-bottom: var\(--space-1\);/s,
@@ -669,7 +669,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
       /\.home-required-actions \.home-action-row \.solid-button \{[^}]*min-height: var\(--control-height\);[^}]*height: var\(--control-height\);[^}]*border: 0;[^}]*background: transparent;/s,
     );
     expect(mobileStyles).toMatch(
-      /\.home-required-actions \.home-question-more \{[^}]*position: relative;[^}]*width: auto;[^}]*min-height: var\(--control-height-compact\);[^}]*height: var\(--control-height-compact\);[^}]*justify-self: end;[^}]*margin: 0;/s,
+      /\.home-required-actions \.home-question-more \{[^}]*position: relative;[^}]*width: auto;[^}]*min-height: var\(--control-height\);[^}]*height: var\(--control-height\);[^}]*justify-self: end;[^}]*margin: 0;/s,
     );
     expect(mobileStyles).toMatch(
       /\.home-required-actions \.home-question-more::before \{[^}]*position: absolute;[^}]*inset: calc\(var\(--space-1\) \* -1\) 0;/s,
@@ -677,7 +677,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
   });
 
   it('keeps recommendation badges on one line without overflowing the card', () => {
-    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
 
     expect(mobileStyles).toMatch(
       /\.mobile-dashboard-badge-row :is\(\.badge, \.ui-status-badge\) \{[^}]*min-width: 0;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
@@ -686,7 +686,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
 
   it('matches the established food and inventory palette without over-darkening light surfaces', () => {
     const dashboardStyles = readFileSync(resolve(__dirname, '../../styles/01-home-dashboard.css'), 'utf8');
-    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
 
     expect(dashboardStyles).toMatch(
       /\.home-question-one,\s*\.home-question-panel,\s*\.home-compact-calendar \{[^}]*--home-ink: #241714;[^}]*--home-muted: #776a61;[^}]*--home-faint: #a2948a;/s,

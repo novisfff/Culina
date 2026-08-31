@@ -1,0 +1,25 @@
+export const queryOwnership = {
+  family: 'shell',
+  members: 'shell',
+  activityHighlights: 'shell',
+  ingredients: 'ingredients',
+  inventory: 'ingredients',
+  inventoryStates: 'ingredients',
+  shoppingList: 'ingredients',
+  inventoryOperationList: 'ingredients',
+  recipes: 'eat',
+  recipeDiscovery: 'eat',
+  recipeStats: 'eat',
+  foodPlan: 'food-plan',
+  foodPlanDetail: 'food-plan',
+  foodScenes: 'food-plan',
+  foods: 'eat',
+  foodRecommendations: 'food-plan',
+  mealLogs: 'eat',
+  mealInsights: 'eat',
+  activeMealRecordOperations: 'home',
+  activityLogs: 'family',
+  aiConversations: 'ai',
+} as const;
+
+export type AppQueryName = keyof typeof queryOwnership;

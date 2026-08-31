@@ -1,6 +1,13 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+export {
+  loadStyleExceptions,
+  loadStyleTokenContract,
+  scanCssTokens,
+  validateRuntimeVariable,
+} from './style-contract.mjs';
+
 
 export const DEFAULT_PATTERNS = Object.freeze([
   { id: 'radius-13px', label: 'border-radius: 13px', regex: /border-radius:\s*13px/g },

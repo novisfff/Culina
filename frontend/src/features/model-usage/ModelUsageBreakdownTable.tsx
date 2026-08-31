@@ -4,7 +4,7 @@ import type {
   ModelUsageFamilyGroupBy,
   ModelUsagePersonalBreakdownItem,
   ModelUsagePersonalGroupBy,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import { MODEL_USAGE_CAPABILITY_OPTIONS, MODEL_USAGE_METER_OPTIONS } from './modelUsageOptions';
 import { costDisplay, formatModelUsageQuantity } from './modelUsageModel';
 

@@ -5,8 +5,51 @@ import { describe, expect, it } from 'vitest';
 const sourcePath = resolve(__dirname, 'IngredientWorkspace.tsx');
 
 describe('IngredientWorkspace shared overlay usage', () => {
+  it('delegates inventory action refresh orchestration to a controller hook', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).toContain('useIngredientInventoryRefresh');
+    expect(workspaceSource).not.toContain('queryClient.fetchQuery');
+  });
+
+  it('requires expiry actions from the app mutation port', () => {
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientWorkspaceTypes.ts'), 'utf8'),
+    ].join('\n');
+    expect(workspaceSource).toContain('snoozeInventoryExpiryAlerts: (payload: SnoozeExpiryAlertsRequest)');
+    expect(workspaceSource).toContain('correctInventoryExpiryDate: (');
+    expect(workspaceSource).not.toContain('props.snoozeInventoryExpiryAlerts ??');
+    expect(workspaceSource).not.toContain('props.correctInventoryExpiryDate ??');
+  });
+
+  it('delegates ready-food lookup to a data hook', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).toContain('useIngredientFoodLookup');
+    expect(workspaceSource).not.toContain('api.getFoods({ q: item.title, limit: 20 })');
+  });
+
+  it('does not import query or API clients in the workspace view', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    expect(workspaceSource).not.toContain("from '@tanstack/react-query'");
+    expect(workspaceSource).not.toContain("from '../../api/client'");
+    expect(workspaceSource).not.toContain("from '../../api/queryKeys'");
+  });
+
+  it('keeps the public workspace port in the dedicated type module', () => {
+    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const typeSource = readFileSync(resolve(__dirname, 'IngredientWorkspaceTypes.ts'), 'utf8');
+    expect(workspaceSource).toContain("from './IngredientWorkspaceTypes'");
+    expect(workspaceSource).not.toContain('type IngredientWorkspaceProps = {');
+    expect(typeSource).toContain('export type IngredientWorkspaceProps = {');
+    expect(typeSource).toContain('createIngredient:');
+    expect(typeSource).toContain('updateShoppingItem:');
+  });
+
   it('uses the shared modal lifecycle for desktop ingredient quick detail', () => {
-    const source = readFileSync(sourcePath, 'utf8');
+    const source = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientQuickDetailPopover.tsx'), 'utf8'),
+    ].join('\n');
     const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
 
     expect(source).toContain('rootClassName="ingredient-quick-detail-overlay-root"');
@@ -18,7 +61,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('uses the shared overlay frame for the mobile ingredient detail popover', () => {
-    const source = readFileSync(sourcePath, 'utf8');
+    const source = readFileSync(
+      resolve(__dirname, 'IngredientWorkspaceMobileDetailPopover.tsx'),
+      'utf8',
+    );
 
     expect(source).toContain('rootClassName="ingredient-workspace-overlay-root mobile-ingredient-detail-popover-root"');
     expect(source).toContain('backdropClassName="mobile-ingredient-detail-popover-backdrop"');
@@ -31,12 +77,12 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('uses the shared overlay frame for the ingredient editor modal', () => {
-    const source = readFileSync(sourcePath, 'utf8');
+    const source = readFileSync(resolve(__dirname, 'IngredientWorkspaceEditorOverlay.tsx'), 'utf8');
 
     expect(source).toContain('WorkspaceOverlayFrame');
     expect(source).toContain('rootClassName="ingredient-workspace-overlay-root"');
-    expect(source).toContain('closeOnBackdrop={!isIngredientFormSubmitting}');
-    expect(source).toContain('onClose={closeIngredientFormIfAllowed}');
+    expect(source).toContain('closeOnBackdrop={!isSubmitting}');
+    expect(source).toContain('onClose={props.onClose}');
     expect(source).not.toContain(
       `<div className="workspace-overlay-root ingredient-workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={goBackFromIngredientForm} />`,
@@ -58,7 +104,10 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(panelsSource).toContain('inventorySummaryText');
     expect(panelsSource).toContain('扣减');
 
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientWorkspaceSearch.ts'), 'utf8'),
+    ].join('\n');
     expect(workspaceSource).toContain('api.getInventoryOverview');
     expect(workspaceSource).toContain('queryKeys.inventoryOverview');
     expect(workspaceSource).toContain('inventoryEntryFilter');
@@ -105,7 +154,13 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('handles unified food-stock actions inside the ingredient workspace', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockRecordController.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
+    ].join('\n');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
     const appSource = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
 
@@ -119,7 +174,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('MealRecordResultBar');
     expect(workspaceSource).toContain('api.restockFoodStock');
     expect(workspaceSource).toContain('api.consumeFoodStock');
-    expect(workspaceSource).toContain('expected_row_version: foodStockAdjustDialog.item.row_version');
+    expect(workspaceSource).toContain('expected_row_version: current.item.row_version');
     expect(workspaceSource).not.toContain('api.disposeFoodStock');
     expect(workspaceSource).toContain('step="0.1"');
     expect(workspaceSource).toContain('parseUnifiedFoodStockQuantity');
@@ -134,7 +189,13 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('splits ingredient Food record from independent inventory mutation', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockRecordController.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
+    ].join('\n');
 
     // Record payloads must not include stock/plan fields.
     expect(workspaceSource).not.toContain('deduct_food_stock');
@@ -164,7 +225,12 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('makes the food restock dialog a fuller quick-entry flow without storage editing', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockRecordController.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'IngredientFoodStockDialogs.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockActions.ts'), 'utf8'),
+    ].join('\n');
     const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
 
     expect(workspaceSource).toContain('ingredients-food-stock-restock-section');
@@ -173,8 +239,8 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('setFoodStockRestockQuantity');
     expect(workspaceSource).toContain('setFoodStockRestockExpiryDays');
     expect(workspaceSource).toContain('setFoodStockRestockSource');
-    expect(workspaceSource).toContain("const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '2', '5', '10']");
-    expect(workspaceSource).not.toContain("const FOOD_STOCK_RESTOCK_QUANTITY_PRESETS = ['1', '3', '6', '12']");
+    expect(workspaceSource).toContain("const QUANTITY_PRESETS = ['1', '2', '5', '10']");
+    expect(workspaceSource).not.toContain("const QUANTITY_PRESETS = ['1', '3', '6', '12']");
     expect(workspaceSource).toContain('不设置到期日');
     expect(workspaceSource).toContain('7 天');
     expect(workspaceSource).toContain('30 天');
@@ -184,7 +250,7 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(workspaceSource).toContain('网购');
     expect(workspaceSource).toContain('盒马');
     expect(workspaceSource).not.toContain('山姆');
-    expect(workspaceSource).toContain('purchase_source: foodStockAdjustDialog.purchaseSource || null');
+    expect(workspaceSource).toContain('purchase_source: current.purchaseSource || null');
     expect(workspaceSource).not.toContain('ingredients-food-stock-storage-segments');
 
     expect(styleSource).toContain('.ingredients-food-stock-restock-section');
@@ -194,13 +260,17 @@ describe('IngredientWorkspace shared overlay usage', () => {
   });
 
   it('loads a missing food before opening the unified food shopping overlay', () => {
-    const workspaceSource = readFileSync(sourcePath, 'utf8');
+    const workspaceSource = [
+      readFileSync(sourcePath, 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodLookup.ts'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientFoodStockNavigation.ts'), 'utf8'),
+    ].join('\n');
 
     expect(workspaceSource).toContain('const [transientShoppingFood, setTransientShoppingFood] = useState<Food | null>(null)');
     expect(workspaceSource).toContain('async function handleAddFoodShopping(foodId: string)');
-    expect(workspaceSource).toContain('const candidates = await api.getFoods({ q: item.title, limit: 20 })');
-    expect(workspaceSource).toContain('food = candidates.find((candidate) => candidate.id === foodId) ?? null');
-    expect(workspaceSource).toContain('setTransientShoppingFood(food)');
+    expect(workspaceSource).toContain('api.getFoods({ q: title, limit: 20 })');
+    expect(workspaceSource).toContain('return candidates.find((candidate) => candidate.id === foodId) ?? null');
+    expect(workspaceSource).toContain('setTransientShoppingFood?.(food)');
     expect(workspaceSource).toContain("openShoppingOverlay({ food, reason: '补充成品库存' })");
   });
 });
@@ -209,16 +279,19 @@ describe('IngredientWorkspace navigation consumption', () => {
   it('consumes shopping and priority navigation once by requestId', () => {
     const workspaceSource = readFileSync(sourcePath, 'utf8');
     const stateSource = readFileSync(resolve(__dirname, 'useIngredientWorkspaceState.ts'), 'utf8');
+    const navigationEffectsSource = readFileSync(resolve(__dirname, 'useIngredientWorkspaceNavigationEffects.ts'), 'utf8');
     const mobileSource = readFileSync(resolve(__dirname, 'IngredientMobileView.tsx'), 'utf8');
     const panelsSource = readFileSync(resolve(__dirname, 'IngredientWorkspacePanels.tsx'), 'utf8');
 
     expect(stateSource).toContain('handledNavigationRequestIdRef');
     expect(stateSource).toContain("setCatalogStatusFilter('actionNeeded')");
     expect(stateSource).not.toContain("setCatalogStatusFilter('expired')");
-    expect(workspaceSource).toContain('handledSideEffectNavigationRequestIdRef');
-    expect(workspaceSource).toContain("openShoppingOverlay({ ingredient, reason: '库存不足' })");
-    expect(workspaceSource).toContain("request.target === 'priority'");
-    expect(workspaceSource).toContain("document.getElementById('mobile-ingredient-priority')");
+    expect(workspaceSource).toContain('useIngredientWorkspaceNavigationEffects');
+    expect(workspaceSource).not.toContain('handledSideEffectNavigationRequestIdRef');
+    expect(navigationEffectsSource).toContain('handledRequestIdRef');
+    expect(navigationEffectsSource).toContain("openShoppingOverlay({ ingredient, reason: '库存不足' })");
+    expect(navigationEffectsSource).toContain("request.target !== 'priority'");
+    expect(navigationEffectsSource).toContain("document.getElementById('mobile-ingredient-priority')");
     expect(mobileSource).toContain('id="mobile-ingredient-priority"');
     expect(panelsSource).toContain('id="ingredient-priority-list"');
     expect(workspaceSource).toContain("label: '需要处理'");
@@ -282,9 +355,11 @@ describe('IngredientWorkspace atomic shopping intake cutover', () => {
     expect(actionSource).not.toContain('pendingShoppingToComplete');
     expect(workspaceSource).not.toMatch(/await api\.restockFoodStock[\s\S]{0,400}await props\.updateShoppingItem/);
     expect(workspaceSource).toContain('openShoppingIntake');
-    expect(appSource).toContain('InventoryMaintenanceDialogs');
+    expect(appSource).toContain('useAppInventoryMaintenanceDialogProps');
     expect(appSource).toContain('openShoppingIntake');
-    expect(appSource).toContain('useShoppingIntakeState');
+    expect(appSource).toContain('useShoppingIntakeController');
+    const shoppingControllerSource = readFileSync(resolve(__dirname, '../../features/inventory/useShoppingIntakeController.ts'), 'utf8');
+    expect(shoppingControllerSource).toContain('useShoppingIntakeState');
   });
 });
 

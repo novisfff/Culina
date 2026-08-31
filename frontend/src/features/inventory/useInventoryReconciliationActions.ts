@@ -3,7 +3,7 @@ import type {
   InventoryOperationResult,
   InventoryReconciliationRequest,
   InventoryReconciliationResponse,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import { ApiError, isApiError } from '../../api/request';
 import {
   buildReconciliationPayload,

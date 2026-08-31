@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
-import type { Difficulty, Ingredient, MediaAsset } from '../../api/types';
+import type { Difficulty, Ingredient, MediaAsset } from '../../api/types/recipe';
 import { resolveAssetUrl } from '../../lib/assets';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';

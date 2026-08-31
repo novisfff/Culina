@@ -2,7 +2,7 @@ import type {
   ModelUsageAlert,
   ModelUsageGroupBy,
   ModelUsageScope,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import type { ModelUsageWorkspaceViewModel } from './modelUsageModel';
 import type { ModelUsageTrendWindow } from './modelUsageChartModel';
 

@@ -543,8 +543,7 @@
 
 /* Recipe recommendation card redesign. */
 
-@media (max-width: 767px) {
-}
+
 
 @media (pointer: coarse) {
   .solid-button,
@@ -2761,8 +2760,7 @@
   display: none;
 }
 
-@media (max-width: 1199px) {
-}
+
 
 @media (max-width: 767px) {
   .recipe-search-row {
@@ -4267,12 +4265,9 @@
 
 /* Recipe discovery card final sizing: three cards per row, rich but compact content. */
 
-@media (max-width: 1199px) {
 
-}
 
-@media (max-width: 767px) {
-}
+
 
 /* Recipe plan compact rows with detail modal actions. */
 

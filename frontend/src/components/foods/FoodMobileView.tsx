@@ -1,5 +1,6 @@
 import type { CompositionEventHandler, KeyboardEvent, ReactNode } from 'react';
-import type { Food, MealLog, MealType, MediaAsset, Recipe } from '../../api/types';
+import type { Food, MealType, MediaAsset, Recipe } from '../../api/types/food';
+import type { MealLog } from '../../api/types/meal';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { FOOD_TYPE_LABELS, MEAL_TYPE_LABELS, getFoodCoverAsset } from '../../lib/ui';
 import { chunkMobilePagedItems, useMobilePagedScroller } from '../../hooks/useMobilePagedScroller';

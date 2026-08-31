@@ -3,7 +3,7 @@ import type {
   FamilyModelCapability,
   FamilyModelProviderProfile,
   ModelUsageMeter,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 
 export const FAMILY_MODEL_CAPABILITY_OPTIONS: Record<FamilyModelCapability, {
   label: string;

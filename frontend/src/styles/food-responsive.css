@@ -1,0 +1,1052 @@
+/* Responsive rules owned by food; migrated from 07-mobile.css. */
+@media (max-width: 767px) {
+
+  .food-workspace {
+    gap: 0;
+  }
+
+  .mobile-food-stock-strip {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .mobile-food-stock-card {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid rgba(92, 67, 48, 0.12);
+    border-radius: 20px;
+    background: #fffdf9;
+  }
+
+  .mobile-food-stock-card.tone-warning {
+    border-color: rgba(230, 154, 46, 0.28);
+    background: #fff8e8;
+  }
+
+  .mobile-food-stock-card.tone-danger {
+    border-color: rgba(217, 75, 61, 0.28);
+    background: #fff1ee;
+  }
+
+  .mobile-food-stock-card > div {
+    min-width: 0;
+  }
+
+  .mobile-food-stock-card span {
+    color: #7c6a5e;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .mobile-food-stock-card h3 {
+    margin: 4px 0;
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.28;
+    word-break: break-word;
+  }
+
+  .mobile-food-stock-card p {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .mobile-food-stock-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobile-food-stock-card-actions button {
+    min-width: 0;
+    min-height: 44px;
+  }
+
+
+  .food-desktop-view {
+    display: none;
+  }
+
+  .food-plan-week-mobile-page {
+    min-height: 100dvh;
+    padding:
+      calc(env(safe-area-inset-top) + 12px)
+      16px
+      calc(env(safe-area-inset-bottom) + 24px);
+    background: var(--surface-3);
+  }
+
+  .food-plan-week-mobile-head button,
+  .food-plan-week-mobile-days button,
+  .food-plan-week-mobile-page section button {
+    min-height: 44px;
+  }
+
+  .mobile-food-page {
+    display: grid;
+    gap: 12px;
+    width: min(100%, 480px);
+    margin: 0 auto;
+    padding: 14px 0 0;
+  }
+
+  .mobile-food-topbar,
+  .mobile-food-brand,
+  .mobile-food-top-actions,
+  .mobile-food-section-head,
+  .mobile-food-card-actions,
+  .mobile-food-badge-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-food-topbar {
+    position: relative;
+    z-index: var(--z-mobile-topbar);
+    justify-content: space-between;
+    gap: 14px;
+    padding: 0 10px;
+  }
+
+  .mobile-food-brand {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .mobile-food-logo {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 15px;
+    background: linear-gradient(180deg, #df7a39, #d66d2f);
+    color: #fff;
+    box-shadow: 0 14px 28px rgba(203, 96, 42, 0.22);
+  }
+
+  .mobile-food-logo svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .mobile-food-brand strong,
+  .mobile-food-brand small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-food-brand strong {
+    color: #2d211a;
+    font-size: 1.08rem;
+    line-height: 1.12;
+    font-weight: 900;
+  }
+
+  .mobile-food-brand small {
+    margin-top: 3px;
+    color: #7e6f64;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .mobile-food-top-actions {
+    flex: 0 0 auto;
+    gap: 10px;
+  }
+
+  .mobile-food-top-actions button {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #18110d;
+  }
+
+  .mobile-food-top-actions svg {
+    width: 26px;
+    height: 26px;
+    stroke-width: 2;
+  }
+
+  .mobile-food-top-actions i {
+    position: absolute;
+    top: 7px;
+    right: 6px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid #fff8f0;
+    border-radius: 999px;
+    background: #de7336;
+  }
+
+  .mobile-food-command-panel {
+    display: grid;
+    gap: 12px;
+    padding: 8px 14px 2px;
+  }
+
+  .mobile-food-command-copy {
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobile-food-command-copy h1,
+  .mobile-food-command-copy p {
+    margin: 0;
+  }
+
+  .mobile-food-command-copy h1 {
+    color: #241714;
+    font-size: 2.1rem;
+    font-weight: 950;
+    line-height: 1.05;
+  }
+
+  .mobile-food-command-copy p {
+    color: #6f6258;
+    font-size: 0.96rem;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+
+  .mobile-food-command-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .mobile-food-command-actions button {
+    min-width: 0;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 12px;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mobile-food-command-actions svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-food-command-primary {
+    border: 1px solid transparent;
+    background: var(--brand-button-bg);
+    color: #fff;
+    box-shadow: var(--brand-button-shadow);
+  }
+
+  .mobile-food-command-secondary {
+    border: 1px solid var(--line-soft);
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--text-soft);
+  }
+
+  .mobile-food-hero {
+    display: grid;
+    gap: 10px;
+    padding: 24px 22px 8px;
+  }
+
+  .mobile-food-hero h1 {
+    margin: 0;
+    color: #2b201b;
+    font-size: clamp(2.04rem, 9.2vw, 2.72rem);
+    line-height: 1.04;
+    font-weight: 950;
+  }
+
+  .mobile-food-hero p {
+    margin: 0;
+    color: #5d5048;
+    font-size: clamp(1.02rem, 4.6vw, 1.22rem);
+    font-weight: 800;
+    line-height: 1.25;
+  }
+
+
+
+  .mobile-food-library-filters {
+    display: grid;
+    gap: 12px;
+  }
+
+  .mobile-food-library-filters .mobile-food-chip-group {
+    gap: 10px;
+    margin-inline: -2px;
+    padding: 0 2px 6px;
+    scroll-padding-inline: 2px;
+  }
+
+  .mobile-food-library-filters .mobile-food-chip-group::after {
+    content: "";
+    flex: 0 0 1px;
+    width: 1px;
+  }
+
+  .mobile-food-library-filters .mobile-food-chip-group .ui-option-chip {
+    min-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-food-panel {
+    display: grid;
+    gap: 14px;
+    padding: 18px 14px;
+    border: 1px solid rgba(231, 213, 199, 0.82);
+    border-radius: 23px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 14px 34px rgba(75, 52, 34, 0.055);
+  }
+
+  .mobile-food-section-head {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobile-food-section-head h2 {
+    min-width: 0;
+    margin: 0;
+    color: #2b201b;
+    font-size: 1.32rem;
+    line-height: 1.16;
+    font-weight: 950;
+  }
+
+  .mobile-food-section-head h2 span {
+    color: #9b7d68;
+    font-size: 0.88rem;
+    font-weight: 900;
+  }
+
+  .mobile-food-section-head button {
+    flex: 0 0 auto;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 13px;
+    border: 1px solid rgba(226, 205, 189, 0.88);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.74);
+    color: #6b584b;
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 900;
+    box-shadow: none;
+  }
+
+  .mobile-food-section-head.plain {
+    justify-content: flex-start;
+  }
+
+  .mobile-food-section-head svg,
+  .mobile-food-card-actions svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-food-scene-grid img,
+  .mobile-food-library-cover img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+
+  .mobile-food-library-body h3 {
+    margin: 0;
+    overflow: hidden;
+    color: #2d211b;
+    font-weight: 950;
+    line-height: 1.18;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-food-badge-row {
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .mobile-food-badge-row span {
+    min-height: 27px;
+    max-width: 112px;
+    min-width: 0;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    flex: 0 1 auto;
+    padding: 4px 8px;
+    overflow: hidden;
+    border: 1px solid rgba(226, 205, 189, 0.72);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.7);
+    color: #806f63;
+    font-size: 0.78rem;
+    font-weight: 850;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-food-card-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 40px 40px;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .mobile-food-card-actions button {
+    min-width: 0;
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(226, 205, 189, 0.92);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #6e5b4f;
+    font: inherit;
+    font-weight: 900;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-food-card-actions .mobile-food-primary {
+    border-color: transparent;
+    background: linear-gradient(180deg, #df7838, #d96a2f);
+    color: #fff;
+    box-shadow: 0 14px 30px rgba(211, 101, 43, 0.24);
+  }
+
+  .mobile-food-card-actions button.active {
+    border-color: rgba(210, 107, 51, 0.22);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+  }
+
+  .mobile-food-scene-scroller {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    overflow-x: auto;
+    margin-right: -14px;
+    padding: 0 14px 3px 1px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .mobile-food-scene-scroller::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-food-scene-grid {
+    flex: 0 0 calc((100% - 44px) / 2);
+    min-width: calc((100% - 44px) / 2);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: 12px 10px;
+    scroll-snap-align: start;
+  }
+
+  .mobile-food-scene-grid button {
+    position: relative;
+    isolation: isolate;
+    min-height: 104px;
+    display: grid;
+    align-content: end;
+    justify-items: start;
+    gap: 8px;
+    overflow: hidden;
+    padding: 19px 18px 15px;
+    border: 0;
+    border-radius: 20px;
+    background: #c9a47d;
+    color: #fff;
+    font: inherit;
+    text-align: left;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), 0 10px 22px rgba(83, 58, 38, 0.06);
+  }
+
+  .mobile-food-scene-grid button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(ellipse at 24% 55%, rgba(34, 24, 16, 0.68) 0%, rgba(34, 24, 16, 0.46) 32%, rgba(34, 24, 16, 0.16) 55%, transparent 76%),
+      linear-gradient(90deg, rgba(38, 28, 20, 0.34) 0%, rgba(38, 28, 20, 0.14) 38%, transparent 72%),
+      linear-gradient(180deg, rgba(38, 28, 20, 0.04) 0%, rgba(38, 28, 20, 0.24) 100%);
+  }
+
+  .mobile-food-scene-grid button > span:not(.media-with-placeholder):not(.mobile-food-scene-media) {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 5px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .mobile-food-scene-grid strong,
+  .mobile-food-scene-grid small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-food-scene-grid strong {
+    color: #fff;
+    font-size: 1.2rem;
+    font-weight: 950;
+    line-height: 1.08;
+    text-shadow: 0 2px 8px rgba(34, 22, 14, 0.24);
+  }
+
+  .mobile-food-scene-grid small {
+    color: rgba(255, 235, 211, 0.92);
+    font-size: 0.92rem;
+    font-weight: 900;
+    text-shadow: 0 2px 8px rgba(34, 22, 14, 0.18);
+  }
+
+  .mobile-food-scene-grid .mobile-food-scene-media,
+  .mobile-food-scene-grid img,
+  .mobile-food-scene-grid i {
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+    object-fit: cover;
+    object-position: center;
+  }
+
+  .mobile-food-scene-grid .mobile-food-scene-media {
+    display: grid;
+  }
+
+  .mobile-food-scene-grid i {
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.48), transparent 26%),
+      radial-gradient(circle at 18% 78%, rgba(126, 151, 110, 0.28), transparent 34%),
+      linear-gradient(135deg, #d99055 0%, #c8865a 44%, #8d9a72 100%);
+    color: rgba(255, 255, 255, 0.92);
+    font-style: normal;
+    font-weight: 950;
+  }
+
+  .mobile-food-scene-grid i span {
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.96);
+    font-size: 1.22rem;
+    font-weight: 950;
+    line-height: 1;
+    text-shadow: 0 2px 10px rgba(44, 30, 18, 0.24);
+    backdrop-filter: blur(2px);
+  }
+
+  .mobile-food-scene-grid button.is-fallback::after {
+    background:
+      radial-gradient(ellipse at 26% 55%, rgba(48, 30, 18, 0.42) 0%, rgba(48, 30, 18, 0.24) 34%, rgba(48, 30, 18, 0.08) 58%, transparent 78%),
+      linear-gradient(180deg, rgba(48, 30, 18, 0.02) 0%, rgba(48, 30, 18, 0.28) 100%);
+  }
+
+  .mobile-food-scene-grid b {
+    position: relative;
+    z-index: 1;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #6a5648;
+    box-shadow: 0 8px 16px rgba(37, 25, 17, 0.12);
+  }
+
+  .mobile-food-scene-grid b svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .mobile-food-library-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .mobile-food-library-scroller {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin-right: -14px;
+    padding: 0 14px 4px 1px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+
+  .mobile-food-library-scroller::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-food-library-scroller .mobile-food-library-grid {
+    flex: 0 0 calc((100% - 44px) / 2);
+    min-width: calc((100% - 44px) / 2);
+    align-content: start;
+    scroll-snap-align: start;
+  }
+
+  .mobile-food-library-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid rgba(226, 205, 189, 0.86);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.9);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .mobile-food-library-card:active {
+    transform: scale(0.985);
+    box-shadow: 0 4px 12px rgba(75, 52, 34, 0.04);
+  }
+
+  .mobile-food-library-media {
+    position: relative;
+  }
+
+  .mobile-food-library-cover {
+    width: 100%;
+    aspect-ratio: 1.46 / 1;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    background:
+      radial-gradient(circle at 42% 44%, rgba(255, 255, 255, 0.42), transparent 25%),
+      linear-gradient(135deg, #d8b38c, #a66e44);
+    color: #fff7ef;
+    font: inherit;
+    font-size: 1.24rem;
+    font-weight: 950;
+  }
+
+  .mobile-food-library-card .mobile-food-favorite {
+    top: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 14px;
+  }
+
+  .mobile-food-library-card .mobile-food-favorite svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mobile-food-library-cover .media-with-placeholder {
+    --media-placeholder-gap: 6px;
+    --media-placeholder-label-font-size: 0.72rem;
+    --media-placeholder-label-padding: 3px 10px;
+    --media-placeholder-glow-size: 64%;
+  }
+
+  .mobile-food-library-body {
+    display: grid;
+    gap: 7px;
+    padding: 10px;
+  }
+
+  .mobile-food-library-body h3 {
+    font-size: 1rem;
+  }
+
+  .mobile-food-library-body p {
+    margin: 0;
+    overflow: hidden;
+    color: #75675e;
+    font-size: 0.78rem;
+    font-weight: 760;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-food-library-card .mobile-food-card-actions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .mobile-food-library-card .mobile-food-card-actions:has(.mobile-food-shopping-action) {
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
+
+  .mobile-food-library-card .mobile-food-card-actions button {
+    min-height: 40px;
+    border-radius: 12px;
+    font-size: 0.84rem;
+  }
+
+  .mobile-food-library-card .mobile-food-badge-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-food-library-card .mobile-food-badge-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-food-library-card .mobile-food-badge-row span {
+    max-width: none;
+    min-width: max-content;
+    flex: 0 0 auto;
+    font-size: 0.74rem;
+    display: inline-flex;
+    align-items: center;
+    text-align: center;
+    line-height: 25px;
+    padding: 0 4px;
+    white-space: nowrap;
+  }
+
+  .mobile-food-empty {
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+    padding: 14px;
+    border: 1px dashed rgba(210, 107, 51, 0.2);
+    border-radius: 14px;
+    background: rgba(255, 253, 250, 0.74);
+    color: #7c7067;
+    font-weight: 850;
+  }
+
+  .mobile-food-empty button {
+    min-height: 38px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 999px;
+    background: #d96a2f;
+    color: #fff;
+    font: inherit;
+    font-weight: 900;
+  }
+
+  .food-editor-modal .food-editor-shell,
+  .food-editor-modal .food-editor-layout,
+  .food-editor-modal .food-editor-main,
+  .food-editor-modal .food-form-panel,
+  .food-editor-modal .food-editor-meta-grid,
+  .food-editor-modal .food-editor-meta-card {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .food-editor-modal .food-editor-recipe-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .food-editor-modal .food-editor-recipe-card .ghost-button {
+    grid-column: 1 / -1;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .food-editor-modal .food-editor-recipe-card strong,
+  .food-editor-modal .food-editor-recipe-card span,
+  .food-editor-modal .food-editor-map-summary strong,
+  .food-editor-modal .food-editor-map-summary p,
+  .food-editor-modal .food-editor-field-head span,
+  .food-editor-modal .food-editor-field-head small {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .food-editor-modal .food-editor-map-summary strong,
+  .food-editor-modal .food-editor-map-summary p {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .food-editor-modal .food-editor-map-summary {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .food-editor-modal .food-editor-map-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .food-editor-modal .food-check-pill {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .food-editor-modal .food-check-pill span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .food-shopping-overlay-root .food-shopping-modal.workspace-modal {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - 18px);
+    border-radius: 24px 24px 0 0;
+  }
+
+  .food-shopping-item {
+    padding: 10px;
+  }
+
+  .food-shopping-quantity {
+    grid-template-columns: 34px 38px 34px;
+  }
+
+  .food-shopping-quantity button,
+  .food-shopping-quantity input {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  .food-shopping-detail-toggle {
+    min-height: 44px;
+  }
+
+  .food-shopping-item-details {
+    grid-template-columns: 1fr;
+  }
+  .food-editor-modal .food-editor-shell,
+  .food-editor-modal .food-editor-layout,
+  .food-editor-modal .food-editor-main,
+  .food-editor-modal .food-form-panel,
+  .food-editor-modal .food-editor-meta-grid,
+  .food-editor-modal .food-editor-meta-card,
+  .food-editor-modal .food-editor-notes-grid {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .food-editor-modal .food-editor-main {
+    gap: var(--space-5);
+  }
+
+  .food-editor-modal .food-form-panel {
+    gap: var(--space-5);
+    padding: var(--space-5);
+    border-radius: var(--radius-md);
+  }
+
+  .food-editor-modal .section-mini-title {
+    font-size: var(--text-base);
+  }
+
+  .food-editor-modal .food-editor-focus-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-3);
+  }
+
+  .food-editor-modal .food-editor-focus-head .badge {
+    min-width: max-content;
+    justify-self: end;
+    padding: var(--space-1) var(--space-4);
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    writing-mode: horizontal-tb;
+  }
+
+  .food-editor-modal .food-editor-recipe-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: center;
+    overflow: visible;
+  }
+
+  .food-editor-modal .food-editor-recipe-cover {
+    width: 76px;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+
+  .food-editor-modal .food-editor-recipe-copy strong {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: var(--text-body);
+    line-height: 1.4;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .food-editor-modal .food-editor-recipe-copy span {
+    overflow: visible;
+    color: var(--text-soft);
+    font-size: var(--text-sm);
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .food-editor-modal .food-editor-recipe-copy p {
+    display: none;
+  }
+
+  .food-editor-modal .food-editor-recipe-action {
+    grid-column: 1 / -1;
+  }
+
+  .food-editor-modal .food-editor-recipe-action .ghost-button {
+    width: 100%;
+    min-height: var(--control-height-touch);
+    justify-content: center;
+    border-radius: var(--radius-sm);
+  }
+
+  .food-editor-modal .food-editor-recipe-progress {
+    display: block;
+    height: 5px;
+    margin-top: var(--space-2);
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: var(--surface-strong);
+  }
+
+  .food-editor-modal .food-editor-recipe-progress > span {
+    display: block;
+    width: var(--food-editor-completion, 0%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+  }
+
+  .food-editor-modal .food-editor-side {
+    display: none;
+  }
+
+  .food-editor-modal .food-editor-usage-panel .food-editor-meta-grid,
+  .food-editor-modal .food-editor-notes-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+
+  .food-editor-modal .food-editor-usage-panel .food-editor-meal-card,
+  .food-editor-modal .food-editor-usage-panel .food-editor-tag-card,
+  .food-editor-modal .food-editor-usage-panel .food-editor-favorite-row {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .food-editor-modal .food-meal-checks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .food-editor-modal .food-check-pill {
+    width: 100%;
+    min-height: var(--tap-min);
+    justify-content: center;
+    padding-inline: var(--space-4);
+  }
+
+  .food-editor-modal .food-editor-scene-tags button,
+  .food-editor-modal .food-scene-tag-options button {
+    min-height: var(--tap-min);
+    padding-inline: var(--space-4);
+  }
+
+  .food-editor-modal .food-scene-tag-picker {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .food-editor-modal .food-scene-tag-create .ghost-button,
+  .food-editor-modal .food-scene-tag-create .text-input,
+  .food-editor-modal .food-editor-note-input input.text-input,
+  .food-editor-modal .food-name-grid .text-input,
+  .food-editor-modal .food-repurchase-panel-grid .text-input {
+    min-height: var(--control-height-touch);
+  }
+
+  .food-editor-modal .food-editor-note-input textarea.text-input {
+    min-height: 96px;
+  }
+
+  .food-editor-modal > .workspace-overlay-footer > .workspace-overlay-footer-info {
+    display: none;
+  }
+
+  .food-editor-modal > .workspace-overlay-footer .ui-form-actions-secondary {
+    display: none;
+  }
+
+  .food-editor-modal > .workspace-overlay-footer .ui-form-actions-primary {
+    grid-column: 1 / -1;
+  }
+
+
+
+}

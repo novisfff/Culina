@@ -3,11 +3,13 @@ import type {
   CookRecipePreviewItem,
   CookRecipePreviewResponse,
   CookRecipeShortage,
-  MealLogCandidate,
   MealType,
   MediaAsset,
+} from '../../api/types/recipe';
+import type {
+  MealLogCandidate,
   RecordMealTarget,
-} from '../../api/types';
+} from '../../api/types/meal';
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import type { MealComposerFood } from '../../features/meals/MealComposerModel';
 import { formatDate } from '../../lib/ui';

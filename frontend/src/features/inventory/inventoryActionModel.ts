@@ -3,7 +3,7 @@ import type {
   IngredientInventoryState,
   InventoryItem,
   ShoppingListItem,
-} from '../../api/types';
+} from '../../api/types/inventory';
 import { calendarDaysBetweenDateKeys } from '../../lib/date';
 import {
   getIngredientAvailableQuantityInDefault,

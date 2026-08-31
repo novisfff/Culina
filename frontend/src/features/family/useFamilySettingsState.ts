@@ -7,7 +7,7 @@ import {
   invalidateAfterMemberChanged,
   invalidateAfterProfileChanged,
 } from '../../api/cacheInvalidation';
-import type { FamilyDetail, Member, UserSummary } from '../../api/types';
+import type { FamilyDetail, Member, UserSummary } from '../../api/types/shell';
 import { getMediaIds, getPendingImageJobId, type AiRenderPayload } from '../../lib/aiImages';
 import { emptyImages } from '../../lib/ui';
 import { useImageComposer } from '../../hooks/useImageComposer';

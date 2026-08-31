@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { invalidateAfterModelUsagePolicyChanged } from '../../api/cacheInvalidation';
 import { queryKeys } from '../../api/queryKeys';
-import type { UpdateModelUsagePolicyPayload, UserRole } from '../../api/types';
+import type { UpdateModelUsagePolicyPayload, UserRole } from '../../api/types/modelUsage';
 import {
   buildModelUsagePolicyPayload,
   createModelUsagePolicyDraft,

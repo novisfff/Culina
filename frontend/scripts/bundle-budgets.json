@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "entries": {
+    "main": {
+      "criticalGzipBudget": 112640,
+      "routeTotalGzipBudget": 803230,
+      "cssBudget": 102400,
+      "phase": 5,
+      "owner": "frontend-platform"
+    },
+    "app-workspace-composition": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 724193,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "frontend-platform"
+    },
+    "app-overlay-host": {
+      "criticalGzipBudget": 4096,
+      "routeTotalGzipBudget": 219890,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "frontend-platform"
+    },
+    "home": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 186951,
+      "cssBudget": 24576,
+      "phase": 5,
+      "owner": "home"
+    },
+    "eat": {
+      "criticalGzipBudget": 49152,
+      "routeTotalGzipBudget": 279299,
+      "cssBudget": 32768,
+      "phase": 5,
+      "owner": "eat"
+    },
+    "meal-log": {
+      "criticalGzipBudget": 49152,
+      "routeTotalGzipBudget": 178888,
+      "cssBudget": 32768,
+      "phase": 5,
+      "owner": "meal"
+    },
+    "ingredients": {
+      "criticalGzipBudget": 37888,
+      "routeTotalGzipBudget": 254956,
+      "cssBudget": 32768,
+      "phase": 5,
+      "owner": "ingredients"
+    },
+    "food": {
+      "criticalGzipBudget": 26624,
+      "routeTotalGzipBudget": 256813,
+      "cssBudget": 24576,
+      "phase": 5,
+      "owner": "food"
+    },
+    "ai": {
+      "criticalGzipBudget": 10752,
+      "routeTotalGzipBudget": 180224,
+      "routeMetric": "routeTransferGzipBytes",
+      "cssBudget": 32768,
+      "phase": 5,
+      "owner": "ai"
+    },
+    "family-profile": {
+      "criticalGzipBudget": 7168,
+      "routeTotalGzipBudget": 160027,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "family"
+    },
+    "family-model-settings": {
+      "criticalGzipBudget": 20480,
+      "routeTotalGzipBudget": 158779,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "family-model-settings"
+    },
+    "family-model-settings-desktop": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 158779,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "family-model-settings"
+    },
+    "family-model-settings-mobile": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 158779,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "family-model-settings"
+    },
+    "model-usage": {
+      "criticalGzipBudget": 16384,
+      "routeTotalGzipBudget": 214645,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "model-usage"
+    },
+    "model-usage-requests": {
+      "criticalGzipBudget": 8192,
+      "routeTotalGzipBudget": 136207,
+      "cssBudget": 8192,
+      "phase": 5,
+      "owner": "model-usage"
+    },
+    "markdown": {
+      "criticalGzipBudget": 32768,
+      "routeTotalGzipBudget": 32768,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ai"
+    },
+    "ai-approval": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 294758,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ai"
+    },
+    "ai-human-input": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 294758,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ai"
+    },
+    "ai-debug": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 133136,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ai"
+    },
+    "inventory-operation": {
+      "criticalGzipBudget": 24576,
+      "routeTotalGzipBudget": 171616,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "inventory"
+    },
+    "home-dialogs": {
+      "criticalGzipBudget": 16384,
+      "routeTotalGzipBudget": 167470,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "home"
+    },
+    "search": {
+      "criticalGzipBudget": 16384,
+      "routeTotalGzipBudget": 130073,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "search"
+    },
+    "shopping-dialog": {
+      "criticalGzipBudget": 16384,
+      "routeTotalGzipBudget": 138108,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "ingredients"
+    },
+    "route-overlays": {
+      "criticalGzipBudget": 1024,
+      "routeTotalGzipBudget": 16384,
+      "cssBudget": 16384,
+      "phase": 5,
+      "owner": "frontend-platform"
+    }
+  }
+}

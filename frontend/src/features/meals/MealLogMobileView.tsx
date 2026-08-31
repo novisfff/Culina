@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types';
+import type { Food, MealLog, MediaAsset, Member, UpdateMealLogPayload } from '../../api/types/meal';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MealCover, type MealCoverFood } from './MealCover';
 import { MealInlineRating } from './MealInlineRating';

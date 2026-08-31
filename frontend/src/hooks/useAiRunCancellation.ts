@@ -6,6 +6,7 @@ import type {
 } from '../api/types';
 import { isApiError } from '../api/request';
 import { abortAiStream } from '../lib/aiStreamAbort';
+import { cancellationStateFromError } from './aiRunCancellationState';
 
 type CancellationState = {
   phase: AiRunCancellationPhase;
@@ -23,12 +24,6 @@ const IDLE_CANCELLATION_STATE: CancellationState = {
   phase: 'idle',
   error: '',
 };
-
-function cancellationErrorMessage(error: unknown) {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : '停止失败，请稍后重试。';
-}
 
 function isCancellationConfirmed(response: AiRunCancellationResponse) {
   return response.run?.status === 'cancelled'
@@ -75,9 +70,10 @@ export function useAiRunCancellation(options: UseAiRunCancellationOptions) {
         options.onConfirmed?.(runId, response);
         return response;
       } catch (error) {
+        const projection = cancellationStateFromError(error);
         updateState(runId, {
-          phase: 'failed',
-          error: cancellationErrorMessage(error),
+          phase: projection.phase,
+          error: projection.error,
         });
         if (isApiError(error) && error.status === 409) {
           options.onConflict?.(runId);

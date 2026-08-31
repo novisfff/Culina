@@ -22,7 +22,7 @@ describe('IngredientMobileView shared overlay usage', () => {
 
   it('mobile ingredient page mixes ready food stock into inventory library', () => {
     const mobileSource = readFileSync(sourcePath, 'utf8');
-    const mobileCss = readFileSync(resolve(__dirname, '../../styles/07-mobile.css'), 'utf8');
+    const mobileCss = readFileSync(resolve(__dirname, '../../styles/ingredients-responsive.css'), 'utf8');
     expect(mobileSource).toContain('mobileFoodStockItems');
     expect(mobileSource).toContain("type: 'food'");
     expect(mobileSource).toContain('mobile-ingredient-food-card');
@@ -65,8 +65,11 @@ describe('IngredientMobileView shared overlay usage', () => {
     expect(mobileSource).not.toContain('mobile-food-stock-strip');
     expect(mobileSource).not.toContain('aria-label="成品速食库存"');
 
-    const workspaceSource = readFileSync(resolve(__dirname, 'IngredientWorkspace.tsx'), 'utf8');
-    expect(workspaceSource).toContain("() => unifiedInventoryItems.filter((item) => item.source_type === 'food')");
+    const workspaceSource = [
+      readFileSync(resolve(__dirname, 'IngredientWorkspace.tsx'), 'utf8'),
+      readFileSync(resolve(__dirname, 'useIngredientWorkspaceSearch.ts'), 'utf8'),
+    ].join('\n');
+    expect(workspaceSource).toContain("unifiedInventoryItems.filter((item) => item.source_type === 'food')");
     expect(workspaceSource).not.toContain("() => filteredUnifiedInventoryItems.filter((item) => item.source_type === 'food')");
   });
 

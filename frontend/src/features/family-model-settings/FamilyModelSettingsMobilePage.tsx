@@ -237,7 +237,7 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
         <span className="family-model-settings-mobile-header-spacer" aria-hidden="true" />
       </header>
       <div className="family-model-settings-mobile-scroll">
-        {props.stale ? <p className="family-model-settings-stale" role="status">暂时无法刷新，以下显示最近一次成功加载的设置。</p> : null}
+        {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
         {props.errorMessage ? (
           <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
         ) : props.state.section !== 'overview' ? (

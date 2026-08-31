@@ -16,7 +16,7 @@ import type {
   FamilyModelSearchReplacementBasePayload,
   FamilyModelSearchReplacementMutationPayload,
   FamilyModelSettings,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import {
   toSaveDraftPayload,
   type FamilyModelSettingsDraft,

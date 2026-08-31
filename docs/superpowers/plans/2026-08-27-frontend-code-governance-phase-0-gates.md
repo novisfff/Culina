@@ -10,6 +10,10 @@
 
 **Spec:** [2026-08-27-frontend-code-governance-design.md](../specs/2026-08-27-frontend-code-governance-design.md)
 
+## 实施状态（2026-08-30）
+
+Phase 0 已落地：health baseline、logical entry manifest、report/ratchet/target 三态预算检查、fail-closed CI 聚合、coverage topology、fixture/contract tests 和 artifact 上传均已实现并通过定向验证。生成物仍只保留在本地 `.artifacts/`，不进入提交。
+
 ## Global Constraints
 
 - 基线源码提交固定为 b559246669dd3fd9ec463658ce2ed4504df2a1ba；任何 baseline JSON 必须通过 Git 命令取得提交号，禁止手填 latest。
@@ -628,12 +632,12 @@ Rollback: 保留本阶段失败 artifact，回滚集成文档提交不会撤销�
 
 ## Phase 0 Definition of Done
 
-- [ ] clean B0-derived checkout 可重复生成 health JSON、Markdown 和 manifest，SHA-256 对同一输入稳定。
-- [ ] fixture 中新增 important、undefined variable、未登记 dynamic import、孤儿 chunk 和 target 超限均使对应检查非零。
-- [ ] B0 ratchet 通过；历史 target gap 以 targetGap 报告，不让现状一次性全红。
-- [ ] main、home、eat、ingredients、food、ai、family-profile、family-model-settings、model-usage、model-usage-requests、markdown、ai-approval、inventory-operation、home-dialogs 全部有逻辑 entry。
-- [ ] CI 的 frontend-governance job fail-closed，health/manifest/budget artifact 使用 if: always() 上传，原有 required checks 仍存在。
-- [ ] coverage 只报告，不通过降低 include/exclude 或全局阈值制造假改善。
-- [ ] 每个代码提交均有 focused test、typecheck 或 build 证据、git diff --check 和独立回滚边界。
+- [x] clean B0-derived checkout 可重复生成 health JSON、Markdown 和 manifest，SHA-256 对同一输入稳定。
+- [x] fixture 中新增 important、undefined variable、未登记 dynamic import、孤儿 chunk 和 target 超限均使对应检查非零。
+- [x] B0 ratchet 通过；历史 target gap 以 targetGap 报告，不让现状一次性全红。
+- [x] main、home、eat、ingredients、food、ai、family-profile、family-model-settings、model-usage、model-usage-requests、markdown、ai-approval、inventory-operation、home-dialogs 全部有逻辑 entry。
+- [x] CI 的 frontend-governance job fail-closed，health/manifest/budget artifact 使用 if: always() 上传，原有 required checks 仍存在。
+- [x] coverage 只报告，不通过降低 include/exclude 或全局阈值制造假改善。
+- [x] 每个代码提交均有 focused test、typecheck 或 build 证据、git diff --check 和独立回滚边界。
 
 停止条件：manifest 缺失、ratchet 误报、任何家庭/AI contract 回归或 artifact 无法上传时，暂停 Phase 1，回滚最近一个 Phase 0 任务提交并保留失败 artifact。

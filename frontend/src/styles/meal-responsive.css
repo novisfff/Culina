@@ -1,0 +1,388 @@
+/* Responsive rules owned by meal; migrated from 07-mobile.css. */
+@media (max-width: 767px) {
+
+  .meal-log-desktop-view {
+    display: none;
+  }
+
+  .mobile-log-page {
+    display: grid;
+    gap: 14px;
+    width: min(100%, 480px);
+    margin: 0 auto;
+    padding: 14px 0 24px;
+  }
+
+  .mobile-log-memory-slot {
+    padding: 0 16px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-strip-row {
+    grid-auto-columns: minmax(168px, 72vw);
+    gap: 10px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card {
+    grid-template-columns: 56px minmax(0, 1fr);
+    padding: 8px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card-media {
+    width: 56px;
+    border-radius: 12px;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card-title {
+    font-size: 0.8125rem;
+  }
+
+  .mobile-log-memory-slot .meal-memory-card-name,
+  .mobile-log-memory-slot .meal-memory-card-evidence {
+    font-size: 0.75rem;
+  }
+
+  .mobile-log-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mobile-log-top-actions .mobile-log-home-button {
+    width: auto;
+    padding: 0 12px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    background: rgba(255, 255, 255, 0.76);
+    color: #b94c12;
+    font-size: 0.84rem;
+    font-weight: 900;
+  }
+
+  .mobile-log-hero {
+    display: grid;
+    gap: 10px;
+    padding: 24px 22px 8px;
+  }
+
+  .mobile-log-hero h1 {
+    margin: 0;
+    color: #2b201b;
+    font-size: clamp(2.04rem, 9.2vw, 2.72rem);
+    line-height: 1.04;
+    font-weight: 950;
+  }
+
+  .mobile-log-hero p {
+    max-width: 28ch;
+    margin: 0;
+    color: #5d5048;
+    font-size: clamp(1.02rem, 4.6vw, 1.2rem);
+    font-weight: 800;
+    line-height: 1.28;
+  }
+
+  .mobile-log-stat-card {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 96px;
+    padding: 14px 13px;
+    border: 1px solid rgba(226, 215, 205, 0.86);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 12px 28px rgba(75, 52, 34, 0.055);
+  }
+
+  .mobile-log-stat-card > span {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 15px;
+  }
+
+  .mobile-log-stat-card > div {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .mobile-log-stat-card strong,
+  .mobile-log-stat-card small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-log-stat-card strong {
+    color: #2b201b;
+    font-size: 0.94rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-stat-card b {
+    color: #2f251e;
+    font-size: 1.72rem;
+    line-height: 0.96;
+    font-weight: 950;
+  }
+
+  .mobile-log-stat-card small {
+    color: #7a6a61;
+    font-size: 0.74rem;
+    font-weight: 800;
+  }
+
+  .mobile-log-stat-card.tone-orange > span {
+    background: #fff0e7;
+    color: #c04f10;
+  }
+
+  .mobile-log-stat-card.tone-amber > span {
+    background: #fff7e2;
+    color: #d38500;
+  }
+
+  .mobile-log-stat-card.tone-green > span {
+    background: #eaf8ed;
+    color: #2f8b3a;
+  }
+
+  .mobile-log-stat-card.tone-blue > span {
+    background: #edf5ff;
+    color: #3b84d8;
+  }
+
+  .mobile-log-search-field {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 56px;
+    padding: 0 18px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .mobile-log-search-field span {
+    color: #9b7d6e;
+  }
+
+  .mobile-log-search-field input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: #2b201b;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 800;
+    outline: none;
+  }
+
+  .mobile-log-search-field:focus-within {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .mobile-log-filter-stack {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-log-filter-row {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+
+  .mobile-log-filter-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-log-filter-row button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 16px;
+    border: 1px solid rgba(226, 215, 205, 0.88);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82);
+    color: #6b584b;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 900;
+  }
+
+  .mobile-log-filter-row button.active {
+    border-color: rgba(229, 106, 43, 0.45);
+    background: #fff7f1;
+    color: #c04f10;
+  }
+
+  .mobile-log-timeline-list,
+  .mobile-log-day-group {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-log-day-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #3a2a22;
+    font-size: 1.02rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-day-title span {
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 237, 226, 0.95);
+    border-radius: 999px;
+    background: #de641f;
+  }
+
+  .mobile-log-day-card {
+    overflow: hidden;
+    border: 1px solid rgba(226, 215, 205, 0.84);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .mobile-log-record-row {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    width: 100%;
+    min-height: 0;
+    padding: 8px 12px;
+    border: 0;
+    border-bottom: 1px solid rgba(226, 215, 205, 0.7);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+
+  .mobile-log-record-row:last-child {
+    border-bottom: 0;
+  }
+
+  .mobile-log-record-meal {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: rgba(239, 226, 255, 0.82);
+    color: #7444b1;
+    font-size: 0.88rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-record-meal i {
+    font-style: normal;
+  }
+
+  .mobile-log-record-main {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .mobile-log-record-main strong,
+  .mobile-log-record-main small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-log-record-main strong {
+    color: #2b201b;
+    font-size: 0.98rem;
+    font-weight: 950;
+  }
+
+  .mobile-log-record-main small,
+  .mobile-log-record-main em {
+    color: #7a6a61;
+    font-size: 0.78rem;
+    font-style: normal;
+    font-weight: 800;
+  }
+
+  .mobile-log-record-main small {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .mobile-log-status {
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+  }
+
+  .mobile-log-status.pending {
+    background: #fff0e7;
+    color: #c04f10;
+  }
+
+  .mobile-log-status.done {
+    background: #eaf8ed;
+    color: #2f8b3a;
+  }
+
+  .mobile-log-record-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #7a6a61;
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .mobile-log-empty {
+    padding: 18px 14px;
+    border-radius: 18px;
+    background: rgba(247, 242, 236, 0.8);
+    color: #74665c;
+    font-weight: 700;
+  }
+
+
+
+}
+
+@media (max-width: 767px) {
+
+  .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close {
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    max-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
+    max-height: var(--tap-min);
+    padding: 0;
+    border-radius: 50%;
+    aspect-ratio: 1;
+  }
+
+  .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-icon {
+    display: grid;
+  }
+
+  .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close .workspace-overlay-close-label {
+    display: none;
+  }
+
+}

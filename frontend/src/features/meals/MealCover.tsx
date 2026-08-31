@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { MediaAsset } from '../../api/types';
+import type { MediaAsset } from '../../api/types/meal';
 import { MediaPlaceholder, MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 

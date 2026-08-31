@@ -1,9 +1,11 @@
 import type {
+  CookRecipePreviewResponse,
+  RecipeStep,
+} from '../../api/types/recipe';
+import type {
   AiCookPageAction,
   AiResultCard,
   AiUiActionsCardData,
-  CookRecipePreviewResponse,
-  RecipeStep,
 } from '../../api/types';
 import { formatCookShortageSummary, formatCookTimer, getRecipeStepSummary, getRecipeStepTitle, recipeCookSessionKey, type CookTimerState, type RecipeCookSessionState } from './RecipeWorkspaceModel';
 import type { RecipeCardViewModel } from './workspaceModel';

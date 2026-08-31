@@ -1,5 +1,5 @@
 import { useState, type CompositionEvent, type ReactNode } from 'react';
-import type { Food, MealType } from '../../api/types';
+import type { Food, MealType } from '../../api/types/food';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { SearchableResourceSelect } from '../ui-kit';
 import { FoodUiIcon } from './FoodWorkspacePrimitives';

@@ -25,13 +25,12 @@ import {
   FOOD_CREATE_TYPE_OPTIONS,
   buildFoodPayloadFromForm,
   buildTodayFoodRecommendations,
-  filterFoodWorkspaceItems,
-  getMobileDefaultFoodSceneCardMedia,
-  getMobileFoodSceneFilterState,
   resolveFoodNavigationRequestAction,
   getSuggestedMealTypeForHour,
   type FoodFormState,
 } from './FoodWorkspace';
+import { getMobileDefaultFoodSceneCardMedia, getMobileFoodSceneFilterState } from './FoodMobileSceneModel';
+import { filterFoodWorkspaceItems } from './FoodWorkspaceViewModel';
 import {
   buildFoodCookingSummaryFromRecipeCards,
   buildFoodRelationViewModel,
@@ -416,7 +415,7 @@ describe('FoodWorkspace meal recording ownership', () => {
     expect(workspaceSource).toContain('recordMeal');
     expect(workspaceSource).toContain('completeFoodPlanItem');
     expect(workspaceSource).toContain('MealQuickRecordView');
-    expect(workspaceSource).toContain('MealRecordResultBar');
+    expect(workspaceSource).toContain('FoodWorkspaceMealOverlays');
   });
 
   it('opens compact prefilled Food record without stock controls', async () => {
@@ -686,11 +685,11 @@ describe('food workspace helpers', () => {
       },
     });
 
-    const workspaceSource = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
-    expect(workspaceSource).toContain('buildDirectCookTarget');
-    expect(workspaceSource).toContain('// Direct Cook: never create a plan item just to start cooking.');
+    const actionSource = readFileSync('src/components/foods/useFoodCookActions.ts', 'utf8');
+    expect(actionSource).toContain('buildDirectCookTarget');
+    expect(actionSource).toContain('// Direct Cook: never create a plan item just to start cooking.');
     // Direct cook no longer creates a FoodPlanItem just to start cooking.
-    expect(workspaceSource).not.toMatch(
+    expect(actionSource).not.toMatch(
       /action === 'cook'[\s\S]{0,200}createFoodPlanItem/,
     );
   });
@@ -1075,8 +1074,13 @@ describe('FoodWorkspace discovery composition', () => {
 
   it('keeps FoodWorkspace focused on the unified discovery surface', () => {
     const source = readFileSync('src/components/foods/FoodWorkspace.tsx', 'utf8');
-    expect(source).toContain('<FoodDiscoverSurface');
-    expect(source).toContain('<FoodPlanSurface');
+    const discoverSource = readFileSync('src/components/foods/FoodWorkspaceDiscoverDesktop.tsx', 'utf8');
+    const desktopSidebarSource = readFileSync('src/components/foods/FoodDesktopSidebar.tsx', 'utf8');
+    expect(source).toContain('<FoodWorkspaceDiscoverView');
+    expect(source).toContain('<FoodWorkspaceDiscoverDesktop');
+    expect(discoverSource).toContain('<FoodDesktopSidebar');
+    expect(source).not.toContain('<FoodPlanSurface');
+    expect(desktopSidebarSource).toContain('<FoodPlanSurface');
     expect(source).not.toContain("surface?: 'discover' | 'plan'");
     expect(source).not.toContain("props.surface === 'plan'");
   });

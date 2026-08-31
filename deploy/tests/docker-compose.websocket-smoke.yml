@@ -5,6 +5,8 @@ services:
     build:
       context: ../..
       dockerfile: backend/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     command:
       - uvicorn
       - tests.deployment.websocket_echo_server:app
@@ -28,6 +30,8 @@ services:
     build:
       context: ../..
       dockerfile: frontend/Dockerfile
+      args:
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
     ports:
       - "${CULINA_WS_SMOKE_PORT:-18080}:80"
     depends_on:

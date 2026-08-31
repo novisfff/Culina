@@ -5,7 +5,7 @@ import type {
   MediaAsset,
   RecordMealPayload,
   RecordMealTarget,
-} from '../../api/types';
+} from '../../api/types/meal';
 import { addDateKeyDays, businessDateKey } from '../../lib/date';
 
 export const MEAL_COMPOSER_FOOD_TYPES = ['selfMade', 'takeout', 'diningOut', 'readyMade'] as const;

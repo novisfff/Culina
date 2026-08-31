@@ -1,4 +1,5 @@
-import type { Food, FoodType, Ingredient, InventoryItem, MealLog, MealType, Recipe } from '../../api/types';
+import type { Food, FoodType, Ingredient, InventoryItem, MealType, Recipe } from '../../api/types/food';
+import type { MealLog } from '../../api/types/meal';
 import { todayKey } from '../../lib/date';
 import { formatFoodStockAmount } from '../../lib/foodStockQuantity';
 import { MEAL_TYPE_LABELS, formatDate, getFoodCover } from '../../lib/ui';
@@ -7,7 +8,8 @@ import {
   type InventoryConfirmationTone,
 } from '../ingredients/workspaceModel';
 import { buildRecipeCards, type RecipeCardViewModel } from '../recipes/workspaceModel';
-import { FOOD_GOVERNANCE_ISSUE_OPTIONS, type FoodGovernanceIssue } from './FoodWorkspaceOptions';
+import { FOOD_GOVERNANCE_ISSUE_OPTIONS, type FoodGovernanceIssue, type FoodWorkspaceLens } from './FoodWorkspaceOptions';
+import { normalizeFormFoodType } from './FoodWorkspaceModel';
 
 export type NormalizedFoodType = Exclude<FoodType, 'packaged'>;
 
@@ -141,6 +143,44 @@ export function getDefaultMealType(food: Food): MealType {
   if (food.suitable_meal_types.includes('dinner')) return 'dinner';
   if (food.suitable_meal_types.includes('lunch')) return 'lunch';
   return food.suitable_meal_types[0] ?? 'dinner';
+}
+
+export function getFoodPriority(food: Food, mealLogs: MealLog[], lensFilter: FoodWorkspaceLens, recipes: Recipe[] = []) {
+  const usage = getMealUsage(food, mealLogs);
+  const daysUntilExpiry = getDaysUntil(food.expiry_date);
+  const expiryScore = isFoodExpiring(food) ? 500 - Math.max(daysUntilExpiry ?? 0, -30) : 0;
+  const missingScore = isFoodMissingDecisionInfo(food, recipes) ? 120 : 0;
+  const favoriteScore = food.favorite ? 80 : 0;
+  const usageScore = usage.count * 12;
+  const recentScore = usage.last ? Number(usage.last.replace(/-/g, '')) / 10_000_000 : 0;
+  const lensBoost = lensFilter === 'expiring'
+    ? expiryScore * 2
+    : lensFilter === 'needsInfo'
+      ? missingScore * 2
+      : lensFilter === 'favorite'
+        ? favoriteScore + usageScore
+        : 0;
+  return lensBoost + expiryScore + missingScore + favoriteScore + usageScore + recentScore;
+}
+
+export function getQuickDefaultMealType(food: Food, suggestedMealType: MealType): MealType {
+  if (food.suitable_meal_types.includes(suggestedMealType)) return suggestedMealType;
+  if (food.suitable_meal_types.length === 0) return suggestedMealType;
+  return getDefaultMealType(food);
+}
+
+export function getFoodEditorProfile(foodType: FoodType) {
+  const normalizedType = normalizeFormFoodType(foodType);
+  if (normalizedType === 'selfMade') {
+    return { title: '家常菜核心信息', description: '重点确认菜谱与用料、适合餐别和家庭备注。' };
+  }
+  if (normalizedType === 'takeout' || normalizedType === 'diningOut') {
+    return {
+      title: normalizedType === 'takeout' ? '外卖下次选择参考' : '外食下次选择参考',
+      description: '补上店铺/餐厅、价格、评分和下次是否还想吃，之后更容易做决定。',
+    };
+  }
+  return { title: '成品与速食库存信息', description: '先补充购买渠道、剩余数量和到期日，这类食物会进入临期提醒。' };
 }
 
 export function getPrimaryFoodActionLabel(food: Food) {

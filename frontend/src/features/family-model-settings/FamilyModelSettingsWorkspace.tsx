@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
   FamilyModelDraftValidation,
   UserRole,
-} from '../../api/types';
+} from '../../api/types/modelUsage';
 import {
   createEmptyFamilyModelDraft,
   createFamilyModelSettingsDraft,
@@ -13,12 +13,13 @@ import {
   type FamilyModelSettingsDraft,
 } from './familyModelSettingsModel';
 import { deriveFamilyModelSettingsOverview } from './familyModelSettingsOverviewModel';
-import { FamilyModelSettingsDesktopView } from './FamilyModelSettingsDesktopView';
-import { FamilyModelSettingsMobilePage } from './FamilyModelSettingsMobilePage';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import { useFamilyModelSettingsActions } from './useFamilyModelSettingsActions';
 import { useFamilyModelSettingsQueries } from './useFamilyModelSettingsQueries';
 import { useFamilyModelSettingsState } from './useFamilyModelSettingsState';
+
+const FamilyModelSettingsDesktopView = lazy(() => import('./FamilyModelSettingsDesktopView').then((module) => ({ default: module.FamilyModelSettingsDesktopView })));
+const FamilyModelSettingsMobilePage = lazy(() => import('./FamilyModelSettingsMobilePage').then((module) => ({ default: module.FamilyModelSettingsMobilePage })));
 
 export type FamilyModelSettingsWorkspaceProps = {
   familyId: string;
@@ -74,6 +75,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const historyMarker = `family-model-settings:${props.familyId}`;
   const pendingHistoryExitRef = useRef(false);
   const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
+  const [dismissedReplacementProfileId, setDismissedReplacementProfileId] = useState<string | null>(null);
   const queries = useFamilyModelSettingsQueries({
     familyId: props.familyId,
     role: props.role,
@@ -355,7 +357,9 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     draft,
     prices: queries.prices,
     validation,
-    searchReplacement: queries.searchReplacement,
+    searchReplacement: queries.searchReplacement?.profile_id === dismissedReplacementProfileId
+      ? null
+      : queries.searchReplacement,
     state: state.state,
     actions: mutationState.actions,
     busyAction,
@@ -373,12 +377,23 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     onDiscoverModels: queries.discoverProviderModels,
     onTestCapability: testCapability,
     onValidate: validate,
-    onReplacementProfileIdChange: setReplacementProfileId,
+    onReplacementProfileIdChange: (nextProfileId: string | null) => {
+      if (nextProfileId) {
+        setDismissedReplacementProfileId(null);
+      } else if (replacementProfileId) {
+        setDismissedReplacementProfileId(replacementProfileId);
+      }
+      setReplacementProfileId(nextProfileId);
+    },
   };
 
-  return props.isPhoneViewport
-    ? <FamilyModelSettingsMobilePage {...surfaceProps} />
-    : <FamilyModelSettingsDesktopView {...surfaceProps} />;
+  return (
+    <Suspense fallback={<main className="family-model-settings-fallback" aria-label="家庭 AI 服务"><StateBlock status="loading" title="正在准备家庭 AI 服务" description="正在加载设置界面。" /></main>}>
+      {props.isPhoneViewport
+        ? <FamilyModelSettingsMobilePage {...surfaceProps} />
+        : <FamilyModelSettingsDesktopView {...surfaceProps} />}
+    </Suspense>
+  );
 }
 
 /**

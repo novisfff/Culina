@@ -40,7 +40,8 @@ describe('Recipe legacy style cleanup', () => {
     'src/styles/03-recipe-workspace.css',
     'src/styles/04-ingredients-workspace.css',
     'src/styles/05-workspace-overlays.css',
-    'src/styles/07-mobile.css',
+    'src/styles/compatibility-responsive.css',
+    'src/styles/recipe-responsive.css',
   ]
     .map((file) => readFileSync(resolve(repoRoot, file), 'utf8'))
     .join('\n');

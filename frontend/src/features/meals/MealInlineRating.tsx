@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { MealLog, UpdateMealLogPayload } from '../../api/types';
+import type { MealLog, UpdateMealLogPayload } from '../../api/types/meal';
 import { ActionButton } from '../../components/ui-kit';
 import {
   buildMealEntryRatingDraft,
