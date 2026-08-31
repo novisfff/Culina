@@ -98,6 +98,14 @@ describe('classifyChangedFiles', () => {
     assert.equal(crossFrontendDomain.full, true);
   });
 
+  it('treats dependency manifests as runtime changes rather than documentation', () => {
+    const result = classifyChangedFiles(['backend/requirements.txt']);
+    assert.equal(result.docsOnly, false);
+    assert.equal(result.full, true);
+    assert.equal(result.gates.dependency_audit, true);
+    assert.equal(result.gates.backend_service, true);
+  });
+
   it('runs every gate for main pushes', () => {
     const result = classifyChangedFiles([], { eventName: 'push' });
     assert.equal(result.full, true);
