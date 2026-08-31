@@ -353,6 +353,11 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('新增食材'))).toBe(true);
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('查看记录'))).toBe(true);
     expect(view.querySelectorAll('[data-testid="mobile-home-stat"]')).toHaveLength(4);
+    expect(view.textContent).toContain('库存');
+    expect(view.textContent).toContain('待处理');
+    expect(view.textContent).toContain('本周安排');
+    expect(view.textContent).not.toContain('需要处理的食材');
+    expect(view.textContent).not.toContain('按家庭节奏规划');
   });
 
   it('opens the ingredient create flow from the 新增食材 action', () => {
