@@ -209,6 +209,89 @@
   }
 }
 
+/* The desktop shell must be available on every workspace. These rules used
+ * to live in the ingredients route stylesheet, which left the sidebar hidden
+ * on routes whose lazy CSS had not been loaded yet. */
+@media (min-width: 768px) {
+  .app-shell {
+    height: 100vh;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  @supports (height: 100dvh) {
+    .app-shell {
+      height: 100dvh;
+    }
+  }
+
+  .app-frame {
+    height: 100%;
+    min-height: 0;
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .sidebar-shell {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sidebar);
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 12px;
+    width: 260px;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    padding: 16px 14px;
+    overflow: hidden;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(252, 249, 245, 0.75) 100%);
+    border: 1px solid rgba(147, 96, 63, 0.09);
+    box-shadow: 0 8px 32px rgba(74, 54, 40, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .sidebar-shell:has(.sidebar-notification-center) {
+    overflow: visible;
+  }
+
+  .sidebar-top {
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .sidebar-brand {
+    gap: 7px;
+  }
+
+  .sidebar-nav {
+    align-content: start;
+    gap: 4px;
+    min-height: 0;
+    overflow: hidden;
+    padding-right: 2px;
+    padding-top: 4px;
+  }
+
+  .app-content {
+    gap: 16px;
+    height: 100%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .sidebar-collapsed .sidebar-shell {
+    width: 76px;
+    padding: 16px 10px;
+  }
+}
+
 @media (max-width: 767px) {
   .mobile-notification-center {
     position: relative;
