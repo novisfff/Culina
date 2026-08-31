@@ -76,7 +76,7 @@ describe('IngredientMobileView shared overlay usage', () => {
     expect(mobileSource).toContain('<h2>');
     expect(mobileSource).toContain('库存');
     expect(mobileSource).toContain('扣减');
-    expect(mobileSource).toContain('补充库存');
+    expect(mobileSource).toContain('补库存');
     expect(mobileSource).toContain('isPendingFoodStockItem(item)');
     expect(mobileSource).toContain('{!isPending ? (');
     expect(mobileSource).toContain('const shouldShowFoodShoppingAction = isPending;');

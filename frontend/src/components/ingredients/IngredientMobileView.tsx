@@ -72,6 +72,24 @@ function matchesFoodStockQuickFilter(item: InventoryOverviewItem, filter: Mobile
   return true;
 }
 
+function compactMobileActionLabel(label: string): string {
+  if (label.includes('处理过期')) return '处理过期';
+  if (label.includes('采购')) return '加采购';
+  if (label.includes('补充库存')) return '补库存';
+  if (label.includes('加入库存')) return '加库存';
+  if (label.includes('查看详情')) return '详情';
+  if (label.includes('记录用量')) return '记用量';
+  return label;
+}
+
+function compactMobileTag(label: string): string {
+  if (label.includes('还没有可用库存')) return '无库存';
+  if (label.includes('需要补充库存')) return '待补充';
+  if (label.includes('未确认库存')) return '未确认';
+  if (label.includes('加入采购清单')) return '待采购';
+  return label;
+}
+
 type IngredientMobileViewProps = {
   allAlertsCount: number;
   stockedIngredientCount: number;
@@ -389,10 +407,10 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                               });
                             }}
                           >
-                            {primaryLabel}
+                            {compactMobileActionLabel(primaryLabel)}
                           </button>
                           <button type="button" onClick={() => props.openDetailView(group.ingredientId)}>
-                            查看详情
+                            详情
                           </button>
                         </>
                       ) : (
@@ -402,10 +420,10 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                             type="button"
                             onClick={() => props.openDestroyExpiredOverlay(group.ingredientId)}
                           >
-                            {primaryLabel}
+                            {compactMobileActionLabel(primaryLabel)}
                           </button>
                           <button type="button" onClick={() => props.openDetailView(group.ingredientId)}>
-                            查看详情
+                            详情
                           </button>
                         </>
                       )}
@@ -545,7 +563,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                             <p>{item.category || '未分类'} · {item.storage_location || '常温'}</p>
                             <div className="mobile-ingredient-meta-row">
                               <span>{item.quantity_label}</span>
-                            <span>{isPending ? '需要补充库存' : getFoodStockExpiryLine(item)}</span>
+                            <span>{isPending ? '待补充' : getFoodStockExpiryLine(item)}</span>
                             </div>
                             <div className="mobile-ingredient-library-actions">
                               {!isPending ? (
@@ -566,7 +584,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                 type="button"
                                 onClick={() => props.openFoodStockEditor(item.source_id)}
                               >
-                                补充库存
+                                  补库存
                               </button>
                               {shouldShowFoodShoppingAction ? (
                                 <button
@@ -574,7 +592,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openFoodShopping(item.source_id)}
                                 >
-                                加入采购清单
+                                加采购
                                 </button>
                               ) : null}
                             </div>
@@ -588,7 +606,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                     const status = props.buildCatalogStatus(summary);
                     const inventorySummaryLine = props.buildInventorySummaryLine(summary);
                     const compactInventorySummaryLine = inventorySummaryLine;
-                    const compactConfirmationLabel = summary.confirmationLabel === '尚未确认' ? '未确认库存' : summary.confirmationLabel;
+                    const compactConfirmationLabel = compactMobileTag(summary.confirmationLabel === '尚未确认' ? '未确认库存' : summary.confirmationLabel);
                     const canConsume = tracksIngredientQuantity(summary.ingredient) && summary.availableInventoryItems.length > 0;
                     const canDestroyExpired = props.countDisposableExpiredItems(summary) > 0;
                     return (
@@ -613,7 +631,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                               title={
                                 summary.lastConfirmedAt
                                   ? `上次确认 ${summary.lastConfirmedAt.slice(0, 10)}`
-                                  : '未确认库存'
+                                  : '未确认'
                               }
                             >
                               {compactConfirmationLabel}
@@ -627,13 +645,13 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openDestroyExpiredOverlay(summary.ingredient.id)}
                                 >
-                                  处理过期库存
+                                  处理过期
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => props.openDetailView(summary.ingredient.id)}
                                 >
-                                  查看详情
+                                  详情
                                 </button>
                               </>
                             ) : canConsume ? (
@@ -659,7 +677,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                   type="button"
                                   onClick={() => props.openInventoryOverlay(summary.ingredient.id)}
                                 >
-                                  {summary.inventoryItems.length > 0 ? '补货' : '加入库存'}
+                                  {summary.inventoryItems.length > 0 ? '补货' : '加库存'}
                                 </button>
                                 <button
                                   type="button"
@@ -670,7 +688,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                                     })
                                   }
                                 >
-                                  加入采购清单
+                                  加采购
                                 </button>
                               </>
                             )}
@@ -762,7 +780,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                           props.openInventoryFromShopping(card.shoppingItem);
                         }}
                       >
-                        加入库存
+                        加库存
                       </button>
                     </article>
                   );
@@ -828,7 +846,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
 
             <div className="mobile-ingredient-shopping-drawer-tags">
               {selectedShoppingCard.contextTags.map((tag) => (
-                <span key={`${selectedShoppingCard.shoppingItem.id}-${tag}`}>{tag}</span>
+                <span key={`${selectedShoppingCard.shoppingItem.id}-${tag}`}>{compactMobileTag(tag)}</span>
               ))}
             </div>
 
@@ -844,7 +862,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                     props.openDetailView(selectedShoppingCard.linkedSummary!.ingredient.id);
                   }}
                 >
-                  查看详情
+                  详情
                 </button>
               )}
               <button
@@ -853,7 +871,7 @@ export function IngredientMobileView(props: IngredientMobileViewProps) {
                 disabled={props.isUpdatingShopping || props.isCreatingInventory}
                 onClick={() => restockShoppingCard(selectedShoppingCard)}
               >
-                加入库存
+                加库存
               </button>
               <button
                 className="danger"
