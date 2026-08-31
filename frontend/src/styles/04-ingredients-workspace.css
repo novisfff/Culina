@@ -1533,7 +1533,7 @@
   justify-self: stretch;
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 8px;
 }
 
@@ -5471,7 +5471,6 @@
 .ingredient-editor-modal.workspace-modal {
   display: flex;
   flex-direction: column;
-  width: min(1120px, calc(100vw - 24px));
   max-height: calc(100vh - 32px);
   overflow: hidden;
 }

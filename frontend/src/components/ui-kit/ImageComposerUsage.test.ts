@@ -29,6 +29,7 @@ describe('ImageComposer usages', () => {
     expect(legacyUiKitSource).not.toContain('export function ImageComposer');
     expect(indexSource).toContain("export * from './ImageComposer';");
     expect(componentSource).toContain('export function ImageComposer');
+    expect(componentSource).not.toContain('.707N12 8');
     expect(componentSource).not.toContain('className="intro-card-header"');
     expect(componentSource).not.toContain('className="intro-tip-item"');
     expect(foundationStyles).not.toContain('.image-composer-head');

@@ -37,6 +37,7 @@ export function IngredientWorkspaceEditorOverlay(props: IngredientWorkspaceEdito
         title={editor.isEditingIngredient ? '编辑食材' : '新增食材'}
         description={editor.isEditingIngredient ? '调整名称、分类、图片和备注后，可以直接保存食材信息。' : '填写基础信息、图片和备注后，就能继续加入库存。'}
         eyebrow="食材信息"
+        size="large"
         className="ingredient-editor-modal"
         closeLabel="关闭"
         onClose={props.onClose}
