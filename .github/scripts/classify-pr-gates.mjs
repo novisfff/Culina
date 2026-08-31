@@ -12,6 +12,8 @@ export const GATE_KEYS = Object.freeze([
   'frontend_build',
   'frontend_e2e',
   'frontend_ai_contract',
+  'frontend_governance',
+  'frontend_release_evidence',
   'backend_service',
   'backend_ai',
   'ai_evals',
@@ -137,6 +139,7 @@ function markFrontendHighRisk(result, path, reason) {
   markFrontendPage(result, path);
   elevateRisk(result, 'high');
   setGate(result, 'frontend_e2e', reason);
+  setGate(result, 'frontend_release_evidence', '高风险前端变更需要发布证据检查');
 }
 
 function classifyFrontendPath(result, path) {
@@ -144,6 +147,7 @@ function classifyFrontendPath(result, path) {
     setDomain(result, 'frontend');
     elevateRisk(result, 'high');
     setGate(result, 'frontend_e2e', 'Playwright 关键路径或测试变更');
+    setGate(result, 'frontend_release_evidence', '前端关键路径变更需要发布证据检查');
     setGate(result, 'frontend_build');
     return true;
   }
