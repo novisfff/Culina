@@ -403,7 +403,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
       onQuickStartFood,
     });
 
-    act(() => buttonByText(view, '加入餐食计划').click());
+    act(() => buttonByText(view, '加入计划').click());
 
     expect(onHomePlanAddDialogOpen).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'food-0' }),

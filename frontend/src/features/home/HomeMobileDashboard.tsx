@@ -88,7 +88,7 @@ function HomeRecommendationCards(props: {
                   }}
                   disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
                 >
-                  {food.recipe_id ? '开始做' : '加入餐食计划'}
+                  {food.recipe_id ? '开始做' : '加入计划'}
                 </button>
                 <button
                   type="button"
