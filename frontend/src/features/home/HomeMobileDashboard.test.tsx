@@ -720,4 +720,21 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(view.textContent).toContain('5 项待采购');
     expect(view.textContent).not.toContain('5 项采购可入库');
   });
+
+  it('keeps the mobile home header at the established reference scale', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-logo \{[^}]*width: var\(--control-height-touch\);[^}]*height: var\(--control-height-touch\);[^}]*flex: 0 0 var\(--control-height-touch\);/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-logo \.shell-logo-image \{[^}]*width: 24px;[^}]*height: 24px;[^}]*object-fit: contain;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-icon-actions button \{[^}]*width: var\(--tap-min\);[^}]*height: var\(--tap-min\);[^}]*min-width: var\(--tap-min\);/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-icon-actions svg,[\s\S]*?\.mobile-notification-center \.app-notification-icon svg \{[^}]*width: 26px;[^}]*height: 26px;[^}]*flex: 0 0 26px;/s,
+    );
+  });
 });
