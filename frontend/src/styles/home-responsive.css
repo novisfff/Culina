@@ -2373,6 +2373,10 @@
  * scoped rules intentionally sit at the end of the home responsive sheet so
  * shared compatibility styles cannot shrink or replace its controls. */
 @media (max-width: 767px) {
+  .app-shell:has(.mobile-dashboard-page) {
+    padding-inline: 0;
+  }
+
   .mobile-dashboard-page {
     width: 100%;
     max-width: none;
@@ -2382,7 +2386,8 @@
    * mobile chrome historically applied a second negative inset to the
    * topbar, which produced a framed panel and shifted the header controls. */
   .mobile-dashboard-hero {
-    margin-inline: -12px;
+    width: 100%;
+    margin-inline: 0;
     border: 0;
     box-shadow: none;
   }

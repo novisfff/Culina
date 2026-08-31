@@ -731,7 +731,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
       /\.mobile-dashboard-logo \.shell-logo-image \{[^}]*width: 100%;[^}]*height: 100%;[^}]*border-radius: inherit;[^}]*object-fit: cover;/s,
     );
     expect(mobileStyles).toMatch(
-      /\.mobile-dashboard-hero \{[^}]*margin-inline: -12px;[^}]*border: 0;[^}]*box-shadow: none;/s,
+      /\.mobile-dashboard-hero \{[^}]*width: 100%;[^}]*margin-inline: 0;[^}]*border: 0;[^}]*box-shadow: none;/s,
     );
     expect(mobileStyles).toMatch(
       /\.mobile-dashboard-hero > \.mobile-dashboard-topbar \{[^}]*margin-inline: 0;[^}]*padding-inline: var\(--space-5\);/s,
