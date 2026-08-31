@@ -2378,6 +2378,10 @@
     max-width: 100%;
   }
 
+  .mobile-dashboard-hero {
+    margin-top: calc(-1 * var(--space-4));
+  }
+
   .mobile-dashboard-topbar {
     min-height: var(--control-height-touch);
   }
