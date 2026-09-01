@@ -21,6 +21,21 @@
     overscroll-behavior-x: none;
   }
 
+  /* The model settings overview is a full-screen task surface. Its primary
+     action lives at the end of the scroll content, so the global tab bar must
+     not cover the last task or intercept the swipe gesture. */
+  .app-shell:has(.family-model-settings-mobile-page),
+  .app-shell:has(.model-usage-mobile),
+  .app-shell:has(.model-usage-policy-mobile) {
+    padding-bottom: 0;
+  }
+
+  .app-shell:has(.family-model-settings-mobile-page) > .mobile-bottom-nav,
+  .app-shell:has(.model-usage-mobile) > .mobile-bottom-nav,
+  .app-shell:has(.model-usage-policy-mobile) > .mobile-bottom-nav {
+    display: none;
+  }
+
   .app-shell.app-shell-ai {
     min-height: 100%;
     padding: 0;

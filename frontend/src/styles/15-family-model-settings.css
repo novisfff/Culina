@@ -2562,10 +2562,6 @@ input:checked + .family-model-settings-switch-track::after,
    -------------------------------------------------------------------------- */
 
 @media (max-width: 767px) {
-  .app-shell:has(.family-model-settings-mobile-page) > .mobile-bottom-nav {
-    display: none;
-  }
-
   .family-model-settings-fallback {
     width: min(100%, 480px);
     min-height: 280px;

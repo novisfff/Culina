@@ -75,12 +75,24 @@ for (const viewport of VIEWPORTS) {
     if (viewport.width < 768) {
       await expect(page.locator('.family-model-settings-mobile-header > strong')).toHaveText('家庭 AI 服务');
       await expect(page.locator('.family-model-settings-mobile-page')).toBeVisible();
+      await expect(page.locator('.mobile-bottom-nav')).toBeHidden();
       await expect(page.locator('.family-model-settings-mobile-scroll')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-footer')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-footer .solid-button')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-scroll > .family-model-settings-mobile-footer')).toHaveCount(1);
       const footerPosition = await page.locator('.family-model-settings-mobile-footer').evaluate((element) => getComputedStyle(element).position);
       expect(footerPosition, '移动端主操作应在内容滚动流中，不应悬浮遮挡列表').toBe('static');
+      const scrollSurface = page.locator('.family-model-settings-mobile-scroll');
+      const scrollMetrics = await scrollSurface.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        overflowY: getComputedStyle(element).overflowY,
+      }));
+      if (scrollMetrics.scrollHeight > scrollMetrics.clientHeight) {
+        await scrollSurface.hover();
+        await page.mouse.wheel(0, 640);
+        await expect.poll(() => scrollSurface.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      }
     } else {
       await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
       await expect(page.locator('.family-model-settings-desktop')).toBeVisible();

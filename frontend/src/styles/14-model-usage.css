@@ -3357,15 +3357,11 @@
 }
 
 @media (max-width: 767px) {
-.app-shell:has(.model-usage-policy-mobile) .mobile-bottom-nav {
-    display: none;
-  }
-
   .model-usage-workspace {
     width: min(100%, 480px);
     margin: 0 auto;
     gap: var(--space-5);
-    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: var(--space-7);
   }
 
   .model-usage-header,
