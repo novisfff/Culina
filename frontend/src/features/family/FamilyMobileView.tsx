@@ -137,8 +137,8 @@ export function FamilyMobileView(props: {
           <strong>模型用量</strong>
           <small>
             {props.isOwner
-              ? '查看本统计周期的费用、家庭额度和使用明细'
-              : '查看个人费用和当前家庭额度'}
+              ? '查看本周期费用、额度和明细'
+              : '查看个人费用和家庭额度'}
           </small>
         </button>
         {props.isOwner ? (
