@@ -1,2 +1,2 @@
-/* Family profile styles are owned by the lazy family route. */
-@import '../../styles/02-family-settings.css' layer(domain);
+/* Family profile base styles are loaded with the shell; this entry owns only
+ * the route marker so lazy navigation remains compatible with the loader. */

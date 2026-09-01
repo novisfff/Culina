@@ -82,10 +82,22 @@ describe('IngredientWorkspace shared overlay usage', () => {
     expect(source).toContain('WorkspaceOverlayFrame');
     expect(source).toContain('rootClassName="ingredient-workspace-overlay-root"');
     expect(source).toContain('closeOnBackdrop={!isSubmitting}');
+    expect(source).toContain('size="large"');
     expect(source).toContain('onClose={props.onClose}');
     expect(source).not.toContain(
       `<div className="workspace-overlay-root ingredient-workspace-overlay-root">
           <div className="workspace-overlay-backdrop" onClick={goBackFromIngredientForm} />`,
+    );
+  });
+
+  it('uses the canonical large modal width instead of a stale ingredient override', () => {
+    const styleSource = readFileSync(resolve(__dirname, '../../styles/04-ingredients-workspace.css'), 'utf8');
+    const editorRule = styleSource.match(/\.ingredient-editor-modal\.workspace-modal \{([^}]*)\}/)?.[1] ?? '';
+
+    expect(editorRule).not.toContain('1120px');
+    expect(editorRule).not.toContain('width:');
+    expect(styleSource).toMatch(
+      /\.ingredients-quantity-tracking-options \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(160px, 1fr\)\);/,
     );
   });
 

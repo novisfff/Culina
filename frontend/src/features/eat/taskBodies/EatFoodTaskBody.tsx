@@ -321,6 +321,7 @@ export function EatFoodTaskBody(props: {
             title="编辑食物"
             description="补充名称、库存和日常信息。"
             eyebrow="食物信息"
+            size="large"
             className="food-editor-modal"
             busy={Boolean(props.isSavingFood)}
             footerInfo={(

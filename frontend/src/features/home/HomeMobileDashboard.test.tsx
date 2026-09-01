@@ -231,7 +231,7 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
       { label: '在库食材', value: '4', unit: '种', detail: '库存充足', icon: 'leaf', tone: 'green' },
       { label: '需要处理的食材', value: '3', unit: '种', detail: '过期、临期或需要补货', icon: 'bell', tone: 'coral' },
       { label: '待采购', value: '0', unit: '项', detail: '清单已完成', icon: 'cart', tone: 'yellow' },
-      { label: '本周已安排', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
+      { label: '本周已安排餐食', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
     ],
     mobileRecommendations: [],
     recommendationCount: 0,
@@ -353,6 +353,12 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('新增食材'))).toBe(true);
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('查看记录'))).toBe(true);
     expect(view.querySelectorAll('[data-testid="mobile-home-stat"]')).toHaveLength(4);
+    expect(view.textContent).toContain('库存');
+    expect(view.textContent).toContain('待处理');
+    expect(view.textContent).toContain('本周安排');
+    expect(view.textContent).not.toContain('需要处理的食材');
+    expect(view.textContent).not.toContain('本周已安排餐食');
+    expect(view.textContent).not.toContain('按家庭节奏规划');
   });
 
   it('opens the ingredient create flow from the 新增食材 action', () => {
@@ -403,7 +409,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
       onQuickStartFood,
     });
 
-    act(() => buttonByText(view, '加入餐食计划').click());
+    act(() => buttonByText(view, '加入计划').click());
 
     expect(onHomePlanAddDialogOpen).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'food-0' }),
@@ -684,6 +690,14 @@ describe('HomeMobileDashboard three-question mobile', () => {
     );
   });
 
+  it('keeps compact stat descriptions on one line', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-stat-card p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    );
+  });
+
   it('matches the established food and inventory palette without over-darkening light surfaces', () => {
     const dashboardStyles = readFileSync(resolve(__dirname, '../../styles/01-home-dashboard.css'), 'utf8');
     const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
@@ -719,5 +733,32 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(view.textContent).toContain('本周协作暂未统计');
     expect(view.textContent).toContain('5 项待采购');
     expect(view.textContent).not.toContain('5 项采购可入库');
+  });
+
+  it('keeps the mobile home header at the established reference scale', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
+    const compatibilityStyles = readFileSync(resolve(__dirname, '../../styles/compatibility-responsive.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-logo \{[^}]*width: var\(--control-height-touch\);[^}]*height: var\(--control-height-touch\);[^}]*flex: 0 0 var\(--control-height-touch\);/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-logo \.shell-logo-image \{[^}]*width: 100%;[^}]*height: 100%;[^}]*border-radius: inherit;[^}]*object-fit: cover;/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-icon-actions button \{[^}]*width: var\(--tap-min\);[^}]*height: var\(--tap-min\);[^}]*min-width: var\(--tap-min\);/s,
+    );
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-icon-actions svg,[\s\S]*?\.mobile-notification-center \.app-notification-icon svg \{[^}]*width: 26px;[^}]*height: 26px;[^}]*flex: 0 0 26px;/s,
+    );
+    expect(compatibilityStyles).toMatch(
+      /\.mobile-dashboard-hero > \.mobile-dashboard-topbar \{[^}]*margin: 0;[^}]*padding-top: 14px;/s,
+    );
+    expect(compatibilityStyles).toMatch(
+      /:is\(\.mobile-food-page,[\s\S]*?\)\s+:is\(\.mobile-food-brand,[\s\S]*?\) strong \{[^}]*font-size: var\(--text-md\);[^}]*line-height: 1\.2;[^}]*font-weight: 700;/s,
+    );
+    expect(compatibilityStyles).toMatch(
+      /\.mobile-dashboard-page \.mobile-dashboard-logo \{[^}]*width: 46px;[^}]*height: 46px;[^}]*flex-basis: 46px;/s,
+    );
   });
 });

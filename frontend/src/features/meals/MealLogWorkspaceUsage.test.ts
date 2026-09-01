@@ -145,6 +145,17 @@ function renderHistory(args: {
 }
 
 describe('MealLogWorkspace overlay reuse', () => {
+  it('keeps the mobile record header in the established stacked layout', () => {
+    const styles = readFileSync(resolve(__dirname, '../../styles/meal-responsive.css'), 'utf8');
+    expect(styles).toMatch(
+      /\.mobile-log-hero \{[^}]*display: grid;[^}]*gap: var\(--space-3\);[^}]*padding: var\(--space-7\) var\(--space-7\) var\(--space-3\);/s,
+    );
+    expect(styles).toMatch(
+      /\.mobile-log-primary-cta \{[^}]*width: 100%;[^}]*min-height: var\(--control-height-touch\);[^}]*border-radius: var\(--radius-pill\);/s,
+    );
+    expect(styles).toContain('.mobile-log-top-actions .mobile-log-home-button');
+  });
+
   it('uses shared overlay components for meal log modals', () => {
     const source = readSource('MealLogWorkspace.tsx');
 

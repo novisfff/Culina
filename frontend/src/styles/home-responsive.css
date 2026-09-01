@@ -854,9 +854,8 @@
     font-size: clamp(0.64rem, 2.9vw, 0.78rem);
     font-weight: 700;
     line-height: 1.25;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .mobile-dashboard-panel {
@@ -2366,5 +2365,46 @@
 
   .home-compact-days.is-mobile-grid {
     gap: 0;
+  }
+}
+
+/* Keep the mobile home chrome at the established reference scale.  These
+ * scoped rules intentionally sit at the end of the home responsive sheet so
+ * shared compatibility styles cannot shrink or replace its controls. */
+@media (max-width: 767px) {
+  .mobile-dashboard-page {
+    width: min(100%, 480px);
+    max-width: 100%;
+  }
+
+  .mobile-dashboard-topbar {
+    min-height: var(--control-height-touch);
+  }
+
+  .mobile-dashboard-logo {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+    flex: 0 0 var(--control-height-touch);
+  }
+
+  .mobile-dashboard-logo .shell-logo-image {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: cover;
+  }
+
+  .mobile-dashboard-icon-actions button {
+    width: var(--tap-min);
+    height: var(--tap-min);
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
+  }
+
+  .mobile-dashboard-icon-actions svg,
+  .mobile-notification-center .app-notification-icon svg {
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
   }
 }

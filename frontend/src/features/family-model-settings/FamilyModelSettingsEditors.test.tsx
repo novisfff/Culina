@@ -731,6 +731,35 @@ describe('Family model settings editors', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('shows the provider failure reason returned by a completed capability test', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = {
+      ...draft.bindings[0],
+      enabled: true,
+      provider_profile_id: profile.id,
+      requested_model: 'capability-test-model',
+    };
+
+    render(
+      <CapabilityBindingEditor
+        draft={draft}
+        profiles={[profile]}
+        busy={false}
+        onDraftChange={vi.fn()}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={vi.fn().mockResolvedValue({
+          status: 'failed',
+          detail: '模型服务拒绝了请求（HTTP 400）：invalid_model，模型不存在或不可用',
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '测试功能' }));
+
+    expect(await screen.findByText('模型服务拒绝了请求（HTTP 400）：invalid_model，模型不存在或不可用')).toBeVisible();
+  });
+
   it('automatically discovers selectable models from the selected Provider', async () => {
     const user = userEvent.setup();
     const draft = createEmptyFamilyModelDraft();

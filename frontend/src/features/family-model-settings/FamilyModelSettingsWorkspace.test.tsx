@@ -188,7 +188,7 @@ describe('FamilyModelSettingsWorkspace', () => {
     expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();
   });
 
-  it('uses the same state-derived next step in the phone action bar', async () => {
+  it('keeps the state-derived next step in the phone scroll flow', async () => {
     render(
       <FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport onBack={() => undefined} />,
       { wrapper: wrapper() },
@@ -197,6 +197,7 @@ describe('FamilyModelSettingsWorkspace', () => {
     const nextStep = await screen.findByRole('button', { name: '添加第一个 AI 服务' });
     const footer = document.querySelector('.family-model-settings-mobile-footer');
     expect(footer).not.toBeNull();
+    expect(footer?.parentElement).toHaveClass('family-model-settings-mobile-scroll');
     expect(within(footer as HTMLElement).queryByRole('button', { name: '配置检查' })).not.toBeInTheDocument();
     fireEvent.click(nextStep);
     expect(screen.getByRole('heading', { name: '模型服务' })).toBeVisible();

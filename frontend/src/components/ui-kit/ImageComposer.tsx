@@ -50,7 +50,7 @@ export function ImageComposer(props: {
                 <div className="image-composer-intro-card-header">
                   <div className="image-composer-intro-card-icon">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.607 10.607l.707.707N12 8a4 4 0 100 8 4 4 0 000-8z" />
+                      <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m10.607 10.607l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
                     </svg>
                   </div>
                   <strong>AI 主图美化</strong>

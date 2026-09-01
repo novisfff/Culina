@@ -25,6 +25,7 @@ export function FoodWorkspaceEditorOverlay(props: FoodWorkspaceEditorOverlayProp
         title={props.title}
         description={props.description}
         eyebrow="食物信息"
+        size="large"
         className="food-editor-modal"
         closeLabel="关闭"
         busy={props.isSavingFood}

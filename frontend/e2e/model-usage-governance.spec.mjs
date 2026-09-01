@@ -49,6 +49,9 @@ for (const viewport of MODEL_USAGE_VIEWPORTS) {
     await openModelUsage(page);
 
     await expect(page.getByRole('heading', { name: '家庭模型用量' })).toBeVisible();
+    if (viewport.width < 768) {
+      await expect(page.locator('.mobile-bottom-nav')).toBeHidden();
+    }
     await expect(page.getByRole('heading', { name: '每日费用趋势' })).toBeVisible();
     await expect(page.getByRole('heading', { name: '费用明细' })).toBeVisible();
     await expect(page.getByText('近 30 天', { exact: true })).toBeVisible();
@@ -92,6 +95,7 @@ test('@p0 @model-usage-390x844 long provider and model names wrap without horizo
 
 test('@p0 @model-usage-390x844 @model-usage-1440x900 request logs use a normal entry card and open a filterable paginated child page', async ({ app }) => {
   const { page } = app;
+  await page.clock.setFixedTime(new Date('2026-08-23T09:00:00+08:00'));
   await openModelUsage(page);
 
   const entry = page.getByRole('button', { name: /请求记录/ });

@@ -3525,7 +3525,6 @@
 .food-editor-modal.workspace-modal {
   display: flex;
   flex-direction: column;
-  width: min(1120px, calc(100vw - 24px));
   max-height: calc(100vh - 32px);
   overflow: hidden;
   background: linear-gradient(180deg, rgba(255, 254, 252, 0.99), rgba(255, 250, 244, 0.98));

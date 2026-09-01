@@ -253,8 +253,8 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
           </p>
         ) : null}
         <MobileTaskBody {...props} />
+        <MobileFooter {...props} />
       </div>
-      <MobileFooter {...props} />
     </main>
   );
 }

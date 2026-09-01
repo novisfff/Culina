@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -505,8 +506,9 @@ def _safe_result(
     *,
     status: CapabilityTestStatus,
     now: datetime,
+    detail: str | None = None,
 ) -> CapabilityTestResult:
-    detail = {
+    default_detail = {
         "succeeded": "能力测试已完成。",
         "failed": "服务已响应，但未完成本次能力测试。",
         "blocked": "本次测试受家庭用量额度限制，未发起服务调用。",
@@ -515,9 +517,84 @@ def _safe_result(
         capability=command.capability,
         variant_key=command.variant_key,
         status=status,
-        detail=detail,
+        detail=detail or default_detail,
         checked_at=now,
     )
+
+
+_SAFE_DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,119}$")
+_DIAGNOSTIC_SECRET_RE = re.compile(
+    r"(?i)(?:bearer\s+|api[_ -]?key\s*[:=]\s*|token\s*[:=]\s*|secret\s*[:=]\s*|password\s*[:=]\s*)[^\s,;]+"
+)
+_DIAGNOSTIC_URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
+_DIAGNOSTIC_REQUEST_RE = re.compile(
+    r'(?i)(?:"?(?:input|prompt|messages|text)"?\s*[:=])'
+    r'(?:\[[^\]]*\]|\{[^}]*\}|"[^"]*"|[^,;]+)'
+)
+_DIAGNOSTIC_SECRET_VALUE_RE = re.compile(r"(?i)^(?:sk|rk|pk|api)[-_][A-Za-z0-9_-]{8,}$")
+
+
+def _safe_diagnostic_code(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not _SAFE_DIAGNOSTIC_CODE_RE.fullmatch(value):
+        return None
+    return None if _DIAGNOSTIC_SECRET_VALUE_RE.fullmatch(value) else value
+
+
+def _safe_diagnostic_text(
+    value: object,
+    *,
+    max_length: int = 240,
+    sensitive_values: Sequence[str] = (),
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.replace("\r", " ").replace("\n", " ").split())
+    text = _DIAGNOSTIC_SECRET_RE.sub("[redacted]", text)
+    text = _DIAGNOSTIC_URL_RE.sub("[provider-url]", text)
+    text = _DIAGNOSTIC_REQUEST_RE.sub("request=[redacted]", text)
+    for sensitive in sensitive_values:
+        if sensitive:
+            text = text.replace(sensitive, "[request-content]")
+    return text[:max_length] or None
+
+
+def _provider_failure_detail(response: ProviderResponse) -> str:
+    """Project an allow-listed, bounded provider error into the Owner UI."""
+
+    detail = f"模型服务拒绝了请求（HTTP {response.status_code}）"
+    try:
+        body = response.json()
+    except Exception:
+        body = None
+    candidates: list[Mapping[str, object]] = []
+    if isinstance(body, Mapping):
+        candidates.append(body)
+        nested = body.get("error")
+        if isinstance(nested, Mapping):
+            candidates.insert(0, nested)
+    code: str | None = None
+    message: str | None = None
+    for candidate in candidates:
+        if code is None:
+            for key in ("code", "type", "error_code"):
+                code = _safe_diagnostic_code(candidate.get(key))
+                if code:
+                    break
+        if message is None:
+            for key in ("message", "detail", "error_message"):
+                message = _safe_diagnostic_text(candidate.get(key))
+                if message:
+                    break
+        if code and message:
+            break
+    if code:
+        detail += f"：{code}"
+    if message:
+        detail += f"，{message}"
+    return _safe_diagnostic_text(detail) or "模型服务拒绝了请求，请检查模型配置。"
 
 
 def _complete_result(
@@ -954,6 +1031,7 @@ def run_family_capability_test(
 
     permit = attempt.prepare_dispatch(at=now)
     credential: DispatchCredential | None = None
+    provider_response: ProviderResponse | None = None
     try:
         credential = resolver.resolve_dispatch_credential(
             binding,
@@ -964,12 +1042,13 @@ def run_family_capability_test(
             runner(binding=binding, credential=credential, transport=dependencies.transport)
             response_status = 200
         else:
-            response_status = runner(
+            provider_response = runner(
                 binding=binding,
                 permit=permit,
                 credential=credential,
                 transport=dependencies.transport,
-            ).status_code
+            )
+            response_status = provider_response.status_code
     except (FamilyModelSecretUnavailable, FamilyModelProviderProtocolUnsupported):
         attempt.settle(
             _receipt(
@@ -1003,7 +1082,14 @@ def run_family_capability_test(
                 completed_at=dependencies.now(),
             )
         )
-        result = _safe_result(command, status="failed", now=dependencies.now())
+        result = _safe_result(
+            command,
+            status="failed",
+            now=dependencies.now(),
+            detail=_provider_failure_detail(provider_response)
+            if provider_response is not None
+            else None,
+        )
         return _complete_result(db, claim=claim, result=result, result_id=settlement.event_id)
 
     settlement = attempt.settle(
