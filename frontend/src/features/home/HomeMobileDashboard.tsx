@@ -31,6 +31,7 @@ const MOBILE_STAT_COPY: Record<string, { label: string; detail: string }> = {
   '需要处理的食材': { label: '待处理', detail: '过期或待补' },
   '待采购': { label: '待采购', detail: '建议补充' },
   '本周已安排': { label: '本周安排', detail: '按节奏' },
+  '本周已安排餐食': { label: '本周安排', detail: '按节奏' },
 };
 
 function mobileStatCopy(stat: DashboardStat) {

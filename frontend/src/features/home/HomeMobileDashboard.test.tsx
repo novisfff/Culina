@@ -231,7 +231,7 @@ function buildProps(overrides: Partial<HomeMobileDashboardProps> = {}): HomeMobi
       { label: '在库食材', value: '4', unit: '种', detail: '库存充足', icon: 'leaf', tone: 'green' },
       { label: '需要处理的食材', value: '3', unit: '种', detail: '过期、临期或需要补货', icon: 'bell', tone: 'coral' },
       { label: '待采购', value: '0', unit: '项', detail: '清单已完成', icon: 'cart', tone: 'yellow' },
-      { label: '本周已安排', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
+      { label: '本周已安排餐食', value: '0', unit: '顿', detail: '按家庭节奏规划', icon: 'pot', tone: 'violet' },
     ],
     mobileRecommendations: [],
     recommendationCount: 0,
@@ -357,6 +357,7 @@ describe('HomeMobileDashboard three-question mobile', () => {
     expect(view.textContent).toContain('待处理');
     expect(view.textContent).toContain('本周安排');
     expect(view.textContent).not.toContain('需要处理的食材');
+    expect(view.textContent).not.toContain('本周已安排餐食');
     expect(view.textContent).not.toContain('按家庭节奏规划');
   });
 
@@ -686,6 +687,14 @@ describe('HomeMobileDashboard three-question mobile', () => {
 
     expect(mobileStyles).toMatch(
       /\.mobile-dashboard-badge-row :is\(\.badge, \.ui-status-badge\) \{[^}]*min-width: 0;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    );
+  });
+
+  it('keeps compact stat descriptions on one line', () => {
+    const mobileStyles = readFileSync(resolve(__dirname, '../../styles/home-responsive.css'), 'utf8');
+
+    expect(mobileStyles).toMatch(
+      /\.mobile-dashboard-stat-card p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
     );
   });
 
