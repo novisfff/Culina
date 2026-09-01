@@ -1806,7 +1806,17 @@ input:checked + .family-model-settings-switch-track::after,
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: var(--space-3);
   min-width: 0;
+}
+
+.family-model-settings-test-detail {
+  min-width: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .family-model-settings-test-button {
@@ -3026,6 +3036,11 @@ input:checked + .family-model-settings-switch-track::after,
   .family-model-settings-editor-actions,
   .family-model-settings-binding-test {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .family-model-settings-test-detail {
+    text-align: left;
   }
 
   .family-model-settings-editor-actions .solid-button,
