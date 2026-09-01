@@ -1228,11 +1228,23 @@ def _handoff_profile_pending_vector(
     if not isinstance(snapshot, SearchProfileDocumentSnapshot):
         raise TypeError("search profile document snapshot required")
     with session_factory() as db:
-        job = db.get(SearchIndexJob, job_id)
+        job = db.scalar(
+            select(SearchIndexJob)
+            .where(SearchIndexJob.id == job_id)
+            .with_for_update()
+        )
         if job is None:
             return
         resolved = _profile_job_document(db, job=job, for_update=True)
         if resolved is None:
+            _mark_job_failure_in_session(
+                job,
+                error="索引对象不存在或已删除",
+                error_code="search_index_target_missing",
+                increment_provider_attempt=True,
+                now=utcnow(),
+            )
+            db.commit()
             return
         live_profile, profile_document, _document = resolved
         handoff = prepare_profile_vector_handoff(
@@ -1241,6 +1253,41 @@ def _handoff_profile_pending_vector(
             search_profile=live_profile,
         )
         if handoff is None:
+            # The canonical/profile document changed after the Provider result
+            # was persisted.  Never leave the claimed job in ``running`` and
+            # never attach an old vector to the new content: discard the old
+            # output and let the same job start a fresh attempt.
+            clear_profile_pending_vector(profile_document)
+            if live_profile.status in {
+                FamilyModelSearchProfileStatus.PROVISIONING,
+                FamilyModelSearchProfileStatus.ACTIVE,
+            }:
+                profile_document.status = "pending"
+                profile_document.error_code = None
+                job.usage_attempt_key = None
+                job.usage_event_id = None
+                job.status = "queued"
+                job.vector_status = "pending"
+                job.error = None
+                job.error_code = None
+                _set_job_failure_diagnostics(job, None)
+            else:
+                profile_document.status = "failed"
+                profile_document.error_code = "search_rebuild_paused"
+                _mark_job_failure_in_session(
+                    job,
+                    error="候选搜索索引建立已停止",
+                    error_code="search_rebuild_paused",
+                    increment_provider_attempt=False,
+                    vector_status="skipped",
+                    now=utcnow(),
+                )
+            job.locked_at = None
+            if job.status == "queued":
+                job.completed_at = None
+            job.updated_at = utcnow()
+            refresh_profile_progress(db, profile=live_profile)
+            db.commit()
             return
         db.commit()
     try:

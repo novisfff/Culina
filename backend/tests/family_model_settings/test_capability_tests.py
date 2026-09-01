@@ -11,6 +11,7 @@ from app.services.family_model_settings.capability_tests import (
     CAPABILITY_TEST_RUNNERS,
     _http_probe_request,
 )
+from app.services.family_model_settings.transport import ProviderResponse
 from app.services.family_model_settings.types import (
     ResolvedCapabilityBinding,
     ResolvedProviderEndpoint,
@@ -522,6 +523,35 @@ def test_owner_capability_test_uses_one_ledger_event_and_replays_safe_result(
     forbidden = {"provider", "model", "base_url", "credential", "request_id"}
     assert forbidden.isdisjoint(first.json())
     assert "capability-test-model" not in first.text
+
+
+def test_owner_capability_test_returns_provider_failure_reason(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    _save_active_llm(family_model_api)
+    family_model_api.transport.responses.append(
+        ProviderResponse(
+            status_code=400,
+            headers={"content-type": "application/json"},
+            content='{"error":{"code":"invalid_model","message":"模型不存在或不可用"}}'.encode(),
+        )
+    )
+
+    response = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/llm/test",
+        json={
+            "variant_key": "primary",
+            "confirm_billable": True,
+            "idempotency_key": "capability-test-provider-failure-1",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "failed"
+    assert "HTTP 400" in body["detail"]
+    assert "invalid_model" in body["detail"]
+    assert "模型不存在或不可用" in body["detail"]
 
 
 @pytest.mark.parametrize(
