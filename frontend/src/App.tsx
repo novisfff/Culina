@@ -23,6 +23,7 @@ import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import type { InventoryOperationResult, MealLog, UpdateMealLogPayload } from './api/types';
 import { useAuth } from './auth/AuthContext';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
+import { PageLoadingState } from './components/ui-kit';
 import { getWeekRange } from './lib/date';
 import { businessDateKey } from './lib/date';
 import {
@@ -817,7 +818,7 @@ function App() {
     >
       {/* routes={{...}} is owned by AppWorkspaceRouteComposition. */}
       {/* <AppMealLogWorkspaceRoute foods={foods} /> and upsertInventoryState={(ingredientId, payload) are wired in the route composition. */}
-      <Suspense fallback={<main className="page-stack" aria-label="正在准备工作区"><section className="card page-section"><p>正在准备家庭厨房，请稍候。</p></section></main>}>
+      <Suspense fallback={<PageLoadingState title="家庭厨房" description="页面内容正在加载，请稍候。" eyebrow="正在准备" />}>
         <AppWorkspaceRouteComposition context={routeContext} />
       </Suspense>
 
