@@ -51,7 +51,7 @@ npm run frontend:e2e:p0
 
 ## PR 门禁分类
 
-`quality-gates.yml` 的 `Classify PR Gates` 会根据 PR 改动路径选择业务域门禁：文档改动不运行业务测试；前端 helper/model 运行域测试和 typecheck；页面/状态改动补 build；Search、AI、MySQL、migration 和 deployment 只运行对应分组。响应式、导航和移动端改动补 P0 E2E；共享配置、跨前后端、未知路径和 CI 规则改动 fail-closed 到全量相关门禁。
+`quality-gates.yml` 的 `Classify PR Gates` 会根据 PR 改动路径选择业务域门禁：文档改动不运行业务测试；前端 helper/model 运行域测试和 typecheck；页面/状态改动补 build；Search、AI、MySQL、migration 和 deployment 只运行对应分组。响应式、导航和移动端改动补 P0 E2E；前端公共配置、UI Kit、多前端业务域改动升级为前端全量门禁，后端公共配置和依赖升级为后端全量门禁。只有仓库级配置、跨前后端、未知路径和 CI 规则改动 fail-closed 到全仓库全量门禁。
 
 分类结果由始终运行的 `PR Gate` 汇总。未选中的 Job 必须明确为 skipped，选中的 Job 必须成功；GitHub Ruleset 应只将 `PR Gate` 设为 required。`main` push、merge queue 和手动 workflow 仍运行全量门禁。
 

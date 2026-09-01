@@ -24,6 +24,25 @@ export const GATE_KEYS = Object.freeze([
   'deployment_smokes',
 ]);
 
+const FRONTEND_FULL_GATES = Object.freeze([
+  'frontend_typecheck',
+  'frontend_full',
+  'frontend_style',
+  'frontend_build',
+  'frontend_e2e',
+  'frontend_ai_contract',
+  'frontend_governance',
+  'frontend_release_evidence',
+]);
+const BACKEND_FULL_GATES = Object.freeze([
+  'backend_service',
+  'backend_ai',
+  'ai_evals',
+  'backend_search',
+  'backend_mysql',
+  'backend_migration',
+]);
+
 const RISK_RANK = Object.freeze({ docs: 0, unit: 1, page: 2, high: 3, full: 4 });
 const FULL_FRONTEND_SCOPES = Object.freeze([
   'src/api',
@@ -106,13 +125,32 @@ function elevateRisk(result, risk) {
   if (RISK_RANK[risk] > RISK_RANK[result.risk]) result.risk = risk;
 }
 
-function markFull(result, reason = '无法可靠分类，升级为全量相关门禁') {
+function markRepositoryFull(result, reason = '无法可靠分类，升级为全量相关门禁') {
   elevateRisk(result, 'full');
   result.full = true;
   for (const gate of GATE_KEYS) setGate(result, gate);
   // Focused and full Vitest jobs are mutually exclusive.
   result.gates.frontend_focus = false;
   result.frontendScopes = [...FULL_FRONTEND_SCOPES];
+  if (!result.reasons.includes(reason)) result.reasons.push(reason);
+}
+
+function markFrontendFull(result, reason = '前端公共范围变更，升级为前端全量门禁') {
+  setDomain(result, 'frontend');
+  elevateRisk(result, 'full');
+  result.full = true;
+  for (const gate of FRONTEND_FULL_GATES) setGate(result, gate);
+  // Focused and full Vitest jobs are mutually exclusive.
+  result.gates.frontend_focus = false;
+  result.frontendScopes = [...FULL_FRONTEND_SCOPES];
+  if (!result.reasons.includes(reason)) result.reasons.push(reason);
+}
+
+function markBackendFull(result, reason = '后端公共范围变更，升级为后端全量门禁') {
+  setDomain(result, 'backend-runtime');
+  elevateRisk(result, 'full');
+  result.full = true;
+  for (const gate of BACKEND_FULL_GATES) setGate(result, gate);
   if (!result.reasons.includes(reason)) result.reasons.push(reason);
 }
 
@@ -186,7 +224,7 @@ function classifyFrontendPath(result, path) {
   }
 
   if (path.startsWith('frontend/scripts/')) {
-    markFull(result, '前端构建、预算或门禁脚本变更');
+    markFrontendFull(result, '前端构建、预算或门禁脚本变更');
     return true;
   }
 
@@ -235,13 +273,19 @@ function classifyBackendPath(result, path) {
   return false;
 }
 
-const FULL_REPOSITORY_PATTERNS = Object.freeze([
+const REPOSITORY_FULL_PATTERNS = Object.freeze([
   /^\.github\//,
   /^(?:package(?:-lock)?\.json|tsconfig[^/]*|Makefile|\.nvmrc)$/,
+]);
+
+const FRONTEND_FULL_PATTERNS = Object.freeze([
   /^frontend\/(?:package(?:-lock)?\.json|vite\.config\.|tsconfig|playwright\.config\.)/,
-  /^backend\/(?:requirements[^/]*|pyproject\.toml|alembic\.ini|ci-test-groups\.json)$/,
   /^frontend\/src\/(?:App\.tsx|api\/types\.ts|api\/request\.ts|api\/client\.ts|api\/queryKeys\.ts|api\/cacheInvalidation\.ts|test\/|components\/ui-kit(?:\/|\.))/,
   /^frontend\/src\/styles\/00-ui-kit\.css$/,
+]);
+
+const BACKEND_FULL_PATTERNS = Object.freeze([
+  /^backend\/(?:requirements[^/]*|pyproject\.toml|alembic\.ini|ci-test-groups\.json)$/,
   /^backend\/app\/core\/(?:security|deps|config|enums)\.py$/,
 ]);
 
@@ -270,17 +314,17 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', f
   };
 
   if (eventName !== 'pull_request') {
-    markFull(result, `${eventName} 不是普通 PR，执行完整门禁`);
+    markRepositoryFull(result, `${eventName} 不是普通 PR，执行完整门禁`);
     return result;
   }
 
   if (files.length === 0) {
-    markFull(result, '没有取得 PR 文件列表，按 fail-closed 处理');
+    markRepositoryFull(result, '没有取得 PR 文件列表，按 fail-closed 处理');
     return result;
   }
 
   if (forceFull) {
-    markFull(result, 'PR 使用 full-gates 标记，按请求执行全量门禁');
+    markRepositoryFull(result, 'PR 使用 full-gates 标记，按请求执行全量门禁');
     return result;
   }
 
@@ -293,14 +337,32 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', f
   }
 
   for (const path of nonDocumentationFiles) {
-    if (matchesAny(path, FULL_REPOSITORY_PATTERNS)) {
-      markFull(result, '共享配置、公共契约或 CI 规则变更');
+    if (matchesAny(path, DEPENDENCY_PATTERNS)) {
+      if (path.startsWith('frontend/')) {
+        markFrontendFull(result, '前端依赖清单变更影响前端构建和运行时');
+        setGate(result, 'dependency_audit', '前端依赖清单变更需要生产依赖审计');
+      } else if (path.startsWith('backend/')) {
+        markBackendFull(result, '后端依赖清单变更影响后端构建和运行时');
+        setGate(result, 'dependency_audit', '后端依赖清单变更需要生产依赖审计');
+      } else {
+        markRepositoryFull(result, '根目录依赖清单变更影响整个构建和运行时');
+        setGate(result, 'dependency_audit', '根目录依赖清单变更需要生产依赖审计');
+      }
       continue;
     }
 
-    if (matchesAny(path, DEPENDENCY_PATTERNS)) {
-      markFull(result, '依赖清单变更影响整个构建和运行时');
-      setGate(result, 'dependency_audit');
+    if (matchesAny(path, REPOSITORY_FULL_PATTERNS)) {
+      markRepositoryFull(result, '共享配置、公共契约或 CI 规则变更');
+      continue;
+    }
+
+    if (matchesAny(path, FRONTEND_FULL_PATTERNS)) {
+      markFrontendFull(result, '前端公共配置、契约或 UI Kit 变更');
+      continue;
+    }
+
+    if (matchesAny(path, BACKEND_FULL_PATTERNS)) {
+      markBackendFull(result, '后端公共配置、契约或运行时变更');
       continue;
     }
 
@@ -317,19 +379,19 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', f
         ? classifyBackendPath(result, path)
         : false;
 
-    if (!classified) markFull(result, `未知路径 ${path} 无法安全分类`);
+    if (!classified) markRepositoryFull(result, `未知路径 ${path} 无法安全分类`);
   }
 
   if (result.domains.length > 1 && result.domains.includes('frontend') && result.domains.some((domain) => domain.startsWith('backend'))) {
-    markFull(result, '前后端跨域改动，升级为全量相关门禁');
+    markRepositoryFull(result, '前后端跨域改动，升级为全量相关门禁');
   }
 
   if (result.domains.includes('frontend') && result.frontendScopes.length > 1) {
-    markFull(result, '多个前端业务域同时变更，升级为全量相关门禁');
+    markFrontendFull(result, '多个前端业务域同时变更，升级为前端全量门禁');
   }
 
   if (result.domains.length > 2) {
-    markFull(result, '多个业务域同时变更，升级为全量相关门禁');
+    markRepositoryFull(result, '多个业务域同时变更，升级为全量相关门禁');
   }
 
   return result;
