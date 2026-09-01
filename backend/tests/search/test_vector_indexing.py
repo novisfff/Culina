@@ -194,6 +194,43 @@ def test_profile_worker_uses_immutable_identity_with_expiring_production_session
     assert profile_document is not None and profile_document.status == "indexed"
 
 
+def test_stale_profile_vector_handoff_requeues_job_and_releases_lock() -> None:
+    SessionLocal = session_factory()
+    vector_store = RecordingVectorStore()
+    embedding = CountingEmbeddingClient()
+    with SessionLocal() as db:
+        _seed_profile_job(db, suffix="stale-handoff")
+        db.commit()
+
+    # Simulate a concurrent document edit between the durable Provider result
+    # and the Qdrant handoff.  The live profile document no longer matches the
+    # worker snapshot, so the old vector must be discarded and retried.
+    with patch(
+        "app.services.search.jobs.prepare_profile_vector_handoff",
+        return_value=None,
+    ):
+        with SessionLocal() as db:
+            index_pending_search_documents(
+                db,
+                embedding_client=embedding,
+                vector_store=vector_store,  # type: ignore[arg-type]
+                session_factory=SessionLocal,
+            )
+
+    with SessionLocal() as db:
+        job = db.get(SearchIndexJob, "job-stale-handoff")
+        profile_document = db.get(FamilySearchProfileDocument, "profile-document-stale-handoff")
+
+    assert job is not None
+    assert job.status == "queued"
+    assert job.locked_at is None
+    assert job.completed_at is None
+    assert job.usage_attempt_key is None
+    assert profile_document is not None
+    assert profile_document.status == "pending"
+    assert profile_document.vector_json is None
+
+
 def test_unexpected_profile_worker_exception_is_persisted_instead_of_staying_running() -> None:
     SessionLocal = session_factory()
     with SessionLocal() as db:
