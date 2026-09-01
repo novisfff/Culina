@@ -348,7 +348,7 @@ export function FamilySettings(props: FamilySettingsProps) {
             onClick={() => props.onNavigate({ workspace: 'family', view: 'modelUsage' })}
           >
             <span className="family-model-usage-entry-icon" aria-hidden="true">
-              <DashboardIcon name="bar-chart" />
+              <DashboardIcon name="model-usage" />
             </span>
             <span className="family-model-usage-entry-copy">
               <strong>模型用量</strong>
@@ -366,7 +366,7 @@ export function FamilySettings(props: FamilySettingsProps) {
               onClick={() => props.onNavigate({ workspace: 'family', view: 'aiServices' })}
             >
               <span className="family-model-usage-entry-icon" aria-hidden="true">
-                <DashboardIcon name="shield" />
+                <DashboardIcon name="ai-service" />
               </span>
               <span className="family-model-usage-entry-copy">
                 <strong>AI 服务</strong>

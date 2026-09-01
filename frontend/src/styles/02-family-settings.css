@@ -2034,8 +2034,8 @@
 }
 
 .family-model-usage-entry-icon svg {
-  width: var(--space-5);
-  height: var(--space-5);
+  width: 18px;
+  height: 18px;
 }
 
 .family-model-usage-entry-copy {
@@ -2096,8 +2096,8 @@
 }
 
 .mobile-family-model-usage-entry > span svg {
-  width: var(--space-5);
-  height: var(--space-5);
+  width: 18px;
+  height: 18px;
 }
 
 .mobile-family-model-usage-entry strong {

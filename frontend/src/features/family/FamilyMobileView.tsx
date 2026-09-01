@@ -133,7 +133,7 @@ export function FamilyMobileView(props: {
           type="button"
           onClick={() => props.onNavigate({ workspace: 'family', view: 'modelUsage' })}
         >
-          <span aria-hidden="true"><DashboardIcon name="bar-chart" /></span>
+          <span aria-hidden="true"><DashboardIcon name="model-usage" /></span>
           <strong>模型用量</strong>
           <small>
             {props.isOwner
@@ -147,7 +147,7 @@ export function FamilyMobileView(props: {
             type="button"
             onClick={() => props.onNavigate({ workspace: 'family', view: 'aiServices' })}
           >
-            <span aria-hidden="true"><DashboardIcon name="shield" /></span>
+            <span aria-hidden="true"><DashboardIcon name="ai-service" /></span>
             <strong>AI 服务</strong>
             <small>管理家庭的模型服务、密钥、功能与价格</small>
           </button>
