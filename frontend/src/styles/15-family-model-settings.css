@@ -2573,7 +2573,7 @@ input:checked + .family-model-settings-switch-track::after,
     max-height: var(--app-visual-viewport-layout-height, var(--app-visual-viewport-height, 100dvh));
     margin: 0 auto;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
     overflow: hidden;
     background: var(--bg);
   }
@@ -2897,15 +2897,13 @@ input:checked + .family-model-settings-switch-track::after,
   }
 
   .family-model-settings-mobile-footer {
-    z-index: var(--z-mobile-topbar);
     min-width: 0;
     display: grid;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    margin-top: var(--space-1);
+    padding: var(--space-4) 0 calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line-soft);
-    background: var(--surface-2);
-    backdrop-filter: blur(16px);
-    box-shadow: var(--shadow-sm);
+    background: transparent;
   }
 
   .family-model-settings-mobile-footer > div {
@@ -3249,13 +3247,9 @@ input:checked + .family-model-settings-switch-track::after,
 }
 
 /* The settings surface is a full-screen mobile task, not a tab destination.
- * Keep it on a single background plane and remove the global tab bar so its
- * primary action can never sit underneath fixed navigation. */
+ * Keep it on a single background plane and remove the global tab bar. The
+ * primary action remains in the scroll flow below the task list. */
 @media (max-width: 767px) {
-  .app-shell:has(.family-model-settings-mobile-page) {
-    padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-  }
-
   .family-model-settings-mobile-page {
     width: 100%;
     max-width: 480px;
@@ -3264,30 +3258,5 @@ input:checked + .family-model-settings-switch-track::after,
 
   .family-model-settings-mobile-scroll {
     padding-bottom: var(--space-7);
-  }
-
-  .family-model-settings-mobile-footer {
-    position: fixed;
-    left: 50%;
-    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
-    z-index: calc(var(--z-mobile-topbar) + 1);
-    width: min(calc(100vw - 32px), 448px);
-    margin: 0;
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--surface) 94%, transparent);
-    box-shadow: var(--shadow-md);
-    transform: translateX(-50%);
-    backdrop-filter: blur(14px);
-  }
-
-  .family-model-settings-mobile-footer > div {
-    width: 100%;
-  }
-
-  .family-model-settings-mobile-footer .family-model-settings-mobile-primary-cta {
-    width: 100%;
-    min-height: var(--tap-min);
   }
 }

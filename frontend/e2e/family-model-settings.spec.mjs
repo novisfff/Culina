@@ -78,6 +78,9 @@ for (const viewport of VIEWPORTS) {
       await expect(page.locator('.family-model-settings-mobile-scroll')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-footer')).toBeVisible();
       await expect(page.locator('.family-model-settings-mobile-footer .solid-button')).toBeVisible();
+      await expect(page.locator('.family-model-settings-mobile-scroll > .family-model-settings-mobile-footer')).toHaveCount(1);
+      const footerPosition = await page.locator('.family-model-settings-mobile-footer').evaluate((element) => getComputedStyle(element).position);
+      expect(footerPosition, '移动端主操作应在内容滚动流中，不应悬浮遮挡列表').toBe('static');
     } else {
       await expect(page.getByRole('heading', { name: '家庭 AI 服务', exact: true })).toBeVisible();
       await expect(page.locator('.family-model-settings-desktop')).toBeVisible();
