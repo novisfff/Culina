@@ -42,6 +42,8 @@ export type DashboardIconName =
   | 'more'
   | 'shield'
   | 'bar-chart'
+  | 'model-usage'
+  | 'ai-service'
   | 'link'
   | 'refresh'
   | 'clear'
@@ -359,6 +361,30 @@ export function DashboardIcon(props: { name: DashboardIconName }) {
           <path d="M6 20V10" />
           <path d="M12 20V4" />
           <path d="M18 20v-7" />
+        </IconBase>
+      );
+    case 'model-usage':
+      return (
+        <IconBase>
+          <path d="M5 18.5V5.5" />
+          <path d="M5 18.5h14" />
+          <path d="m8 14 3-3 2.5 2 4.5-5" />
+          <path d="M16 8h2v2" />
+        </IconBase>
+      );
+    case 'ai-service':
+      return (
+        <IconBase>
+          <rect x="5.5" y="5.5" width="13" height="13" rx="3" />
+          <path d="M9 3v2.5" />
+          <path d="M15 3v2.5" />
+          <path d="M9 18.5V21" />
+          <path d="M15 18.5V21" />
+          <path d="M3 9h2.5" />
+          <path d="M18.5 9H21" />
+          <path d="M3 15h2.5" />
+          <path d="M18.5 15H21" />
+          <path d="m12 8.5.8 2.2 2.2.8-2.2.8L12 14.5l-.8-2.2L9 11.5l2.2-.8L12 8.5Z" />
         </IconBase>
       );
     case 'link':

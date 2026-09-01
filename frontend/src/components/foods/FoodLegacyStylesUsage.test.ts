@@ -151,6 +151,14 @@ describe('Food legacy style cleanup', () => {
     expect(mobileStyles).toMatch(/\.food-editor-modal \.food-editor-focus-head \.badge \{[^}]*min-width: max-content;[^}]*white-space: nowrap;/);
   });
 
+  it('uses the canonical large modal width for the desktop food editor', () => {
+    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
+    const editorRule = foodStyles.match(/\.food-editor-modal\.workspace-modal \{([^}]*)\}/)?.[1] ?? '';
+
+    expect(editorRule).not.toContain('1120px');
+    expect(editorRule).not.toContain('width:');
+  });
+
   it('does not keep obsolete food filter toolbar action overrides', () => {
     const foodSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodLibraryFilters.tsx'), 'utf8');
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');

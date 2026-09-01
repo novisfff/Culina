@@ -602,22 +602,6 @@
     flex: 1 1 auto;
   }
 
-  .tabbar {
-    top: 8px;
-  }
-
-  .tabbar-scroll {
-    justify-content: flex-start;
-    padding: 8px;
-    gap: 8px;
-  }
-
-  .tab-button {
-    min-width: auto;
-    padding: 9px 14px;
-    font-size: 0.9rem;
-  }
-
   .page-stack,
   .ingredients-workspace,
   .ingredients-panel,
@@ -969,8 +953,7 @@
     overflow: hidden;
   }
 
-  .app-frame:has(.recipe-workspace-cook-mode) .sidebar-shell,
-  .app-frame:has(.recipe-workspace-cook-mode) .tabbar {
+  .app-frame:has(.recipe-workspace-cook-mode) .sidebar-shell {
     display: none;
   }
 
@@ -4752,4 +4735,91 @@
 /* Family activity modal inherits workspace overlay shell; keep body scroll local. */
 .family-settings-overlay-root .family-activity-viewer-modal .workspace-overlay-body {
   overscroll-behavior: contain;
+}
+
+/* Route entries load this shared sheet after the global responsive layer. Keep
+ * the mobile presentation here as the final source of truth so route-specific
+ * desktop modal rules cannot turn a bottom sheet into an inset card. */
+@media (max-width: 767px) {
+  .workspace-overlay-root {
+    align-items: end;
+    justify-items: stretch;
+    padding: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal,
+  .workspace-overlay-root .workspace-drawer {
+    box-sizing: border-box;
+    align-self: end;
+    justify-self: stretch;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    max-height: min(92dvh, var(--app-visual-viewport-height));
+    margin: 0;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    overflow: hidden;
+    border-radius: 24px 24px 0 0;
+    background: rgba(255, 253, 251, 0.99);
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-head,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-head {
+    flex: 0 0 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 40px 20px 16px;
+    border-bottom: 0;
+    background: #fffdfb;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-body,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 20px 20px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer {
+    flex: 0 0 auto;
+    padding: 10px 20px max(12px, env(safe-area-inset-bottom, 0px));
+    background: #fffdfb;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+    padding: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > button,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > button {
+    grid-column: auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 52px;
+    margin: 0;
+  }
+
+  .workspace-overlay-root .workspace-modal > .workspace-overlay-footer .ui-form-actions-row > .ui-form-actions-spacer,
+  .workspace-overlay-root .workspace-drawer > .workspace-overlay-footer .ui-form-actions-row > .ui-form-actions-spacer {
+    display: none;
+  }
+
+  .workspace-overlay-root .workspace-modal.recipe-plan-modal,
+  .workspace-overlay-root .workspace-drawer.recipe-plan-modal,
+  .workspace-overlay-root .home-plan-add-modal.recipe-plan-modal {
+    width: 100%;
+    max-width: none;
+    border-radius: 24px 24px 0 0;
+  }
 }

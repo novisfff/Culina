@@ -71,8 +71,7 @@
 
 .family-model-settings-section-rail {
   position: sticky;
-  /* Keep the rail below the sticky shell tabbar while app-content scrolls. */
-  top: 83px;
+  top: 0;
   display: grid;
   gap: var(--space-4);
   padding: var(--space-4);
@@ -2563,10 +2562,6 @@ input:checked + .family-model-settings-switch-track::after,
    -------------------------------------------------------------------------- */
 
 @media (max-width: 767px) {
-  .app-shell:has(.family-model-settings-mobile-page) > .mobile-bottom-nav {
-    display: none;
-  }
-
   .family-model-settings-fallback {
     width: min(100%, 480px);
     min-height: 280px;
@@ -2584,7 +2579,7 @@ input:checked + .family-model-settings-switch-track::after,
     max-height: var(--app-visual-viewport-layout-height, var(--app-visual-viewport-height, 100dvh));
     margin: 0 auto;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
     overflow: hidden;
     background: var(--bg);
   }
@@ -2908,15 +2903,13 @@ input:checked + .family-model-settings-switch-track::after,
   }
 
   .family-model-settings-mobile-footer {
-    z-index: var(--z-mobile-topbar);
     min-width: 0;
     display: grid;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    margin-top: var(--space-1);
+    padding: var(--space-4) 0 calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line-soft);
-    background: var(--surface-2);
-    backdrop-filter: blur(16px);
-    box-shadow: var(--shadow-sm);
+    background: transparent;
   }
 
   .family-model-settings-mobile-footer > div {
@@ -3261,5 +3254,20 @@ input:checked + .family-model-settings-switch-track::after,
 
   .family-model-settings-test-spinner {
     animation: none;
+  }
+}
+
+/* The settings surface is a full-screen mobile task, not a tab destination.
+ * Keep it on a single background plane and remove the global tab bar. The
+ * primary action remains in the scroll flow below the task list. */
+@media (max-width: 767px) {
+  .family-model-settings-mobile-page {
+    width: 100%;
+    max-width: 480px;
+    background: transparent;
+  }
+
+  .family-model-settings-mobile-scroll {
+    padding-bottom: var(--space-7);
   }
 }

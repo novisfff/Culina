@@ -313,6 +313,23 @@ describe('AI legacy style cleanup', () => {
     expect(foodStyles).not.toContain('ai-draft-generating-cue');
   });
 
+  it('keeps the AI route wrapper in the desktop height chain so both panes scroll above the composer', () => {
+    const aiStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');
+
+    expect(aiStyles).toMatch(
+      /@media \(min-width: 768px\)[\s\S]*?\.ai-workspace-route-shell\s*\{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/,
+    );
+    expect(aiStyles).toMatch(
+      /\.ai-side-panel \.ai-conversation-list\s*\{[^}]*min-height: 0;[^}]*overflow-y: auto;/s,
+    );
+    expect(aiStyles).toMatch(
+      /\.ai-thread-scroll\s*\{[^}]*min-height: 0;[^}]*overflow-y: auto;/s,
+    );
+    expect(aiStyles).toMatch(
+      /\.ai-composer-dock\s*\{[^}]*position: absolute;[^}]*bottom: 18px;/s,
+    );
+  });
+
   it('keeps AI mobile, composer media, voice, and message action styles out of the food workspace stylesheet', () => {
     const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
     const aiStyles = readFileSync(resolve(repoRoot, 'src/styles/09-ai-workspace.css'), 'utf8');

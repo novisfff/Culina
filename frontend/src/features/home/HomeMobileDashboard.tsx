@@ -26,6 +26,18 @@ function MobileQuestionHeading(props: { title: string; hint?: string }) {
   );
 }
 
+const MOBILE_STAT_COPY: Record<string, { label: string; detail: string }> = {
+  '在库食材': { label: '库存', detail: '库存足' },
+  '需要处理的食材': { label: '待处理', detail: '过期或待补' },
+  '待采购': { label: '待采购', detail: '建议补充' },
+  '本周已安排': { label: '本周安排', detail: '按节奏' },
+  '本周已安排餐食': { label: '本周安排', detail: '按节奏' },
+};
+
+function mobileStatCopy(stat: DashboardStat) {
+  return MOBILE_STAT_COPY[stat.label] ?? { label: stat.label, detail: stat.detail };
+}
+
 function HomeRecommendationCards(props: {
   items: DashboardRecommendation[];
   resolveAssetUrl: (url?: string) => string | undefined;
@@ -88,7 +100,7 @@ function HomeRecommendationCards(props: {
                   }}
                   disabled={props.isQuickAdding || props.isCreatingFoodPlanItem}
                 >
-                  {food.recipe_id ? '开始做' : '加入餐食计划'}
+                  {food.recipe_id ? '开始做' : '加入计划'}
                 </button>
                 <button
                   type="button"
@@ -235,19 +247,22 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
       </section>
 
       <section className="mobile-dashboard-stat-strip" aria-label="厨房状态">
-        {props.dashboardStats.map((item) => (
-          <article key={item.label} className="mobile-dashboard-stat-card" data-testid="mobile-home-stat">
-            <span className={`mobile-dashboard-stat-icon tone-${item.tone}`}>
-              <DashboardIcon name={item.icon} />
-            </span>
-            <span>{item.label}</span>
-            <strong>
-              {item.value}
-              <small>{item.unit}</small>
-            </strong>
-            <p>{item.detail}</p>
-          </article>
-        ))}
+        {props.dashboardStats.map((item) => {
+          const copy = mobileStatCopy(item);
+          return (
+            <article key={item.label} className="mobile-dashboard-stat-card" data-testid="mobile-home-stat">
+              <span className={`mobile-dashboard-stat-icon tone-${item.tone}`}>
+                <DashboardIcon name={item.icon} />
+              </span>
+              <span>{copy.label}</span>
+              <strong>
+                {item.value}
+                <small>{item.unit}</small>
+              </strong>
+              <p>{copy.detail}</p>
+            </article>
+          );
+        })}
       </section>
 
       <section

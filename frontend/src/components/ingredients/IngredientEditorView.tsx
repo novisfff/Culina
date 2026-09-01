@@ -221,8 +221,8 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                     size="large"
                     className="ingredients-quantity-tracking-options"
                     options={[
-                      { value: 'track_quantity', label: '记录具体数量' },
-                      { value: 'not_track_quantity', label: '只记录是否有库存' },
+                      { value: 'track_quantity', label: '记录数量' },
+                      { value: 'not_track_quantity', label: '仅记有无' },
                     ]}
                     value={props.ingredientForm.quantityTrackingMode}
                     onChange={(value) =>
@@ -466,9 +466,9 @@ export function IngredientEditorView(props: IngredientEditorViewProps) {
                   ariaLabel="默认保质期规则"
                   className="ingredients-rule-option-group"
                   options={[
-                    { value: 'none', label: '不设置到期日' },
-                    { value: 'days', label: '买后几天' },
-                    { value: 'manual_date', label: '包装到期日' },
+                    { value: 'none', label: '不设到期' },
+                    { value: 'days', label: '买后天数' },
+                    { value: 'manual_date', label: '包装到期' },
                   ]}
                   value={props.ingredientForm.defaultExpiryMode}
                   onChange={(value) =>

@@ -13,6 +13,21 @@ const staleStorageChoiceClasses = [
 ];
 
 describe('IngredientEditorView style usage', () => {
+  it('keeps quantity tracking choices compact enough for mobile', () => {
+    const editorSource = readFileSync(editorSourcePath, 'utf8');
+
+    expect(editorSource).toContain("label: '记录数量'");
+    expect(editorSource).toContain("label: '仅记有无'");
+    expect(editorSource).toContain("label: '不设到期'");
+    expect(editorSource).toContain("label: '买后天数'");
+    expect(editorSource).toContain("label: '包装到期'");
+    expect(editorSource).not.toContain("label: '记录具体数量'");
+    expect(editorSource).not.toContain("label: '只记录是否有库存'");
+    expect(editorSource).not.toContain("label: '不设置到期日'");
+    expect(editorSource).not.toContain("label: '买后几天'");
+    expect(editorSource).not.toContain("label: '包装到期日'");
+  });
+
   it('uses the shared storage chip group instead of stale storage choice styles', () => {
     const editorSource = readFileSync(editorSourcePath, 'utf8');
     const ingredientsStyleSource = readFileSync(ingredientsStylePath, 'utf8');

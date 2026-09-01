@@ -1,6 +1,5 @@
 @media (max-width: 767px) {
 
-  .tabbar,
   .dashboard-page {
     display: none;
   }
@@ -179,6 +178,75 @@
   .mobile-dashboard-hero > .mobile-dashboard-topbar {
     align-self: start;
     margin: 0 calc(-1 * var(--mobile-dashboard-hero-inline));
+  }
+}
+
+/* Restore the route-owned mobile header geometry.  The compatibility layer
+ * must not widen the header with a second negative inset: each route already
+ * provides its own page padding and the legacy reference uses a 10px header
+ * inset with the 46px brand mark and 38px icon controls. */
+@media (max-width: 767px) {
+  :is(.mobile-food-topbar, .mobile-recipe-topbar, .mobile-ingredient-topbar, .mobile-log-topbar, .mobile-dashboard-topbar, .mobile-family-topbar) {
+    margin: 0;
+    padding: 0 10px;
+    min-height: var(--control-height-touch);
+  }
+
+  .mobile-dashboard-hero > .mobile-dashboard-topbar {
+    margin: 0;
+    padding-top: 14px;
+    padding-inline: 0;
+  }
+
+  :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) {
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+    flex: 0 0 var(--control-height-touch);
+  }
+
+  .mobile-dashboard-page .mobile-dashboard-logo {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+  }
+
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page)
+    :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) {
+    gap: var(--space-3);
+  }
+
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page)
+    :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) strong {
+    font-size: var(--text-md);
+    line-height: 1.2;
+    font-weight: 700;
+  }
+
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page)
+    :is(.mobile-food-brand, .mobile-recipe-brand, .mobile-ingredient-brand, .mobile-log-brand, .mobile-dashboard-brand, .mobile-family-brand) small {
+    margin-top: 2px;
+    font-size: var(--text-xs);
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page)
+    :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) .shell-logo-image {
+    width: 100%;
+    height: 100%;
+  }
+
+  :is(.mobile-food-page, .mobile-recipe-page, .mobile-ingredient-page, .mobile-log-page, .mobile-dashboard-page, .mobile-family-page)
+    :is(.mobile-food-logo, .mobile-recipe-logo, .mobile-ingredient-logo, .mobile-log-logo, .mobile-dashboard-logo, .mobile-family-logo) svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  :is(.mobile-food-top-actions, .mobile-recipe-top-actions, .mobile-ingredient-top-actions, .mobile-log-top-actions, .mobile-dashboard-icon-actions, .mobile-family-top-actions) button {
+    width: var(--tap-min);
+    min-width: var(--tap-min);
+    height: var(--tap-min);
+    min-height: var(--tap-min);
   }
 }
 

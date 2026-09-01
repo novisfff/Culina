@@ -10,5 +10,6 @@ describe('FoodWorkspace editor overlay ownership', () => {
     expect(workspace).not.toContain('<FoodEditorForm');
     expect(overlay).toContain('export function FoodWorkspaceEditorOverlay');
     expect(overlay).toContain('closeOnBackdrop={!props.isSavingFood}');
+    expect(overlay).toContain('size="large"');
   });
 });

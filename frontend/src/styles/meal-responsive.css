@@ -363,6 +363,48 @@
 
 }
 
+/* Keep the record page header in the established mobile reading order even
+ * when the base meal-log sheet is loaded by a lazy route. */
+@media (max-width: 767px) {
+  .mobile-log-topbar {
+    min-height: var(--control-height-touch);
+  }
+
+  .mobile-log-brand {
+    min-width: 0;
+  }
+
+  .mobile-log-top-actions {
+    flex: 0 0 auto;
+    gap: var(--space-3);
+  }
+
+  .mobile-log-top-actions .mobile-notification-center,
+  .mobile-log-top-actions .app-notification-trigger {
+    flex: 0 0 var(--tap-min);
+  }
+
+  .mobile-log-hero {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-7) var(--space-7) var(--space-3);
+  }
+
+  .mobile-log-primary-cta {
+    width: 100%;
+    min-height: var(--control-height-touch);
+    border-radius: var(--radius-pill);
+    background: var(--brand-button-bg);
+    box-shadow: var(--brand-button-shadow);
+    font-size: var(--text-md);
+    font-weight: 700;
+  }
+
+  .mobile-log-primary-cta svg {
+    flex: 0 0 18px;
+  }
+}
+
 @media (max-width: 767px) {
 
   .workspace-overlay-root .workspace-modal.meal-log-preview-modal > .workspace-overlay-head > .workspace-overlay-close {
