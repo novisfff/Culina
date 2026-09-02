@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { StateBlock } from '../../components/ui-kit';
+import { PageLoadingState, StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
   FamilyModelDraftValidation,
@@ -342,12 +342,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   }
 
   if (queries.isInitialLoading || !queries.settings || !serverDraft) {
-    return (
-      <main className="family-model-settings-fallback" aria-labelledby="family-model-settings-loading-title">
-        <h1 id="family-model-settings-loading-title">家庭 AI 服务</h1>
-        <StateBlock status="loading" title="正在加载家庭 AI 服务" description="正在读取当前家庭设置。" />
-      </main>
-    );
+    return <PageLoadingState title="家庭 AI 服务" description="正在读取当前家庭设置。" className="family-model-settings-page-loading" />;
   }
 
   const surfaceProps = {
@@ -388,7 +383,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   };
 
   return (
-    <Suspense fallback={<main className="family-model-settings-fallback" aria-label="家庭 AI 服务"><StateBlock status="loading" title="正在准备家庭 AI 服务" description="正在加载设置界面。" /></main>}>
+    <Suspense fallback={<PageLoadingState title="家庭 AI 服务" description="正在加载设置界面。" eyebrow="正在准备" className="family-model-settings-page-loading" />}>
       {props.isPhoneViewport
         ? <FamilyModelSettingsMobilePage {...surfaceProps} />
         : <FamilyModelSettingsDesktopView {...surfaceProps} />}

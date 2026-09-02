@@ -3,7 +3,7 @@ import type {
   ModelUsageGroupBy,
 } from '../../api/types/modelUsage';
 import { DashboardIcon } from '../../app/shellIcons';
-import { DropdownSelect, StateBlock } from '../../components/ui-kit';
+import { DropdownSelect, PageLoadingState, StateBlock } from '../../components/ui-kit';
 import { modelUsageGroupOptions } from './modelUsageOptions';
 import {
   ModelUsageAttention,
@@ -117,7 +117,7 @@ function MobileBreakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | '
 
 export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
   if (props.model.state === 'loading') {
-    return <main className="model-usage-workspace model-usage-mobile model-usage-mobile-state"><StateBlock status="loading" title="正在加载模型用量" description="正在核对本统计周期的费用和用量明细。" /></main>;
+    return <PageLoadingState title="模型用量" eyebrow={props.scope === 'family' ? '正在加载家庭' : '正在加载我的'} description="正在核对本统计周期的费用和用量明细。" className="model-usage-page-loading" />;
   }
   if (props.model.state === 'error') {
     return <main className="model-usage-workspace model-usage-mobile model-usage-mobile-state"><StateBlock status="error" title="模型用量加载失败" description={props.model.errorMessage} actionLabel="重新加载" onAction={props.actions.retry} /></main>;

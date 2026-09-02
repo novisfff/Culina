@@ -2,7 +2,7 @@ import type {
   ModelUsageBreakdownItem,
   ModelUsageGroupBy,
 } from '../../api/types/modelUsage';
-import { DropdownSelect, StateBlock } from '../../components/ui-kit';
+import { DropdownSelect, PageLoadingState, StateBlock } from '../../components/ui-kit';
 import { DashboardIcon } from '../../app/shellIcons';
 import { modelUsageGroupOptions } from './modelUsageOptions';
 import {
@@ -127,11 +127,7 @@ function Breakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | 'scope'
 
 export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
   if (props.model.state === 'loading') {
-    return (
-      <main className="model-usage-workspace model-usage-desktop">
-        <StateBlock status="loading" title="正在加载模型用量" description="正在核对本统计周期的费用和用量明细。" />
-      </main>
-    );
+    return <PageLoadingState title="模型用量" eyebrow={props.scope === 'family' ? '正在加载家庭' : '正在加载我的'} description="正在核对本统计周期的费用和用量明细。" className="model-usage-page-loading" />;
   }
   if (props.model.state === 'error') {
     return (

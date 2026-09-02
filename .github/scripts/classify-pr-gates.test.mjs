@@ -80,6 +80,29 @@ describe('classifyChangedFiles', () => {
     assert.deepEqual(api.frontendScopes, ['src/api']);
   });
 
+  it('keeps frontend-wide gates isolated from backend tests', () => {
+    const uiKit = classifyChangedFiles(['frontend/src/components/ui-kit/PageLoadingState.tsx']);
+    assert.equal(uiKit.full, true);
+    assert.deepEqual(uiKit.domains, ['frontend']);
+    assert.equal(uiKit.gates.frontend_full, true);
+    assert.equal(Object.entries(uiKit.gates).some(([gate, selected]) => gate.startsWith('backend_') && selected), false);
+    assert.equal(uiKit.gates.ai_evals, false);
+
+    const globalStyles = classifyChangedFiles(['frontend/src/styles/00-ui-kit.css']);
+    assert.equal(globalStyles.gates.frontend_full, true);
+    assert.equal(globalStyles.gates.backend_service, false);
+    assert.equal(globalStyles.gates.backend_migration, false);
+
+    const multiScope = classifyChangedFiles([
+      'frontend/src/features/inventory/InventoryWorkspace.tsx',
+      'frontend/src/components/ingredients/IngredientWorkspace.tsx',
+    ]);
+    assert.equal(multiScope.full, true);
+    assert.equal(multiScope.gates.frontend_full, true);
+    assert.equal(Object.entries(multiScope.gates).some(([gate, selected]) => gate.startsWith('backend_') && selected), false);
+    assert.equal(multiScope.gates.ai_evals, false);
+  });
+
   it('fails closed for unknown and cross-domain changes', () => {
     const unknown = classifyChangedFiles(['scripts/release-something.sh']);
     assert.equal(unknown.full, true);
@@ -103,8 +126,16 @@ describe('classifyChangedFiles', () => {
     const result = classifyChangedFiles(['backend/requirements.txt']);
     assert.equal(result.docsOnly, false);
     assert.equal(result.full, true);
+    assert.equal(result.domains.includes('backend-runtime'), true);
     assert.equal(result.gates.dependency_audit, true);
     assert.equal(result.gates.backend_service, true);
+
+    const frontend = classifyChangedFiles(['frontend/package-lock.json']);
+    assert.equal(frontend.full, true);
+    assert.equal(frontend.gates.frontend_full, true);
+    assert.equal(frontend.gates.dependency_audit, true);
+    assert.equal(frontend.gates.backend_service, false);
+    assert.equal(frontend.gates.backend_ai, false);
   });
 
   it('allows a full-gates label to override normal PR classification', () => {

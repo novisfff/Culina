@@ -3,7 +3,7 @@ import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../..
 import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import { DashboardIcon, ShellIcon, type DashboardIconName } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
-import { Avatar, Badge, StateBlock, StatusBadge } from '../../components/ui-kit';
+import { Avatar, Badge, PageLoadingState, StateBlock, StatusBadge } from '../../components/ui-kit';
 import { formatDateTime } from '../../lib/ui';
 import {
   FamilyEditModal,
@@ -155,11 +155,7 @@ export function FamilySettings(props: FamilySettingsProps) {
   const previewLogs = props.activityQuery.data ?? [];
 
   if (props.isLoading) {
-    return (
-      <main className="family-workspace">
-        <StateBlock status="loading" title="正在加载家庭信息" description="正在同步家庭成员与饮食偏好。" />
-      </main>
-    );
+    return <PageLoadingState title="家庭信息" description="正在同步家庭成员与饮食偏好。" className="family-page-loading" />;
   }
 
   if (props.errorMessage) {
