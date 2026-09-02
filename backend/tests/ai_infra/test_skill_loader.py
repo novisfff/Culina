@@ -2,6 +2,36 @@ from ._support import *
 from app.services.ai_operations.registry import draft_operation_registry
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
+
+
+def test_ai_standards_document_policy_commit_gate_and_revert_contract() -> None:
+    text = (REPO_ROOT / "docs" / "ai-assistant-standards.md").read_text(encoding="utf-8")
+
+    assert "draft_then_policy" in text
+    assert "requires_confirmation=True" in text
+    assert "模型不获得正式 Write Tool" in text
+    assert "每条用户消息最多一个免确认 Draft" in text
+    assert "逐值验证" in text
+    assert "pending_retry 不重新调用模型" in text
+    assert "撤销通过 HTTP 响应" in text
+    assert "1 小时" in text
+    assert "原执行人或当前 Owner" in text
+    assert "inventory.operation_ref.v1" in text
+    assert "Composite 与 Continuation 始终人工确认" in text
+
+    for path in (
+        REPO_ROOT / "docs" / "backend-code-standards.md",
+        REPO_ROOT / "AGENTS.md",
+    ):
+        source_text = path.read_text(encoding="utf-8")
+        assert "draft -> server policy commit gate -> service commit" in source_text
+        assert "draft_then_confirm" in source_text
+        assert "draft_then_policy" in source_text
+        assert "模型" in source_text and "Write Tool" in source_text
+        assert "draft -> approval -> commit" not in source_text
+        assert "draft -> approval -> service commit" not in source_text
+        assert "用户确认后由 service 执行正式写入" not in source_text
 
 
 def test_ai_assistant_standard_documents_cross_skill_product_loops() -> None:
@@ -79,7 +109,7 @@ class AISkillLoaderTestCase(AIAgentInfraTestCase):
                 self.assertTrue(set(declared_tool_names).issubset(tool_names), f"{key} declares unknown tools")
                 declared_tools = [tool_registry.get(name) for name in declared_tool_names]
                 approval_policy = runtime.get("approval_policy")
-                self.assertIn(approval_policy, {"none", "draft_then_confirm"})
+                self.assertIn(approval_policy, {"none", "draft_then_confirm", "draft_then_policy"})
                 if approval_policy == "none":
                     self.assertTrue(all(tool.side_effect in {"read", "control"} for tool in declared_tools), f"{key} exposes unsupported tools without approval")
                     self.assertEqual(runtime.get("draft_types", []), [])

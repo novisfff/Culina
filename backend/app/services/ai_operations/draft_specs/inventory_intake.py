@@ -1,12 +1,43 @@
 from __future__ import annotations
 
+from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
 from app.services.ai_operations.draft_specs.common import _spec
 from app.services.ai_operations.inventory_intake import (
     execute_inventory_intake_draft,
+    is_pure_inventory_intake_payload,
     normalize_inventory_intake_draft,
     validate_inventory_intake_approval_value,
 )
-from app.services.ai_operations.registry_types import DraftOperationSpec, DraftResultMetadata
+from app.services.ai_operations.registry_types import DraftExecuteContext, DraftOperationSpec, DraftResultMetadata
+
+
+def _execute(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    business_entity, entity_ids = execute_inventory_intake_draft(context)
+    items = [item for item in business_entity.get("items") or [] if isinstance(item, dict)]
+    scopes: list[AICacheScope] = []
+    if any(item.get("food_id") for item in items):
+        scopes.append("food")
+    if any(item.get("shopping_item_id") for item in items):
+        scopes.append("shopping_list")
+    scopes.extend(("inventory", "ai_conversation"))
+    pure_inventory = is_pure_inventory_intake_payload(context.payload)
+    inventory_operation_id = business_entity.get("operation_id")
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(sorted(entity_ids)),
+        cache_scopes=tuple(scopes),
+        revert_adapter_key=(
+            "inventory.operation_ref.v1" if pure_inventory and inventory_operation_id else None
+        ),
+        revert_context=(
+            {
+                "schema_version": 1,
+                "inventory_operation_id": inventory_operation_id,
+            }
+            if pure_inventory and inventory_operation_id
+            else None
+        ),
+    )
 
 
 def _preview(payload: dict) -> str:
@@ -26,7 +57,7 @@ def inventory_intake_operation_specs() -> list[DraftOperationSpec]:
         _spec(
             "inventory_intake",
             normalize=normalize_inventory_intake_draft,
-            execute=execute_inventory_intake_draft,
+            execute=_execute,
             preview_summary=_preview,
             validate_approval_value=validate_inventory_intake_approval_value,
             result_metadata=DraftResultMetadata(

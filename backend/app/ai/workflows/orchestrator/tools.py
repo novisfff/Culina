@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.ai.errors import ToolBudgetHardStop
+from app.ai.errors import ToolBudgetHardStop, ToolExecutionError
+from app.ai.observability import error_codes
 from app.ai.skills.base import SkillContext
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.draft_capture import (
@@ -31,6 +32,11 @@ from app.ai.workflows.runner_support.run_summary import (
     record_route_selection,
     record_tool_budget_exhausted,
 )
+from app.services.ai_auto_execution.intent_evidence import (
+    trusted_sources_from_current_ui_subject,
+    trusted_sources_from_human_input_result,
+    trusted_sources_from_tool_output,
+)
 
 
 _IDENTITY_REJECTION_CODES = {
@@ -58,6 +64,20 @@ class OrchestratorToolGateway:
         self.context = context
         self.injection_manager = injection_manager
         self.state = state
+        self.state.trusted_resolution_sources.update(
+            trusted_sources_from_current_ui_subject(
+                subject=context.subject if isinstance(context.subject, dict) else {},
+                family_id=context.family_id,
+            )
+        )
+        for artifact in context.current_run_artifacts:
+            if isinstance(artifact, dict):
+                self.state.trusted_resolution_sources.update(
+                    trusted_sources_from_human_input_result(
+                        artifact=artifact,
+                        family_id=context.family_id,
+                    )
+                )
 
     def refresh_tools(self) -> list[ToolDefinition]:
         self.context.ensure_active()
@@ -138,6 +158,9 @@ class OrchestratorToolGateway:
         if name in self.state.current_script_executors:
             definition = self.state.current_tool_definitions[name]
             output = self.state.current_script_executors[name].call(name, payload, progress_event_id=progress_event_id)
+            output = self._attach_intent_evidence_source(
+                name, definition.side_effect, output, tool_call_id=tool_call_id
+            )
             self._capture_tool_contract_metadata(name, definition.side_effect, output, definition=definition)
             return output
         if self.state.current_scoped_executor is None:
@@ -164,7 +187,7 @@ class OrchestratorToolGateway:
                 injection_manager=self.injection_manager,
                 capability_policy=self.state.capability_policy,
             )
-        except Exception:
+        except Exception as exc:
             if "continuation" in runtime_payload:
                 workflow_id = (
                     str(raw_continuation.get("workflowId") or "").strip()
@@ -178,7 +201,17 @@ class OrchestratorToolGateway:
                         or f"invalid:{tool_call_id or f'{self.context.run_id}:{name}'}"
                     ),
                 )
-            raise
+            if isinstance(exc, ToolExecutionError):
+                raise
+            # Payload preparation is part of the tool's input contract, even
+            # though it runs before ToolExecutor.call(). Preserve specialized
+            # continuation codes and classify ordinary malformed payloads so
+            # the provider can give the model an actionable correction signal.
+            error_code = str(getattr(exc, "code", "") or "") or error_codes.TOOL_INPUT_VALIDATION_FAILED
+            raise ToolExecutionError(
+                str(exc) or f"{name} 输入参数校验失败",
+                code=error_code,
+            ) from exc
         budget_decision = evaluate_tool_budget(
             state=self.state,
             historical_record_count=len(self.context.tool_executor.records()),
@@ -269,15 +302,46 @@ class OrchestratorToolGateway:
             )
         self.state.tool_signatures_this_call.append(budget_decision.signature)
         self.context.ensure_active()
+        output = self._attach_intent_evidence_source(
+            name, execution_definition.side_effect, output, tool_call_id=tool_call_id
+        )
         self._capture_tool_output(
             name,
             execution_definition.side_effect,
             prepared_payload.payload,
             output,
             prepared_payload.continuation,
+            tool_call_id=tool_call_id,
             definition=runtime_definition,
         )
         return output
+
+    def _attach_intent_evidence_source(
+        self,
+        name: str,
+        side_effect: str,
+        output: dict[str, Any],
+        *,
+        tool_call_id: str | None,
+    ) -> dict[str, Any]:
+        if side_effect != "read" or not tool_call_id or not isinstance(output, dict):
+            return output
+        sources = trusted_sources_from_tool_output(
+            tool_name=name,
+            tool_call_id=tool_call_id,
+            output=output,
+            family_id=self.context.family_id,
+        )
+        source = sources.get(str(tool_call_id))
+        if source is None:
+            return output
+        return {
+            **output,
+            "_intentEvidenceSource": {
+                "kind": source.kind,
+                "referenceId": source.reference_id,
+            },
+        }
 
     def _with_contextual_tool_payload(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         if name != "ui.propose_actions":
@@ -326,11 +390,20 @@ class OrchestratorToolGateway:
         output: dict[str, Any],
         continuation: dict[str, Any],
         *,
+        tool_call_id: str | None = None,
         definition: ToolDefinition | None = None,
     ) -> None:
         self._capture_tool_contract_metadata(name, side_effect, output, definition=definition)
         if side_effect == "read":
             self.state.read_outputs.setdefault(name, []).append(output)
+            self.state.trusted_resolution_sources.update(
+                trusted_sources_from_tool_output(
+                    tool_name=name,
+                    tool_call_id=tool_call_id,
+                    output=output,
+                    family_id=self.context.family_id,
+                )
+            )
         card = output.get("card") if isinstance(output.get("card"), dict) else None
         if card is not None:
             card_type = str(card.get("type") or "")
@@ -355,6 +428,9 @@ class OrchestratorToolGateway:
             output=output,
             continuation=continuation,
             progressive_draft_publisher=self.context.progressive_draft_publisher,
+            current_message=self.context.current_message,
+            family_id=self.context.family_id,
+            trusted_resolution_sources=self.state.trusted_resolution_sources,
         )
 
     def _capture_tool_contract_metadata(

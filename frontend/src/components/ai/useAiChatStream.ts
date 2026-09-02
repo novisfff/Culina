@@ -36,8 +36,19 @@ export function useAiChatStream(context: StreamMutationContext) {
       }
       const conversationId = payload.conversation_id ?? conversationKey;
       if (handleInaccessibleStreamError(context, error, conversationId)) throw error;
+      let operationResultPersisted = context.hasSuccessfulOperationResultForRun(payload.client_run_id);
+      if (!operationResultPersisted) {
+        try {
+          await context.refreshAfterApprovalSettled();
+          operationResultPersisted = context.hasSuccessfulOperationResultForRun(payload.client_run_id);
+        } catch {
+          // A failed refresh must not hide the original stream error.
+        }
+      }
       context.stopThinking(payload.client_run_id);
-      context.markStreamingAssistantStopped(payload.client_run_id, `AI 处理失败：${context.streamFailureMessage(error)}`);
+      if (!operationResultPersisted) {
+        context.markStreamingAssistantStopped(payload.client_run_id, `AI 处理失败：${context.streamFailureMessage(error)}`);
+      }
       throw error;
     } finally {
       context.stopThinking(payload.client_run_id);

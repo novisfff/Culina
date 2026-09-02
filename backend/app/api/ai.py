@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_auth, require_owner
+from app.core.utils import utcnow
 from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import (
@@ -79,6 +80,7 @@ from app.services.ai_client_projection import (
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
 from app.services.ai_quality import build_ai_quality_metrics
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
+from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
 from app.services.family_model_settings.status import project_member_safe_ai_status
 from app.services.media_access_projection import rehydrate_media_access
 
@@ -518,7 +520,11 @@ def list_ai_messages(
             .order_by(AIMessage.created_at.asc())
         )
     )
-    serialized_messages = [serialize_ai_message(item) for item in messages]
+    response_now = utcnow()
+    serialized_messages = [
+        serialize_ai_message(item, response_now=response_now)
+        for item in messages
+    ]
     overlaid = live_ai_stream_cache.overlay_messages(
         family_id=membership.family_id,
         conversation_id=conversation_id,
@@ -528,7 +534,13 @@ def list_ai_messages(
     return rehydrate_media_access(
         db,
         family_id=membership.family_id,
-        payload=[project_ai_message(item, capabilities) for item in overlaid],
+        payload=[
+            hydrate_operation_result_server_now(
+                project_ai_message(item, capabilities),
+                response_now,
+            )
+            for item in overlaid
+        ],
     )
 
 
@@ -1026,10 +1038,14 @@ def decide_ai_approval(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     commit_session(db)
     set_ai_client_aware_headers(response)
+    response_now = utcnow()
     return rehydrate_media_access(
         db,
         family_id=membership.family_id,
-        payload=project_ai_decision_response(result, capabilities),
+        payload=hydrate_operation_result_server_now(
+            project_ai_decision_response(result, capabilities),
+            response_now,
+        ),
     )
 
 

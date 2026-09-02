@@ -1,4 +1,77 @@
-import type { AiApprovalRequest, AiChatResponse, AiMessage, AiMessagePart, AiRunEvent } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiMessage, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
+
+/**
+ * Operation-result cards are the durable user-facing acknowledgement of an
+ * approved write.  A stream can still report a transport/provider error after
+ * this card has been persisted, so callers must be able to recognize the
+ * successful card independently of the transient message/run status.
+ */
+export function isSuccessfulOperationResultCard(card: AiResultCard | null | undefined) {
+  if (!card || card.type !== 'operation_result' || !card.data) return false;
+  const data = card.data as Record<string, unknown>;
+  const resultStatus = String(data.result_status ?? data.resultStatus ?? '').toLowerCase();
+  const operationStatus = String(data.operation_status ?? data.operationStatus ?? '').toLowerCase();
+  if (resultStatus === 'failed' || operationStatus === 'failed') return false;
+  // ``result_status=completed`` can coexist with ``operation_status=pending``
+  // while a write is still being committed. Do not let that transient card
+  // suppress a genuine stream failure.
+  if (operationStatus === 'pending') return false;
+  if (resultStatus || operationStatus) {
+    return resultStatus === 'completed'
+      || resultStatus === 'no_change'
+      || resultStatus === 'reverted'
+      || operationStatus === 'completed'
+      || operationStatus === 'reverted';
+  }
+  // Legacy trusted cards did not always include the canonical status fields.
+  return true;
+}
+
+export function hasSuccessfulOperationResult(message: AiMessage | null | undefined) {
+  return Boolean(message?.parts.some((part) => (
+    part.type === 'result_card' && isSuccessfulOperationResultCard(part.card)
+  )));
+}
+
+function comparableOperationResultText(value: unknown) {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[，。！？；：,.!?;:]+$/g, '');
+}
+
+/**
+ * Operation-result cards are the canonical presentation for an approved
+ * write. Older streams can also persist the same acknowledgement as one or
+ * more text parts (often with different ids or punctuation), which makes the
+ * confirmation appear twice. Remove only exact copies of text owned by a
+ * successful operation card; ordinary short replies such as “好的。” remain
+ * untouched.
+ */
+export function operationResultDisplayParts(parts: AiMessagePart[]) {
+  const cardOwnedTexts = new Set<string>();
+  for (const part of parts) {
+    if (part.type !== 'result_card') continue;
+    const card = part.card;
+    if (!card || !isSuccessfulOperationResultCard(card)) continue;
+    const data = card.data as Record<string, unknown>;
+    for (const key of ['actionSummary', 'execution_explanation']) {
+      const normalized = comparableOperationResultText(data[key]);
+      if (normalized) cardOwnedTexts.add(normalized);
+    }
+  }
+  if (cardOwnedTexts.size === 0) return parts;
+  let changed = false;
+  const nextParts = parts.filter((part) => {
+    if (part.type !== 'text') return true;
+    const normalized = comparableOperationResultText(part.text);
+    if (!normalized || !cardOwnedTexts.has(normalized)) return true;
+    changed = true;
+    return false;
+  });
+  return changed ? nextParts : parts;
+}
 
 type MergeMessageOptions = {
   preferLocalOrder?: boolean;
@@ -266,8 +339,15 @@ function dedupeTextParts(parts: AiMessagePart[]) {
 function mergeMessageStatus(remote: AiMessage, local: AiMessage, parts: AiMessagePart[]) {
   if (parts.some((part) => part.type === 'approval_request' && part.approval?.status === 'pending')) return 'waiting_approval';
   if (parts.some(isPendingHumanInputPart)) return 'waiting_input';
-  if (remote.status === 'failed' || local.status === 'failed') return 'failed';
-  if (remote.status === 'cancelled' || local.status === 'cancelled') return 'cancelled';
+  const hasSuccessfulResult = parts.some((part) => (
+    part.type === 'result_card' && isSuccessfulOperationResultCard(part.card)
+  ));
+  if (remote.status === 'cancelled' || local.status === 'cancelled') {
+    return hasSuccessfulResult ? 'completed' : 'cancelled';
+  }
+  if (remote.status === 'failed' || local.status === 'failed') {
+    return hasSuccessfulResult ? 'completed' : 'failed';
+  }
   if (remote.status === 'completed' || local.status === 'completed') return 'completed';
   if (remote.status === 'running' || local.status === 'running') return 'running';
   return remote.status || local.status;

@@ -18,6 +18,10 @@ function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: strin
   });
 }
 
+function countText(value: string, target: string) {
+  return value.split(target).length - 1;
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -134,6 +138,13 @@ async function advanceTimers(ms: number) {
 }
 
 describe('AiWorkspace pending approval restore', () => {
+  it('renders the conversation when legacy auto-execution view is requested', async () => {
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} view="autoExecution" />);
+    await flushAsync();
+    expect(rendered.container.querySelector('.ai-auto-execution-desktop-panel')).toBeNull();
+    expect(rendered.container.textContent).toContain('AI 厨房助手');
+    rendered.unmount();
+  });
   it('defaults to collapsed history on iPad width even when desktop preference is expanded', async () => {
     setViewportWidth(1180);
     window.localStorage.setItem('ai_sidebar_collapsed', 'false');
@@ -981,6 +992,138 @@ describe('AiWorkspace pending approval restore', () => {
 
     expect(rendered.container.textContent).toContain('AI 服务暂时不可用，请稍后重试。');
     expect(Array.from(rendered.container.querySelectorAll<HTMLTextAreaElement>('.ai-composer textarea')).every((textarea) => textarea.disabled)).toBe(true);
+    rendered.unmount();
+  });
+
+  it('does not append a stream failure after a successful operation result was received', async () => {
+    const pending = approval();
+    const approved = {
+      ...pending,
+      status: 'approved' as const,
+      decision: 'approved' as const,
+      submitted_values: pending.initial_values,
+    };
+    const pendingMessage: AiMessage = {
+      id: 'message-1',
+      conversation_id: 'conversation-1',
+      role: 'assistant',
+      content: '菜谱草稿已经生成，请确认。',
+      content_type: 'parts',
+      parts: [
+        { id: 'text-1', type: 'text', text: '菜谱草稿已经生成，请确认。' },
+        { id: 'approval-part-1', type: 'approval_request', approval: pending },
+      ],
+      run_id: 'run-1',
+      status: 'waiting_approval',
+      metadata: {},
+      created_at: '2026-05-30T00:00:00Z',
+    };
+    const operationCard: AiResultCard = {
+      id: 'operation-result-card-1',
+      type: 'operation_result',
+      title: '已收藏番茄炒蛋',
+      data: {
+        draft_id: pending.draft_id,
+        operation_id: 'operation-1',
+        result_status: 'completed',
+        execution_mode: 'manual_approval',
+        operation_status: 'completed',
+        execution_explanation: '已按你的确认执行。',
+        revert_availability: 'unsupported',
+        revertible_until: null,
+        revert_blocked_code: null,
+        server_now: '2026-05-30T00:00:00Z',
+        entities: [{ id: 'food-1', label: '番茄炒蛋', operation: 'set_favorite', operationLabel: '收藏' }],
+        cache_scopes: ['food', 'ai_conversation'],
+        approvalId: pending.id,
+        actionSummary: '已按你的确认执行。',
+        entityCount: 1,
+        entityCountLabel: '1 项内容',
+        workspaceLabel: '食物库',
+        workspaceHint: '可前往食物库查看',
+      },
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([pendingMessage]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([pending]);
+    vi.spyOn(api, 'streamAiApprovalDecision').mockImplementation(async (_conversationId, _approvalId, _payload, handlers) => {
+      handlers?.onMessagePart?.({
+        message_id: pendingMessage.id,
+        conversation_id: pendingMessage.conversation_id,
+        run_id: pendingMessage.run_id ?? undefined,
+        part: { id: 'operation-result-part-1', type: 'result_card', card: operationCard },
+      });
+      throw new Error('AI 工作台暂时无法完成这次请求，请稍后重试。');
+    });
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+      await Promise.resolve();
+    });
+    await flushAsync();
+    await flushAsync();
+
+    expect(rendered.container.textContent).toContain('已收藏番茄炒蛋');
+    expect(rendered.container.textContent).not.toContain('AI 工作台暂时无法完成这次请求，请稍后重试。');
+    expect(rendered.container.textContent).not.toContain('AI 处理失败');
+    rendered.unmount();
+  });
+
+  it('renders a repeated approval acknowledgement only through the operation card', async () => {
+    const message: AiMessage = {
+      id: 'message-duplicate-acknowledgement',
+      conversation_id: 'conversation-1',
+      role: 'assistant',
+      content: '已按你的确认执行。\n\n已按你的确认执行',
+      content_type: 'parts',
+      parts: [
+        { id: 'approval-summary-a', type: 'text', text: '已按你的确认执行。' },
+        { id: 'approval-summary-b', type: 'text', text: '已按你的确认执行' },
+        {
+          id: 'operation-result-part-duplicate-acknowledgement',
+          type: 'result_card',
+          card: {
+            id: 'operation-result-card-duplicate-acknowledgement',
+            type: 'operation_result',
+            title: '已更新收藏状态',
+            data: {
+              draft_id: 'draft-duplicate-acknowledgement',
+              operation_id: 'operation-duplicate-acknowledgement',
+              result_status: 'completed',
+              execution_mode: 'manual_approval',
+              operation_status: 'completed',
+              execution_explanation: '已按你的确认执行。',
+              revert_availability: 'unsupported',
+              revertible_until: null,
+              revert_blocked_code: null,
+              server_now: '2026-05-30T00:00:00Z',
+              entities: [{ id: 'food-duplicate-acknowledgement', label: '板栗烧鸡', operation: 'set_favorite', operationLabel: '收藏' }],
+              cache_scopes: ['food', 'ai_conversation'],
+              actionSummary: '已按你的确认执行。',
+              entityCount: 1,
+              entityCountLabel: '1 项内容',
+              workspaceLabel: '食物库',
+              workspaceHint: '可前往食物库查看',
+            },
+          } as AiResultCard,
+        },
+      ],
+      run_id: 'run-duplicate-acknowledgement',
+      status: 'completed',
+      metadata: {},
+      created_at: '2026-05-30T00:00:00Z',
+    };
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([message]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[conversation()]} isLoading={false} />);
+    await flushAsync();
+
+    const desktopView = rendered.container.querySelector('.ai-desktop-view') as HTMLElement;
+    expect(desktopView.querySelectorAll('.ai-message-text-block')).toHaveLength(0);
+    expect(desktopView.querySelectorAll('.ai-query-reason')).toHaveLength(1);
+    expect(countText(desktopView.textContent ?? '', '已按你的确认执行。')).toBe(1);
     rendered.unmount();
   });
 

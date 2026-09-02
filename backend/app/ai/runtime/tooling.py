@@ -47,9 +47,13 @@ def invoke_tool_handler(
 
 
 def tool_error_message(name: str, exc: Exception) -> dict[str, Any]:
+    # Keep the executor/handler's machine-readable category intact so the
+    # model can distinguish malformed arguments from a handler failure and
+    # correct the call instead of blindly retrying the same payload.
+    error_code = str(getattr(exc, "code", "") or "") or "tool_execution_failed"
     return {
         "status": "failed",
-        "code": "tool_execution_failed",
+        "code": error_code,
         "tool": name,
         "error": str(exc) or exc.__class__.__name__,
         "recoverable": True,
@@ -68,10 +72,15 @@ def chat_tool_definition_to_model_tool(definition: ToolDefinition) -> dict[str, 
             dict,
         ):
             draft_schema = definition.input_schema["properties"]["draft"]
-        description = (
-            f"{description}. Use arguments.draft for the business draft payload. "
-            "Use arguments.continuation only for a declared typed Skill handoff after user approval."
-        )
+        description = f"{description}. Use arguments.draft for the draft object."
+        draft_properties = draft_schema.get("properties") if isinstance(draft_schema, dict) else None
+        if isinstance(draft_properties, dict) and "intentEvidence" in draft_properties:
+            description += (
+                " Put intentEvidence only at arguments.draft.intentEvidence, as a sibling of "
+                "arguments.draft.payload; never nest it inside arguments.draft.payload or put it "
+                "beside arguments.draft."
+            )
+        description += " Use arguments.continuation only for a declared typed Skill handoff after user approval."
         parameters = {
             "type": "object",
             "additionalProperties": False,

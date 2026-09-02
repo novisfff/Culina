@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AITaskDraft
+from app.services.ai_operations.commit_coordinator import derive_draft_payload_hash
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.status import DRAFT_PENDING_CONFIRMATION
 
 
 def create_ai_draft_approval(
@@ -22,6 +25,8 @@ def create_ai_draft_approval(
     payload: dict[str, Any],
     preview_summary: str,
     ai_metadata: dict[str, Any] | None = None,
+    intent_clarity: str | None = None,
+    intent_evidence_json: dict[str, Any] | None = None,
 ) -> tuple[AITaskDraft, AIApprovalRequest]:
     config = draft_operation_registry.approval_config_for_payload(draft_type, payload)
     draft = AITaskDraft(
@@ -33,11 +38,14 @@ def create_ai_draft_approval(
         draft_type=draft_type,
         payload=payload,
         preview_summary=preview_summary,
-        status="pending",
+        status=DRAFT_PENDING_CONFIRMATION,
         version=1,
         schema_version=schema_version or f"{draft_type}.v1",
         validation_errors=[],
         ai_metadata=ai_metadata or {},
+        intent_clarity=intent_clarity,
+        intent_evidence_json=intent_evidence_json,
+        payload_hash=_initial_draft_payload_hash(payload),
         idempotency_key=f"{run_id}:{draft_type}:{create_id('idem')}",
         created_by=user_id,
         updated_by=user_id,
@@ -75,6 +83,10 @@ def create_ai_draft_approval(
     return draft, approval
 
 
+def _initial_draft_payload_hash(payload: dict[str, Any]) -> str:
+    return derive_draft_payload_hash(payload)
+
+
 def create_retry_ai_approval(
     db: Session,
     *,
@@ -88,13 +100,26 @@ def create_retry_ai_approval(
     error_message: str,
     failure_summary: dict[str, Any] | None = None,
 ) -> AIApprovalRequest:
-    retry_instruction = f"上次写入失败：{error_message}。你可以调整草稿后重试。"
+    existing = db.scalar(
+        select(AIApprovalRequest)
+        .where(
+            AIApprovalRequest.family_id == family_id,
+            AIApprovalRequest.draft_id == draft.id,
+            AIApprovalRequest.draft_version == draft.version,
+            AIApprovalRequest.status == "pending",
+            AIApprovalRequest.approval_type.like("%.retry"),
+        )
+        .with_for_update()
+    )
+    if existing is not None:
+        return existing
+    retry_instruction = f"上次写入失败：{error_message}。请确认原草稿内容后重试；如需修改，请重新生成草稿。"
     if failure_summary and failure_summary.get("failedOperationSummaries"):
         first = failure_summary["failedOperationSummaries"][0]
         retry_instruction = (
             f"上次写入失败：{error_message}。"
             f"失败项：{first.get('summary') or first.get('operationId') or '未识别操作'}。"
-            "你可以调整草稿后重试。"
+            "请确认原草稿内容后重试；如需修改，请重新生成草稿。"
         )
     config = draft_operation_registry.approval_config_for_payload(draft.draft_type, draft.payload)
     approval = AIApprovalRequest(

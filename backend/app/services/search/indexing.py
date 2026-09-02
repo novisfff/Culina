@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.utils import create_id
 from app.models.domain import Food, FoodPlanItem, Ingredient, Recipe, SearchDocument
+from app.models.family_model_settings import FamilySearchProfileDocument
 from app.services.search.documents import (
     SearchDocumentPayload,
     build_food_search_document,
@@ -87,6 +88,15 @@ def delete_search_document(
         )
     )
     if document is not None:
+        profile_documents = list(
+            db.scalars(
+                select(FamilySearchProfileDocument).where(
+                    FamilySearchProfileDocument.search_document_id == document.id
+                )
+            )
+        )
+        for profile_document in profile_documents:
+            db.delete(profile_document)
         db.delete(document)
     # Collection cleanup is profile-aware and durable.  It cannot be done
     # against one global collection from this canonical-document boundary.

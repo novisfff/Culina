@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import {
   invalidateAfterAiApprovalSettled,
+  invalidateAfterAiOperationSettled,
   invalidateAfterAiImageJobChanged,
   invalidateAfterFoodChanged,
   invalidateAfterFoodPlanChanged,
@@ -407,5 +408,70 @@ describe('cacheInvalidation', () => {
       queryKeys.aiStatus('family-a'),
     ]);
     expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.familyModelSettings('family-b'));
+  });
+
+  it('invalidates only AI conversation data for policy no-change scopes', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterAiOperationSettled(queryClient, {
+      conversationId: 'conversation-1',
+      cacheScopes: ['ai_conversation'],
+    });
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      queryKeys.aiMessages('conversation-1'),
+      queryKeys.aiPendingApprovals('conversation-1'),
+      queryKeys.aiConversations,
+      queryKeys.aiQualityMetrics,
+    ]);
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.foods);
+    expect(invalidatedKeys(queryClient)).not.toContainEqual(queryKeys.mealLogs);
+  });
+
+  it.each([
+    ['food', queryKeys.foods],
+    ['meal_log', queryKeys.mealLogs],
+    ['meal_plan', queryKeys.foodPlanRoot],
+    ['shopping_list', queryKeys.shoppingList],
+    ['inventory', queryKeys.inventoryOperations],
+  ] as const)('maps the %s server scope without losing the supplied AI refresh', async (scope, businessKey) => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterAiOperationSettled(queryClient, {
+      conversationId: 'conversation-1',
+      cacheScopes: [scope, 'ai_conversation'],
+    });
+
+    const keys = invalidatedKeys(queryClient);
+    expect(containsKey(keys, businessKey)).toBe(true);
+    expect(containsKey(keys, queryKeys.aiMessages('conversation-1'))).toBe(true);
+    expect(containsKey(keys, queryKeys.aiPendingApprovals('conversation-1'))).toBe(true);
+    expect(containsKey(keys, queryKeys.aiConversations)).toBe(true);
+    expect(containsKey(keys, queryKeys.aiQualityMetrics)).toBe(true);
+  });
+
+  it('deduplicates repeated server scopes and reuses the complete inventory-operation invalidation', async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateAfterAiOperationSettled(queryClient, {
+      conversationId: 'conversation-1',
+      cacheScopes: ['inventory', 'inventory'],
+    });
+
+    expect(invalidatedKeys(queryClient)).toEqual([
+      queryKeys.inventory,
+      queryKeys.inventoryStates,
+      queryKeys.inventoryOverviewRoot,
+      queryKeys.inventoryOperations,
+      queryKeys.ingredients,
+      queryKeys.foods,
+      queryKeys.shoppingList,
+      queryKeys.foodPlanRoot,
+      queryKeys.foodRecommendations,
+      queryKeys.recipeDiscovery,
+      queryKeys.searchRoot,
+      queryKeys.activityLogs,
+      queryKeys.activityHighlights,
+    ]);
   });
 });

@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from app.core.utils import utcnow
 from app.models.domain import (
     ActivityLog,
     AIConversation,
@@ -31,6 +32,8 @@ from app.models.domain import (
     ShoppingListItem,
     User,
 )
+from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
+from app.services.ai_operations.status import normalize_draft_status, normalize_operation_status
 from app.services.food_stock_quantity import normalize_food_stock_quantity
 from app.services.ingredient_units import serialize_unit_conversions
 from app.services.media import signed_media_content_access, signed_media_variants
@@ -570,22 +573,67 @@ def _normalize_ai_message_parts(parts: list[dict] | None) -> list[dict]:
             continue
         next_part = dict(part)
         if isinstance(part.get("card"), dict):
-            next_part["card"] = _normalize_legacy_inventory_card(part["card"])
+            next_part["card"] = _normalize_legacy_operation_result_card(
+                _normalize_legacy_inventory_card(part["card"])
+            )
         normalized.append(next_part)
     return normalized
 
 
-def serialize_ai_message(item: AIMessage) -> dict:
+def _normalize_legacy_operation_result_card(card: dict) -> dict:
+    if card.get("type") != "operation_result" or not isinstance(card.get("data"), dict):
+        return card
+    data = dict(card["data"])
+    if data.get("draft_id"):
+        return card
+    draft_id = data.get("draftId")
+    if not isinstance(draft_id, str) or not draft_id:
+        return card
+    entities = [
+        dict(entity)
+        for entity in data.get("entities") or []
+        if isinstance(entity, dict)
+        and isinstance(entity.get("id"), str)
+        and isinstance(entity.get("label"), str)
+    ]
+    operation_id = data.get("operationId")
+    data.update(
+        {
+            "draft_id": draft_id,
+            "operation_id": operation_id if isinstance(operation_id, str) else None,
+            "result_status": "completed",
+            "execution_mode": "manual_approval",
+            "operation_status": "completed",
+            "execution_explanation": str(data.get("actionSummary") or "已按你的确认执行。"),
+            "revert_availability": "unsupported",
+            "revertible_until": None,
+            "revert_blocked_code": None,
+            "server_now": "",
+            "entities": entities,
+            "cache_scopes": ["ai_conversation"],
+        }
+    )
+    return {**card, "data": data}
+
+
+def serialize_ai_message(item: AIMessage, *, response_now: datetime | None = None) -> dict:
+    serialized_at = response_now or utcnow()
     return {
         "id": item.id,
         "conversation_id": item.conversation_id,
         "role": item.role,
         "content": item.content,
         "content_type": item.content_type,
-        "parts": _normalize_ai_message_parts(item.parts),
+        "parts": [
+            hydrate_operation_result_server_now(part, serialized_at)
+            for part in _normalize_ai_message_parts(item.parts)
+        ],
         "run_id": item.run_id,
         "status": item.status,
-        "metadata": item.message_metadata,
+        "metadata": hydrate_operation_result_server_now(
+            item.message_metadata or {},
+            serialized_at,
+        ),
         "client_message_id": item.client_message_id,
         "created_at": _utc_datetime(item.created_at),
     }
@@ -640,7 +688,7 @@ def serialize_ai_task_draft(item: AITaskDraft) -> dict:
         "draft_type": item.draft_type,
         "payload": item.payload,
         "preview_summary": item.preview_summary,
-        "status": item.status,
+        "status": normalize_draft_status(item.status),
         "version": item.version,
         "schema_version": item.schema_version,
         "validation_errors": item.validation_errors,
@@ -685,10 +733,14 @@ def serialize_ai_operation(item: AIOperation) -> dict:
         "approval_request_id": item.approval_request_id,
         "draft_id": item.draft_id,
         "operation_type": item.operation_type,
-        "status": item.status,
+        "status": normalize_operation_status(item.status),
         "business_entity_type": item.business_entity_type,
         "business_entity_ids": item.business_entity_ids,
+        "execution_mode": item.execution_mode,
+        "error_code": item.error_code,
         "error_message": item.error_message,
+        "failed_at": _utc_datetime(item.failed_at) if item.failed_at else None,
+        "revertible_until": _utc_datetime(item.revertible_until) if item.revertible_until else None,
         "completed_at": _utc_datetime(item.completed_at),
         "created_at": _utc_datetime(item.created_at),
     }

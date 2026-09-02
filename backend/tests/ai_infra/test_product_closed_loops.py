@@ -698,7 +698,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
 
             result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
 
-            self.assertEqual(result["operation"]["status"], "succeeded")
+            self.assertEqual(result["operation"]["status"], "completed")
             db.refresh(food)
             self.assertEqual(food.stock_quantity, Decimal("2"))
             self.assertEqual(db.scalar(select(func.count()).select_from(MealLog)), 1)
@@ -739,7 +739,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
 
             result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
 
-            self.assertEqual(result["operation"]["status"], "succeeded")
+            self.assertEqual(result["operation"]["status"], "completed")
             db.refresh(food)
             self.assertEqual(food.stock_quantity, Decimal("6"))
             self.assertFalse(draft.payload["foods"][0]["deductStock"])
@@ -1107,7 +1107,7 @@ class AIProductClosedLoopsTestCase(AIAgentInfraTestCase):
                     },
                 },
                 "operation": {
-                    "status": "succeeded",
+                    "status": "completed",
                     "business_entity_ids": [item.id],
                 },
             }

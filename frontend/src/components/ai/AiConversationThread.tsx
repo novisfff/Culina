@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from 'react';
 import type {
   AiInventoryCardAction,
   AiInventoryResultItem,
@@ -33,6 +33,7 @@ import {
   extractRunActivitySkillName,
   isDraftRunActivityEvent,
   isPendingHumanInputPart,
+  operationResultDisplayParts,
   preferredRunActivityEvent,
   runActivityCollapseKey,
 } from './aiWorkspaceHelpers';
@@ -40,6 +41,24 @@ import {
 export { ApprovalPanel } from './AiApprovalPanel';
 export type { AiApprovalDecisionSubmit, AiResourceOptionLoader } from './AiApprovalPanel';
 import { HumanInputRequestPanel, type AiHumanInputResponseSubmit } from './AiHumanInputRequestPanel';
+
+type AiResultCardReplacement = (card: AiResultCard, messageId: string, partId: string) => void;
+
+const AiResultCardReplacementContext = createContext<AiResultCardReplacement | undefined>(undefined);
+
+export function AiResultCardReplacementProvider({
+  children,
+  onResultCard,
+}: {
+  children: ReactNode;
+  onResultCard: AiResultCardReplacement;
+}) {
+  return (
+    <AiResultCardReplacementContext.Provider value={onResultCard}>
+      {children}
+    </AiResultCardReplacementContext.Provider>
+  );
+}
 
 const MarkdownMessage = lazy(() => import('./MarkdownMessage'));
 const LazyAiApprovalEntry = lazy(loadAiApproval);
@@ -268,6 +287,46 @@ type MessageTimelineItem =
   | { key: string; type: 'text'; text: string }
   | { key: string; type: 'part'; part: AiMessage['parts'][number] };
 
+function isOperationResultPart(part: AiMessage['parts'][number]) {
+  return part.type === 'result_card' && part.card?.type === 'operation_result';
+}
+
+function movePostApprovalTextAfterOperationResult(
+  timeline: MessageTimelineItem[],
+  parts: AiMessage['parts'],
+) {
+  if (!parts.some(isOperationResultPart)) return timeline;
+
+  let hasSettledApproval = false;
+  const postApprovalTextKeys = new Set<string>();
+  parts.forEach((part) => {
+    if (part.type === 'approval_request' && part.approval && !isPendingApprovalPart(part)) {
+      hasSettledApproval = true;
+      return;
+    }
+    if (part.type !== 'text' || !hasSettledApproval) return;
+    const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
+    textSegments.forEach((_text, segmentIndex) => {
+      postApprovalTextKeys.add(`text:${part.id}:${segmentIndex}`);
+    });
+  });
+  if (postApprovalTextKeys.size === 0) return timeline;
+
+  const movedText = timeline.filter((item) => postApprovalTextKeys.has(item.key));
+  if (movedText.length === 0) return timeline;
+  const remaining = timeline.filter((item) => !postApprovalTextKeys.has(item.key));
+  let lastOperationResultIndex = -1;
+  remaining.forEach((item, index) => {
+    if (item.type === 'part' && isOperationResultPart(item.part)) lastOperationResultIndex = index;
+  });
+  if (lastOperationResultIndex < 0) return timeline;
+  return [
+    ...remaining.slice(0, lastOperationResultIndex + 1),
+    ...movedText,
+    ...remaining.slice(lastOperationResultIndex + 1),
+  ];
+}
+
 function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[]): MessageTimelineItem[] {
   if (parts.some((part) => part.type === 'run_activity' && part.activity)) {
     const activityStateByCollapseKey = new Map<string, { event: AiRunEvent; partIndex: number }>();
@@ -282,7 +341,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
         });
       }
     });
-    return parts.flatMap((part, partIndex): MessageTimelineItem[] => {
+    const timeline = parts.flatMap((part, partIndex): MessageTimelineItem[] => {
       if (part.type === 'run_activity' && part.activity) {
         const collapseKey = runActivityCollapseKey(part.activity);
         const activityState = collapseKey ? activityStateByCollapseKey.get(collapseKey) : undefined;
@@ -304,6 +363,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
       }
       return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
     });
+    return movePostApprovalTextAfterOperationResult(timeline, parts);
   }
   const collapsedRunEventEntries = collapseRunActivityEntries(runEventEntries);
   const eventCount = collapsedRunEventEntries.length;
@@ -345,7 +405,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
     timeline.push({ key: `activity:${entry.key}`, type: 'activity', entry });
     timeline.push(...(groupedParts.get(entry.sequence) ?? []));
   });
-  return timeline;
+  return movePostApprovalTextAfterOperationResult(timeline, parts);
 }
 
 export { HumanInputRequestPanel };
@@ -372,6 +432,7 @@ export function MessageBubble({
   onHumanInputResponse,
   onOpenRunDebug,
   onNavigate,
+  onResultCard,
 }: {
   message: AiMessage;
   user: UserSummary | null;
@@ -400,12 +461,16 @@ export function MessageBubble({
   onHumanInputResponse?: AiHumanInputResponseSubmit;
   onOpenRunDebug?: (runId: string) => void;
   onNavigate?: (target: AppNavigationTarget) => void;
+  onResultCard?: (card: AiResultCard, messageId: string, partId: string) => void;
 }) {
+  const inheritedResultCardReplacement = useContext(AiResultCardReplacementContext);
+  const replaceResultCard = onResultCard ?? inheritedResultCardReplacement;
   const isUser = message.role === 'user';
   const userName = user?.display_name || user?.username || '我';
   const userAvatarUrl = resolveAiAvatarUrl(user?.avatar_image?.url);
   const messageTime = formatMessageTime(message.created_at);
-  const hasRenderableParts = message.parts.some((part) => {
+  const displayParts = operationResultDisplayParts(message.parts);
+  const hasRenderableParts = displayParts.some((part) => {
     if (part.type === 'text') return Boolean(part.text?.trim());
     if (part.type === 'run_activity') return Boolean(part.activity);
     if (part.type === 'image') return Boolean(part.image);
@@ -422,8 +487,8 @@ export function MessageBubble({
     && !hasSpecificProgressCue
     && isThinking;
   const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
-  const timelineItems = createMessageTimelineItems(message.parts, runEventEntries);
-  const firstPendingApprovalId = message.parts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
+  const timelineItems = createMessageTimelineItems(displayParts, runEventEntries);
+  const firstPendingApprovalId = displayParts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
   const fallbackCode = isUser ? null : modelUsageFallbackCodeFromMessageMetadata(message.metadata);
 
   const [messageCopied, setMessageCopied] = useState(false);
@@ -431,7 +496,7 @@ export function MessageBubble({
   const showFooter = isMessageFooterReady(message, isAssistantResponseActive, runEvents);
 
   const copyMessageText = async () => {
-    const textContent = message.parts
+    const textContent = displayParts
       .filter((part) => part.type === 'text')
       .map((part) => part.text ?? '')
       .join('\n\n') || message.content || '';
@@ -513,6 +578,7 @@ export function MessageBubble({
                 <div key={item.key} className="ai-message-part">
                   <ResultCard
                     card={part.card}
+                    conversationId={message.conversation_id}
                     onAddToPlan={(item, card) => onAddRecommendationToPlan?.(item, card, message.id, part.id)}
                     onInventoryAction={(item, action, card) => onInventoryAction?.(item, action, card, message.id, part.id)}
                     isInventoryActionPending={isInventoryActionPending}
@@ -520,6 +586,7 @@ export function MessageBubble({
                     onProductLoopPrompt={onProductLoopPrompt}
                     isPromptActionPending={isPromptActionPending}
                     onNavigate={onNavigate}
+                    onResultCard={(card) => replaceResultCard?.(card, message.id, part.id)}
                   />
                 </div>
               );

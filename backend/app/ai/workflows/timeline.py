@@ -6,6 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.domain import AIMessage, AITaskDraft
+from app.services.ai_operations.status import (
+    DRAFT_PENDING_CONFIRMATION,
+    draft_status_values,
+    normalize_draft_status,
+)
 
 
 def _message_attachment_summaries(message: AIMessage) -> list[dict[str, Any]]:
@@ -54,7 +59,7 @@ def build_planner_conversation(
             select(AITaskDraft).where(
                 AITaskDraft.family_id == family_id,
                 AITaskDraft.conversation_id == conversation_id,
-                AITaskDraft.status == "pending",
+                AITaskDraft.status.in_(draft_status_values(DRAFT_PENDING_CONFIRMATION)),
             )
         )
     )
@@ -105,7 +110,7 @@ def build_planner_conversation(
                             "id": draft.id,
                             "type": draft.draft_type,
                             "version": draft.version,
-                            "status": draft.status,
+                            "status": normalize_draft_status(draft.status),
                             "payload": draft.payload,
                         }
                         for draft in sorted(drafts_by_message.get(message.id, []), key=lambda item: item.created_at)

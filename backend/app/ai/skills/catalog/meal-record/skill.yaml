@@ -27,7 +27,7 @@ draft_contract:
 route_hints:
 - meal_log
 - meal_record
-approval_policy: draft_then_confirm
+approval_policy: draft_then_policy
 tool_budget:
   max_tool_calls: 10
   max_same_read_calls: 2

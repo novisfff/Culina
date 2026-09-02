@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from typing import Any
+
+from fastapi.encoders import jsonable_encoder
 
 from app.ai.workflows.orchestrator.profiles import (
     OrchestratorBudgetConfig,
@@ -18,13 +21,45 @@ class ContinuationResumeError(ValueError):
         super().__init__(code)
 
 
+def approval_resume_payload_hash(
+    *,
+    decision: Any,
+    draft_version: Any,
+    values: Any,
+    comment: Any,
+) -> str:
+    """Return the stable identity of one approval decision payload."""
+
+    canonical = json.dumps(
+        jsonable_encoder(
+            {
+                "decision": str(decision or ""),
+                "draftVersion": int(draft_version or 0),
+                "values": values if isinstance(values, dict) else {},
+                "comment": str(comment or "").strip(),
+            }
+        ),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def approval_resume_draft_id(decision_result: dict[str, Any]) -> str:
     draft_record = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
     return str(draft_record.get("id") or "")
 
 
 def approval_resume_payload_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:
-    after_approval = metadata.get("afterApproval") if isinstance(metadata.get("afterApproval"), dict) else {}
+    after_approval = metadata.get("afterApproval")
+    if not isinstance(after_approval, dict):
+        return None
+    # ``afterApproval`` is a legacy compatibility field.  An explicit false
+    # value means the historical draft is terminal and must not re-enter the
+    # model loop after its business operation is committed.
+    if after_approval.get("continue") is False:
+        return None
     resume_payload = dict(after_approval)
     resume_payload.pop("continue", None)
     resume_payload.setdefault(

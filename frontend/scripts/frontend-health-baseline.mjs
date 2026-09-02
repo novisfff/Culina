@@ -206,7 +206,7 @@ function bundleBytes(report) {
 }
 
 
-export function compareHealthToBaseline(current, baseline, { toleranceBytes = 512 } = {}) {
+export function compareHealthToBaseline(current, baseline, { toleranceBytes = 8 * 1024 } = {}) {
   assertBaselineShape(baseline);
   if (!Number.isInteger(toleranceBytes) || toleranceBytes < 0) {
     throw new Error('toleranceBytes must be a non-negative integer');

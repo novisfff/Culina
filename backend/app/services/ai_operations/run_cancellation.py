@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.ai.workflows.conversation_access import require_ai_run_access
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.runner_support.human_input_resume import cancelled_human_input_request_parts
+from app.ai.workflows.runner_support.human_input_resume_claim import clear_stream_resume_claim
 from app.ai.workflows.runner_support.run_status import (
     ACTIVE_RUN_STATUSES,
     CANCELLED,
@@ -28,6 +29,7 @@ from app.models.domain import (
     AIRunEvent,
     AITaskDraft,
 )
+from app.services.ai_operations.status import DRAFT_CANCELLED, is_draft_pending
 from app.services.serializers import serialize_ai_run, serialize_ai_run_cancel_request, serialize_ai_run_event
 
 
@@ -267,6 +269,7 @@ def cancellation_wins(
 def finalize_run_cancellation(db: Session, *, run: AIAgentRun) -> None:
     run.status = CANCELLED
     run.error = None
+    clear_stream_resume_claim(run)
     request = _cancel_request(
         db,
         family_id=run.family_id,
@@ -401,8 +404,8 @@ def _finalize_waiting_run_cancellation(
         approval.resolved_at = approval.resolved_at or cancelled_at
         approval.updated_by = requested_by
         draft = drafts_by_id.get(approval.draft_id)
-        if draft is not None and draft.status in {"pending", "pending_retry"}:
-            draft.status = CANCELLED
+        if draft is not None and is_draft_pending(draft.status):
+            draft.status = DRAFT_CANCELLED
             draft.updated_at = cancelled_at
             draft.updated_by = requested_by
         if draft is not None:

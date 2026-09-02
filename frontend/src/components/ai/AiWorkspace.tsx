@@ -1,5 +1,5 @@
 import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAfterAiApprovalSettled, invalidateAfterAiMessageSent } from '../../api/cacheInvalidation';
 import { api, isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -31,34 +31,17 @@ import {
   getConversationTitleFromMessages,
   isPendingConversationKey,
 } from './AiConversationHistory';
-import { migratePendingConversation } from './state/aiConversationLocalStore';
-import {
-  collectSettledApprovalIds,
-  getLocalPendingRunId,
-  hasRenderableMessageContent,
-  isActiveStreamProgressStatus,
-  isApprovalDecisionSettledPart,
-  isCompletedToolProgress,
-  isUnfinishedConversationStatus,
-  shouldStartThinkingAfterPart,
-  shouldStopThinkingForPart,
-} from './state/aiStreamProjection';
-import { AiMobilePage } from './AiMobilePage';
-import { MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
-import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiDeleteConversationDialog } from './AiDeleteConversationDialog';
+import { AiMobilePage } from './AiMobilePage';
+import { AiResultCardReplacementProvider, MessageBubble, type AiApprovalDecisionSubmit, type AiHumanInputResponseSubmit, type AiResourceOptionLoader } from './AiConversationThread';
+import { AiComposerAttachments } from './AiComposerAttachments';
 import { AiQualityDiagnosticsModal } from './AiQualityDiagnosticsModal';
 import { AiRecommendationPlanDialog, type AiRecommendationPlanRequest } from './AiRecommendationPlanDialog';
 import { AiWelcomePrompt } from './AiWelcomePrompt';
 import { AiVoiceInputButton } from './AiVoiceInputButton';
 import { AiWorkspaceRoute } from './AiWorkspaceRoute';
-import { AiComposerView } from './views/AiComposerView';
 import { AiDebugHost } from './views/AiDebugHost';
-import { AiQualityHost } from './views/AiQualityHost';
-import { AiDeleteHost } from './views/AiDeleteHost';
 import { loadAiDebug } from './entries';
-
-const LazyAiDebugEntry = lazy(loadAiDebug);
 import {
   mergePendingApprovalsIntoMessages,
   normalizeStreamEventForFinalRun,
@@ -71,6 +54,8 @@ import {
   mergeRemoteAndLocalMessage,
   messagePartKey,
   mergeMessagePart,
+  hasSuccessfulOperationResult,
+  isSuccessfulOperationResultCard,
   preferredRunActivityEvent,
   runActivityCollapseKey,
 } from './aiWorkspaceHelpers';
@@ -78,12 +63,13 @@ import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
 import { NEW_AI_CONVERSATION_SCOPE, useAiConversationComposerState } from './useAiConversationComposerState';
 import { useAiInventoryDraftAction } from './useAiInventoryDraftAction';
+import { AiOperationRevertProvider } from '../../features/ai-auto-execution/useAiOperationRevert';
 import { useAiConversationStreams } from './useAiConversationStreams';
-import { useAiConversationMutations } from './useAiConversationMutations';
 import { useAiThinkingState } from './useAiThinkingState';
-import { useAiSidebarState } from './useAiSidebarState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
+
+const LazyAiDebugEntry = lazy(loadAiDebug);
 type AiWorkspaceProps = {
   familyId?: string;
   conversations: AiConversation[];
@@ -93,8 +79,104 @@ type AiWorkspaceProps = {
   createFoodPlanItem?: (payload: CreateFoodPlanItemPayload) => Promise<FoodPlanItem>;
   isCreatingFoodPlanItem?: boolean;
   onNavigate?: (target: AppNavigationTarget) => void;
+  /** Legacy prop retained for callers while the removed settings view settles to conversation. */
+  view?: 'conversation' | 'autoExecution';
 };
 export { ApprovalPanel } from './AiConversationThread';
+const AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH = 1280;
+
+function isTabletAiWorkspaceViewport() {
+  return typeof window !== 'undefined' && window.innerWidth <= AI_TABLET_SIDEBAR_COLLAPSE_MAX_WIDTH;
+}
+
+function readStoredAiSidebarCollapsed() {
+  try {
+    return localStorage.getItem('ai_sidebar_collapsed');
+  } catch {
+    return null;
+  }
+}
+
+function resolveInitialAiSidebarCollapsed() {
+  if (isTabletAiWorkspaceViewport()) return true;
+  const stored = readStoredAiSidebarCollapsed();
+  return stored === 'true';
+}
+
+function storeAiSidebarCollapsedPreference(collapsed: boolean) {
+  if (isTabletAiWorkspaceViewport()) return;
+  try {
+    localStorage.setItem('ai_sidebar_collapsed', String(collapsed));
+  } catch (e) {
+    console.warn(e);
+  }
+}
+
+function getLocalPendingRunId(conversationKey: string, messages: AiMessage[]) {
+  return messages.find((message) => message.role === 'assistant' && message.run_id)?.run_id
+    ?? conversationKey.replace(/^pending-conversation-/, '');
+}
+
+function hasRenderableMessageContent(message: AiMessage) {
+  return Boolean(message.content?.trim()) || message.parts.some((part) => part.type !== 'text' || Boolean(part.text?.trim()));
+}
+
+function isActiveStreamProgressStatus(status: AiRunEvent['status']) {
+  return status === 'pending' || status === 'running' || status === 'waiting';
+}
+
+function isUnfinishedConversationStatus(status: string | null | undefined) {
+  return ['pending', 'running', 'waiting_approval', 'waiting_input'].includes((status ?? '').toLowerCase());
+}
+
+function isCompletedToolProgress(event: AiRunEvent) {
+  return event.status === 'completed' && (event.type === 'tool' || event.type === 'script');
+}
+
+function shouldStopThinkingForPart(part: AiMessagePart) {
+  if (part.type === 'draft' || part.type === 'approval_request') {
+    return true;
+  }
+  if (part.type === 'human_input_request') return isPendingHumanInputPart(part);
+  return part.type === 'run_activity' && part.activity ? isActiveStreamProgressStatus(part.activity.status) : false;
+}
+
+function shouldStartThinkingAfterPart(part: AiMessagePart) {
+  return part.type === 'run_activity' && part.activity ? isCompletedToolProgress(part.activity) : false;
+}
+
+function isApprovalDecisionSettledPart(part: AiMessagePart, approvalId: string) {
+  if (part.type === 'approval_request' && part.approval?.id === approvalId) {
+    return part.approval.status !== 'pending';
+  }
+  if (part.type !== 'result_card' || part.card?.type !== 'operation_result') return false;
+  const data = part.card.data;
+  if (!data || typeof data !== 'object' || (!('approvalId' in data) && !('approval_id' in data))) return false;
+  const record = data as { approvalId?: unknown; approval_id?: unknown };
+  return String(record.approvalId ?? record.approval_id ?? '') === approvalId;
+}
+
+function collectSettledApprovalIds(messages: AiMessage[]) {
+  const settledApprovalIds = new Set<string>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.approval?.id && part.approval.status !== 'pending') {
+        settledApprovalIds.add(part.approval.id);
+      }
+      if (part.type === 'result_card' && part.card?.type === 'operation_result') {
+        const data = part.card.data;
+        const approvalId = data && typeof data === 'object' && ('approvalId' in data || 'approval_id' in data)
+          ? String((data as { approvalId?: unknown; approval_id?: unknown }).approvalId
+            ?? (data as { approval_id?: unknown }).approval_id
+            ?? '')
+          : '';
+        if (approvalId) settledApprovalIds.add(approvalId);
+      }
+    }
+  }
+  return settledApprovalIds;
+}
+
 export function AiWorkspace({
   familyId = '',
   conversations,
@@ -144,7 +226,11 @@ export function AiWorkspace({
     },
     setFeedback: setPlanFeedback,
   });
-  const { isSidebarCollapsed, toggleSidebar } = useAiSidebarState();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(resolveInitialAiSidebarCollapsed);
+  const toggleSidebar = (collapsed: boolean) => {
+    setIsSidebarCollapsed(collapsed);
+    storeAiSidebarCollapsedPreference(collapsed);
+  };
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const desktopVoiceButtonRef = useRef<HTMLButtonElement>(null);
@@ -260,14 +346,16 @@ export function AiWorkspace({
         if (!pendingItems) continue;
         const movedItems = pendingItems.map((item) => ({ ...item, conversation_id: migration.conversationId }));
         delete next[migration.pendingKey];
-        const migrated = migratePendingConversation({
-          localKey: migration.pendingKey,
-          serverKey: migration.conversationId,
-          localMessages: movedItems,
-          serverMessages: next[migration.conversationId] ?? [],
-          composer: { text: '', attachments: [] },
-        });
-        next[migration.conversationId] = migrated.messages as unknown as AiMessage[];
+        next[migration.conversationId] = [
+          ...(next[migration.conversationId] ?? []).filter(
+            (item) => !movedItems.some((moved) =>
+              item.id === moved.id
+              || (moved.run_id && item.run_id === moved.run_id)
+              || (moved.client_message_id && item.client_message_id === moved.client_message_id),
+            ),
+          ),
+          ...movedItems,
+        ];
         changed = true;
       }
       return changed ? next : current;
@@ -770,6 +858,20 @@ export function AiWorkspace({
     if (!event.part?.id) return;
     const runId = event.run_id || activeStreamRunIdsByConversationKey[conversationKey] || 'pending';
     const activeRunId = activeStreamRunIdsByConversationKey[conversationKey];
+    const receivedSuccessfulOperationResult = (() => {
+      if (event.part.type !== 'result_card' || !isSuccessfulOperationResultCard(event.part.card)) return false;
+      // Only promote a live message to completed when the server supplied a
+      // canonical status. Legacy cards are still useful for suppressing a
+      // later error, but may be followed by continuation text/activity.
+      const data = event.part.card?.data as Record<string, unknown> | undefined;
+      const resultStatus = String(data?.result_status ?? data?.resultStatus ?? '').toLowerCase();
+      const operationStatus = String(data?.operation_status ?? data?.operationStatus ?? '').toLowerCase();
+      return resultStatus === 'completed'
+        || resultStatus === 'no_change'
+        || resultStatus === 'reverted'
+        || operationStatus === 'completed'
+        || operationStatus === 'reverted';
+    })();
     if (shouldStopThinkingForPart(event.part)) {
       stopThinking(runId);
       if (activeRunId && activeRunId !== runId) stopThinking(activeRunId);
@@ -780,8 +882,12 @@ export function AiWorkspace({
     const messageId = streamMessageTargetRef.current[runId] || event.message_id || `local-assistant-${runId}`;
     const resolveApprovalForResultCard = (parts: AiMessage['parts']) => {
       if (event.part.type !== 'result_card' || event.part.card?.type !== 'operation_result') return parts;
-      const approvalId = event.part.card.data && typeof event.part.card.data === 'object' && 'approvalId' in event.part.card.data
-        ? String((event.part.card.data as { approvalId?: unknown }).approvalId ?? '')
+      const approvalId = event.part.card.data
+        && typeof event.part.card.data === 'object'
+        && ('approvalId' in event.part.card.data || 'approval_id' in event.part.card.data)
+        ? String((event.part.card.data as { approvalId?: unknown; approval_id?: unknown }).approvalId
+          ?? (event.part.card.data as { approval_id?: unknown }).approval_id
+          ?? '')
         : '';
       if (!approvalId) return parts;
       return parts.map((part) => {
@@ -825,7 +931,7 @@ export function AiWorkspace({
               content_type: 'parts',
               parts: nextParts,
               run_id: runId,
-              status: 'running',
+              status: receivedSuccessfulOperationResult ? 'completed' : 'running',
             },
           ];
         }
@@ -839,7 +945,7 @@ export function AiWorkspace({
             content_type: 'parts',
             parts: [event.part],
             run_id: runId,
-            status: 'running',
+            status: receivedSuccessfulOperationResult ? 'completed' : 'running',
             metadata: {},
             created_at: new Date().toISOString(),
           },
@@ -855,6 +961,9 @@ export function AiWorkspace({
           content: messageTextFromParts(nextParts),
           content_type: 'parts',
           parts: nextParts,
+          ...(receivedSuccessfulOperationResult && item.status !== 'waiting_approval' && item.status !== 'waiting_input'
+            ? { status: 'completed' }
+            : {}),
         };
       });
     });
@@ -868,6 +977,12 @@ export function AiWorkspace({
     const markItems = (items: AiMessage[]) =>
       items.map((item) => {
         if (item.run_id !== runId && item.id !== `local-assistant-${runId}`) return item;
+        if (hasSuccessfulOperationResult(item)) {
+          if (item.status === 'failed' || item.status === 'cancelled') {
+            return { ...item, status: 'completed' };
+          }
+          return item;
+        }
         const textPart = item.parts.find((part) => part.type === 'text');
         const nextText = text === '已取消这次任务。' ? textPart?.text?.trim() || item.content || text : text;
         return {
@@ -884,6 +999,24 @@ export function AiWorkspace({
     for (const conversationId of conversationIds) {
       queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => markItems(items));
     }
+  }
+  function hasSuccessfulOperationResultForRun(runId: string | null | undefined) {
+    if (!runId) return false;
+    const cachedMessages = queryClient.getQueryCache()
+      .findAll({ queryKey: ['ai-messages'] })
+      .flatMap((query) => Array.isArray(query.state.data) ? query.state.data as AiMessage[] : []);
+    const candidates = [
+      ...displayedMessages,
+      ...messages,
+      ...Object.values(localMessagesByConversationKey).flat(),
+      ...cachedMessages,
+    ];
+    const seen = new Set<string>();
+    return candidates.some((message) => {
+      if (message.run_id !== runId || seen.has(message.id)) return false;
+      seen.add(message.id);
+      return hasSuccessfulOperationResult(message);
+    });
   }
   function streamFailureMessage(error: unknown) {
     return error instanceof Error && error.message.trim() ? error.message : 'AI 处理失败，请稍后重试。';
@@ -951,24 +1084,50 @@ export function AiWorkspace({
     applyChatResponse,
     streamFailureMessage,
     markStreamingAssistantStopped,
+    hasSuccessfulOperationResultForRun,
     clearInaccessibleConversation,
     refreshAfterApprovalSettled,
     isApprovalDecisionSettledPart,
   });
-  const { deleteConversationMutation, visibilityMutation, updatingConversationId } = useAiConversationMutations({
-    conversations,
-    activeConversationId,
-    deletingConversationId,
-    queryClient,
-    clearComposerScope,
-    clearAttachmentScope,
-    setActiveConversationKey,
-    setIsStartingNewConversation,
-    setLocalMessagesByConversationKey,
-    setPendingDeleteConversation,
-    setDeletingConversationId,
-    setFeedback: setPlanFeedback,
+  const deleteConversationMutation = useMutation({
+    mutationFn: api.deleteAiConversation,
+    onSuccess: async (_, conversationId) => {
+      const remainingConversations = conversations.filter((conversation) => conversation.id !== conversationId);
+      if (conversationId === activeConversationId) {
+        const nextConversation = remainingConversations[0] ?? null;
+        setActiveConversationKey(nextConversation?.id ?? null);
+        setIsStartingNewConversation(!nextConversation);
+        setLocalMessagesByConversationKey((current) => {
+          const next = { ...current };
+          delete next[conversationId];
+          return next;
+        });
+      }
+      clearComposerScope(conversationId);
+      clearAttachmentScope(conversationId);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations });
+      queryClient.removeQueries({ queryKey: queryKeys.aiMessages(conversationId) });
+      queryClient.removeQueries({ queryKey: queryKeys.aiPendingApprovals(conversationId) });
+      setPendingDeleteConversation(null);
+    },
+    onSettled: () => setDeletingConversationId(null),
   });
+  const visibilityMutation = useMutation({
+    mutationFn: ({ conversationId, visibility }: { conversationId: string; visibility: AiConversationVisibility }) =>
+      api.updateAiConversationVisibility(conversationId, visibility),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AiConversation[]>(queryKeys.aiConversations, (items = []) =>
+        items.map((item) => (item.id === updated.id ? updated : item)));
+    },
+    onError: (error) => {
+      setPlanFeedback(isApiError(error) && error.status === 409
+        ? '会话正在生成回复，请先等待完成或取消当前任务'
+        : error instanceof Error ? error.message : '更新公开状态失败');
+    },
+  });
+  const updatingConversationId = visibilityMutation.isPending
+    ? visibilityMutation.variables?.conversationId ?? null
+    : deletingConversationId;
   const isCurrentConversationBusy = Boolean(
     activeConversationKey
     && (
@@ -1313,6 +1472,28 @@ export function AiWorkspace({
     setRecommendationPlanRequest(null);
     setPlanFeedback(`${name} 已加入餐食计划`);
   }
+  function replaceOperationResultCard(
+    card: AiResultCard,
+    messageId: string,
+  ) {
+    const replaceInMessages = (items: AiMessage[]) => items.map((message) => {
+      if (message.id !== messageId && !message.parts.some((part) => part.card?.id === card.id)) return message;
+      let changed = false;
+      const parts = message.parts.map((part) => {
+        if (part.type !== 'result_card' || part.card?.id !== card.id) return part;
+        changed = true;
+        return { ...part, card };
+      });
+      return changed ? { ...message, parts } : message;
+    });
+    const conversationId = activeConversationId;
+    if (conversationId) {
+      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => replaceInMessages(items));
+    }
+    setLocalMessagesByConversationKey((current) => Object.fromEntries(
+      Object.entries(current).map(([conversationKey, items]) => [conversationKey, replaceInMessages(items)]),
+    ));
+  }
   async function cancelStreamingChat() {
     const runId = activeCancellableRunId;
     if (!runId) return;
@@ -1351,6 +1532,8 @@ export function AiWorkspace({
   });
   return (
     <AiWorkspaceRoute>
+    <AiResultCardReplacementProvider onResultCard={replaceOperationResultCard}>
+    <AiOperationRevertProvider>
     <main className={`ai-workspace-shell ${isSidebarCollapsed ? 'is-collapsed' : ''}`}>
       {planFeedback && (
         <div className="ai-plan-feedback" role="status">
@@ -1366,14 +1549,14 @@ export function AiWorkspace({
         }}
         onSubmit={submitRecommendationPlan}
       />
-      <AiDeleteHost open={Boolean(pendingDeleteConversation)} busy={deleteConversationMutation.isPending}>
-        {pendingDeleteConversation ? <AiDeleteConversationDialog
-            conversation={pendingDeleteConversation}
-            isDeleting={deleteConversationMutation.isPending}
-            onCancel={() => setPendingDeleteConversation(null)}
-            onConfirm={confirmDeleteConversation}
-          /> : null}
-      </AiDeleteHost>
+      {pendingDeleteConversation && (
+        <AiDeleteConversationDialog
+          conversation={pendingDeleteConversation}
+          isDeleting={deleteConversationMutation.isPending}
+          onCancel={() => setPendingDeleteConversation(null)}
+          onConfirm={confirmDeleteConversation}
+        />
+      )}
       <AiMobilePage
         conversations={historyConversations}
         isLoading={isLoading}
@@ -1477,9 +1660,9 @@ export function AiWorkspace({
                 )}
                 <span>AI 厨房助手</span>
               </div>
-              <button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
+              <div className="ai-workspace-header-actions"><button className={`ai-ready-pill ai-quality-trigger ${isAiUnavailable ? 'is-disabled' : ''}`} type="button" onClick={() => setIsQualityModalOpen(true)} aria-label="查看 AI 使用情况" title="查看 AI 使用情况">
                 <span />{aiStatusLabel}
-              </button>
+              </button></div>
             </div>
           </div>
           <div className="ai-thread-scroll" ref={threadAutoScroll.threadScrollRef}>
@@ -1536,6 +1719,7 @@ export function AiWorkspace({
                     isPromptActionPending={isAssistantBusy || isLocalAssistantBusy}
                     onOpenRunDebug={setDebugRunId}
                     onNavigate={onNavigate}
+                    onResultCard={replaceOperationResultCard}
                   />
                 ))}
               </>
@@ -1552,7 +1736,6 @@ export function AiWorkspace({
               <span>最新回复</span>
             </button>
           ) : null}
-          <AiComposerView disabled={effectiveComposerPaused || isAssistantBusy}>
           <div className="ai-composer-dock">
             {cancellationError ? (
               <p className="ai-composer-pause-note" role="alert" aria-live="assertive">{cancellationError}</p>
@@ -1625,20 +1808,25 @@ export function AiWorkspace({
               </div>
             </form>
           </div>
-          </AiComposerView>
         </section>
-        <AiQualityHost open={isQualityModalOpen}>
+        {isQualityModalOpen && (
           <AiQualityDiagnosticsModal
             metrics={aiQualityMetricsQuery.data}
             isLoading={aiQualityMetricsQuery.isLoading || aiQualityMetricsQuery.isFetching} isError={aiQualityMetricsQuery.isError}
             onRetry={() => void aiQualityMetricsQuery.refetch()} onClose={() => setIsQualityModalOpen(false)}
           />
-        </AiQualityHost>
+        )}
       </div>
       <AiDebugHost open={Boolean(debugRunId)}>
-        <LazyAiDebugEntry runId={debugRunId} open={Boolean(debugRunId)} onClose={() => setDebugRunId(null)} />
+        <LazyAiDebugEntry
+          runId={debugRunId}
+          open={Boolean(debugRunId)}
+          onClose={() => setDebugRunId(null)}
+        />
       </AiDebugHost>
     </main>
+    </AiOperationRevertProvider>
+    </AiResultCardReplacementProvider>
     </AiWorkspaceRoute>
   );
 }

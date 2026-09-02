@@ -52,8 +52,11 @@ description: 查询、创建、更新或收藏当前家庭的食物资料，适�
 
 ## 审批规则
 
-- 创建、更新、收藏都只能调用 `food_profile.create_draft`，遵循 `draft -> approval -> commit`。
-- 确认前不得写入正式 Food；更新 payload 不是局部补丁，至少保留 `name`、`type`、`category`。
+- 创建、更新、收藏都只能调用 `food_profile.create_draft`；模型始终只生成 Draft。draft_then_confirm 等待真实用户决定；draft_then_policy 只生成 Draft，服务端在 evidence/authorization/allowlist/limits/version/revert-adapter 全通过才提交，否则降级人工确认。Composite/Continuation 始终人工确认。
+- 调用 Draft Tool 时，只在 `arguments.draft.intentEvidence` 填写可选的四档证据；它与 `arguments.draft.payload` 平级，不能放进业务 `payload` 或 `arguments` 根部。`sourceQuotes` 只引用当前用户消息；`resolutionSources` 只使用当前 UI、本轮 Tool 输出或成功读取的 Artifact；歧义与默认值分别放入明确数组，不编造缺失事实。
+- `resolutionSources.referenceId` 必须照抄来源给出的稳定 ID：Tool 结果旁的 `_intentEvidenceSource.referenceId`，或用户选择后恢复上下文中的 `human.input_result` artifact id；`kind` 同步照抄，且只能引用实际选中的候选。收藏证据的 `sourceQuotes.fields` 必须同时覆盖 `action` 和 `payload.favorite`；候选/详情来源只证明 `targetId`，详情里的当前 `favorite` 状态不能证明要设置的方向。
+- 事实陈述、称赞或可能的未来打算不等于写入请求；不要因为草稿合理就把它标记为执行请求。四档定义以 Tool schema 中的 `INTENT_CLARITY_MODEL_DESCRIPTION` 为准。
+- 确认或策略提交前不得写入正式 Food；更新 payload 不是局部补丁，至少保留 `name`、`type`、`category`。
 - 没有明确换图、删图或替换媒体要求时，不用空数组表达保留图片。
 
 ## 用户反馈

@@ -42,6 +42,8 @@ from app.models.domain import (
     User,
 )
 from app.services.inventory_usage import remaining_quantity
+from app.schemas.inventory_operations import InventoryReconciliationRequest
+from app.services.inventory_reconciliation import apply_inventory_reconciliation
 from tests._transaction_failure import fail_next_commit
 
 
@@ -507,6 +509,11 @@ def test_confirm_all_exact_and_food_confirm(recon_api_context: ReconApiContext) 
     assert body["operation_type"] == InventoryOperationType.RECONCILIATION.value
     assert body["status"] == "applied"
     assert body["summary"]["confirmed_count"] >= 1
+    assert (
+        datetime.fromisoformat(body["revertible_until"])
+        - datetime.fromisoformat(body["applied_at"])
+        == timedelta(minutes=15)
+    )
 
     with recon_api_context.SessionLocal() as db:
         fresh = db.get(InventoryItem, recon_api_context.batch_cold_fresh_id)
@@ -531,6 +538,49 @@ def test_confirm_all_exact_and_food_confirm(recon_api_context: ReconApiContext) 
         assert len(activities) == 1
         lines = list(db.scalars(select(InventoryOperationLine)))
         assert any(line.entity_type.value == "ingredient" for line in lines)
+
+
+def test_reconciliation_service_accepts_explicit_one_hour_timing(
+    recon_api_context: ReconApiContext,
+) -> None:
+    versions = _versions(recon_api_context)
+    applied_at = datetime(2026, 8, 24, 9, 0, tzinfo=timezone.utc)
+    request = InventoryReconciliationRequest.model_validate(
+        {
+            "client_request_id": "recon-explicit-window",
+            "scope": "refrigerated",
+            "groups": [
+                {
+                    "kind": "exact_ingredient",
+                    "ingredient_id": recon_api_context.egg_id,
+                    "expected_ingredient_row_version": versions["egg"],
+                    "action": "confirm_all",
+                    "observed_batches": [
+                        {
+                            "inventory_item_id": recon_api_context.batch_cold_fresh_id,
+                            "expected_row_version": versions["fresh"],
+                        },
+                        {
+                            "inventory_item_id": recon_api_context.batch_cold_expired_id,
+                            "expected_row_version": versions["expired"],
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+    with recon_api_context.SessionLocal() as db:
+        result = apply_inventory_reconciliation(
+            db,
+            family_id=recon_api_context.family_id,
+            user_id=recon_api_context.user_id,
+            request=request,
+            business_date=date(2026, 8, 24),
+            applied_at=applied_at,
+            revertible_until=applied_at + timedelta(hours=1),
+        )
+        assert result.applied_at.replace(tzinfo=timezone.utc) == applied_at
+        assert result.revertible_until.replace(tzinfo=timezone.utc) == applied_at + timedelta(hours=1)
 
 
 def test_set_absent_includes_expired_and_leaves_out_of_scope(recon_api_context: ReconApiContext) -> None:

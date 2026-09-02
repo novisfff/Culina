@@ -261,4 +261,3 @@ export function IngredientWorkspaceIcon(props: { name: IngredientWorkspaceIconNa
       );
   }
 }
-

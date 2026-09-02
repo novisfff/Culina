@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -9,10 +9,14 @@ from app.ai.skills import SkillResult
 from app.ai.workflows.result_cards import validate_result_cards
 from app.ai.workflows.runner_support.message_parts import (
     aggregate_text_from_parts,
+    draft_route_status,
     human_input_request_message_part,
     missing_draft_approval_message_parts,
+    matching_successful_operation_result_card,
     result_card_message_part,
     result_cards_from_parts,
+    operation_result_decision_identity,
+    ROUTED_WITHOUT_APPROVAL_STATUSES,
 )
 from app.ai.workflows.runner_support.message_persistence import (
     conversation_context_with_state_patch,
@@ -33,6 +37,7 @@ from app.services.ai_operations.run_cancellation import (
     finalize_run_cancellation,
     lock_run_for_transition,
 )
+from app.ai.workflows.runner_support.run_status import COMPLETED, WAITING_INPUT
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -76,12 +81,39 @@ class AssistantResultPersister:
             result.error = None
             if not result.text.strip():
                 result.text = "已取消这次任务。"
-        assistant_status = "waiting_approval" if result.drafts else result.status
-        cards = [] if result.drafts else validate_result_cards(result.cards)
+        existing_message = runner.db.scalar(
+            select(AIMessage)
+            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
+            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+        )
+        preserved = self._preserve_committed_operation_after_provider_failure(
+            state=state,
+            result=result,
+            run=run,
+            message=existing_message,
+            duration_ms=duration_ms,
+        )
+        if preserved is not None:
+            return preserved
+        draft_payloads: list[dict[str, Any]] = []
+        for draft_payload in result.drafts:
+            if not isinstance(draft_payload, dict):
+                raise RuntimeError("草稿结果格式无效")
+            draft_payloads.append(draft_payload)
+        route_statuses = [
+            self._persisted_route_status(state, draft_payload)
+            for draft_payload in draft_payloads
+        ]
+        has_manual_draft = any(
+            route_status not in ROUTED_WITHOUT_APPROVAL_STATUSES
+            for route_status in route_statuses
+        )
+        assistant_status = "waiting_approval" if has_manual_draft else result.status
+        cards = [] if has_manual_draft else validate_result_cards(result.cards)
         next_parts = runner._base_assistant_parts_from_live_stream(
             state,
             result.text,
-            stop_after_first_draft=bool(result.drafts),
+            stop_after_first_draft=has_manual_draft,
         )
         for card in cards:
             next_parts.append(result_card_message_part(part_id=create_id("ai_part"), card=card))
@@ -92,11 +124,7 @@ class AssistantResultPersister:
         )
         if pending_human_input is not None:
             next_parts.append(human_input_request_message_part(part_id=create_id("ai_part"), request=pending_human_input))
-        message = runner.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
-        )
+        message = existing_message
         metadata = dict(message.message_metadata or {}) if message is not None else {}
         if message is None:
             metadata_intent = "general_chat"
@@ -150,11 +178,23 @@ class AssistantResultPersister:
         runner.db.flush()
         drafts: list[AITaskDraft] = []
         approvals: list[AIApprovalRequest] = []
-        for draft_payload in result.drafts:
+        for draft_payload, route_status in zip(draft_payloads, route_statuses, strict=True):
+            routed_without_approval = route_status in ROUTED_WITHOUT_APPROVAL_STATUSES
             draft_id = str(draft_payload.get("draft_id") or "")
             approval_id = str(draft_payload.get("approval_id") or "")
             draft = runner.db.get(AITaskDraft, draft_id) if draft_id else None
             approval = runner.db.get(AIApprovalRequest, approval_id) if approval_id else None
+            if routed_without_approval:
+                if draft is None:
+                    raise RuntimeError("路由草稿缺少已持久化记录")
+                if approval is not None or approval_id:
+                    raise RuntimeError("自动路由草稿不能关联确认请求")
+                draft.message_id = message.id
+                draft.source_run_id = state["run_id"]
+                runner.db.flush()
+                runner.db.refresh(draft)
+                drafts.append(draft)
+                continue
             if draft is None or approval is None:
                 draft, approval = runner.service._create_draft_approval(
                     family_id=state["family_id"],
@@ -251,3 +291,187 @@ class AssistantResultPersister:
             card_count=len(all_cards),
             tool_call_count=len(result.tool_calls),
         )
+
+    def _preserve_committed_operation_after_provider_failure(
+        self,
+        *,
+        state: WorkspaceGraphState,
+        result: SkillResult,
+        run: Any,
+        message: AIMessage | None,
+        duration_ms: int,
+    ) -> PersistedAssistantResult | None:
+        """Keep a committed approval result when only its continuation failed.
+
+        Approval commits write the operation-result card before the resumed
+        orchestrator asks the Provider for a follow-up response.  A normal
+        Provider failure is still returned as a ``SkillResult`` (rather than
+        raising), so the generic persister must not append that failure over a
+        card belonging to the same approval.  Matching uses the decision IDs;
+        an unrelated earlier operation in a multi-step run must remain a real
+        failure.
+        """
+
+        if (
+            result.status != "failed"
+            or result.cards
+            or result.drafts
+            or result.text.strip() != "AI 工作台暂时无法完成这次请求，请稍后重试。"
+            or message is None
+        ):
+            return None
+        expected_identity = self._operation_result_identity_from_state(state)
+        if not expected_identity:
+            return None
+        parts = [part for part in (message.parts or []) if isinstance(part, dict)]
+        matched_card = matching_successful_operation_result_card(
+            parts,
+            expected_identity=expected_identity,
+        )
+        if matched_card is None:
+            return None
+
+        next_status = self._message_status_after_preserved_operation(parts)
+        generic_failure_text = result.text.strip()
+        cleaned_parts = [
+            part
+            for part in parts
+            if not (
+                part.get("type") == "text"
+                and str(part.get("text") or "").strip() == generic_failure_text
+            )
+        ]
+        aggregate_text = aggregate_text_from_parts(cleaned_parts)
+        if not aggregate_text and str(message.content or "").strip() != generic_failure_text:
+            aggregate_text = str(message.content or "").strip()
+        message.parts = cleaned_parts
+        message.content = aggregate_text
+        message.content_type = "parts"
+        message.status = next_status
+        metadata = dict(message.message_metadata or {})
+        metadata.pop("liveStreaming", None)
+        metadata.pop("liveTextPartIds", None)
+        metadata.pop("livePartIds", None)
+        message.message_metadata = metadata
+
+        runner = self.runner
+        all_cards = result_cards_from_parts(cleaned_parts)
+        if run is not None:
+            run.status = next_status
+            run.error = None
+            run.model = result.model or run.model
+            run.output_summary = (aggregate_text or str(matched_card.get("title") or ""))[:255]
+            run.output = runner._json_record(
+                run_output_payload(
+                    text=aggregate_text,
+                    cards=all_cards,
+                    routing=(run.context_summary or {}).get("routing", {}),
+                )
+            )
+            if result.tool_calls:
+                run.tool_calls = runner._json_record([*(run.tool_calls or []), *result.tool_calls])
+            run.duration_ms = int(run.duration_ms or 0) + duration_ms
+        conversation = runner.db.get(AIConversation, state["conversation_id"])
+        if conversation is not None:
+            conversation.prompt = state["message"]
+            conversation.response = aggregate_text
+            conversation.summary = aggregate_text[:255]
+            conversation.last_message_at = utcnow()
+            conversation.last_run_status = next_status
+            context = dict(conversation.context or {})
+            if next_status == COMPLETED:
+                context.pop("activeRunId", None)
+            conversation.context = runner._json_record(context)
+
+        # Make the graph and finalizer follow the durable operation result. The
+        # provider diagnostic remains in the trace/LLM exchange; it must not be
+        # exposed as a second user-facing failure message.
+        result.status = next_status
+        result.error = None
+        result.text = ""
+        runner.db.flush()
+        return PersistedAssistantResult(
+            message=message,
+            message_id=message.id,
+            run_id=state["run_id"],
+            status=next_status,
+            draft_ids=[],
+            approval_ids=[],
+            card_count=len(all_cards),
+            tool_call_count=len(result.tool_calls),
+        )
+
+    @staticmethod
+    def _operation_result_identity_from_state(state: WorkspaceGraphState) -> dict[str, str]:
+        decision = state.get("last_decision")
+        if isinstance(decision, dict):
+            identity = operation_result_decision_identity(decision)
+            if any(identity.values()):
+                return identity
+        for artifact in reversed(state.get("run_artifacts") or []):
+            if not isinstance(artifact, dict):
+                continue
+            if artifact.get("type") not in {"approval_decision", "ai_operation_result"}:
+                continue
+            payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+            candidate = operation_result_decision_identity(
+                {
+                    **payload,
+                    "sourceApprovalId": artifact.get("sourceApprovalId"),
+                    "sourceDraftId": artifact.get("sourceDraftId"),
+                    "sourceOperationId": artifact.get("sourceOperationId"),
+                }
+            )
+            if any(candidate.values()):
+                return candidate
+        return {}
+
+    @staticmethod
+    def _message_status_after_preserved_operation(parts: list[dict[str, Any]]) -> str:
+        for part in parts:
+            if part.get("type") == "approval_request":
+                approval = part.get("approval") if isinstance(part.get("approval"), dict) else {}
+                if str(approval.get("status") or "").lower() in {"pending", "pending_retry"}:
+                    return "waiting_approval"
+            if part.get("type") == "human_input_request":
+                request = part.get("request") if isinstance(part.get("request"), dict) else {}
+                if str(request.get("status") or "pending").lower() in {"pending", "pending_retry"}:
+                    return WAITING_INPUT
+        return COMPLETED
+
+    def _persisted_route_status(
+        self,
+        state: WorkspaceGraphState,
+        draft_payload: dict[str, Any],
+    ) -> str:
+        claimed_status = str(draft_payload.get("route_status") or "")
+        draft_id = str(draft_payload.get("draft_id") or "")
+        draft = self.runner.db.get(AITaskDraft, draft_id) if draft_id else None
+        if draft is None:
+            if claimed_status in ROUTED_WITHOUT_APPROVAL_STATUSES:
+                raise RuntimeError("自动路由草稿缺少已持久化记录")
+            return draft_route_status(draft_payload)
+        if (
+            draft.family_id != state["family_id"]
+            or draft.conversation_id != state["conversation_id"]
+            or draft.source_run_id != state["run_id"]
+        ):
+            raise RuntimeError("路由草稿的运行或会话归属不一致")
+        metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
+        stored_outcome = (
+            metadata.get("routeOutcome")
+            if isinstance(metadata.get("routeOutcome"), dict)
+            else {}
+        )
+        stored_status = str(stored_outcome.get("status") or "")
+        valid_statuses = {"waiting_approval", *ROUTED_WITHOUT_APPROVAL_STATUSES}
+        if stored_status:
+            if stored_status not in valid_statuses:
+                raise RuntimeError("持久化草稿路由结果无效")
+            if claimed_status and claimed_status != stored_status:
+                raise RuntimeError("草稿路由结果与持久化状态不一致")
+            draft_payload["route_status"] = stored_status
+            return stored_status
+        if claimed_status in ROUTED_WITHOUT_APPROVAL_STATUSES:
+            raise RuntimeError("自动路由草稿缺少持久化路由结果")
+        return draft_route_status(draft_payload)

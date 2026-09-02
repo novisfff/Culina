@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit
 
+import certifi
 import httpx
 from websockets.exceptions import WebSocketException
 from websockets.sync.client import connect as connect_websocket
@@ -211,7 +212,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             endpoint.host,
             endpoint.port,
             timeout=request_timeout,
-            context=ssl.create_default_context(),
+            context=ssl.create_default_context(cafile=certifi.where()),
         )
         self._resolved_address = endpoint.resolved_addresses[0]
         self._server_hostname = endpoint.host

@@ -6,7 +6,13 @@ import logging
 from collections.abc import Iterator
 from typing import Any, Callable
 
-from app.ai.errors import AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop
+from app.ai.errors import (
+    AIExecutionCancelled,
+    ApprovalRequired,
+    AutoExecutionBlockRequired,
+    HumanInputRequired,
+    ToolBudgetHardStop,
+)
 from app.ai.runtime.messages import dump_value, field_value, responses_input, responses_system_message, responses_text_message
 from app.ai.runtime.family_transport import DeferredBindingTransport
 from app.ai.runtime.prompt_cache import (
@@ -290,7 +296,12 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                     # A stream ending without the provider's terminal event
                     # is not evidence that the remote execution completed.
                     raise RuntimeError("provider_responses_completion_missing")
-            except (AIExecutionCancelled, ApprovalRequired, HumanInputRequired, ToolBudgetHardStop) as exc:
+            except (
+                AIExecutionCancelled,
+                ApprovalRequired,
+                HumanInputRequired,
+                ToolBudgetHardStop,
+            ) as exc:
                 if metered_attempt is not None:
                     try:
                         metered_attempt.mark_uncertain("provider_responses_stream_cancelled")
@@ -433,7 +444,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 requested_calls.append({"id": call_id, "name": name, "args": args})
                 try:
                     output = self._invoke_tool_handler(tool_handler, name, args, progress_event_id, call_id)
-                except AIExecutionCancelled:
+                except (AIExecutionCancelled, AutoExecutionBlockRequired):
                     raise
                 except (ApprovalRequired, HumanInputRequired, ToolBudgetHardStop) as exc:
                     attach_provider_control_flow_metadata(

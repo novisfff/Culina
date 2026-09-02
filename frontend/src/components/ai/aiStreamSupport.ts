@@ -28,6 +28,7 @@ export type StreamMutationContext = {
   applyChatResponse: (response: AiChatResponse, conversationKey: string, runId: string) => void;
   streamFailureMessage: (error: unknown) => string;
   markStreamingAssistantStopped: (runId: string | null, text?: string) => void;
+  hasSuccessfulOperationResultForRun: (runId: string | null | undefined) => boolean;
   clearInaccessibleConversation: (conversationId: string) => void;
   refreshAfterApprovalSettled: () => Promise<void>;
   isApprovalDecisionSettledPart: (part: AiMessagePart, approvalId: string) => boolean;

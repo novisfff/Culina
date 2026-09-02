@@ -10,6 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.workflows.conversations import require_conversation
+from app.ai.workflows.runner_support.approval_resume import approval_resume_payload_hash
+from app.ai.workflows.runner_support.human_input_resume_claim import (
+    STREAM_APPROVAL_RESUME_CLAIM_KIND,
+    STREAM_RESUME_CLAIM_TOKEN_KEY,
+    claim_stream_resume,
+    current_stream_resume_claim,
+)
 from app.ai.workflows.runner_support.run_status import WAITING_APPROVAL
 from app.models.domain import AIApprovalRequest
 from app.services.ai_operations.run_cancellation import (
@@ -120,6 +127,8 @@ class ApprovalResumePreparer:
         checkpoint_run_id = str((snapshot.values or {}).get("run_id") or "")
         if not snapshot.values or not snapshot.next or checkpoint_run_id != run.id:
             raise AIConflictError("确认请求缺少可恢复的运行状态，请重新生成草稿")
+        if current_stream_resume_claim(run) is not None:
+            raise AIConflictError("这次恢复任务正在处理中，请稍后刷新")
         resume_payload = self.build_resume_payload(
             approval_id=approval_id,
             decision=decision,
@@ -129,6 +138,24 @@ class ApprovalResumePreparer:
             user_id=user_id,
             family_id=family_id,
         )
+        if stream:
+            claim = claim_stream_resume(
+                self.db,
+                run=run,
+                kind=STREAM_APPROVAL_RESUME_CLAIM_KIND,
+                request_id=approval_id,
+                user_id=user_id,
+                payload_hash=approval_resume_payload_hash(
+                    decision=decision,
+                    draft_version=draft_version,
+                    values=values,
+                    comment=comment,
+                ),
+            )
+            resume_payload = {
+                **resume_payload,
+                STREAM_RESUME_CLAIM_TOKEN_KEY: claim.token,
+            }
         return PreparedApprovalResume(
             config=config,
             snapshot=snapshot,

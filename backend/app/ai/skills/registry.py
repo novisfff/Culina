@@ -125,9 +125,14 @@ class SkillRegistry:
 
 
 def build_workspace_skill_registry() -> SkillRegistry:
+    from app.services.ai_auto_execution.policy_registry import auto_execution_policy_registry
+
     registry = SkillRegistry()
     tool_registry = build_workspace_tool_registry()
-    for skill in load_skill_catalog(tool_registry=tool_registry):
+    for skill in load_skill_catalog(
+        tool_registry=tool_registry,
+        auto_execution_policy_registry=auto_execution_policy_registry,
+    ):
         registry.register(skill)
     registry.validate_contracts(tool_registry)
     return registry

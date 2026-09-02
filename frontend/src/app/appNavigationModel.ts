@@ -1,6 +1,7 @@
 import type { MealType } from '../api/types/meal';
 
 export type PrimaryTabKey = 'home' | 'eat' | 'ingredients' | 'ai' | 'family';
+export type AiView = 'conversation';
 export type EatBaseView = 'discover' | 'plan' | 'history';
 export type FamilyView = 'profile' | 'modelUsage' | 'modelUsageRequests' | 'aiServices';
 
@@ -41,11 +42,13 @@ export type EatTask =
 export type AppNavigationState = {
   primaryTab: PrimaryTabKey;
   eat: { baseView: EatBaseView; task: EatTask | null; discoverSection: 'all' | 'selfMade' };
+  ai: { view: AiView };
   family: { view: FamilyView; period: string | null };
 };
 
 export type AppNavigationTarget =
-  | { workspace: 'home' | 'ingredients' | 'ai' }
+  | { workspace: 'home' | 'ingredients' }
+  | { workspace: 'ai'; view?: AiView }
   | { workspace: 'family'; view?: FamilyView; period?: string | null }
   | { workspace: 'eat'; view: 'discover'; section?: 'all' | 'selfMade' }
   | { workspace: 'eat'; view: 'food'; foodId: string }
@@ -72,6 +75,7 @@ export type PersistedNavigationV2 = {
   primaryTab: PrimaryTabKey;
   eatBaseView: EatBaseView;
   discoverSection?: 'all' | 'selfMade';
+  aiView?: AiView;
   familyView?: FamilyView;
 };
 
@@ -95,6 +99,7 @@ export type AppQueryScope = {
 export const initialNavigationState: AppNavigationState = {
   primaryTab: 'home',
   eat: { baseView: 'discover', task: null, discoverSection: 'all' },
+  ai: { view: 'conversation' },
   family: { view: 'profile', period: null },
 };
 
@@ -144,7 +149,6 @@ function isDiscoverSection(value: unknown): value is 'all' | 'selfMade' {
 function isFamilyView(value: unknown): value is FamilyView {
   return typeof value === 'string' && FAMILY_VIEWS.has(value as FamilyView);
 }
-
 function withEat(
   state: AppNavigationState,
   eat: Partial<AppNavigationState['eat']>,
@@ -156,6 +160,7 @@ function withEat(
       ...state.eat,
       ...eat,
     },
+    ai: state.ai,
     family: state.family,
   };
 }
@@ -178,12 +183,22 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
         ...state.eat,
         task: null,
       },
+      ai: state.ai,
       family: {
         view: target.view ?? 'profile',
         // Alert links may supply a month, but normal family navigation must
         // never resurrect an earlier deep-link period.
         period: target.period ?? null,
       },
+    };
+  }
+
+  if (target.workspace === 'ai') {
+    return {
+      primaryTab: 'ai',
+      eat: { ...state.eat, task: null },
+      ai: { view: 'conversation' },
+      family: state.family,
     };
   }
 
@@ -194,6 +209,7 @@ function applyTarget(state: AppNavigationState, target: AppNavigationTarget): Ap
         ...state.eat,
         task: null,
       },
+      ai: state.ai,
       family: state.family,
     };
   }
@@ -369,6 +385,9 @@ export function parsePersistedNavigation(raw: string | null | undefined): AppNav
       task: null,
       discoverSection,
     },
+    // The removed auto-execution settings view may still exist in persisted
+    // snapshots. Always restore the AI conversation instead.
+    ai: { view: 'conversation' },
     // V2 snapshots predating model usage have no familyView. Treat those as
     // the profile page rather than dropping a valid stored navigation state.
     family: { view: familyView, period: null },

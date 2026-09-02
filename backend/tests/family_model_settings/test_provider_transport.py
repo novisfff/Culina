@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import certifi
 import pytest
 from pydantic import SecretStr
 
@@ -15,12 +16,14 @@ from app.services.family_model_settings.network_policy import (
     decode_private_target_allowlist,
 )
 from app.services.family_model_settings.transport import (
+    _PinnedHTTPSConnection,
     ProviderMedia,
     ProviderResponse,
     ProviderTransport,
     ProviderTransportSettings,
     provider_network_constructor_inventory,
 )
+from app.services.family_model_settings.types import ResolvedProviderEndpoint
 
 
 @dataclass
@@ -170,3 +173,32 @@ def test_network_constructor_inventory_reports_unapproved_sources(tmp_path: Path
     source.write_text("import httpx\nhttpx.Client()\n", encoding="utf-8")
 
     assert provider_network_constructor_inventory(root=tmp_path) == ["unsafe_adapter.py:httpx.Client"]
+
+
+def test_pinned_https_connection_uses_certifi_ca_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_create_default_context(*, cafile: str | None = None):
+        captured["cafile"] = cafile
+        return object()
+
+    monkeypatch.setattr(
+        "app.services.family_model_settings.transport.ssl.create_default_context",
+        fake_create_default_context,
+    )
+
+    _PinnedHTTPSConnection(
+        ResolvedProviderEndpoint(
+            normalized_url="https://provider.example/v1",
+            scheme="https",
+            host="provider.example",
+            port=443,
+            base_path="/v1",
+            resolved_addresses=("93.184.216.34",),
+            private_target=False,
+        ),
+        connect_timeout=1,
+        request_timeout=2,
+    )
+
+    assert captured == {"cafile": certifi.where()}

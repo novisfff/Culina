@@ -71,6 +71,7 @@ def lock_inventory_targets(
                 )
                 .order_by(Ingredient.id.asc())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         if len(locked_ingredients) != len(ordered_ingredient_ids):
@@ -85,6 +86,7 @@ def lock_inventory_targets(
                 .where(Food.family_id == family_id, Food.id.in_(ordered_food_ids))
                 .order_by(Food.id.asc())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         if len(locked_foods) != len(ordered_food_ids):
@@ -102,6 +104,7 @@ def lock_inventory_targets(
                 )
                 .order_by(IngredientInventoryState.ingredient_id.asc())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         states_by_ingredient_id = {item.ingredient_id: item for item in locked_states}
@@ -123,6 +126,7 @@ def lock_inventory_targets(
                 .options(selectinload(InventoryItem.ingredient))
                 .order_by(InventoryItem.id.asc())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         if len(locked_items) != len(ordered_inventory_item_ids):
@@ -140,6 +144,7 @@ def lock_inventory_targets(
                 )
                 .order_by(ShoppingListItem.id.asc())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         if len(locked_shopping) != len(ordered_shopping_item_ids):

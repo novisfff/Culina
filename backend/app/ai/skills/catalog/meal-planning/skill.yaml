@@ -43,7 +43,7 @@ route_hints:
 - meal_plan
 - meal_planning
 - today_recommendation
-approval_policy: draft_then_confirm
+approval_policy: draft_then_policy
 tool_budget:
   max_tool_calls: 28
   max_same_read_calls: 2

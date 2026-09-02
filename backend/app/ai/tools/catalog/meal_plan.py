@@ -216,12 +216,13 @@ def meal_plan_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[
 
 
 def meal_plan_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    raw_draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    business_draft = {key: value for key, value in raw_draft.items() if key != "intentEvidence"}
     normalized = normalize_meal_plan_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
-        payload=draft,
+        payload=business_draft,
     )
     item_count = len(normalized.get("operations") or normalized.get("items") or [])
     return {"draft": normalized, "itemCount": item_count}

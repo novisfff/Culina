@@ -4,6 +4,7 @@ from typing import Any
 
 from app.ai.skills.base import SkillResult
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.status import normalize_operation_status
 
 MAX_PREVIEW_ITEMS = 5
 MAX_TEXT_LENGTH = 180
@@ -279,7 +280,11 @@ def _compact_approval_decision(
                 },
                 "operation": {
                     "id": operation.get("id"),
-                    "status": operation.get("status"),
+                    # Approval artifacts can be replayed from a pre-migration
+                    # message payload.  Keep the model-facing compact
+                    # context on the canonical spelling even when the
+                    # persisted operation still contains legacy ``succeeded``.
+                    "status": _compact_operation_status(operation.get("status")),
                     "businessEntityType": operation.get("business_entity_type") or operation.get("businessEntityType"),
                     "actionSummary": operation_summary,
                 },
@@ -287,6 +292,12 @@ def _compact_approval_decision(
         }
     )
     return compact
+
+
+def _compact_operation_status(value: Any) -> str | None:
+    if value is None:
+        return None
+    return normalize_operation_status(value)
 
 
 def _copy_source_ids(compact: dict[str, Any], artifact: dict[str, Any], payload: dict[str, Any]) -> None:

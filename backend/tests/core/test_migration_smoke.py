@@ -19,7 +19,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 def test_repository_has_exactly_one_alembic_head() -> None:
     heads = load_declared_heads(BACKEND_ROOT)
 
-    assert assert_single_declared_head(heads) == "8c9d0e1f2a3b"
+    assert assert_single_declared_head(heads) == "9d0e1f2a3b4c"
 
 
 @pytest.mark.parametrize("heads", [(), ("head-a", "head-b")])

@@ -146,7 +146,7 @@ def _normalize_for_hash(value: Any) -> Any:
     return value
 
 
-def canonical_request_hash(payload: BaseModel) -> str:
+def canonical_request_hash(payload: Any) -> str:
     """SHA-256 of a stable JSON encoding of the business payload."""
     normalized = _normalize_for_hash(payload)
     canonical = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

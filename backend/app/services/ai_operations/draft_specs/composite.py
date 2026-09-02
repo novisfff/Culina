@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
+from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
 from app.services.ai_operations.composite import (
     COMPOSITE_DOMAIN_DRAFT_TYPES,
     composite_execution_order,
@@ -50,12 +51,14 @@ def _normalize_composite_operation(context: DraftNormalizeContext) -> dict[str, 
     return normalize_composite_operation_draft({**normalized, "steps": normalized_steps})
 
 
-def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
+def _execute_composite_operation(context: DraftExecuteContext) -> DraftExecutionReceipt:
     steps_by_id = {
         str(step.get("stepId") or ""): step
         for step in (context.payload.get("steps") or [])
         if isinstance(step, dict)
     }
+
+    step_cache_scopes: dict[str, tuple[AICacheScope, ...]] = {}
 
     def execute_step(
         step_draft_type: str,
@@ -107,7 +110,9 @@ def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str
                 child_operation_id,
             ),
         )
-        return draft_operation_registry.execute(child_context)
+        receipt = draft_operation_registry.execute(child_context)
+        step_cache_scopes[step_id] = receipt.cache_scopes
+        return receipt.business_entity, list(receipt.entity_ids)
 
     # Ensure topological order is validated before execution.
     composite_execution_order(context.payload)
@@ -125,7 +130,36 @@ def _execute_composite_operation(context: DraftExecuteContext) -> tuple[dict[str
         for entity_id in (step.get("entityIds") or [])
         if str(entity_id)
     ]
-    return result, list(dict.fromkeys(entity_ids))
+    cache_scopes: list[AICacheScope] = []
+    domain_default_scopes: dict[str, AICacheScope] = {
+        "ingredient": "inventory",
+        "inventory": "inventory",
+        "food": "food",
+        "recipe": "food",
+        "recipe_cook": "meal_log",
+        "meal_plan": "meal_plan",
+        "shopping_list": "shopping_list",
+        "meal_log": "meal_log",
+    }
+    for step in result.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        step_id = str(step.get("stepId") or "")
+        scopes = step_cache_scopes.get(step_id)
+        if scopes is None:
+            default_scope = domain_default_scopes.get(str(step.get("domain") or ""))
+            scopes = (default_scope,) if default_scope is not None else ()
+        for scope in scopes:
+            if scope != "ai_conversation" and scope not in cache_scopes:
+                cache_scopes.append(scope)
+    cache_scopes.append("ai_conversation")
+    return DraftExecutionReceipt(
+        business_entity=result,
+        entity_ids=tuple(dict.fromkeys(entity_ids)),
+        cache_scopes=tuple(cache_scopes),
+        revert_adapter_key=None,
+        revert_context=None,
+    )
 
 
 def _preview_composite_operation(payload: dict[str, Any]) -> str:

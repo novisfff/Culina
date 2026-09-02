@@ -117,20 +117,21 @@ def shopping_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[s
 
 
 def shopping_list_create_draft(context: ToolContext, payload: dict[str, Any]) -> dict[str, Any]:
-    draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    raw_draft = payload.get("draft") if isinstance(payload.get("draft"), dict) else {}
+    business_draft = {key: value for key, value in raw_draft.items() if key != "intentEvidence"}
     if any(
         isinstance(operation, dict)
         and operation.get("action") == "set_done"
         and isinstance(operation.get("payload"), dict)
         and operation["payload"].get("done") is True
-        for operation in draft.get("operations") or []
+        for operation in business_draft.get("operations") or []
     ):
         raise ValueError("完成采购并入库请改由 inventory_analysis 处理，使用统一入库草稿同时更新购物状态和库存")
     normalized = normalize_shopping_list_draft(
         context.db,
         family_id=context.family_id,
         conversation_id=context.conversation_id,
-        payload=draft,
+        payload=business_draft,
     )
     item_count = len(normalized.get("operations") or normalized.get("items") or [])
     return {"draft": normalized, "itemCount": item_count}

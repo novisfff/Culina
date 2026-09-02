@@ -1736,6 +1736,7 @@ class AIEvalContext:
     def __init__(self, owner: AIAgentInfraTestCase) -> None:
         self.owner = owner
         self.aliases: dict[str, str] = {}
+        self.last_run_id: str | None = None
         self._install_fixtures()
 
     def _install_fixtures(self) -> None:
@@ -1928,6 +1929,25 @@ class AIEvalContext:
                 created_by=self.owner.user.id,
                 updated_by=self.owner.user.id,
             )
+            meal_log = MealLog(
+                id="meal-log-eval",
+                family_id=self.owner.family.id,
+                date=self.EVAL_TODAY,
+                meal_type=MealType.DINNER,
+                participant_user_ids=[self.owner.user.id],
+                notes="评估餐食",
+                mood="",
+                created_by=self.owner.user.id,
+                updated_by=self.owner.user.id,
+            )
+            meal_log_food = MealLogFood(
+                id="meal-log-food-eval",
+                meal_log_id=meal_log.id,
+                food_id="food-tomato",
+                servings=Decimal("1"),
+                note="",
+                rating=None,
+            )
             current_media = MediaAsset(
                 id="media-current-eval",
                 family_id=self.owner.family.id,
@@ -1973,6 +1993,8 @@ class AIEvalContext:
                 shopping_food,
                 shopping_milk,
                 shopping_completed,
+                meal_log,
+                meal_log_food,
                 current_media,
                 stale_media,
                 other_media,
@@ -2004,6 +2026,8 @@ class AIEvalContext:
                 "shopping_food_item": shopping_food.id,
                 "shopping_milk_item": shopping_milk.id,
                 "shopping_completed_item": shopping_completed.id,
+                "meal_log": meal_log.id,
+                "meal_log_food": meal_log_food.id,
                 "current_media": current_media.id,
                 "stale_media": stale_media.id,
                 "other_family_ingredient": "ingredient-secret",
@@ -2095,6 +2119,7 @@ class AIEvalContext:
             "food.search": {"query": "速冻饺子", "limit": 10},
             "recipe.read_by_id": {"id": subject.get("recipeId") or self.aliases["tomato_egg_recipe"]},
             "food.read_by_id": {"id": subject.get("foodId") or self.aliases["dumpling"]},
+            "meal_log.read_by_id": {"id": subject.get("mealLogId") or self.aliases["meal_log"]},
             "ingredient.read_by_id": {"id": subject.get("ingredientId") or self.aliases["tomato"]},
             "recipe.preview_cook": {"recipeId": subject.get("recipeId") or self.aliases["tomato_egg_recipe"], "servings": 2},
             "human.request_input": {"question": "请选择具体食物", "inputMode": "choice", "options": [{"id": self.aliases["dumpling"], "label": "速冻饺子"}], "required": True},
@@ -2660,20 +2685,66 @@ class AIEvalContext:
                 }
             }
         elif name == "meal_log.create_draft":
-            food_id = subject.get("foodId") or "food-tomato"
-            deduct_stock = case.id == "meal.log_ready_food_deduct"
-            food_entry = {
-                "foodId": food_id,
-                "name": "速冻饺子" if food_id == self.aliases["dumpling"] else "番茄小炒",
-                "servings": 1,
-                "note": "",
-                "deductStock": deduct_stock,
-            }
-            if deduct_stock:
-                food_entry.update({"stockQuantity": "1", "stockUnit": "袋"})
-            payload = {"draft": {"draftType": "meal_log", "schemaVersion": "meal_log.v1", "date": today, "mealType": "dinner", "foods": [food_entry], "notes": "评估"}}
+            if case.id == "meal.rating_explicit":
+                with self.owner.SessionLocal() as db:
+                    meal_log = db.get(MealLog, self.aliases["meal_log"])
+                if meal_log is None:
+                    raise AssertionError(f"{case.id}: meal log fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "meal_log",
+                        "schemaVersion": "meal_log_operation.v1",
+                        "action": "rate_food",
+                        "targetId": meal_log.id,
+                        "baseUpdatedAt": meal_log.updated_at.isoformat(),
+                        "payload": {
+                            "foodEntryRatings": [
+                                {"id": self.aliases["meal_log_food"], "rating": 4}
+                            ]
+                        },
+                    }
+                }
+            else:
+                food_id = subject.get("foodId") or "food-tomato"
+                deduct_stock = case.id == "meal.log_ready_food_deduct"
+                food_entry = {
+                    "foodId": food_id,
+                    "name": "速冻饺子" if food_id == self.aliases["dumpling"] else "番茄小炒",
+                    "servings": 1,
+                    "note": "",
+                    "deductStock": deduct_stock,
+                }
+                if deduct_stock:
+                    food_entry.update({"stockQuantity": "1", "stockUnit": "袋"})
+                payload = {
+                    "draft": {
+                        "draftType": "meal_log",
+                        "schemaVersion": "meal_log.v1",
+                        "date": today,
+                        "mealType": "dinner",
+                        "participantUserIds": [self.owner.user.id],
+                        "foods": [food_entry],
+                        "notes": "评估",
+                    }
+                }
         elif name == "food_profile.create_draft":
-            if case.id == "shopping.complete_to_food_stock":
+            if case.id in {"food.favorite_explicit", "food.favorite_inferred"}:
+                food_id = str(subject.get("foodId") or self.aliases["tomato_egg_food"])
+                with self.owner.SessionLocal() as db:
+                    food = db.get(Food, food_id)
+                if food is None:
+                    raise AssertionError(f"{case.id}: food fixture is missing")
+                payload = {
+                    "draft": {
+                        "draftType": "food_profile",
+                        "schemaVersion": "food_profile_operation.v1",
+                        "action": "set_favorite",
+                        "targetId": food.id,
+                        "baseUpdatedAt": food.updated_at.isoformat(),
+                        "payload": {"favorite": True},
+                    }
+                }
+            elif case.id == "shopping.complete_to_food_stock":
                 with self.owner.SessionLocal() as db:
                     food = db.get(Food, self.aliases["dumpling"])
                 if food is None:
@@ -2722,6 +2793,38 @@ class AIEvalContext:
             }
         else:
             raise AssertionError(f"missing eval arguments for {case.id}: {name}")
+        if case.id in {
+            "food.favorite_explicit",
+            "meal.rating_explicit",
+            "shopping.safe_add_explicit",
+            "meal.simple_create_explicit",
+            "meal_plan.simple_create_explicit",
+            "food.favorite_inferred",
+        } and isinstance(payload.get("draft"), dict):
+            clarity = (
+                "explicit_context_resolved"
+                if case.id == "food.favorite_explicit"
+                else "inferred"
+                if case.id == "food.favorite_inferred"
+                else "explicit_complete"
+            )
+            evidence = {
+                "intentClarity": clarity,
+                "sourceQuotes": [{"fields": ["action"], "text": case.message}],
+                "resolutionSources": [],
+                "ambiguityCodes": [],
+                "defaultedFields": [],
+            }
+            if case.id == "food.favorite_explicit":
+                evidence["resolutionSources"] = [
+                    {
+                        "fields": ["targetId"],
+                        "kind": "current_ui_context",
+                        "referenceId": "current-ui-context",
+                        "entityId": str(subject["foodId"]),
+                    }
+                ]
+            payload["draft"]["intentEvidence"] = evidence
         if continuation:
             payload["continuation"] = continuation
         return payload
@@ -2864,6 +2967,7 @@ class AIEvalContext:
             raise AssertionError(f"{case.id}: runtime request failed: {response.status_code} {response.text}")
         payload = response.json()
         run_id = payload["run"]["id"]
+        self.last_run_id = run_id
         with self.owner.SessionLocal() as db:
             run = db.get(AIAgentRun, run_id)
             assert run is not None
@@ -2953,6 +3057,11 @@ class AIEvalContext:
             cardTypes=list(dict.fromkeys(card_types)),
             draftType=draft.draft_type if draft else None,
             draftPayload=draft.payload if draft and isinstance(draft.payload, dict) else {},
+            intentEvidence=(
+                draft.intent_evidence_json
+                if draft and isinstance(draft.intent_evidence_json, dict)
+                else {}
+            ),
             continuationSchema=str(continuation.get("stateSchema")) if isinstance(continuation, dict) else None,
             continuationCompleted=int((summary.get("runMetrics") or {}).get("continuationCompletedCount") or 0) > 0,
             terminalStatus=terminal,

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from app.ai.skills.base import BaseSkill, CatalogSkill, SkillCompletionPolicy, SkillManifest
 from app.ai.skills.contracts import SkillAttachmentPolicy, SkillHandoffPolicy, SkillRoutingPolicy
 from app.ai.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from app.services.ai_auto_execution.policy_registry import AutoExecutionPolicyRegistry
 
 
 SKILL_RUNTIME_FRONTMATTER_KEYS = {
@@ -42,9 +45,16 @@ SKILL_RUNTIME_FRONTMATTER_KEYS = {
 
 
 class SkillDirectoryLoader:
-    def __init__(self, skills_dir: Path | None = None, *, tool_registry: ToolRegistry | None = None) -> None:
+    def __init__(
+        self,
+        skills_dir: Path | None = None,
+        *,
+        tool_registry: ToolRegistry | None = None,
+        auto_execution_policy_registry: AutoExecutionPolicyRegistry | None = None,
+    ) -> None:
         self.skills_dir = skills_dir or Path(__file__).resolve().parent / "catalog"
         self.tool_registry = tool_registry
+        self.auto_execution_policy_registry = auto_execution_policy_registry
 
     def load(self) -> list[BaseSkill]:
         skill_paths = []
@@ -138,6 +148,7 @@ class SkillDirectoryLoader:
         )
         self._validate_manifest(manifest)
         self._validate_manifest_tools(manifest)
+        self._validate_policy_manifest(manifest)
         return manifest
 
     def _validate_runtime_version(
@@ -258,7 +269,7 @@ class SkillDirectoryLoader:
         )
 
     def _validate_manifest(self, manifest: SkillManifest) -> None:
-        if manifest.approval_policy not in {"none", "draft_then_confirm"}:
+        if manifest.approval_policy not in {"none", "draft_then_confirm", "draft_then_policy"}:
             raise ValueError(f"Skill {manifest.key} has invalid approval_policy: {manifest.approval_policy}")
         if manifest.approval_policy == "none" and manifest.draft_types:
             raise ValueError(f"Skill {manifest.key} declares draft types without approval")
@@ -280,6 +291,13 @@ class SkillDirectoryLoader:
                     f"Skill {manifest.key} draft_contract must cover declared draft types: "
                     f"{', '.join(missing_contract_types)}"
                 )
+
+        if manifest.approval_policy == "draft_then_policy" and (
+            not manifest.draft_types
+            or not manifest.draft_contract
+            or set(manifest.draft_types) - set(manifest.draft_contract)
+        ):
+            raise ValueError(f"Skill {manifest.key} policy routing requires a draft contract")
         incomplete_contract_types = sorted(
             draft_type
             for draft_type, contract in manifest.draft_contract.items()
@@ -339,7 +357,31 @@ class SkillDirectoryLoader:
             raise ValueError(f"Skill {manifest.key} requires approval but exposes no draft tools")
         unconfirmed = [definition.name for definition in draft_tools if not definition.requires_confirmation]
         if unconfirmed:
+            if manifest.approval_policy == "draft_then_policy":
+                raise ValueError(f"Skill {manifest.key} policy Draft Tools must require confirmation")
             raise ValueError(f"Skill {manifest.key} exposes draft tools that do not require confirmation: {', '.join(unconfirmed)}")
+
+    def _validate_policy_manifest(self, manifest: SkillManifest) -> None:
+        if manifest.approval_policy != "draft_then_policy":
+            return
+        if self.auto_execution_policy_registry is None:
+            raise ValueError(
+                f"Skill {manifest.key} policy routing requires an injected auto-execution policy registry"
+            )
+        if self.tool_registry is None:
+            raise ValueError(f"Skill {manifest.key} policy routing requires an injected Tool registry")
+        for draft_type in manifest.draft_types:
+            if not self.auto_execution_policy_registry.supports_draft_type(draft_type):
+                raise ValueError(
+                    f"Skill {manifest.key} has no registered auto-execution policy for {draft_type}"
+                )
+            definitions = [
+                self.tool_registry.get(name)
+                for name in manifest.tools
+                if draft_type in self.tool_registry.get(name).draft_types
+            ]
+            if not definitions or any(not definition.requires_confirmation for definition in definitions):
+                raise ValueError(f"Skill {manifest.key} policy Draft Tools must require confirmation")
 
     def _validate_completion_policy_references(self, skill: CatalogSkill) -> None:
         manifest = skill.manifest
@@ -565,5 +607,14 @@ class SkillDirectoryLoader:
         return None
 
 
-def load_skill_catalog(skills_dir: Path | None = None, *, tool_registry: ToolRegistry | None = None) -> list[BaseSkill]:
-    return SkillDirectoryLoader(skills_dir, tool_registry=tool_registry).load()
+def load_skill_catalog(
+    skills_dir: Path | None = None,
+    *,
+    tool_registry: ToolRegistry | None = None,
+    auto_execution_policy_registry: AutoExecutionPolicyRegistry | None = None,
+) -> list[BaseSkill]:
+    return SkillDirectoryLoader(
+        skills_dir,
+        tool_registry=tool_registry,
+        auto_execution_policy_registry=auto_execution_policy_registry,
+    ).load()

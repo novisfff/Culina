@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -146,12 +147,18 @@ class BaseChatProvider:
         trace_recorder: Any | None = None,
         usage_attribution: UsageAttribution | None = None,
     ) -> Iterator[str]:
-        result = self.generate(
-            system=system,
-            user=user,
-            trace_recorder=trace_recorder,
-            usage_attribution=usage_attribution,
-        )
+        # ``stream_generate`` is a compatibility adapter for providers that
+        # only implement ``generate``.  Older test/custom providers may not
+        # accept the optional observability arguments even though this base
+        # method does, so filter them at the adapter boundary instead of
+        # turning a successful approval follow-up into a provider error.
+        generate_kwargs: dict[str, Any] = {"system": system, "user": user}
+        parameters = inspect.signature(self.generate).parameters
+        if "trace_recorder" in parameters:
+            generate_kwargs["trace_recorder"] = trace_recorder
+        if "usage_attribution" in parameters:
+            generate_kwargs["usage_attribution"] = usage_attribution
+        result = self.generate(**generate_kwargs)
         if result.text:
             yield result.text
 

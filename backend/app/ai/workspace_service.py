@@ -40,6 +40,7 @@ from app.ai.workflows.conversations import (
 from app.ai.workflows.run_lifecycle import (
     build_regenerate_part_chat_request,
     build_retry_chat_request,
+    recover_or_replay_draft_run,
 )
 from app.core.enums import AiMode, ModelUsageAttributionKind, ModelUsageOperationSource
 from app.core.utils import create_id, utcnow
@@ -486,6 +487,19 @@ class AIApplicationService:
             run_id=run_id,
             capability="contribute",
         )
+        draft_resolution = recover_or_replay_draft_run(
+            self.db,
+            family_id=family_id,
+            actor_user_id=user_id,
+            run_id=run_id,
+        )
+        if draft_resolution is not None:
+            from app.ai.workflows.runner import WorkspaceGraphRunner
+
+            return WorkspaceGraphRunner(self)._chat_response(
+                draft_resolution.conversation_id,
+                draft_resolution.run_id,
+            )
         retry_request = build_retry_chat_request(self.db, family_id=family_id, run_id=run_id)
         return self.chat(
             family_id=family_id,
@@ -760,6 +774,11 @@ class AIApplicationService:
             "toolName": str(draft_payload.get("tool") or ""),
             **({"continuation": continuation} if continuation else {}),
         }
+        intent_validation = (
+            draft_payload.get("intent_evidence_validation")
+            if isinstance(draft_payload.get("intent_evidence_validation"), dict)
+            else None
+        )
         return create_ai_draft_approval(
             self.db,
             family_id=family_id,
@@ -772,6 +791,12 @@ class AIApplicationService:
             payload=payload,
             preview_summary=summary,
             ai_metadata=ai_metadata,
+            intent_clarity=(
+                str(intent_validation.get("clarity") or "inferred")
+                if intent_validation is not None
+                else None
+            ),
+            intent_evidence_json=intent_validation,
         )
 
     def _operation_current_value(self, *, family_id: str, draft_type: str, target_id: str) -> dict[str, Any] | None:

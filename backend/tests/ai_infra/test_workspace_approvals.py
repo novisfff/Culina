@@ -282,7 +282,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             approval = data["included"]["approvals"][0]
             draft = data["included"]["drafts"][0]
             self.assertEqual(approval["status"], "pending")
-            self.assertEqual(draft["status"], "pending")
+            self.assertEqual(draft["status"], "pending_confirmation")
             self.assertIsNone(draft["payload"].get("pending_image_job_id"))
 
             with self.SessionLocal() as db:
@@ -320,8 +320,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(decision_response.status_code, 200, decision_response.text)
             decision_data = decision_response.json()
             self.assertEqual(decision_data["approval"]["status"], "approved")
-            self.assertEqual(decision_data["draft"]["status"], "confirmed")
-            self.assertEqual(decision_data["operation"]["status"], "succeeded")
+            self.assertEqual(decision_data["draft"]["status"], "executed")
+            self.assertEqual(decision_data["operation"]["status"], "completed")
             self.assertEqual(decision_data["business_entity"]["title"], "番茄鸡蛋面（确认版）")
             with self.SessionLocal() as db:
                 stored_approval = db.get(AIApprovalRequest, approval["id"])
@@ -503,7 +503,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
             self.assertEqual(decision_data["approval"]["approval_type"], "recipe.create.retry")
             self.assertEqual(decision_data["draft"]["status"], "pending_retry")
             self.assertEqual(decision_data["operation"]["status"], "failed")
-            self.assertIn("sync failed", decision_data["operation"]["error_message"])
+            self.assertEqual(
+                decision_data["operation"]["error_message"],
+                "操作未能完成，请稍后重新生成草稿",
+            )
+            self.assertEqual(decision_data["operation"]["error_code"], "draft_commit_domain_failed")
             pending_response = self.client.get(f"/api/ai/conversations/{data['conversation_id']}/approvals/pending")
             self.assertEqual(pending_response.status_code, 200, pending_response.text)
             self.assertEqual(pending_response.json()[0]["id"], decision_data["approval"]["id"])
@@ -867,7 +871,11 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 )
                 self.assertIsNone(result["business_entity"])
                 self.assertEqual(result["operation"]["status"], "failed")
-                self.assertIn("菜单或餐食历史", result["operation"]["error_message"])
+                self.assertEqual(
+                    result["operation"]["error_message"],
+                    "目标状态已变化，请刷新后重新生成草稿",
+                )
+                self.assertEqual(result["operation"]["error_code"], "draft_commit_domain_conflict")
                 self.assertEqual(result["draft"]["status"], "pending_retry")
                 self.assertNotEqual(result["approval"]["id"], original_approval_id)
                 self.assertEqual(result["approval"]["status"], "pending")
@@ -1349,7 +1357,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         suffix=suffix,
                     )
                     result = self._approve_ai_approval_for_test(service, draft=draft, approval=approval)
-                    self.assertEqual(result["operation"]["status"], "succeeded")
+                    self.assertEqual(result["operation"]["status"], "completed")
                     self.assertEqual(db.query(AIOperation).count(), operation_count + 1)
                     self.assertEqual(db.query(AIUserApproval).count(), approval_audit_count + 1)
                     self.assertGreater(db.query(ActivityLog).count(), activity_count)
@@ -2109,8 +2117,14 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         self.assertEqual(result["draft"]["status"], "pending_retry")
                         self.assertEqual(result["approval"]["status"], "pending")
                         self.assertTrue(result["approval"]["approval_type"].endswith(".retry"))
-                        self.assertIn("更新", result["operation"]["error_message"])
-                        self.assertIn("重试", result["operation"]["error_message"])
+                        self.assertEqual(
+                            result["operation"]["error_message"],
+                            "目标状态已变化，请刷新后重新生成草稿",
+                        )
+                        self.assertEqual(
+                            result["operation"]["error_code"],
+                            "draft_commit_domain_conflict",
+                        )
 
         def test_meal_plan_retry_approval_includes_failed_operation_summary(self) -> None:
             with self.SessionLocal() as db:
@@ -3196,7 +3210,12 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     },
                 )
                 self.assertEqual(approval.approval_type, "food.favorite")
-                service._apply_approval_decision(
+                # Rows created before the canonical Draft status migration may
+                # still carry the legacy ``pending`` value.  The approval path
+                # must accept that row and persist the canonical outcome.
+                draft.status = "pending"
+                db.flush()
+                decision_result = service._apply_approval_decision(
                     family_id=self.family.id,
                     user_id=self.user.id,
                     conversation_id=conversation.id,
@@ -3205,6 +3224,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     draft_version=draft.version,
                     values=approval.initial_values,
                 )
+                self.assertEqual(decision_result["draft"]["status"], "executed")
                 db.refresh(food)
                 self.assertTrue(food.favorite)
                 index_job = db.scalar(
@@ -3716,7 +3736,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         "draft": {"id": "draft-1", "draft_type": "meal_plan"},
                         "operation": {
                             "id": "operation-1",
-                            "status": "succeeded",
+                            "status": "completed",
                             "business_entity_type": "FoodPlanItem",
                         },
                         "business_entity": {
@@ -3763,7 +3783,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     },
                     "operation": {
                         "id": "operation-recipe",
-                        "status": "succeeded",
+                        "status": "completed",
                         "business_entity_type": "Recipe",
                     },
                     "business_entity": {
@@ -3809,7 +3829,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     },
                     "operation": {
                         "id": "operation-inventory",
-                        "status": "succeeded",
+                        "status": "completed",
                         "business_entity_type": "InventoryItem",
                     },
                     "business_entity": {
@@ -3937,7 +3957,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                         },
                         "operation": {
                             "id": "operation-1",
-                            "status": "succeeded",
+                            "status": "completed",
                             "business_entity_type": "FoodPlanItem",
                         },
                         "business_entity": {
@@ -3990,7 +4010,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     draft=draft,
                     approval=approval,
                 )
-                self.assertEqual(result["operation"]["status"], "succeeded")
+                self.assertEqual(result["operation"]["status"], "completed")
                 db.commit()
 
             with self.SessionLocal() as db:
@@ -4050,7 +4070,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     draft=draft,
                     approval=approval,
                 )
-                self.assertEqual(result["operation"]["status"], "succeeded")
+                self.assertEqual(result["operation"]["status"], "completed")
                 shopping_id = result["business_entity"]["operations"][0]["item"]["id"]
                 self.assertIsNotNone(db.get(ShoppingListItem, shopping_id))
                 db.commit()
@@ -4158,7 +4178,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     suffix="highlight-classifier-fault",
                 )
                 with patch(
-                    "app.services.ai_operations.approval_decisions.classify_approval_highlight",
+                    "app.services.ai_operations.commit_coordinator.classify_approval_highlight",
                     side_effect=RuntimeError("classifier fault"),
                 ):
                     result = self._approve_ai_approval_for_test(

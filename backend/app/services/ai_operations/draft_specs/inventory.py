@@ -4,7 +4,11 @@ from collections import Counter
 from typing import Any
 
 from app.ai.tools.draft_validation import normalize_inventory_operation_draft
-from app.services.ai_operations.inventory import execute_inventory_operation_draft, refresh_inventory_result_card
+from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
+from app.services.ai_operations.inventory import (
+    execute_inventory_operation_draft_with_ledger,
+    refresh_inventory_result_card,
+)
 from app.services.ai_operations.registry_types import (
     DraftExecuteContext,
     DraftNormalizeContext,
@@ -132,12 +136,31 @@ def _normalize_inventory_operation(context: DraftNormalizeContext) -> dict[str, 
     return normalized
 
 
-def _execute_inventory_operation(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-    return execute_inventory_operation_draft(
+def _execute_inventory_operation(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    business_entity, entity_ids, inventory_operation = execute_inventory_operation_draft_with_ledger(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
+        client_request_id=context.operation_idempotency_key,
+        committed_at=context.committed_at,
+        revertible_until=context.revertible_until,
+    )
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(sorted(entity_ids)),
+        cache_scopes=("inventory", "ai_conversation"),
+        revert_adapter_key=(
+            "inventory.operation_ref.v1" if inventory_operation is not None else None
+        ),
+        revert_context=(
+            {
+                "schema_version": 1,
+                "inventory_operation_id": inventory_operation.id,
+            }
+            if inventory_operation is not None
+            else None
+        ),
     )
 
 

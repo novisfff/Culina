@@ -86,6 +86,8 @@ from app.services.ai_operations.run_cancellation import (
     lock_run_for_transition,
 )
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
+from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_revert.registry import ai_revert_adapter_registry
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.serializers import (
     serialize_ai_approval_request,
@@ -164,6 +166,7 @@ class WorkspaceGraphRunner:
         self.progressive_draft_publisher = ProgressiveDraftPublisher(
             db=self.db,
             service=self.service,
+            registered_revert_adapters=ai_revert_adapter_registry.keys,
             cancel_requested=self._cancel_requested,
             commit_stream_checkpoint=self._commit_stream_checkpoint,
             optional_stream_writer=self._optional_stream_writer,
@@ -296,7 +299,7 @@ class WorkspaceGraphRunner:
                 conversation_id=conversation_id,
                 family_id=family_id,
                 user_id=user_id,
-                error=str(exc),
+                error=exc,
             )
             return self._chat_response(conversation_id, prepared["run_id"])
         run_id = str(output.get("run_id") or "")
@@ -518,16 +521,22 @@ class WorkspaceGraphRunner:
                 )
             yield ("response", response)
 
-        def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> None:
+        def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> bool:
+            handled = False
             if current_run_id:
-                runner.runtime_failure_persister.mark_failed(
+                handled = runner.runtime_failure_persister.mark_failed(
                     run_id=current_run_id,
                     conversation_id=conversation_id,
                     family_id=family_id,
                     user_id=user_id,
-                    error=str(exc),
+                    error=exc,
                 )
-            if discard_history_on_terminal:
+            # A handled failure has already been converted into a durable
+            # success response by the stream bridge. Keep that conversation
+            # available until the response is emitted; purging it here would
+            # make the bridge unable to build the final snapshot. Unhandled
+            # failures retain the original transient-history cleanup.
+            if discard_history_on_terminal and current_run_id and not handled:
                 purge_ai_conversation_user_data(
                     runner.db,
                     family_id=family_id,
@@ -535,6 +544,7 @@ class WorkspaceGraphRunner:
                     expected_run_id=current_run_id,
                 )
                 runner.db.commit()
+            return handled
 
         yield from self._stream_graph_events(
             graph_stream,
@@ -807,9 +817,9 @@ class WorkspaceGraphRunner:
         next_status = COMPLETED
         if approval.get("status") == PENDING:
             next_status = WAITING_APPROVAL
-        elif operation is not None and operation.get("status") != "succeeded":
+        elif operation is not None and not is_operation_completed(operation.get("status")):
             next_status = FAILED
-        elif decision == "rejected" or self._approval_resume_payload_from_decision(serialized) is not None:
+        elif decision == "rejected" or self._approval_requires_orchestrator_resume(serialized):
             next_status = RUNNING
         run_id = str(approval.get("run_id") or "")
         if run_id:
@@ -1079,7 +1089,8 @@ class WorkspaceGraphRunner:
                 continue
             card = part.get("card") if isinstance(part.get("card"), dict) else {}
             data = card.get("data") if isinstance(card.get("data"), dict) else {}
-            if str(card.get("id") or "") != expected_card_id and str(data.get("approvalId") or "") != approval.id:
+            card_approval_id = data.get("approvalId") or data.get("approval_id")
+            if str(card.get("id") or "") != expected_card_id and str(card_approval_id or "") != approval.id:
                 continue
             events.append(
                 {
@@ -1280,6 +1291,47 @@ class WorkspaceGraphRunner:
         metadata = draft.ai_metadata if isinstance(draft.ai_metadata, dict) else {}
         return approval_resume_payload_from_metadata(metadata)
 
+    def _approval_has_continuation(self, decision_result: dict[str, Any]) -> bool:
+        draft_id = approval_resume_draft_id(decision_result)
+        draft = self.db.get(AITaskDraft, draft_id) if draft_id else None
+        metadata = draft.ai_metadata if draft is not None and isinstance(draft.ai_metadata, dict) else {}
+        return (
+            continuation_from_metadata(metadata) is not None
+            or approval_resume_payload_from_metadata(metadata) is not None
+        )
+
+    def _approval_requires_orchestrator_resume(
+        self,
+        decision_result: dict[str, Any],
+        *,
+        run: AIAgentRun | None = None,
+    ) -> bool:
+        """Whether approval completion still needs a model/tool turn.
+
+        A terminal write can use the lightweight natural-language follow-up,
+        but multi-skill/product-loop approvals must return to the orchestrator
+        so downstream drafts and tools are still produced.
+        """
+        if self._approval_has_continuation(decision_result):
+            return True
+        if run is None:
+            approval = decision_result.get("approval") if isinstance(decision_result.get("approval"), dict) else {}
+            run_id = str(approval.get("run_id") or "")
+            if run_id:
+                run = self.db.get(AIAgentRun, run_id)
+        if run is not None:
+            if str(run.intent or "") == "multi_skill":
+                return True
+            summary = run.context_summary if isinstance(run.context_summary, dict) else {}
+            routing = summary.get("routing") if isinstance(summary.get("routing"), dict) else {}
+            routed_skills = routing.get("skills") if isinstance(routing.get("skills"), list) else []
+            orchestrator_summary = summary.get("orchestrator") if isinstance(summary.get("orchestrator"), dict) else {}
+            injected_skills = orchestrator_summary.get("injectedSkills") if isinstance(orchestrator_summary.get("injectedSkills"), list) else []
+            if len({str(key) for key in [*routed_skills, *injected_skills] if str(key)}) > 1:
+                return True
+        draft = decision_result.get("draft") if isinstance(decision_result.get("draft"), dict) else {}
+        return str(draft.get("draft_type") or draft.get("draftType") or "") in {"meal_plan", "shopping_list"}
+
     def _pop_fast_approval_decision(self, state: WorkspaceGraphState, approval_id: str) -> dict[str, Any] | None:
         if not approval_id:
             return None
@@ -1382,7 +1434,7 @@ class WorkspaceGraphRunner:
         on_disconnect: Callable[[], None],
         before_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
         after_graph: Callable[["WorkspaceGraphRunner"], Iterator[tuple[str, dict[str, Any]]]] | None = None,
-        on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], None] | None = None,
+        on_worker_exception: Callable[["WorkspaceGraphRunner", BaseException], bool | None] | None = None,
         runner_factory: Callable[[], "WorkspaceGraphRunner"] | None = None,
         perf_context: dict[str, Any] | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:

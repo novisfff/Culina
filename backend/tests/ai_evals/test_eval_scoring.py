@@ -184,6 +184,35 @@ def test_score_case_checks_persisted_draft_values() -> None:
     assert "draft value foods.0.deductStock expected True got False" in score.failures
 
 
+def test_score_case_checks_persisted_intent_evidence_separately_from_business_payload() -> None:
+    evidence_case = case(
+        expectedIntentEvidenceValues={
+            "normalized_evidence.intentClarity": "explicit_complete",
+            "normalized_evidence.sourceQuotes.0.text": "把番茄加入购物清单",
+        }
+    )
+
+    score = score_case(
+        case=evidence_case,
+        observation=observation(
+            draftPayload={"items": [{"title": "番茄"}]},
+            intentEvidence={
+                "normalized_evidence": {
+                    "intentClarity": "inferred",
+                    "sourceQuotes": [{"text": "番茄不错"}],
+                }
+            },
+        ),
+    )
+
+    assert score.draftPassed is False
+    assert (
+        "intent evidence value normalized_evidence.intentClarity "
+        "expected 'explicit_complete' got 'inferred'"
+    ) in score.failures
+    assert "intentEvidence" not in observation(draftPayload={}).draftPayload
+
+
 def test_score_case_checks_real_tool_output_values() -> None:
     query_case = case(
         category="query",

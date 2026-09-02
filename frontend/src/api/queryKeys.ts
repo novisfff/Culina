@@ -72,6 +72,7 @@ export const queryKeys = {
   activityHighlightList: (limit = 5) =>
     ['activity-highlights', 'list', limit] as const,
   aiStatus: (familyId: string) => ['ai-status', familyId] as const,
+  aiAutoExecutionSettings: (familyId: string) => ['ai-auto-execution-settings', familyId] as const,
   aiImageJobs: ['ai-image-jobs'] as const,
   searchIndexJobs: ['search-index-jobs'] as const,
   aiQualityMetrics: ['ai-quality-metrics'] as const,

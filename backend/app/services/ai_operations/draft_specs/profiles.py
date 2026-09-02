@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.ai.tools.draft_validation import normalize_food_profile_draft_for_tools, normalize_ingredient_profile_draft
 from app.ai.workflows.runner_support.attachments import validate_submitted_attachment_subset
 from app.repos.media import build_media_map, get_media_assets_for_entities
+from app.services.ai_auto_execution.policy_types import DraftExecutionReceipt
 from app.services.ai_operations.foods import execute_food_profile_draft
 from app.services.ai_operations.ingredients import execute_ingredient_profile_draft
 from app.services.ai_operations.recovery_loaders import (
@@ -162,7 +163,12 @@ def _approval_config_for_food_profile(payload: dict[str, Any]) -> dict[str, str]
 
 def _normalize_food_profile(context: DraftNormalizeContext) -> dict[str, Any]:
     try:
-        return normalize_food_profile_draft_for_tools(context.db, family_id=context.family_id, payload=context.payload)
+        return normalize_food_profile_draft_for_tools(
+            context.db,
+            family_id=context.family_id,
+            payload=context.payload,
+            phase=context.phase,
+        )
     except ValidationError as exc:
         raise ValueError("食物资料草稿字段不完整或格式不正确") from exc
 
@@ -179,7 +185,7 @@ def _normalize_ingredient_profile(context: DraftNormalizeContext) -> dict[str, A
         raise ValueError("食材档案草稿字段不完整或格式不正确") from exc
 
 
-def _execute_food_profile(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
+def _execute_food_profile(context: DraftExecuteContext) -> DraftExecutionReceipt:
     food = execute_food_profile_draft(
         context.db,
         family_id=context.family_id,
@@ -190,10 +196,16 @@ def _execute_food_profile(context: DraftExecuteContext) -> tuple[dict[str, Any],
     media_map = build_media_map(
         get_media_assets_for_entities(context.db, family_id=context.family_id, entity_type="food", entity_ids=[food.id])
     )
-    return serialize_food(food, media_map), [food.id]
+    return DraftExecutionReceipt(
+        business_entity=serialize_food(food, media_map),
+        entity_ids=(food.id,),
+        cache_scopes=("food", "ai_conversation"),
+        revert_adapter_key=None,
+        revert_context=None,
+    )
 
 
-def _execute_ingredient_profile(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
+def _execute_ingredient_profile(context: DraftExecuteContext) -> DraftExecutionReceipt:
     ingredient_result = execute_ingredient_profile_draft(
         context.db,
         family_id=context.family_id,
@@ -211,9 +223,15 @@ def _execute_ingredient_profile(context: DraftExecuteContext) -> tuple[dict[str,
                 entity_ids=ingredient_ids,
             )
         )
-        return {
-            "items": [serialize_ingredient(ingredient, media_map) for ingredient in ingredient_result]
-        }, ingredient_ids
+        return DraftExecutionReceipt(
+            business_entity={
+                "items": [serialize_ingredient(ingredient, media_map) for ingredient in ingredient_result]
+            },
+            entity_ids=tuple(ingredient_ids),
+            cache_scopes=("inventory", "ai_conversation"),
+            revert_adapter_key=None,
+            revert_context=None,
+        )
     media_map = build_media_map(
         get_media_assets_for_entities(
             context.db,
@@ -222,7 +240,13 @@ def _execute_ingredient_profile(context: DraftExecuteContext) -> tuple[dict[str,
             entity_ids=[ingredient_result.id],
         )
     )
-    return serialize_ingredient(ingredient_result, media_map), [ingredient_result.id]
+    return DraftExecutionReceipt(
+        business_entity=serialize_ingredient(ingredient_result, media_map),
+        entity_ids=(ingredient_result.id,),
+        cache_scopes=("inventory", "ai_conversation"),
+        revert_adapter_key=None,
+        revert_context=None,
+    )
 
 
 def _preview_food_profile(payload: dict[str, Any]) -> str:

@@ -13,9 +13,12 @@ from app.ai.skills.base import SkillContext
 from app.ai.skills.registry import SkillRegistry
 from app.ai.skills.registry import build_workspace_skill_registry
 from app.ai.skills.state_schemas import validate_continuation_state
+from app.ai.errors import ToolExecutionError
 from app.ai.tools import ToolContext, ToolExecutor
-from app.ai.tools.registry import build_workspace_tool_registry
-from app.ai.runtime.tooling import chat_tool_definition_to_model_tool
+from app.ai.tools.base import ToolDefinition
+from app.ai.tools.registry import ToolRegistry, build_workspace_tool_registry
+from app.ai.tools.validation import validate_json_value
+from app.ai.runtime.tooling import chat_tool_definition_to_model_tool, tool_error_message
 from app.ai.workflows.orchestrator import SkillInjectionManager
 from app.ai.workflows.orchestrator.continuation import ContinuationValidationError, normalize_continuation
 from app.ai.workflows.orchestrator.draft_capture import prepare_tool_payload
@@ -378,7 +381,7 @@ def test_phase3_product_loop_edges_are_declared_and_never_commit_directly() -> N
             draft_type,
             state_schema,
         )
-        assert registry.get(target_key).manifest.approval_policy == "draft_then_confirm"
+        assert registry.get(target_key).manifest.requires_approval is True
         assert set(policy.to_record()) == {
             "reasonCode",
             "targetSkill",
@@ -926,10 +929,18 @@ def test_normalize_continuation_rejects_disallowed_resume_skill(tmp_path: Path) 
 def test_draft_model_tool_schema_exposes_continuation_not_after_approval() -> None:
     definition = build_workspace_tool_registry().get("recipe.create_draft")
 
-    parameters = chat_tool_definition_to_model_tool(definition)["function"]["parameters"]
+    model_tool = chat_tool_definition_to_model_tool(definition)
+    parameters = model_tool["function"]["parameters"]
 
     assert "continuation" in parameters["properties"]
     assert "afterApproval" not in parameters["properties"]
+    assert "arguments.draft.intentEvidence" not in model_tool["function"]["description"]
+
+    food_model_tool = chat_tool_definition_to_model_tool(
+        build_workspace_tool_registry().get("food_profile.create_draft")
+    )
+    assert "arguments.draft.intentEvidence" in food_model_tool["function"]["description"]
+    assert "never nest it inside arguments.draft.payload" in food_model_tool["function"]["description"]
 
 
 def test_new_draft_payload_does_not_capture_legacy_after_approval() -> None:
@@ -953,6 +964,242 @@ def test_new_draft_payload_does_not_capture_legacy_after_approval() -> None:
 
     assert prepared.payload == {"draft": draft}
     assert not hasattr(prepared, "after_approval")
+
+
+def test_prepare_tool_payload_repairs_misnested_intent_clarity() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+    draft = {
+        "draftType": "food_profile",
+        "schemaVersion": "food_profile_operation.v1",
+        "action": "set_favorite",
+        "targetId": "food-1",
+        "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+        "payload": {"favorite": True},
+        "intentClarity": "explicit_context_resolved",
+        "intentEvidence": {
+            "sourceQuotes": [{"fields": ["payload.favorite"], "text": "收藏这个"}],
+            "resolutionSources": [],
+            "ambiguityCodes": [],
+            "defaultedFields": [],
+        },
+    }
+
+    prepared = prepare_tool_payload(payload={"draft": draft}, execution_definition=definition)
+
+    assert prepared.payload["draft"]["intentEvidence"]["intentClarity"] == "explicit_context_resolved"
+    assert "intentClarity" not in prepared.payload["draft"]
+    validate_json_value(prepared.payload, definition.input_schema, location="food_profile.create_draft input")
+
+
+def test_prepare_tool_payload_keeps_root_intent_evidence_inside_draft() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+    draft = {
+        "draftType": "food_profile",
+        "schemaVersion": "food_profile_operation.v1",
+        "action": "set_favorite",
+        "targetId": "food-1",
+        "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+        "payload": {"favorite": True},
+    }
+    evidence = {
+        "intentClarity": "explicit_context_resolved",
+        "sourceQuotes": [{"fields": ["payload.favorite"], "text": "收藏这个"}],
+        "resolutionSources": [],
+        "ambiguityCodes": [],
+        "defaultedFields": [],
+    }
+
+    prepared = prepare_tool_payload(
+        payload={"draft": draft, "intentClarity": evidence["intentClarity"], "intentEvidence": evidence},
+        execution_definition=definition,
+    )
+
+    assert prepared.payload == {"draft": {**draft, "intentEvidence": evidence}}
+    validate_json_value(prepared.payload, definition.input_schema, location="food_profile.create_draft input")
+
+
+def test_prepare_tool_payload_moves_misnested_intent_evidence_out_of_business_payload() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+    evidence = {
+        "intentClarity": "explicit_context_resolved",
+        "sourceQuotes": [{"fields": ["payload.favorite"], "text": "收藏这个"}],
+        "resolutionSources": [],
+        "ambiguityCodes": [],
+        "defaultedFields": [],
+    }
+    draft = {
+        "draftType": "food_profile",
+        "schemaVersion": "food_profile_operation.v1",
+        "action": "set_favorite",
+        "targetId": "food-1",
+        "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+        "payload": {"favorite": True, "intentEvidence": evidence},
+    }
+
+    prepared = prepare_tool_payload(payload={"draft": draft}, execution_definition=definition)
+
+    assert prepared.payload["draft"]["intentEvidence"] == evidence
+    assert prepared.payload["draft"]["payload"] == {"favorite": True}
+    validate_json_value(prepared.payload, definition.input_schema, location="food_profile.create_draft input")
+
+
+def test_prepare_tool_payload_rejects_conflicting_duplicate_evidence() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+    draft_evidence = {
+        "intentClarity": "explicit_context_resolved",
+        "sourceQuotes": [{"fields": ["payload.favorite"], "text": "收藏这个"}],
+        "resolutionSources": [],
+        "ambiguityCodes": [],
+        "defaultedFields": [],
+    }
+    root_evidence = {**draft_evidence, "intentClarity": "explicit_incomplete"}
+
+    with pytest.raises(ValueError, match="intentEvidence appears in multiple locations"):
+        prepare_tool_payload(
+            payload={
+                "draft": {
+                    "draftType": "food_profile",
+                    "schemaVersion": "food_profile_operation.v1",
+                    "action": "set_favorite",
+                    "targetId": "food-1",
+                    "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+                    "payload": {"favorite": True},
+                    "intentEvidence": draft_evidence,
+                },
+                "intentEvidence": root_evidence,
+            },
+            execution_definition=definition,
+        )
+
+
+def test_prepare_tool_payload_rejects_non_object_misnested_evidence() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+
+    with pytest.raises(ValueError, match="draft.payload.intentEvidence must be an object"):
+        prepare_tool_payload(
+            payload={
+                "draft": {
+                    "draftType": "food_profile",
+                    "schemaVersion": "food_profile_operation.v1",
+                    "action": "set_favorite",
+                    "targetId": "food-1",
+                    "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+                    "payload": {"favorite": True, "intentEvidence": None},
+                }
+            },
+            execution_definition=definition,
+        )
+
+
+def test_prepare_tool_payload_reassembles_flattened_evidence_fields() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+    draft = {
+        "draftType": "food_profile",
+        "schemaVersion": "food_profile_operation.v1",
+        "action": "set_favorite",
+        "targetId": "food-1",
+        "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+        "payload": {
+            "favorite": True,
+            "intentClarity": "explicit_context_resolved",
+            "sourceQuotes": [{"fields": ["payload.favorite"], "text": "收藏这个"}],
+            "resolutionSources": [],
+            "ambiguityCodes": [],
+            "defaultedFields": [],
+        },
+    }
+
+    prepared = prepare_tool_payload(payload={"draft": draft}, execution_definition=definition)
+
+    assert prepared.payload["draft"]["intentEvidence"]["intentClarity"] == "explicit_context_resolved"
+    assert prepared.payload["draft"]["payload"] == {"favorite": True}
+    validate_json_value(prepared.payload, definition.input_schema, location="food_profile.create_draft input")
+
+
+def test_prepare_tool_payload_removes_flattened_evidence_from_draft_boundary() -> None:
+    definition = build_workspace_tool_registry().get("food_profile.create_draft")
+    evidence = {
+        "intentClarity": "explicit_context_resolved",
+        "sourceQuotes": [{"fields": ["payload.favorite"], "text": "收藏这个"}],
+        "resolutionSources": [],
+        "ambiguityCodes": [],
+        "defaultedFields": [],
+    }
+    draft = {
+        "draftType": "food_profile",
+        "schemaVersion": "food_profile_operation.v1",
+        "action": "set_favorite",
+        "targetId": "food-1",
+        "baseUpdatedAt": "2026-08-29T00:00:00+00:00",
+        "payload": {"favorite": True},
+        **evidence,
+    }
+
+    prepared = prepare_tool_payload(payload={"draft": draft}, execution_definition=definition)
+
+    assert prepared.payload["draft"]["intentEvidence"] == evidence
+    for key in ("intentClarity", "sourceQuotes", "resolutionSources", "ambiguityCodes", "defaultedFields"):
+        assert key not in prepared.payload["draft"]
+    validate_json_value(prepared.payload, definition.input_schema, location="food_profile.create_draft input")
+
+
+def test_tool_error_message_preserves_stable_validation_code() -> None:
+    error = tool_error_message(
+        "food_profile.create_draft",
+        ToolExecutionError(
+            "food_profile.create_draft input.draft.payload contains unknown fields: intentEvidence",
+            code="tool_input_validation_failed",
+        ),
+    )
+
+    assert error["code"] == "tool_input_validation_failed"
+    assert "input.draft.payload" in error["error"]
+
+
+def test_tool_executor_returns_stable_codes_for_input_and_output_validation() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="test.validation",
+            display_name="测试校验工具",
+            description="",
+            input_schema={
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["value"],
+                "properties": {"value": {"type": "string"}},
+            },
+            output_schema={
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["result"],
+                "properties": {"result": {"type": "string"}},
+            },
+            permission="test",
+            side_effect="read",
+            handler=lambda _context, _payload: {"unexpected": True},
+        )
+    )
+    executor = ToolExecutor(
+        registry,
+        ToolContext(
+            db=MagicMock(),
+            family_id="family-test",
+            user_id="user-test",
+            conversation_id="conversation-test",
+            run_id="run-test",
+        ),
+    )
+
+    with pytest.raises(ToolExecutionError) as input_error:
+        executor.call("test.validation", {"unexpected": True})
+    assert input_error.value.code == "tool_input_validation_failed"
+    assert "test.validation input" in str(input_error.value)
+
+    with pytest.raises(ToolExecutionError) as output_error:
+        executor.call("test.validation", {"value": "ok"})
+    assert output_error.value.code == "tool_output_validation_failed"
+    assert "test.validation output" in str(output_error.value)
 
 
 def test_resolution_tools_are_authorized_by_their_business_skills() -> None:
@@ -1005,6 +1252,25 @@ def test_compact_context_keeps_only_typed_continuation_state() -> None:
         },
         "businessEntityIds": ["ingredient-1"],
     }
+
+
+def test_compact_context_normalizes_legacy_operation_status() -> None:
+    compact = compact_artifacts(
+        [
+            {
+                "id": "human-in-loop:approval-1",
+                "type": "approval_decision",
+                "status": "approved",
+                "payload": {
+                    "approval": {"id": "approval-1", "status": "approved"},
+                    "draft": {"id": "draft-1", "draft_type": "food_profile", "payload": {}},
+                    "operation": {"id": "operation-1", "status": "succeeded"},
+                },
+            }
+        ]
+    )[0]
+
+    assert compact["payload"]["operation"]["status"] == "completed"
 
 
 def test_continuation_resume_injects_allowed_skill_exactly_once() -> None:
@@ -1132,7 +1398,7 @@ def test_runner_builds_typed_continuation_artifact_from_persisted_draft(
         "draft": {"id": "draft-1"},
         "approval": {"id": "approval-1", "status": decision, "decision": decision},
         "operation": {
-            "status": "succeeded" if decision == "approved" else "skipped",
+            "status": "completed" if decision == "approved" else "skipped",
             "business_entity_ids": ["ingredient-1"] if decision == "approved" else [],
         },
     }

@@ -12,6 +12,7 @@ from app.core.enums import (
     IngredientExpiryMode,
     IngredientQuantityTrackingMode,
     InventoryAvailabilityLevel,
+    InventoryOperationType,
     InventoryStatus,
     MembershipStatus,
     UserRole,
@@ -803,6 +804,20 @@ def validate_inventory_intake_approval_value(original: Any, submitted: Any) -> N
             raise ValueError("确认阶段的入库动作不正确")
 
 
+def is_pure_inventory_intake_payload(payload: dict[str, Any]) -> bool:
+    items = [item for item in payload.get("items") or [] if isinstance(item, dict)]
+    executable = [item for item in items if str(item.get("action") or "") != "skip"]
+    return bool(executable) and all(
+        str(item.get("sourceKind") or "") == "direct"
+        and str(item.get("action") or "") == "stock_only"
+        and str(item.get("targetKind") or "")
+        in {"exact_ingredient", "presence_ingredient", "food"}
+        and bool(str(item.get("targetId") or "").strip())
+        and not item.get("shoppingItemId")
+        for item in executable
+    )
+
+
 def execute_inventory_intake_draft(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
     payload = context.payload
     if not isinstance(payload, dict):
@@ -837,6 +852,12 @@ def execute_inventory_intake_draft(context: DraftExecuteContext) -> tuple[dict[s
         )
     )
     user_role = membership.role if membership is not None else UserRole.MEMBER
+    pure_inventory = is_pure_inventory_intake_payload(payload)
+    operation_type = (
+        InventoryOperationType.RECONCILIATION
+        if pure_inventory and str(payload.get("sourceType") or "") == "reconciliation"
+        else InventoryOperationType.SHOPPING_INTAKE
+    )
     result = apply_inventory_intake(
         context.db,
         family_id=context.family_id,
@@ -844,6 +865,9 @@ def execute_inventory_intake_draft(context: DraftExecuteContext) -> tuple[dict[s
         user_role=user_role,
         request=request,
         business_date=date.fromisoformat(str(payload["intakeDate"])),
+        applied_at=context.committed_at,
+        revertible_until=context.revertible_until,
+        operation_type=operation_type,
     )
     business_entity = result.model_dump(mode="json")
     display_items_by_line = {

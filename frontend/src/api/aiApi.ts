@@ -3,10 +3,14 @@ import {
   ApiError,
   assertAuthorizedResponseIdentity,
   authorizedFetch,
+  isApiError,
   request,
 } from './request';
 import type {
   AiApprovalDecisionResponse,
+  AiAutoExecutionActionKey,
+  AiAutoExecutionSettings,
+  AiAutoExecutionUpdate,
   AiApprovalRequest,
   AiChatAttachment,
   AiChatResponse,
@@ -15,6 +19,10 @@ import type {
   AiConversationVisibility,
   AiMessage,
   AiMessagePart,
+  AiOperationResultEntity,
+  AiOperationResultProjection,
+  AiOperationRevertConflict,
+  AiOperationRevertResponse,
   AiQualityMetrics,
   AiRunCancellationResponse,
   AiRunLLMExchange,
@@ -25,6 +33,164 @@ import type {
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
 } from './types';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isAiCacheScope(value: unknown): value is AiOperationResultProjection['cache_scopes'][number] {
+  return value === 'food'
+    || value === 'meal_log'
+    || value === 'meal_plan'
+    || value === 'shopping_list'
+    || value === 'inventory'
+    || value === 'ai_conversation';
+}
+
+function isOperationResultStatus(value: unknown): value is AiOperationResultProjection['result_status'] {
+  return value === 'completed' || value === 'no_change' || value === 'failed' || value === 'reverted';
+}
+
+function isOperationExecutionMode(value: unknown): value is AiOperationResultProjection['execution_mode'] {
+  return value === 'manual_approval' || value === 'policy_auto' || value === 'policy_no_change';
+}
+
+function isOperationStatus(value: unknown): value is NonNullable<AiOperationResultProjection['operation_status']> {
+  return value === 'pending' || value === 'completed' || value === 'failed' || value === 'reverted';
+}
+
+function isRevertAvailability(value: unknown): value is AiOperationResultProjection['revert_availability'] {
+  return value === 'available'
+    || value === 'expired'
+    || value === 'unsupported'
+    || value === 'blocked'
+    || value === 'reverted';
+}
+
+function isPermanentRevertConflictCode(value: unknown): value is AiOperationRevertConflict['code'] {
+  return value === 'revert_target_changed'
+    || value === 'revert_dependency_exists'
+    || value === 'revert_adapter_version_unsupported';
+}
+
+function isAiOperationResultEntity(value: unknown): value is AiOperationResultEntity {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.label !== 'string') return false;
+  return (
+    (value.entityType === undefined || isNullableString(value.entityType))
+    &&
+    (value.operation === undefined || isNullableString(value.operation))
+    && (value.operationLabel === undefined || isNullableString(value.operationLabel))
+    && (value.updatedAt === undefined || isNullableString(value.updatedAt))
+  );
+}
+
+function isAiOperationResultProjection(value: unknown): value is AiOperationResultProjection {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.draft_id === 'string'
+    && isNullableString(value.operation_id)
+    && isOperationResultStatus(value.result_status)
+    && isOperationExecutionMode(value.execution_mode)
+    && (value.operation_status === null || isOperationStatus(value.operation_status))
+    && typeof value.execution_explanation === 'string'
+    && isRevertAvailability(value.revert_availability)
+    && isNullableString(value.revertible_until)
+    && isNullableString(value.revert_blocked_code)
+    && typeof value.server_now === 'string'
+    && Array.isArray(value.entities)
+    && value.entities.every(isAiOperationResultEntity)
+    && Array.isArray(value.cache_scopes)
+    && value.cache_scopes.every(isAiCacheScope)
+  );
+}
+
+function isOperationResultCard(value: unknown): value is AiOperationRevertResponse['result_card'] & {
+  type: 'operation_result';
+  data: AiOperationResultProjection;
+} {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && value.type === 'operation_result'
+    && typeof value.title === 'string'
+    && isAiOperationResultProjection(value.data);
+}
+
+function hasSameAiCacheScopes(
+  first: readonly AiOperationResultProjection['cache_scopes'][number][],
+  second: readonly AiOperationResultProjection['cache_scopes'][number][],
+) {
+  return first.length === second.length && first.every((scope, index) => scope === second[index]);
+}
+
+function hasSameOperationResultEntities(
+  first: readonly AiOperationResultEntity[],
+  second: readonly AiOperationResultEntity[],
+) {
+  return first.length === second.length && first.every((entity, index) => {
+    const other = second[index];
+    return other !== undefined
+      && entity.id === other.id
+      && entity.label === other.label
+      && entity.operation === other.operation
+      && entity.operationLabel === other.operationLabel
+      && entity.updatedAt === other.updatedAt;
+  });
+}
+
+function hasSameAiOperationResultProjection(
+  first: AiOperationResultProjection,
+  second: AiOperationResultProjection,
+) {
+  return first.draft_id === second.draft_id
+    && first.operation_id === second.operation_id
+    && first.result_status === second.result_status
+    && first.execution_mode === second.execution_mode
+    && first.operation_status === second.operation_status
+    && first.execution_explanation === second.execution_explanation
+    && first.revert_availability === second.revert_availability
+    && first.revertible_until === second.revertible_until
+    && first.revert_blocked_code === second.revert_blocked_code
+    && first.server_now === second.server_now
+    && hasSameOperationResultEntities(first.entities, second.entities)
+    && hasSameAiCacheScopes(first.cache_scopes, second.cache_scopes);
+}
+
+export function aiOperationRevertConflictFromError(error: unknown): AiOperationRevertConflict | null {
+  if (!isApiError(error) || error.status !== 409 || !isRecord(error.payload) || !isRecord(error.payload.detail)) {
+    return null;
+  }
+  const detail = error.payload.detail;
+  if (
+    !isPermanentRevertConflictCode(detail.code)
+    || typeof detail.message !== 'string'
+    || !isAiOperationResultProjection(detail.projection)
+    || !isOperationResultCard(detail.result_card)
+    || !Array.isArray(detail.cache_scopes)
+    || !detail.cache_scopes.every(isAiCacheScope)
+    || typeof detail.server_now !== 'string'
+    || typeof detail.replayed !== 'boolean'
+    || !hasSameAiOperationResultProjection(detail.projection, detail.result_card.data)
+    || !hasSameAiCacheScopes(detail.cache_scopes, detail.projection.cache_scopes)
+    || detail.server_now !== detail.projection.server_now
+    || detail.projection.revert_availability !== 'blocked'
+    || detail.projection.revert_blocked_code !== detail.code
+  ) {
+    return null;
+  }
+  return {
+    code: detail.code,
+    message: detail.message,
+    projection: detail.projection,
+    result_card: detail.result_card,
+    cache_scopes: detail.cache_scopes,
+    server_now: detail.server_now,
+    replayed: detail.replayed,
+  };
+}
 
 export const AI_DRAFT_CONTRACT_CAPABILITIES = [
   'recipe_cook_operation.v1',
@@ -183,6 +349,22 @@ async function streamCookingAssistantVoiceAi(payload: AiChatPayload, handlers: A
 
 export const aiApi = {
   getAiStatus: () => aiRequest<AiStatus>('/api/ai/status'),
+  getAiAutoExecutionSettings: () => aiRequest<AiAutoExecutionSettings>('/api/ai/auto-execution/settings'),
+  updateAiAutoExecutionPreference: (actionKey: AiAutoExecutionActionKey, payload: AiAutoExecutionUpdate) =>
+    aiRequest<AiAutoExecutionSettings>(
+      `/api/ai/auto-execution/preferences/${encodeURIComponent(actionKey)}`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+    ),
+  updateAiAutoExecutionFamilyPolicy: (actionKey: AiAutoExecutionActionKey, payload: AiAutoExecutionUpdate) =>
+    aiRequest<AiAutoExecutionSettings>(
+      `/api/ai/auto-execution/family-policies/${encodeURIComponent(actionKey)}`,
+      { method: 'PUT', body: JSON.stringify(payload) },
+    ),
+  revertAiOperation: (operationId: string, payload: { client_request_id: string }) =>
+    aiRequest<AiOperationRevertResponse>(
+      `/api/ai/operations/${encodeURIComponent(operationId)}/revert`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
   getAiQualityMetrics: () => aiRequest<AiQualityMetrics>('/api/ai/quality-metrics?limit=50'),
   getAiConversations: () => aiRequest<AiConversation[]>('/api/ai/conversations'),
   deleteAiConversation: (conversationId: string) =>

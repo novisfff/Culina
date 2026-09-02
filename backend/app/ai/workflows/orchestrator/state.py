@@ -6,6 +6,7 @@ from typing import Any
 from app.ai.skills.scripts import SkillScriptExecutor
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.profiles import OrchestratorBudgetConfig, OrchestratorCapabilityPolicy
+from app.services.ai_auto_execution.policy_types import TrustedResolutionSource
 
 
 @dataclass(slots=True)
@@ -32,6 +33,7 @@ class OrchestratorRunState:
     published_drafts_by_key: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     draft_input_keys_this_call: set[tuple[str, str]] = field(default_factory=set)
     read_outputs: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    trusted_resolution_sources: dict[str, TrustedResolutionSource] = field(default_factory=dict)
     tool_signatures_this_call: list[str] = field(default_factory=list)
     tool_budget_exhausted: bool = False
     tool_budget_exhausted_attempts: int = 0

@@ -66,11 +66,11 @@ def _bound_media_ids(db: Session, *, family_id: str, entity_type: str, entity_id
     ]
 
 
-def normalize_shopping_list_draft(db: Session, *, family_id: str, conversation_id: str, payload: Any) -> dict[str, Any]:
+def normalize_shopping_list_draft(db: Session, *, family_id: str, conversation_id: str, payload: Any, phase: str = "proposal") -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("购物清单草稿格式不正确")
     if isinstance(payload.get("operations"), list):
-        return _normalize_shopping_list_operation_draft(db, family_id=family_id, payload=payload)
+        return _normalize_shopping_list_operation_draft(db, family_id=family_id, payload=payload, phase=phase)
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         raise ValueError("购物清单草稿不能为空")
@@ -143,7 +143,7 @@ def _normalize_shopping_item_payload(
     return CreateShoppingListItemRequest.model_validate(normalized)
 
 
-def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any], phase: str = "proposal") -> dict[str, Any]:
     operations = payload.get("operations")
     if not isinstance(operations, list) or not operations:
         raise ValueError("购物清单操作草稿不能为空")
@@ -189,11 +189,20 @@ def _normalize_shopping_list_operation_draft(db: Session, *, family_id: str, pay
         target = shopping_by_id.get(target_id)
         if target is None:
             raise ValueError("购物清单操作必须引用真实购物项")
+        supplied_base_updated_at = operation.get("baseUpdatedAt") or operation.get("base_updated_at")
+        # Low-risk patch/set actions may omit the concurrency fact because the
+        # server can bind the initial draft to the current target.  Preserve an
+        # explicitly supplied value so manual approval still detects a stale
+        # draft instead of silently refreshing its baseline.
+        if action in {"update", "set_done"} and phase == "proposal" and not supplied_base_updated_at:
+            base_updated_at = target.updated_at.isoformat()
+        else:
+            base_updated_at = _normalize_base_updated_at(supplied_base_updated_at)
         normalized_record: dict[str, Any] = {
             "operationId": _normalize_operation_id(operation.get("operationId") or operation.get("operation_id")),
             "action": action,
             "targetId": target.id,
-            "baseUpdatedAt": _normalize_base_updated_at(operation.get("baseUpdatedAt") or operation.get("base_updated_at")),
+            "baseUpdatedAt": base_updated_at,
             "before": _serialize_shopping_before(target),
             "payload": {"reason": str((operation.get("payload") or {}).get("reason") or "")},
         }
@@ -554,7 +563,11 @@ def _normalize_meal_log_operation_draft(
     if not target_id:
         raise ValueError("餐食记录操作必须引用真实记录")
     meal_log = _load_meal_log_target(db, family_id=family_id, meal_log_id=target_id)
-    base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
+    supplied_base_updated_at = payload.get("baseUpdatedAt") or payload.get("base_updated_at")
+    if action == "rate_food" and phase == "proposal" and not supplied_base_updated_at:
+        base_updated_at = meal_log.updated_at.isoformat()
+    else:
+        base_updated_at = _normalize_base_updated_at(supplied_base_updated_at)
     if phase == "approval":
         if not isinstance(payload.get("before"), dict):
             raise ValueError("确认阶段缺少餐食记录原始快照")
@@ -882,9 +895,9 @@ def _build_recipe_cook_preview(
     )
 
 
-def normalize_food_profile_draft_for_tools(db: Session, *, family_id: str, payload: Any) -> dict[str, Any]:
+def normalize_food_profile_draft_for_tools(db: Session, *, family_id: str, payload: Any, phase: str = "proposal") -> dict[str, Any]:
     if isinstance(payload, dict) and payload.get("action"):
-        return _normalize_food_profile_operation_draft(db, family_id=family_id, payload=payload)
+        return _normalize_food_profile_operation_draft(db, family_id=family_id, payload=payload, phase=phase)
     if not isinstance(payload, dict):
         raise ValueError("食物资料草稿格式不正确")
     food = _strip_transport_fields(CreateFoodRequest.model_validate(payload).model_dump(mode="json"))
@@ -895,7 +908,7 @@ def normalize_food_profile_draft_for_tools(db: Session, *, family_id: str, paylo
     return {"draftType": "food_profile", "schemaVersion": payload.get("schemaVersion") or "food_profile.v1", **food}
 
 
-def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payload: dict[str, Any], phase: str = "proposal") -> dict[str, Any]:
     action = str(payload.get("action") or "")
     if action not in {"create", "update", "set_favorite"}:
         raise ValueError("食物资料操作类型不正确")
@@ -911,18 +924,25 @@ def _normalize_food_profile_operation_draft(db: Session, *, family_id: str, payl
     if not target_id:
         raise ValueError("食物资料操作必须引用真实食物")
     food = _load_by_id(db, Food, family_id=family_id, ids=[target_id], label="食物")[target_id]
-    base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
     if action == "set_favorite":
         favorite = bool((payload.get("payload") or {}).get("favorite"))
+        supplied_base_updated_at = payload.get("baseUpdatedAt") or payload.get("base_updated_at")
         return {
             "draftType": "food_profile",
             "schemaVersion": "food_profile_operation.v1",
             "action": "set_favorite",
             "targetId": food.id,
-            "baseUpdatedAt": base_updated_at,
+            # The favorite action may omit the concurrency fact.  When one is
+            # supplied, keep it so manual approval retains strict OCC.
+            "baseUpdatedAt": (
+                food.updated_at.isoformat()
+                if phase == "proposal" and not supplied_base_updated_at
+                else _normalize_base_updated_at(supplied_base_updated_at)
+            ),
             "before": _serialize_food_before(food),
             "payload": {"favorite": favorite},
         }
+    base_updated_at = _normalize_base_updated_at(payload.get("baseUpdatedAt") or payload.get("base_updated_at"))
     incoming_payload = payload.get("payload") or {}
     before = _serialize_food_before(food)
     normalized = normalize_food_profile_draft_for_tools(db, family_id=family_id, payload=incoming_payload)

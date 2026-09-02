@@ -16,6 +16,7 @@ def build_failure_summary(
     draft_type: str,
     payload: dict[str, Any],
     error_message: str,
+    error_code: str | None = None,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {"errorMessage": error_message}
     operations = payload.get("operations")
@@ -44,6 +45,7 @@ def build_failure_summary(
             draft_type=draft_type,
             operation=operation,
             error_message=error_message,
+            error_code=error_code,
         )
         for operation in selected
     ]
@@ -62,6 +64,7 @@ def operation_failure_record(
     draft_type: str,
     operation: dict[str, Any],
     error_message: str,
+    error_code: str | None = None,
 ) -> dict[str, Any]:
     payload = operation.get("payload") if isinstance(operation.get("payload"), dict) else {}
     before = operation.get("before") if isinstance(operation.get("before"), dict) else {}
@@ -82,7 +85,9 @@ def operation_failure_record(
         "set_status": "状态变更",
         "set_done": "状态变更",
     }.get(action, action or "操作")
-    has_conflict = "冲突" in error_message or "更新" in error_message or "baseUpdatedAt" in error_message
+    has_conflict = error_code == "draft_commit_domain_conflict" or any(
+        marker in error_message for marker in ("冲突", "更新", "baseUpdatedAt")
+    )
     current_value = load_operation_current_value(
         db,
         family_id=family_id,

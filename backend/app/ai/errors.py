@@ -1,9 +1,50 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.ai_auto_execution.policy_types import DraftRouteOutcome
+
+
 class AIConflictError(ValueError):
     """The requested AI state transition conflicts with persisted state."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        recovery_hint: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.recovery_hint = recovery_hint
 
 
 class AIExecutionCancelled(RuntimeError):
     """The current AI run was cancelled and should stop cooperatively."""
+
+
+class AutoExecutionBlockRequired(RuntimeError):
+    """An uncertain policy-auto write must be fenced before the run can close."""
+
+    def __init__(
+        self,
+        *,
+        error_code: str,
+        message: str,
+        recovery_hint: str,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.recovery_hint = recovery_hint
+
+
+class AIRuntimeFailurePersistenceError(RuntimeError):
+    """The runtime could not durably close a failed Run."""
+
+    code = "ai_runtime_failure_persistence_failed"
 
 
 class HumanInputRequired(Exception):
@@ -16,6 +57,14 @@ class HumanInputRequired(Exception):
 
 class ApprovalRequired(Exception):
     """The current AI run produced a draft and must wait for approval."""
+
+
+class DraftRouted(ApprovalRequired):
+    """The current AI run routed a draft without entering model control again."""
+
+    def __init__(self, outcome: DraftRouteOutcome) -> None:
+        super().__init__(outcome.status)
+        self.outcome = outcome
 
 
 class ToolBudgetHardStop(Exception):

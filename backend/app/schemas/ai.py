@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import AiMode, AIConversationVisibility, Difficulty
+from app.schemas.ai_auto_execution import AIOperationResultProjectionOut
 from app.schemas.media import MediaAssetOut
 from app.schemas.recipes import RecipeIngredientIn, RecipeStepIn
 
@@ -140,7 +141,17 @@ AITaskDraftType = Literal[
     "inventory_operation",
     "composite_operation",
 ]
-AITaskDraftStatus = Literal["pending", "confirmed", "rejected", "confirmation_failed", "pending_retry"]
+AITaskDraftStatus = Literal[
+    "pending_confirmation",
+    "executed",
+    "no_change",
+    "rejected",
+    "expired",
+    "execution_failed",
+    "pending_retry",
+    "reverted",
+    "cancelled",
+]
 AIApprovalStatus = Literal["pending", "approved", "rejected", "cancelled", "expired"]
 AIApprovalDecision = Literal["approved", "rejected"]
 
@@ -298,6 +309,7 @@ class AITodayRecommendationCardDataDTO(BaseModel):
 class AIOperationResultEntityDTO(BaseModel):
     id: str
     label: str
+    entityType: str | None = None
     operation: str | None = None
     operationLabel: str | None = None
     updatedAt: str | None = None
@@ -310,6 +322,17 @@ class AIOperationResultCardDataDTO(BaseModel):
     workspaceLabel: str = Field(min_length=1)
     workspaceHint: str = Field(min_length=1)
     entities: list[AIOperationResultEntityDTO] = Field(default_factory=list)
+    draft_id: str | None = None
+    operation_id: str | None = None
+    result_status: Literal["completed", "no_change", "failed", "reverted"] | None = None
+    execution_mode: Literal["manual_approval", "policy_auto", "policy_no_change"] | None = None
+    operation_status: Literal["pending", "completed", "failed", "reverted"] | None = None
+    execution_explanation: str | None = None
+    revert_availability: Literal["available", "expired", "unsupported", "blocked", "reverted"] | None = None
+    revertible_until: datetime | None = None
+    revert_blocked_code: str | None = None
+    server_now: datetime | None = None
+    cache_scopes: list[str] = Field(default_factory=list)
 
 
 class AIUiActionDTO(BaseModel):
@@ -396,6 +419,65 @@ class AIResultCardDTO(BaseModel):
             AIUiActionsCardDataDTO.model_validate(self.data)
         elif self.type == "meal_idea_proposal":
             AIMealIdeaProposalCardDataDTO.model_validate(self.data)
+        return self
+
+
+class AIPublicOperationResultEntityDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    entityType: str | None = None
+    operation: str | None = None
+    operationLabel: str | None = None
+    updatedAt: str | None = None
+
+
+class AIPublicOperationResultCardDataDTO(AIOperationResultProjectionOut):
+    entities: list[AIPublicOperationResultEntityDTO] = Field(default_factory=list)
+    actionSummary: str = Field(min_length=1)
+    entityCount: int = Field(ge=0)
+    entityCountLabel: str = Field(min_length=1)
+    workspaceLabel: str = Field(min_length=1)
+    workspaceHint: str = Field(min_length=1)
+    approvalId: str | None = None
+    operationId: str | None = None
+    draftId: str
+    errorCode: str | None = None
+    recoveryHint: str | None = None
+
+
+class AIPublicOperationResultCardDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: Literal["operation_result"]
+    title: str
+    data: AIPublicOperationResultCardDataDTO
+
+
+class AIOperationResultArtifactDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: Literal["ai_operation_result"]
+    kind: Literal["operation_result"]
+    version: Literal[1]
+    status: Literal["completed", "no_change", "failed", "reverted"]
+    sourceDraftId: str
+    sourceOperationId: str | None = None
+    payload: AIPublicOperationResultCardDTO
+
+    @model_validator(mode="after")
+    def validate_stable_identity(self) -> "AIOperationResultArtifactDTO":
+        if self.id != f"ai_operation_result:{self.sourceDraftId}":
+            raise ValueError("operation result artifact id must be Draft-keyed")
+        if self.payload.id != f"operation-result:{self.sourceDraftId}":
+            raise ValueError("operation result card id must be Draft-keyed")
+        if self.payload.data.draft_id != self.sourceDraftId:
+            raise ValueError("operation result payload draft id must match artifact")
+        if self.payload.data.operation_id != self.sourceOperationId:
+            raise ValueError("operation result operation id must match artifact")
         return self
 
 
@@ -848,3 +930,7 @@ class AIApprovalDecisionResponse(BaseModel):
     draft: AITaskDraftDTO
     operation: dict | None = None
     business_entity: dict | None = None
+    operation_result: AIOperationResultProjectionOut | None = None
+    result_part: AIMessagePartDTO | None = None
+    artifacts: list[AIOperationResultArtifactDTO] = Field(default_factory=list)
+    cache_scopes: list[str] = Field(default_factory=list)

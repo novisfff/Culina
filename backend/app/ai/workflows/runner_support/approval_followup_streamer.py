@@ -24,7 +24,7 @@ from app.ai.workflows.runner_support.message_parts import (
 )
 from app.ai.workflows.state import WorkspaceGraphState
 from app.ai.workflows.timeline import build_planner_conversation
-from app.core.utils import create_id, utcnow
+from app.core.utils import utcnow
 from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
 from app.models.domain import AIConversation, AIMessage
 from app.services.model_usage.types import UsageAttribution
@@ -82,7 +82,13 @@ class ApprovalFollowupStreamer:
             )
             return
 
-        part_id = create_id("ai_part")
+        approval_id = str(approval.get("id") or "").strip()
+        part_id = self._approval_completion_part_id(state["run_id"], approval_id)
+        # A disconnected client may retry the same legacy follow-up after the
+        # completion was already persisted.  Reusing the stable part id makes
+        # the retry an idempotent no-op and avoids another provider call.
+        if self._has_message_part(message, part_id):
+            return
         chunks: list[str] = []
         writer = self.persistent_progress_writer(self.optional_stream_writer(), state)
         tracer = self.tracer_for_state(state)
@@ -188,6 +194,17 @@ class ApprovalFollowupStreamer:
             status=terminal_status,
         )
 
+    @staticmethod
+    def _approval_completion_part_id(run_id: str, approval_id: str) -> str:
+        return f"approval-summary:{approval_id or run_id}"
+
+    @staticmethod
+    def _has_message_part(message: AIMessage, part_id: str) -> bool:
+        return any(
+            isinstance(part, dict) and str(part.get("id") or "") == part_id
+            for part in (message.parts or [])
+        )
+
     def _find_assistant_message(self, state: WorkspaceGraphState, approval: dict[str, Any]) -> AIMessage | None:
         message_id = str(approval.get("message_id") or "")
         message = self.db.get(AIMessage, message_id) if message_id else None
@@ -207,6 +224,11 @@ class ApprovalFollowupStreamer:
         tracer: AIRunTracer,
         span_id: str,
     ) -> dict[str, Any]:
+        approval = (
+            decision_result.get("approval")
+            if isinstance(decision_result.get("approval"), dict)
+            else {}
+        )
         payload = {
             "currentMessage": state.get("message") or "",
             "terminalStatus": terminal_status,
@@ -243,12 +265,21 @@ class ApprovalFollowupStreamer:
             and isinstance(user_id, str)
             and user_id
         ):
+            approval_id = str(approval.get("id") or "").strip()
             provider_kwargs["usage_attribution"] = UsageAttribution(
                 family_id=state["family_id"],
                 attribution_kind=ModelUsageAttributionKind.USER,
                 actor_user_id=user_id,
                 operation_source=ModelUsageOperationSource.INTERACTIVE,
-                logical_operation_id=state["run_id"],
+                # A legacy approval follow-up is a separate provider phase
+                # from the original orchestrator round.  Include the stable
+                # approval id so sequential approvals in one run cannot share
+                # the same usage-attempt key.
+                logical_operation_id=(
+                    f"{state['run_id']}:approval-followup:{approval_id}"
+                    if approval_id
+                    else f"{state['run_id']}:approval-followup"
+                ),
             )
         return provider_kwargs
 
@@ -335,8 +366,9 @@ class ApprovalFollowupStreamer:
         part_id: str,
         text: str,
         status: str,
+        locked_run: Any | None = None,
     ) -> None:
-        run = lock_run_for_transition(
+        run = locked_run or lock_run_for_transition(
             self.db,
             family_id=state["family_id"],
             run_id=state["run_id"],

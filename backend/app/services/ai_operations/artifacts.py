@@ -4,6 +4,7 @@ from typing import Any
 
 from app.core.utils import create_id
 from app.services.ai_operations.registry import draft_operation_registry
+from app.services.ai_operations.status import is_operation_completed
 
 
 def build_approval_result_card(
@@ -14,7 +15,7 @@ def build_approval_result_card(
     draft_config: dict[str, str],
     business_artifacts: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    if approval.get("status") != "approved" or operation.get("status") != "succeeded":
+    if approval.get("status") != "approved" or not is_operation_completed(operation.get("status")):
         return None
     draft_type = str(draft.get("draft_type") or "")
     draft_payload = draft.get("payload") if isinstance(draft.get("payload"), dict) else {}
@@ -32,6 +33,10 @@ def build_approval_result_card(
             {
                 "id": str(artifact.get("entityId") or artifact.get("id") or create_id("result_entity")),
                 "label": str(artifact.get("summary") or artifact_summary(payload, fallback_type=draft_type)),
+                "entityType": operation_result_entity_type(
+                    draft_type=draft_type,
+                    business_entity_type=str(artifact.get("businessEntityType") or ""),
+                ),
                 "operation": action or None,
                 "operationLabel": draft_operation_registry.operation_label(draft_type, action) if action else None,
                 "updatedAt": artifact.get("updatedAt"),
@@ -40,8 +45,14 @@ def build_approval_result_card(
     count = len(entities)
     workspace_label = approval_result_workspace_label(draft_type)
     count_label = approval_result_count_label(draft_type, count)
+    stable_result_id = (
+        draft.get("id")
+        or approval.get("id")
+        or operation.get("id")
+        or create_id("approval_result")
+    )
     return {
-        "id": f"operation-result:{approval.get('id') or create_id('approval_result')}",
+        "id": f"operation-result:{stable_result_id}",
         "type": "operation_result",
         "title": title,
         "data": {
@@ -58,6 +69,27 @@ def build_approval_result_card(
     }
 
 
+def operation_result_entity_type(*, draft_type: str, business_entity_type: str) -> str:
+    draft_type_mapping = {
+        "recipe": "recipe",
+        "recipe_cook": "meal_log",
+        "meal_plan": "meal_plan",
+        "meal_log": "meal_log",
+        "food_profile": "food",
+        "ingredient_profile": "food_profile",
+    }
+    if draft_type in draft_type_mapping:
+        return draft_type_mapping[draft_type]
+    entity_type_mapping = {
+        "Food": "food",
+        "Recipe": "recipe",
+        "FoodPlanItem": "meal_plan",
+        "MealLog": "meal_log",
+        "RecipeCookLog": "meal_log",
+    }
+    return entity_type_mapping.get(business_entity_type, draft_type or business_entity_type.lower())
+
+
 def approval_decision_artifacts(
     *,
     approval: dict[str, Any],
@@ -65,23 +97,25 @@ def approval_decision_artifacts(
     operation: dict[str, Any],
     business_entity: Any,
 ) -> list[dict[str, Any]]:
-    artifacts = [
-        {
-            "id": f"human_in_loop:{approval.get('id') or create_id('approval_result')}",
-            "type": "approval_decision",
-            "kind": "human_in_loop_tool_result",
-            "version": 1,
-            "status": approval.get("status") or "resolved",
-            "payload": {
-                "approval": approval,
-                "draft": draft,
-                "operation": operation,
-                "business_entity": business_entity,
-            },
-            "sourceDraftId": draft.get("id"),
-            "sourceApprovalId": approval.get("id"),
-        }
-    ]
+    artifacts: list[dict[str, Any]] = []
+    if approval.get("id"):
+        artifacts.append(
+            {
+                "id": f"human_in_loop:{approval.get('id') or create_id('approval_result')}",
+                "type": "approval_decision",
+                "kind": "human_in_loop_tool_result",
+                "version": 1,
+                "status": approval.get("status") or "resolved",
+                "payload": {
+                    "approval": approval,
+                    "draft": draft,
+                    "operation": operation,
+                    "business_entity": business_entity,
+                },
+                "sourceDraftId": draft.get("id"),
+                "sourceApprovalId": approval.get("id"),
+            }
+        )
     artifacts.extend(
         business_entity_artifacts(
             approval=approval,
@@ -100,7 +134,7 @@ def business_entity_artifacts(
     operation: dict[str, Any],
     business_entity: Any,
 ) -> list[dict[str, Any]]:
-    if approval.get("status") != "approved" or operation.get("status") != "succeeded":
+    if approval.get("status") != "approved" or not is_operation_completed(operation.get("status")):
         return []
     draft_type = str(draft.get("draft_type") or "")
     operation_id = str(operation.get("id") or "")
@@ -123,7 +157,7 @@ def business_entity_artifacts(
                 "payload": record,
                 "summary": artifact_summary(record, fallback_type=draft_type or entity_type),
                 "sourceDraftId": draft.get("id"),
-                "sourceApprovalId": approval.get("id"),
+                "sourceApprovalId": approval.get("id") or None,
                 "sourceOperationId": operation_id or None,
             }
         )

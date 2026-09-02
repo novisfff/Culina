@@ -50,6 +50,7 @@ class SkillEvalCase(BaseModel):
     expectsIdentityRejection: bool = False
     expectsContinuationCompletion: bool = False
     expectedDraftValues: dict[str, Any] = Field(default_factory=dict)
+    expectedIntentEvidenceValues: dict[str, Any] = Field(default_factory=dict)
     expectedToolValues: dict[str, dict[str, Any]] = Field(default_factory=dict)
     script: list[dict[str, Any]] = Field(min_length=1)
 
@@ -72,6 +73,7 @@ class SkillEvalObservation(BaseModel):
     continuationSchema: str | None = None
     continuationCompleted: bool = False
     draftPayload: dict[str, Any] = Field(default_factory=dict)
+    intentEvidence: dict[str, Any] = Field(default_factory=dict)
     toolOutputs: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     cardTypes: list[str] = Field(default_factory=list)
     terminalStatus: str

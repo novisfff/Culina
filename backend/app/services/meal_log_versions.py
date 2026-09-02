@@ -169,6 +169,7 @@ def lock_meal_log_write_targets(
             selectinload(MealLog.deduction_suggestions),
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if meal_log is None:
         raise MealLogConflictError(

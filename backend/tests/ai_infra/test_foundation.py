@@ -2,7 +2,7 @@ from ._support import *
 
 from typing import Any
 
-from app.ai.errors import ApprovalRequired, HumanInputRequired, ToolExecutionError
+from app.ai.errors import AutoExecutionBlockRequired, ApprovalRequired, HumanInputRequired, ToolExecutionError
 from app.ai.runtime.provider import OpenAIResponsesChatProvider, ProviderImageInput
 from app.ai.tools import ToolRegistry
 from app.ai.tools.base import ToolDefinition
@@ -748,9 +748,16 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 approval_resume_payload_from_metadata({"afterApproval": {"continue": True}}),
                 {"instruction": "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。"},
             )
-            self.assertEqual(
-                approval_resume_payload_from_metadata({}),
-                {"instruction": "根据这次确认结果继续对话；如果当前任务已经完成，给出简短总结。"},
+            self.assertIsNone(approval_resume_payload_from_metadata({}))
+            self.assertIsNone(
+                approval_resume_payload_from_metadata(
+                    {
+                        "afterApproval": {
+                            "continue": False,
+                            "instruction": "不应继续。",
+                        }
+                    }
+                )
             )
 
             artifact = approval_resume_artifact(
@@ -1430,6 +1437,46 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     tool_handler=lambda name, payload: (_ for _ in ()).throw(ApprovalRequired("approval required")),
                 )
 
+        def test_openai_compatible_provider_propagates_auto_execution_block_control_flow(self) -> None:
+            class ToolCallChunk:
+                content = ""
+                tool_calls = [
+                    {
+                        "id": "call-auto-draft",
+                        "name": "recipe_create_draft",
+                        "args": {"draft": {"title": "番茄炒蛋"}},
+                    }
+                ]
+
+                def __add__(self, other):
+                    return other
+
+            provider = OpenAICompatibleChatProvider.__new__(OpenAICompatibleChatProvider)
+            provider.model_name = "compatible-model"
+            stream_client = MagicMock()
+            tool_client = MagicMock()
+            tool_client.bind.return_value = stream_client
+            provider.client = MagicMock()
+            provider.client.bind_tools.return_value = tool_client
+            _attach_openai_stream(provider, stream_client)
+            stream_client.stream.return_value = [ToolCallChunk()]
+            tool = build_workspace_tool_registry().get("recipe.create_draft")
+            control_flow = AutoExecutionBlockRequired(
+                error_code="draft_terminalization_failed",
+                message="自动执行结果未能安全保存，已停止继续重试",
+                recovery_hint="retry_later_or_contact_support",
+            )
+
+            with self.assertRaises(AutoExecutionBlockRequired) as raised:
+                provider.generate_with_tools(
+                    system="s",
+                    user="u",
+                    tools=lambda: [tool],
+                    tool_handler=lambda _name, _payload: (_ for _ in ()).throw(control_flow),
+                )
+
+            self.assertIs(raised.exception, control_flow)
+
         def test_openai_compatible_provider_retries_stream_failure_before_output(self) -> None:
             class TextChunk:
                 tool_calls: list[dict[str, Any]] = []
@@ -2102,6 +2149,48 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(output_item["call_id"], "call-read-items")
             self.assertIn("\"items\": []", output_item["output"])
 
+        def test_openai_responses_provider_propagates_auto_execution_block_control_flow(self) -> None:
+            function_call = {
+                "type": "function_call",
+                "call_id": "call-auto-draft",
+                "name": "inventory_read_available_items",
+                "arguments": "{\"limit\": 5}",
+                "status": "completed",
+            }
+
+            class FakeResponses:
+                def create(self, **_request):
+                    return iter(
+                        [
+                            SimpleNamespace(type="response.output_item.done", item=function_call),
+                            SimpleNamespace(
+                                type="response.completed",
+                                response=SimpleNamespace(output=[function_call], usage=None),
+                            ),
+                        ]
+                    )
+
+            provider = OpenAIResponsesChatProvider.__new__(OpenAIResponsesChatProvider)
+            provider.model_name = "gpt-5-mini"
+            provider.supports_vision = False
+            provider.client = SimpleNamespace(responses=FakeResponses())
+            tool = build_workspace_tool_registry().get("inventory.read_available_items")
+            control_flow = AutoExecutionBlockRequired(
+                error_code="draft_terminalization_failed",
+                message="自动执行结果未能安全保存，已停止继续重试",
+                recovery_hint="retry_later_or_contact_support",
+            )
+
+            with self.assertRaises(AutoExecutionBlockRequired) as raised:
+                provider.generate_with_tools(
+                    system="system prompt",
+                    user=ProviderUserInput(text="runtime turn", prefix_messages=["stable primer"]),
+                    tools=lambda: [tool],
+                    tool_handler=lambda _name, _payload: (_ for _ in ()).throw(control_flow),
+                )
+
+            self.assertIs(raised.exception, control_flow)
+
         def test_openai_responses_provider_soft_finalizes_at_max_rounds(self) -> None:
             function_call = {
                 "type": "function_call",
@@ -2420,6 +2509,68 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             )
             self.assertIn("餐食", injected_instructions)
             self.assertIn("购物", injected_instructions)
+
+        def test_resumed_orchestrator_round_uses_a_distinct_usage_operation(self) -> None:
+            class UsageCapturingProvider(BaseChatProvider):
+                model_name = "orchestrator-usage-phase-model"
+
+                def __init__(self) -> None:
+                    self.usage_attribution = None
+
+                def generate(self, *, system: str, user: str) -> ChatProviderResult:
+                    raise AssertionError("orchestrator should use generate_with_tools")
+
+                def generate_with_tools(
+                    self,
+                    *,
+                    system: str,
+                    user: str,
+                    tools,
+                    tool_handler,
+                    message_handler=None,
+                    max_rounds: int = 8,
+                    usage_attribution=None,
+                ) -> ChatProviderResult:
+                    del system, user, tools, tool_handler, max_rounds
+                    self.usage_attribution = usage_attribution
+                    text = "续跑完成。"
+                    if message_handler is not None:
+                        message_handler(text)
+                    return ChatProviderResult(text=text, status="completed", model=self.model_name)
+
+            provider = UsageCapturingProvider()
+            context = SkillContext(
+                db=MagicMock(),
+                family_id=self.family.id,
+                user_id=self.user.id,
+                conversation_id="conversation-orchestrator-usage-phase",
+                run_id="run-orchestrator-usage-phase",
+                conversation=[],
+                current_message="继续处理",
+                tool_executor=ToolExecutor(
+                    build_workspace_tool_registry(),
+                    ToolContext(
+                        db=MagicMock(),
+                        family_id=self.family.id,
+                        user_id=self.user.id,
+                        conversation_id="conversation-orchestrator-usage-phase",
+                        run_id="run-orchestrator-usage-phase",
+                    ),
+                ),
+                trace_round_index=2,
+            )
+
+            result = WorkspaceOrchestratorAgent(
+                provider=provider,
+                skill_registry=build_workspace_skill_registry(),
+            ).run(context)
+
+            self.assertEqual(result.status, "completed")
+            self.assertIsNotNone(provider.usage_attribution)
+            self.assertEqual(
+                provider.usage_attribution.logical_operation_id,
+                "run-orchestrator-usage-phase:orchestrator:2",
+            )
 
         def test_orchestrator_returns_structured_error_for_unknown_skill_injection(self) -> None:
             class UnknownSkillProvider(BaseChatProvider):
@@ -3279,7 +3430,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     },
                     "operation": {
                         "id": "operation-compact",
-                        "status": "succeeded",
+                        "status": "completed",
                         "action_summary": "已创建番茄鸡蛋面",
                     },
                     "business_entity": {"title": "番茄鸡蛋面", "steps": [{"text": "SECRET_BUSINESS_ENTITY_STEP"}]},
@@ -5062,6 +5213,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
 
                 def __init__(self) -> None:
                     self.calls = 0
+                    self.usage_attributions: list[Any] = []
 
                 def generate(self, *, system: str, user: str) -> ChatProviderResult:
                     raise AssertionError("orchestrator should use generate_with_tools")
@@ -5075,9 +5227,11 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     tool_handler,
                     message_handler=None,
                     max_rounds: int = 8,
+                    usage_attribution=None,
                 ) -> ChatProviderResult:
                     del system, tools, max_rounds
                     self.calls += 1
+                    self.usage_attributions.append(usage_attribution)
                     if self.calls == 1:
                         tool_handler("skill.inject", {"skills": ["meal_plan"], "reason": "需要安排餐食计划"})
                         tool_handler(
@@ -5140,6 +5294,10 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
             self.assertEqual(resumed["run"]["status"], "completed")
             self.assertEqual(resumed["message"]["content"], "你想安排几天晚餐？\n\n好的，我按三天继续整理。")
             self.assertEqual(provider.calls, 2)
+            self.assertEqual(
+                [item.logical_operation_id for item in provider.usage_attributions if item is not None],
+                [response["run"]["id"], f"{response['run']['id']}:orchestrator:2"],
+            )
             self.assertIsNotNone(run)
             self.assertIsNotNone(message)
             assert run is not None

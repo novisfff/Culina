@@ -43,6 +43,49 @@
   display: contents;
 }
 
+.ai-auto-execution-desktop-panel {
+  grid-column: 1 / -1;
+  width: min(100%, var(--content-width));
+  margin: 0 auto;
+  padding: var(--space-7);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.ai-auto-execution-settings { display: grid; gap: var(--space-7); min-width: 0; }
+.ai-auto-execution-header, .ai-auto-execution-section-head, .ai-auto-execution-row { min-width: 0; }
+.ai-auto-execution-header { display: flex; justify-content: space-between; gap: var(--space-5); align-items: start; }
+.ai-auto-execution-header h1, .ai-auto-execution-section-head h2 { margin: 0; }
+.ai-auto-execution-header p, .ai-auto-execution-section-head p, .ai-auto-execution-row p { margin: var(--space-2) 0 0; color: var(--text-soft); }
+.ai-auto-execution-section { display: grid; gap: var(--space-4); }
+.ai-auto-execution-list { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
+.ai-auto-execution-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); padding: var(--space-5); background: var(--surface); }
+.ai-auto-execution-row + .ai-auto-execution-row { border-top: 1px solid var(--line-soft); }
+.ai-auto-execution-row-copy { min-width: 0; }
+.ai-auto-execution-row-note, .ai-auto-execution-error { display: block; margin-top: var(--space-2); color: var(--warning); font-size: var(--text-sm); }
+.ai-auto-execution-error { padding: var(--space-4); border: 1px solid var(--warning-line); border-radius: var(--radius-sm); background: var(--warning-soft); }
+.ai-auto-execution-switch { --ai-auto-switch-inset: var(--space-2); --ai-auto-switch-thumb-size: calc(var(--tap-min) - (var(--ai-auto-switch-inset) * 2)); flex: 0 0 auto; position: relative; width: calc((var(--ai-auto-switch-thumb-size) * 2) + (var(--ai-auto-switch-inset) * 3)); min-width: var(--tap-min); min-height: var(--tap-min); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: var(--surface-muted); cursor: pointer; }
+.ai-auto-execution-switch[aria-checked="true"] { border-color: var(--accent-line); background: var(--accent); }
+.ai-auto-execution-switch:disabled { opacity: .58; cursor: not-allowed; }
+.ai-auto-execution-switch-thumb { position: absolute; top: var(--ai-auto-switch-inset); left: var(--ai-auto-switch-inset); width: var(--ai-auto-switch-thumb-size); height: var(--ai-auto-switch-thumb-size); border-radius: var(--radius-pill); background: var(--surface); transition: transform var(--motion-normal); }
+.ai-auto-execution-switch[aria-checked="true"] .ai-auto-execution-switch-thumb { transform: translateX(calc(var(--ai-auto-switch-thumb-size) + var(--ai-auto-switch-inset))); }
+.ai-auto-execution-switch:focus-visible, .ai-auto-execution-back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ai-auto-execution-back { min-height: var(--control-height); margin-bottom: var(--space-5); border: 0; background: transparent; color: var(--text-soft); cursor: pointer; }
+.ai-workspace-header-actions { display: flex; align-items: center; gap: var(--space-3); }
+.ai-auto-execution-mobile-page { display: none; }
+
+@media (max-width: 767px) {
+  .ai-auto-execution-desktop-panel { display: none; }
+  .ai-auto-execution-mobile-page { display: block; position: fixed; top: var(--ai-mobile-viewport-top, 0px); left: 0; right: 0; height: var(--ai-mobile-page-height, var(--ai-mobile-viewport-height, 100dvh)); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--space-5); padding-bottom: calc(var(--space-7) + env(safe-area-inset-bottom, 0px)); background: var(--bg); }
+  .ai-auto-execution-mobile-page > header { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5); }
+  .ai-auto-execution-mobile-page h1 { margin: 0; font-size: var(--text-xl); }
+  .ai-auto-execution-header, .ai-auto-execution-row { align-items: flex-start; }
+  .ai-auto-execution-row { flex-direction: column; }
+  .ai-auto-execution-switch { align-self: flex-end; }
+}
+
 .ai-main-panel {
   position: relative;
   display: grid;
@@ -9360,6 +9403,151 @@
   line-height: 1.35;
 }
 
+.ai-operation-result-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+
+.ai-operation-result-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  line-height: 1.5;
+}
+
+.ai-operation-result-status span,
+.ai-operation-result-status strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-operation-result-status strong {
+  color: inherit;
+  font-weight: 700;
+}
+
+.ai-operation-result-status.tone-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-operation-result-status.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Revert availability is supporting metadata, so it stays compact and shares
+   the action row instead of becoming a full-width alert panel. */
+.ai-operation-result-revert-note {
+  display: inline-flex;
+  align-items: baseline;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  line-height: 1.35;
+}
+
+.ai-operation-result-revert-note span,
+.ai-operation-result-revert-note strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-operation-result-revert-note strong {
+  color: inherit;
+  font-weight: 700;
+}
+
+.ai-operation-result-revert-note.tone-success {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-operation-result-revert-note.tone-danger {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ai-operation-result-revert-note.tone-neutral {
+  border-color: var(--line-soft);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+}
+
+.ai-operation-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ai-operation-result-actions .ghost-button {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding-inline: var(--space-5);
+  border-radius: var(--radius-sm);
+  white-space: normal;
+}
+
+.ai-operation-result-actions .ai-operation-revert-button[aria-disabled='true'],
+.ai-operation-result-actions .ai-operation-revert-button[aria-disabled='true']:hover,
+.ai-operation-result-actions .ai-operation-revert-button[aria-disabled='true']:active {
+  border-color: var(--line-soft);
+  background: var(--surface);
+  color: var(--text-soft);
+  box-shadow: none;
+  opacity: 0.58;
+  transform: none;
+  cursor: not-allowed;
+}
+
+.ai-operation-result-announcement:not(:empty) {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--info-line);
+  border-radius: var(--radius-sm);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: var(--text-meta);
+  line-height: 1.5;
+}
+
+.ai-operation-result-announcement.tone-success:not(:empty) {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ai-operation-result-announcement.tone-danger:not(:empty) {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .ai-clarification-options {
   display: grid;
   gap: 10px;
@@ -9965,6 +10153,35 @@ button.ai-clarification-option:hover:not(:disabled) .ai-clarification-option-ind
     min-height: 34px;
     padding: 4px 9px;
     font-size: 0.78rem;
+  }
+
+  .ai-operation-result-meta {
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .ai-operation-result-status {
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-4);
+  }
+
+  .ai-operation-result-revert-note {
+    flex-basis: auto;
+    padding: 5px 9px;
+    font-size: 0.75rem;
+  }
+
+  .ai-operation-result-actions {
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  .ai-operation-result-actions .ghost-button {
+    width: auto;
+    flex: 0 0 auto;
+    min-height: var(--control-height-touch);
   }
 
   .ai-query-item,

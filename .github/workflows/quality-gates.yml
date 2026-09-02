@@ -186,6 +186,8 @@ jobs:
             command: npm run backend:test:model-usage -- --ignore=tests/model_usage/test_reporting_queries_mysql.py --durations=20
           - suite: model-usage-reporting
             command: cd backend && .venv/bin/python -m pytest tests/model_usage/test_reporting_queries_mysql.py -q --durations=20
+          - suite: ai-resume-concurrency
+            command: cd backend && .venv/bin/python -m pytest tests/ai_infra/test_human_input_resume_mysql_concurrency.py -q --durations=20
     services:
       mysql:
         image: mysql:8.4

@@ -137,4 +137,14 @@ describe('queryKeys', () => {
     expect(queryKeys.aiStatus('family-a')).toEqual(['ai-status', 'family-a']);
     expect(queryKeys.aiStatus('family-a')).not.toEqual(queryKeys.aiStatus('family-b'));
   });
+
+  it('isolates auto-execution settings by explicit family id', () => {
+    expect(queryKeys.aiAutoExecutionSettings('family-a')).toEqual([
+      'ai-auto-execution-settings',
+      'family-a',
+    ]);
+    expect(queryKeys.aiAutoExecutionSettings('family-a')).not.toEqual(
+      queryKeys.aiAutoExecutionSettings('family-b'),
+    );
+  });
 });

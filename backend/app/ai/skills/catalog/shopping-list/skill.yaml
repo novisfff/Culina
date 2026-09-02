@@ -33,7 +33,7 @@ draft_contract:
 route_hints:
 - shopping
 - shopping_list
-approval_policy: draft_then_confirm
+approval_policy: draft_then_policy
 tool_budget:
   max_tool_calls: 24
   max_same_read_calls: 2

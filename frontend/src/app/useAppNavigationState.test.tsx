@@ -66,6 +66,19 @@ describe('useAppNavigationState', () => {
     });
   });
 
+  it('restores legacy auto execution navigation as conversation without persisting it', () => {
+    localStorage.setItem('culina-navigation-v2', JSON.stringify({
+      version: 2,
+      primaryTab: 'ai',
+      eatBaseView: 'discover',
+      discoverSection: 'all',
+      aiView: 'autoExecution',
+    }));
+    const { result } = renderHook(() => useAppNavigationState());
+    expect(result.current.state.ai.view).toBe('conversation');
+    expect(JSON.parse(readStringStorage('culina-navigation-v2', '{}'))).not.toHaveProperty('aiView');
+  });
+
   function NavigationFocusHarness({ detachTriggerOnOpen = false }: { detachTriggerOnOpen?: boolean }) {
     const navigation = useAppNavigationState();
     return (

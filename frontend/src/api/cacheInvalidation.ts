@@ -1,6 +1,6 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { queryKeys } from './queryKeys';
-import type { AiImageTargetEntityType, SearchEntityType } from './types';
+import type { AiCacheScope, AiImageTargetEntityType, SearchEntityType } from './types';
 
 function invalidateMany(queryClient: QueryClient, keys: QueryKey[]) {
   return Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
@@ -268,6 +268,40 @@ export async function invalidateAfterAiApprovalSettled(queryClient: QueryClient,
     queryKeys.activityLogs,
     queryKeys.activityHighlights,
   ]);
+}
+
+type AiOperationSettlementInput = {
+  conversationId: string;
+  cacheScopes: AiCacheScope[];
+};
+
+type AiOperationScopeInvalidator = (
+  queryClient: QueryClient,
+  conversationId: string,
+) => Promise<unknown>;
+
+const aiOperationScopeInvalidators: Record<AiCacheScope, AiOperationScopeInvalidator> = {
+  food: (queryClient) => invalidateAfterFoodChanged(queryClient),
+  meal_log: (queryClient) => invalidateAfterMealLogChanged(queryClient),
+  meal_plan: (queryClient) => invalidateAfterFoodPlanChanged(queryClient),
+  shopping_list: (queryClient) => invalidateAfterShoppingChanged(queryClient),
+  inventory: (queryClient) => invalidateAfterInventoryOperation(queryClient),
+  ai_conversation: (queryClient, conversationId) => invalidateMany(queryClient, [
+    queryKeys.aiMessages(conversationId),
+    queryKeys.aiPendingApprovals(conversationId),
+    queryKeys.aiConversations,
+    queryKeys.aiQualityMetrics,
+  ]),
+};
+
+export async function invalidateAfterAiOperationSettled(
+  queryClient: QueryClient,
+  input: AiOperationSettlementInput,
+) {
+  const scopes = new Set(input.cacheScopes);
+  await Promise.all(
+    Array.from(scopes, (scope) => aiOperationScopeInvalidators[scope](queryClient, input.conversationId)),
+  );
 }
 
 export async function invalidateAfterAiMessageSent(queryClient: QueryClient, conversationId: string) {

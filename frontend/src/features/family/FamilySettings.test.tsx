@@ -374,6 +374,31 @@ describe('FamilySettings activity overlay control', () => {
     expect(onNavigate).toHaveBeenLastCalledWith({ workspace: 'family', view: 'modelUsage' });
   });
 
+  it('does not expose automatic-execution settings on desktop or mobile', () => {
+    const onNavigate = vi.fn();
+    const view = renderSettings({
+      overlayMode: null,
+      isPhoneViewport: false,
+      onNavigate,
+    });
+
+    const desktopEntry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.includes('AI 自动执行'),
+    );
+    expect(desktopEntry).toBeUndefined();
+
+    rerenderSettings({
+      overlayMode: null,
+      isPhoneViewport: true,
+      onNavigate,
+    });
+    const mobileEntry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.includes('AI 自动执行'),
+    );
+    expect(mobileEntry).toBeUndefined();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
   it('shows AI 服务 beside 模型用量 only to the Owner', () => {
     const onNavigate = vi.fn();
     const view = renderSettings({

@@ -252,7 +252,7 @@ class SkillInjectionManager:
     ):
         allowed_side_effects = {"read", "control"}
         if capability_policy.exposes_draft_contract() and any(
-            self.skill_registry.get(key).manifest.approval_policy == "draft_then_confirm"
+            self.skill_registry.get(key).manifest.approval_policy in {"draft_then_confirm", "draft_then_policy"}
             for key in skill_keys
             if capability_policy.allows_skill(key)
         ):

@@ -8,6 +8,7 @@ from app.ai.tools.draft_validation import normalize_recipe_cook_draft, normalize
 from app.core.enums import ActivityHighlightKind
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.activity import ActivityHighlight
+from app.services.ai_auto_execution.policy_types import AICacheScope, DraftExecutionReceipt
 from app.services.ai_operations.recipe_cook import execute_recipe_cook_draft
 from app.services.ai_operations.recipes import execute_recipe_draft
 from app.services.ai_operations.recovery_loaders import load_recipe_current_value
@@ -121,7 +122,7 @@ def _normalize_recipe_cook(context: DraftNormalizeContext) -> dict[str, Any]:
         raise ValueError("做菜草稿字段不完整或格式不正确") from exc
 
 
-def _execute_recipe(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
+def _execute_recipe(context: DraftExecuteContext) -> DraftExecutionReceipt:
     payload = context.payload
     if payload.get("action") == "delete":
         recipe_id = str(payload.get("targetId"))
@@ -134,7 +135,13 @@ def _execute_recipe(context: DraftExecuteContext) -> tuple[dict[str, Any], list[
             payload=payload,
             assert_updated_at_matches=context.assert_updated_at_matches,
         )
-        return {"id": recipe_id, "title": title, "deleted": True}, [recipe_id]
+        return DraftExecutionReceipt(
+            business_entity={"id": recipe_id, "title": title, "deleted": True},
+            entity_ids=(recipe_id,),
+            cache_scopes=("food", "ai_conversation"),
+            revert_adapter_key=None,
+            revert_context=None,
+        )
     recipe = execute_recipe_draft(
         context.db,
         family_id=context.family_id,
@@ -150,16 +157,35 @@ def _execute_recipe(context: DraftExecuteContext) -> tuple[dict[str, Any], list[
             entity_ids=[recipe.id],
         )
     )
-    return serialize_recipe(recipe, media_map), [recipe.id]
+    return DraftExecutionReceipt(
+        business_entity=serialize_recipe(recipe, media_map),
+        entity_ids=(recipe.id,),
+        cache_scopes=("food", "ai_conversation"),
+        revert_adapter_key=None,
+        revert_context=None,
+    )
 
 
-def _execute_recipe_cook(context: DraftExecuteContext) -> tuple[dict[str, Any], list[str]]:
-    return execute_recipe_cook_draft(
+def _execute_recipe_cook(context: DraftExecuteContext) -> DraftExecutionReceipt:
+    business_entity, entity_ids = execute_recipe_cook_draft(
         context.db,
         family_id=context.family_id,
         user_id=context.user_id,
         payload=context.payload,
         operation_idempotency_key=context.operation_idempotency_key,
+    )
+    scopes: list[AICacheScope] = ["meal_log"]
+    if business_entity.get("plan_item_id"):
+        scopes.append("meal_plan")
+    if business_entity.get("consumed_items"):
+        scopes.append("inventory")
+    scopes.append("ai_conversation")
+    return DraftExecutionReceipt(
+        business_entity=business_entity,
+        entity_ids=tuple(entity_ids),
+        cache_scopes=tuple(scopes),
+        revert_adapter_key=None,
+        revert_context=None,
     )
 
 

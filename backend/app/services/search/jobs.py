@@ -64,12 +64,13 @@ from app.services.search.indexing import (
 )
 from app.services.search.vector_indexing import (
     SearchProfileDocumentSnapshot,
-    system_embedding_attribution,
     clear_profile_pending_vector,
     persist_profile_pending_vector,
     prepare_profile_vector_handoff,
     profile_pending_vector_is_current,
+    search_point_id,
     snapshot_profile_document,
+    system_embedding_attribution,
     write_profile_vector_handoff,
 )
 from app.services.search.vector_store import VectorStore, VectorStoreUnavailableError, build_vector_store
@@ -83,6 +84,8 @@ WORKER_MAX_IN_FLIGHT = 2
 ACTIVE_COMPLETED_WINDOW = timedelta(hours=24)
 SEARCH_INDEX_ENTITY_TYPES = {"ingredient", "food", "recipe", "meal_plan"}
 EMBEDDING_OUTPUT_UNAVAILABLE = "embedding_output_unavailable_after_provider_success"
+SEARCH_DOCUMENT_DELETE_PENDING = "delete_pending"
+SEARCH_PROFILE_POINT_DELETE_PENDING = "point_delete_pending"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +96,95 @@ class PreparedProfileEmbeddingAttempt:
     snapshot: SearchProfileDocumentSnapshot
     attempt_key: str
     handoff_only: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SearchDocumentDeletionSnapshot:
+    family_id: str
+    entity_type: str
+    entity_id: str
+    search_document_id: str
+    profile_collections: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SearchProfilePointDeletionSnapshot:
+    family_id: str
+    entity_type: str
+    entity_id: str
+    qdrant_collection: str
+
+
+def _search_document_profile_collections(
+    db: Session,
+    *,
+    family_id: str,
+    search_document_id: str,
+) -> tuple[tuple[str, str], ...]:
+    rows = db.execute(
+        select(FamilySearchProfile.id, FamilySearchProfile.qdrant_collection)
+        .join(
+            FamilySearchProfileDocument,
+            FamilySearchProfileDocument.search_profile_id == FamilySearchProfile.id,
+        )
+        .where(
+            FamilySearchProfile.family_id == family_id,
+            FamilySearchProfileDocument.family_id == family_id,
+            FamilySearchProfileDocument.search_document_id == search_document_id,
+        )
+        .order_by(FamilySearchProfile.id.asc())
+    )
+    return tuple((str(profile_id), str(collection)) for profile_id, collection in rows)
+
+
+def _search_document_deletion_is_fenced(
+    db: Session,
+    *,
+    family_id: str,
+    entity_type: str,
+    entity_id: str,
+) -> bool:
+    return db.scalar(
+        select(SearchIndexJob.id).where(
+            SearchIndexJob.family_id == family_id,
+            SearchIndexJob.search_profile_id.is_(None),
+            SearchIndexJob.entity_type == entity_type,
+            SearchIndexJob.entity_id == entity_id,
+            SearchIndexJob.vector_status == SEARCH_DOCUMENT_DELETE_PENDING,
+        )
+    ) is not None
+
+
+def _search_document_deletion_was_completed(
+    db: Session,
+    *,
+    family_id: str,
+    entity_type: str,
+    entity_id: str,
+) -> bool:
+    if entity_type != "meal_plan":
+        return False
+    return db.scalar(
+        select(SearchIndexJob.id).where(
+            SearchIndexJob.family_id == family_id,
+            SearchIndexJob.search_profile_id.is_(None),
+            SearchIndexJob.entity_type == entity_type,
+            SearchIndexJob.entity_id == entity_id,
+            SearchIndexJob.status == "succeeded",
+            SearchIndexJob.vector_status == "skipped",
+        )
+    ) is not None
+
+
+def _search_entity_still_exists(db: Session, *, job: SearchIndexJob) -> bool:
+    if job.entity_type != "meal_plan":
+        return True
+    return db.scalar(
+        select(FoodPlanItem.id).where(
+            FoodPlanItem.family_id == job.family_id,
+            FoodPlanItem.id == job.entity_id,
+        )
+    ) is not None
 
 
 def enqueue_search_index_job(
@@ -120,6 +212,30 @@ def enqueue_search_index_job(
         updated_at=now,
     )
     db.add(job)
+    db.flush()
+    return job
+
+
+def enqueue_search_document_deletion_job(
+    db: Session,
+    *,
+    family_id: str,
+    user_id: str,
+    entity_type: str,
+    entity_id: str,
+    target_name: str = "",
+) -> SearchIndexJob:
+    if entity_type != "meal_plan":
+        raise ValueError("Unsupported search document deletion entity type")
+    job = enqueue_search_index_job(
+        db,
+        family_id=family_id,
+        user_id=user_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        target_name=target_name,
+    )
+    job.vector_status = SEARCH_DOCUMENT_DELETE_PENDING
     db.flush()
     return job
 
@@ -293,8 +409,17 @@ def retry_failed_search_index_job(db: Session, *, family_id: str, job_id: str) -
     if job.status != "failed":
         raise ValueError("Only failed search index jobs can be retried")
     now = utcnow()
+    vector_status = (
+        job.vector_status
+        if job.vector_status
+        in {
+            SEARCH_DOCUMENT_DELETE_PENDING,
+            SEARCH_PROFILE_POINT_DELETE_PENDING,
+        }
+        else "pending"
+    )
     job.status = "queued"
-    job.vector_status = "pending"
+    job.vector_status = vector_status
     job.error = None
     job.error_code = None
     _set_job_failure_diagnostics(job, None)
@@ -480,11 +605,18 @@ def recover_interrupted_search_index_jobs(
         )
     )
     for job in jobs:
+        if job.vector_status == SEARCH_PROFILE_POINT_DELETE_PENDING:
+            job.status = "queued"
+            job.locked_at = None
+            job.completed_at = None
+            job.error = None
+            job.error_code = None
+            job.updated_at = now
+            continue
         if job.search_profile_id is None:
-            # Canonical refresh jobs have no Provider side effect.  They can
-            # always be replayed to rebuild text and fan out fresh profile
-            # jobs, without consulting the retired SearchDocument vector
-            # fields.
+            # Canonical refresh jobs have no Provider side effect, while
+            # document-deletion jobs only repeat idempotent Qdrant deletes.
+            # Both can safely be replayed without a new embedding send.
             job.status = "queued"
             job.locked_at = None
             job.completed_at = None
@@ -611,6 +743,11 @@ def claim_pending_search_index_jobs(db: Session, *, limit: int = 4) -> list[str]
                         SearchIndexJob.vector_status == "pending",
                         SearchIndexJob.usage_attempt_key.is_not(None),
                     ),
+                    and_(
+                        SearchIndexJob.status == "failed",
+                        SearchIndexJob.vector_status
+                        == SEARCH_PROFILE_POINT_DELETE_PENDING,
+                    ),
                     and_(SearchIndexJob.status == "failed", SearchIndexJob.attempt_count < MAX_ATTEMPTS),
                     and_(SearchIndexJob.status == "running", SearchIndexJob.locked_at < stale_lock_cutoff),
                 )
@@ -670,6 +807,23 @@ def _process_search_index_job(
     if not _start_job(job_id, session_factory=session_factory, claimed=claimed):
         return
 
+    if _job_is_search_profile_point_deletion(
+        job_id,
+        session_factory=session_factory,
+    ):
+        _process_search_profile_point_deletion_job(
+            job_id,
+            session_factory=session_factory,
+            vector_store=vector_store,
+        )
+        return
+    if _job_is_search_document_deletion(job_id, session_factory=session_factory):
+        _process_search_document_deletion_job(
+            job_id,
+            session_factory=session_factory,
+            vector_store=vector_store,
+        )
+        return
     if _job_has_search_profile(job_id, session_factory=session_factory):
         _process_family_search_profile_job(
             job_id,
@@ -679,6 +833,354 @@ def _process_search_index_job(
         )
         return
     _process_canonical_search_document_job(job_id, session_factory=session_factory)
+
+
+def _job_is_search_document_deletion(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> bool:
+    with session_factory() as db:
+        return db.scalar(
+            select(SearchIndexJob.vector_status).where(SearchIndexJob.id == job_id)
+        ) == SEARCH_DOCUMENT_DELETE_PENDING
+
+
+def _job_is_search_profile_point_deletion(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> bool:
+    with session_factory() as db:
+        return db.scalar(
+            select(SearchIndexJob.vector_status).where(SearchIndexJob.id == job_id)
+        ) == SEARCH_PROFILE_POINT_DELETE_PENDING
+
+
+def _mark_profile_point_deletion_pending_in_session(
+    job: SearchIndexJob,
+    *,
+    now: datetime,
+) -> None:
+    _mark_job_failure_in_session(
+        job,
+        error="索引目标删除期间需要清理晚到的搜索向量",
+        error_code="search_vector_delete_pending",
+        increment_provider_attempt=False,
+        vector_status=SEARCH_PROFILE_POINT_DELETE_PENDING,
+        now=now,
+    )
+
+
+def _prepare_search_profile_point_deletion(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> SearchProfilePointDeletionSnapshot | None:
+    with session_factory() as db:
+        job = db.scalar(
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
+        )
+        if (
+            job is None
+            or job.search_profile_id is None
+            or job.vector_status != SEARCH_PROFILE_POINT_DELETE_PENDING
+        ):
+            return None
+        profile = db.scalar(
+            select(FamilySearchProfile).where(
+                FamilySearchProfile.family_id == job.family_id,
+                FamilySearchProfile.id == job.search_profile_id,
+            )
+        )
+        if profile is None:
+            _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            db.commit()
+            return None
+        snapshot = SearchProfilePointDeletionSnapshot(
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+            qdrant_collection=profile.qdrant_collection,
+        )
+        db.commit()
+        return snapshot
+
+
+def _mark_search_profile_point_deletion_failure(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as db:
+        job = db.scalar(
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
+        )
+        if job is None or job.vector_status != SEARCH_PROFILE_POINT_DELETE_PENDING:
+            return
+        _mark_job_failure_in_session(
+            job,
+            error="搜索向量服务暂时不可用",
+            error_code="search_vector_unavailable",
+            increment_provider_attempt=False,
+            vector_status=SEARCH_PROFILE_POINT_DELETE_PENDING,
+            now=utcnow(),
+        )
+        db.commit()
+
+
+def _finish_search_profile_point_deletion(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as db:
+        job = db.scalar(
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
+        )
+        if job is None or job.vector_status != SEARCH_PROFILE_POINT_DELETE_PENDING:
+            return
+        _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+        db.commit()
+
+
+def _process_search_profile_point_deletion_job(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+    vector_store: VectorStore | None,
+) -> None:
+    snapshot = _prepare_search_profile_point_deletion(
+        job_id,
+        session_factory=session_factory,
+    )
+    if snapshot is None:
+        return
+    store = vector_store or build_vector_store(
+        get_settings(),
+        qdrant_collection=snapshot.qdrant_collection,
+    )
+    try:
+        store.delete_point(
+            point_id=search_point_id(snapshot.entity_type, snapshot.entity_id)
+        )
+    except VectorStoreUnavailableError:
+        _mark_search_profile_point_deletion_failure(
+            job_id,
+            session_factory=session_factory,
+        )
+        return
+    _finish_search_profile_point_deletion(
+        job_id,
+        session_factory=session_factory,
+    )
+
+
+def _prepare_search_document_deletion(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> SearchDocumentDeletionSnapshot | None:
+    with session_factory() as db:
+        job = db.scalar(
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
+        )
+        if (
+            job is None
+            or job.search_profile_id is not None
+            or job.entity_type != "meal_plan"
+            or job.vector_status != SEARCH_DOCUMENT_DELETE_PENDING
+        ):
+            return None
+        target_exists = db.scalar(
+            select(FoodPlanItem.id).where(
+                FoodPlanItem.family_id == job.family_id,
+                FoodPlanItem.id == job.entity_id,
+            )
+        )
+        if target_exists is not None:
+            _mark_job_failure_in_session(
+                job,
+                error="删除索引任务对应的餐食计划仍然存在",
+                error_code="search_delete_target_present",
+                increment_provider_attempt=True,
+                now=utcnow(),
+            )
+            db.commit()
+            return None
+        document = db.scalar(
+            select(SearchDocument).where(
+                SearchDocument.family_id == job.family_id,
+                SearchDocument.entity_type == job.entity_type,
+                SearchDocument.entity_id == job.entity_id,
+            )
+        )
+        if document is None:
+            _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            db.commit()
+            return None
+        profile_collections = _search_document_profile_collections(
+            db,
+            family_id=job.family_id,
+            search_document_id=document.id,
+        )
+        snapshot = SearchDocumentDeletionSnapshot(
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+            search_document_id=document.id,
+            profile_collections=profile_collections,
+        )
+        db.commit()
+        return snapshot
+
+
+def _mark_search_document_deletion_failure(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as db:
+        job = db.scalar(
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
+        )
+        if job is None or job.vector_status != SEARCH_DOCUMENT_DELETE_PENDING:
+            return
+        _mark_job_failure_in_session(
+            job,
+            error="搜索向量服务暂时不可用",
+            error_code="search_vector_unavailable",
+            increment_provider_attempt=False,
+            vector_status=SEARCH_DOCUMENT_DELETE_PENDING,
+            now=utcnow(),
+        )
+        db.commit()
+
+
+def _profile_point_writes_are_in_flight(
+    db: Session,
+    *,
+    snapshot: SearchDocumentDeletionSnapshot,
+) -> bool:
+    profile_ids = tuple(profile_id for profile_id, _ in snapshot.profile_collections)
+    if not profile_ids:
+        return False
+    return db.scalar(
+        select(SearchIndexJob.id).where(
+            SearchIndexJob.family_id == snapshot.family_id,
+            SearchIndexJob.search_profile_id.in_(profile_ids),
+            SearchIndexJob.entity_type == snapshot.entity_type,
+            SearchIndexJob.entity_id == snapshot.entity_id,
+            or_(
+                SearchIndexJob.status == "running",
+                SearchIndexJob.vector_status
+                == SEARCH_PROFILE_POINT_DELETE_PENDING,
+            ),
+        )
+    ) is not None
+
+
+def _complete_search_document_deletion(
+    job_id: str,
+    *,
+    snapshot: SearchDocumentDeletionSnapshot,
+    session_factory: Callable[[], Session],
+) -> None:
+    with session_factory() as db:
+        job = db.scalar(
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
+        )
+        if (
+            job is None
+            or job.family_id != snapshot.family_id
+            or job.entity_type != snapshot.entity_type
+            or job.entity_id != snapshot.entity_id
+            or job.vector_status != SEARCH_DOCUMENT_DELETE_PENDING
+        ):
+            return
+        document = db.scalar(
+            select(SearchDocument)
+            .where(
+                SearchDocument.id == snapshot.search_document_id,
+                SearchDocument.family_id == snapshot.family_id,
+                SearchDocument.entity_type == snapshot.entity_type,
+                SearchDocument.entity_id == snapshot.entity_id,
+            )
+            .with_for_update()
+        )
+        if document is None:
+            _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            db.commit()
+            return
+        current_profile_collections = _search_document_profile_collections(
+            db,
+            family_id=snapshot.family_id,
+            search_document_id=document.id,
+        )
+        if current_profile_collections != snapshot.profile_collections:
+            job.status = "queued"
+            job.locked_at = None
+            job.completed_at = None
+            job.updated_at = utcnow()
+            db.commit()
+            return
+        if _profile_point_writes_are_in_flight(db, snapshot=snapshot):
+            job.status = "queued"
+            job.locked_at = None
+            job.completed_at = None
+            job.updated_at = utcnow()
+            db.commit()
+            return
+        delete_search_document(
+            db,
+            family_id=snapshot.family_id,
+            entity_type=snapshot.entity_type,
+            entity_id=snapshot.entity_id,
+        )
+        _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+        db.commit()
+
+
+def _process_search_document_deletion_job(
+    job_id: str,
+    *,
+    session_factory: Callable[[], Session],
+    vector_store: VectorStore | None,
+) -> None:
+    """Delete profile-scoped points before committing durable row cleanup.
+
+    The domain transaction leaves the canonical/profile rows as a durable
+    collection identity.  External deletes are idempotent; any failure keeps
+    those rows and the deletion marker for a Qdrant-only retry.
+    """
+
+    snapshot = _prepare_search_document_deletion(
+        job_id,
+        session_factory=session_factory,
+    )
+    if snapshot is None:
+        return
+    if vector_store is not None and len(snapshot.profile_collections) > 1:
+        raise ValueError("an explicit vector store requires exactly one search profile")
+    point_id = search_point_id(snapshot.entity_type, snapshot.entity_id)
+    try:
+        for _profile_id, qdrant_collection in snapshot.profile_collections:
+            store = vector_store or build_vector_store(
+                get_settings(),
+                qdrant_collection=qdrant_collection,
+            )
+            store.delete_point(point_id=point_id)
+    except VectorStoreUnavailableError:
+        _mark_search_document_deletion_failure(
+            job_id,
+            session_factory=session_factory,
+        )
+        return
+    _complete_search_document_deletion(
+        job_id,
+        snapshot=snapshot,
+        session_factory=session_factory,
+    )
 
 
 def _process_canonical_search_document_job(
@@ -1040,6 +1542,25 @@ def _prepare_profile_embedding_attempt(
                 _finish_job_in_session(job, vector_status="skipped", now=now)
             db.commit()
             return None
+        if _search_document_deletion_is_fenced(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        ):
+            _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            db.commit()
+            return None
+        if not _search_entity_still_exists(db, job=job):
+            _mark_job_failure_in_session(
+                job,
+                error="索引对象不存在或已删除",
+                error_code="search_index_target_missing",
+                increment_provider_attempt=False,
+                now=utcnow(),
+            )
+            db.commit()
+            return None
         if profile_document.content_hash != document.content_hash:
             profile_document = upsert_profile_document_snapshot(
                 db,
@@ -1229,24 +1750,51 @@ def _handoff_profile_pending_vector(
         raise TypeError("search profile document snapshot required")
     with session_factory() as db:
         job = db.scalar(
-            select(SearchIndexJob)
-            .where(SearchIndexJob.id == job_id)
-            .with_for_update()
+            select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update()
         )
         if job is None:
             return
         resolved = _profile_job_document(db, job=job, for_update=True)
+        deletion_intent = _search_document_deletion_is_fenced(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        ) or _search_document_deletion_was_completed(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        )
         if resolved is None:
+            if deletion_intent:
+                _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            else:
+                _mark_job_failure_in_session(
+                    job,
+                    error="索引对象不存在或已删除",
+                    error_code="search_index_target_missing",
+                    increment_provider_attempt=False,
+                    now=utcnow(),
+                )
+            db.commit()
+            return
+        live_profile, profile_document, _document = resolved
+        if deletion_intent:
+            clear_profile_pending_vector(profile_document)
+            _finish_job_in_session(job, vector_status="skipped", now=utcnow())
+            db.commit()
+            return
+        if not _search_entity_still_exists(db, job=job):
             _mark_job_failure_in_session(
                 job,
                 error="索引对象不存在或已删除",
                 error_code="search_index_target_missing",
-                increment_provider_attempt=True,
+                increment_provider_attempt=False,
                 now=utcnow(),
             )
             db.commit()
             return
-        live_profile, profile_document, _document = resolved
         handoff = prepare_profile_vector_handoff(
             profile_document,
             snapshot=snapshot,
@@ -1293,12 +1841,21 @@ def _handoff_profile_pending_vector(
     try:
         write_profile_vector_handoff(handoff, vector_store=vector_store)
     except VectorStoreUnavailableError:
+        cleanup_required = False
         with session_factory() as db:
             job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
             if job is None:
                 return
             resolved = _profile_job_document(db, job=job, for_update=True)
-            if resolved is not None:
+            if _profile_vector_write_requires_cleanup(
+                db,
+                job=job,
+                resolved=resolved,
+            ):
+                _mark_profile_point_deletion_pending_in_session(job, now=utcnow())
+                db.commit()
+                cleanup_required = True
+            elif resolved is not None:
                 live_profile, profile_document, _document = resolved
                 if profile_pending_vector_is_current(profile_document, snapshot):
                     _mark_job_failure_in_session(
@@ -1311,16 +1868,33 @@ def _handoff_profile_pending_vector(
                     )
                     refresh_profile_progress(db, profile=live_profile)
                     db.commit()
+        if cleanup_required:
+            _process_search_profile_point_deletion_job(
+                job_id,
+                session_factory=session_factory,
+                vector_store=vector_store,
+            )
         return
+    cleanup_required = False
     with session_factory() as db:
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None:
             return
         resolved = _profile_job_document(db, job=job, for_update=True)
-        if resolved is None:
-            return
-        live_profile, profile_document, _document = resolved
-        if not profile_pending_vector_is_current(profile_document, snapshot):
+        if _profile_vector_write_requires_cleanup(
+            db,
+            job=job,
+            resolved=resolved,
+        ):
+            _mark_profile_point_deletion_pending_in_session(job, now=utcnow())
+            db.commit()
+            cleanup_required = True
+        else:
+            live_profile, profile_document, _document = resolved
+        if not cleanup_required and not profile_pending_vector_is_current(
+            profile_document,
+            snapshot,
+        ):
             job.status = "queued"
             job.vector_status = "pending"
             job.locked_at = None
@@ -1328,25 +1902,62 @@ def _handoff_profile_pending_vector(
             job.updated_at = utcnow()
             db.commit()
             return
-        clear_profile_pending_vector(profile_document)
-        profile_document.status = "indexed"
-        profile_document.error_code = None
-        profile_document.indexed_at = utcnow()
-        _finish_job_in_session(job, vector_status="indexed", now=utcnow())
-        refresh_profile_progress(db, profile=live_profile)
-        provisioning_profile_id = (
-            live_profile.id
-            if live_profile.status is FamilyModelSearchProfileStatus.PROVISIONING
-            else None
+        if not cleanup_required:
+            clear_profile_pending_vector(profile_document)
+            profile_document.status = "indexed"
+            profile_document.error_code = None
+            profile_document.indexed_at = utcnow()
+            _finish_job_in_session(job, vector_status="indexed", now=utcnow())
+            refresh_profile_progress(db, profile=live_profile)
+            provisioning_profile_id = (
+                live_profile.id
+                if live_profile.status is FamilyModelSearchProfileStatus.PROVISIONING
+                else None
+            )
+            family_id = live_profile.family_id
+            db.commit()
+    if cleanup_required:
+        _process_search_profile_point_deletion_job(
+            job_id,
+            session_factory=session_factory,
+            vector_store=vector_store,
         )
-        family_id = live_profile.family_id
-        db.commit()
+        return
     if provisioning_profile_id:
         _activate_profile_if_ready(
             family_id=family_id,
             profile_id=provisioning_profile_id,
             session_factory=session_factory,
         )
+
+
+def _profile_vector_write_requires_cleanup(
+    db: Session,
+    *,
+    job: SearchIndexJob,
+    resolved: tuple[
+        FamilySearchProfile,
+        FamilySearchProfileDocument,
+        SearchDocument,
+    ]
+    | None,
+) -> bool:
+    return (
+        resolved is None
+        or _search_document_deletion_is_fenced(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        )
+        or _search_document_deletion_was_completed(
+            db,
+            family_id=job.family_id,
+            entity_type=job.entity_type,
+            entity_id=job.entity_id,
+        )
+        or not _search_entity_still_exists(db, job=job)
+    )
 
 
 def _mark_profile_job_failure(
@@ -1422,6 +2033,28 @@ def _mark_unexpected_search_index_job_failure(
         settings = _lock_settings_for_profile_job(db, job_id=job_id)
         job = db.scalar(select(SearchIndexJob).where(SearchIndexJob.id == job_id).with_for_update())
         if job is None or job.status == "succeeded":
+            return
+        if job.vector_status == SEARCH_PROFILE_POINT_DELETE_PENDING:
+            _mark_job_failure_in_session(
+                job,
+                error="搜索索引后台任务异常退出",
+                error_code="search_index_worker_failed",
+                increment_provider_attempt=True,
+                vector_status=SEARCH_PROFILE_POINT_DELETE_PENDING,
+                now=utcnow(),
+            )
+            db.commit()
+            return
+        if job.vector_status == SEARCH_DOCUMENT_DELETE_PENDING:
+            _mark_job_failure_in_session(
+                job,
+                error="搜索索引后台任务异常退出",
+                error_code="search_index_worker_failed",
+                increment_provider_attempt=True,
+                vector_status=SEARCH_DOCUMENT_DELETE_PENDING,
+                now=utcnow(),
+            )
+            db.commit()
             return
         resolved = _profile_job_document(db, job=job, for_update=True) if job.search_profile_id else None
         if resolved is None:
@@ -1600,7 +2233,12 @@ def _start_job(
             return False
         if job.status in {"succeeded", "budget_blocked"}:
             return False
-        if job.status == "failed" and (job.attempt_count or 0) >= MAX_ATTEMPTS and job.vector_status != "pending":
+        if (
+            job.status == "failed"
+            and (job.attempt_count or 0) >= MAX_ATTEMPTS
+            and job.vector_status
+            not in {"pending", SEARCH_PROFILE_POINT_DELETE_PENDING}
+        ):
             return False
         job.status = "running"
         job.locked_at = now

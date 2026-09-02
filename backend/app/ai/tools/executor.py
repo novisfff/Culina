@@ -3,12 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.ai.errors import ToolExecutionError
+from app.ai.errors import AIExecutionCancelled, ToolExecutionError
 from app.ai.observability import error_codes
 from app.ai.tools.base import ToolContext, ToolResult, ToolSideEffect, timed_call
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.validation import validate_json_value
-from app.ai.errors import AIExecutionCancelled
 from app.core.utils import create_id, utcnow
 
 logger = logging.getLogger(__name__)
@@ -129,7 +128,7 @@ class ToolExecutor:
 
         try:
             validate_json_value(tool_input, definition.input_schema, location=f"{name} input")
-        except Exception:
+        except Exception as exc:
             if span is not None:
                 span.finish(
                     status="failed",
@@ -152,7 +151,10 @@ class ToolExecutor:
                 sorted(tool_input.keys()),
                 exc_info=True,
             )
-            raise
+            raise ToolExecutionError(
+                str(exc) or f"工具 {name} 输入参数校验失败",
+                code=error_codes.TOOL_INPUT_VALIDATION_FAILED,
+            ) from exc
         logger.info(
             "AI tool call started tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s input_keys=%s",
             name,
@@ -218,7 +220,7 @@ class ToolExecutor:
             )
         try:
             validate_json_value(result.output, definition.output_schema, location=f"{name} output")
-        except Exception:
+        except Exception as exc:
             if span is not None:
                 span.finish(
                     status="failed",
@@ -241,7 +243,10 @@ class ToolExecutor:
                 sorted(result.output.keys()),
                 exc_info=True,
             )
-            raise
+            raise ToolExecutionError(
+                str(exc) or f"工具 {name} 输出结果校验失败",
+                code=error_codes.TOOL_OUTPUT_VALIDATION_FAILED,
+            ) from exc
         logger.info(
             "AI tool call completed tool=%s side_effect=%s run_id=%s conversation_id=%s family_id=%s duration_ms=%s output_keys=%s",
             name,

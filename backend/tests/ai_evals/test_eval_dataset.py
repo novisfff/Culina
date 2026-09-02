@@ -14,6 +14,15 @@ from app.schemas.ai import AITaskDraftType
 
 CORE_CASES = Path(__file__).parent / "cases" / "core.jsonl"
 
+AUTO_EXECUTION_EVAL_IDS = {
+    "food.favorite_explicit",
+    "meal.rating_explicit",
+    "shopping.safe_add_explicit",
+    "meal.simple_create_explicit",
+    "meal_plan.simple_create_explicit",
+    "food.favorite_inferred",
+}
+
 
 def _case(case_id: str) -> SkillEvalCase:
     return SkillEvalCase(
@@ -46,7 +55,7 @@ def test_observation_requires_matching_case_id() -> None:
 
 def test_core_dataset_has_required_coverage() -> None:
     cases = load_eval_cases(CORE_CASES)
-    assert len(cases) == 42
+    assert len(cases) == 48
     covered_skills = {skill for case in cases for skill in case.expectedSkills}
     assert covered_skills == {
         "cooking_assistant",
@@ -82,6 +91,20 @@ def test_core_dataset_has_required_coverage() -> None:
         "cooking.next_step": ["ui_actions"],
     }
     assert {case.id: case.expectedCardTypes for case in cases if case.expectedCardTypes} == expected_cards
+
+
+def test_core_dataset_has_auto_execution_intent_coverage() -> None:
+    cases = load_eval_cases(CORE_CASES)
+    by_id = {case.id: case for case in cases}
+
+    assert AUTO_EXECUTION_EVAL_IDS <= set(by_id)
+    assert all(
+        by_id[case_id].expectedTerminalStatus == "waiting_approval"
+        for case_id in AUTO_EXECUTION_EVAL_IDS
+    )
+    assert by_id["food.favorite_inferred"].expectedIntentEvidenceValues[
+        "normalized_evidence.intentClarity"
+    ] == "inferred"
 
 
 def test_core_dataset_references_real_runtime_contracts() -> None:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
+from app.ai.errors import AIConflictError
 from app.ai.workflows.state import WorkspaceGraphState
 
 
@@ -69,6 +72,24 @@ def human_input_response_payload(
     }
 
 
+def human_input_resume_payload_hash(
+    selected_option_ids: list[str],
+    text: str | None,
+) -> str:
+    """Return the stable identity of one submitted answer."""
+
+    canonical = json.dumps(
+        {
+            "selectedOptionIds": [str(item) for item in selected_option_ids if str(item).strip()],
+            "text": str(text or "").strip(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def human_input_result_artifact(
     *,
     pending: dict[str, Any],
@@ -85,6 +106,19 @@ def human_input_result_artifact(
             **response_payload,
         },
     }
+
+
+def validate_human_input_selection(*, pending: dict[str, Any], selected_option_ids: list[str]) -> None:
+    options = pending.get("options") if isinstance(pending.get("options"), list) else []
+    option_ids = {
+        str(option.get("id") or "").strip()
+        for option in options
+        if isinstance(option, dict) and str(option.get("id") or "").strip()
+    }
+    if any(option_id not in option_ids for option_id in selected_option_ids):
+        raise AIConflictError("用户选择的选项已失效，请刷新后重试")
+    if not bool(pending.get("allowMultiple", False)) and len(selected_option_ids) > 1:
+        raise AIConflictError("该问题只能选择一个选项")
 
 
 def human_input_message_metadata(

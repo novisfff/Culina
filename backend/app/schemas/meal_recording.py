@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date as date_type, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -98,6 +98,8 @@ class RecordMealEntryIn(BaseModel):
     food_id: str | None = None
     client_food_id: str | None = None
     servings: Decimal = Field(gt=0)
+    note: str = Field(default="", max_length=255)
+    rating: Decimal | None = Field(default=None, ge=Decimal("0.5"), le=Decimal("5"))
 
     @field_validator("food_id", "client_food_id", mode="before")
     @classmethod
@@ -106,6 +108,13 @@ class RecordMealEntryIn(BaseModel):
             return None
         cleaned = str(value).strip()
         return cleaned or None
+
+    @field_validator("rating")
+    @classmethod
+    def _canonicalize_rating(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        return value.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
 
     @model_validator(mode="after")
     def _exactly_one_reference(self) -> "RecordMealEntryIn":
@@ -141,6 +150,8 @@ class RecordMealRequest(BaseModel):
     new_foods: list[RecordMealNewFoodIn] = Field(default_factory=list)
     entries: list[RecordMealEntryIn] = Field(min_length=1)
     plan_item_completions: list[RecordMealPlanCompletionIn] = Field(default_factory=list)
+    notes: str = Field(default="", max_length=2000)
+    mood: str = Field(default="", max_length=120)
 
     @field_validator("client_request_id")
     @classmethod
