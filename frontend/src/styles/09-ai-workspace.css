@@ -9395,7 +9395,7 @@
 
 .ai-operation-result-card .ai-query-reason {
   margin: 0;
-  color: var(--text-soft) !important;
+  color: var(--text-soft);
   font-size: var(--text-sm);
   line-height: 1.35;
 }
