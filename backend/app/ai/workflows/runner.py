@@ -928,6 +928,22 @@ class WorkspaceGraphRunner:
         )
 
         seen_event_ids: set[str] = set()
+        emitted_human_input_part_ids: set[str] = set()
+
+        def emit_human_input_response_part(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
+            for data in runner._human_input_response_message_parts(
+                family_id=family_id,
+                conversation_id=conversation_id,
+                run_id=run_id,
+                request_id=request_id,
+            ):
+                part = data.get("part") if isinstance(data.get("part"), dict) else {}
+                part_id = str(part.get("id") or "")
+                if not part_id or part_id in emitted_human_input_part_ids:
+                    continue
+                emitted_human_input_part_ids.add(part_id)
+                yield ("message_part", data)
+
         try:
             def log_completed(final_run_id: str) -> None:
                 logger.info(
@@ -939,6 +955,13 @@ class WorkspaceGraphRunner:
                     final_run_id,
                 )
 
+            def handle_update_extra(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
+                # The resume node persists the completed human-input part while
+                # producing its update.  Emit it after that update, before any
+                # subsequent model/tool deltas, so the live timeline matches
+                # the durable message order.
+                yield from emit_human_input_response_part(runner)
+
             yield from self._resume_graph_stream(
                 family_id=family_id,
                 user_id=user_id,
@@ -949,6 +972,7 @@ class WorkspaceGraphRunner:
                 flow="human_input_resume",
                 seen_event_ids=seen_event_ids,
                 generation_contracts=contracts,
+                handle_update_extra=handle_update_extra,
                 require_run_id=True,
                 on_completed=log_completed,
             )
@@ -1097,6 +1121,46 @@ class WorkspaceGraphRunner:
                     "message_id": message.id,
                     "conversation_id": conversation_id,
                     "run_id": approval.run_id,
+                    "part": jsonable_encoder(part),
+                }
+            )
+        return events
+
+    def _human_input_response_message_parts(
+        self,
+        *,
+        family_id: str,
+        conversation_id: str,
+        run_id: str,
+        request_id: str,
+    ) -> list[dict[str, Any]]:
+        message = self.db.scalar(
+            select(AIMessage)
+            .where(
+                AIMessage.family_id == family_id,
+                AIMessage.conversation_id == conversation_id,
+                AIMessage.run_id == run_id,
+                AIMessage.role == "assistant",
+            )
+            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            .execution_options(populate_existing=True)
+        )
+        if message is None:
+            return []
+        events: list[dict[str, Any]] = []
+        for part in message.parts or []:
+            if not isinstance(part, dict) or part.get("type") != "human_input_request":
+                continue
+            request = part.get("request") if isinstance(part.get("request"), dict) else {}
+            if str(request.get("id") or "") != request_id:
+                continue
+            if str(part.get("status") or "pending").lower() == "pending":
+                continue
+            events.append(
+                {
+                    "message_id": message.id,
+                    "conversation_id": conversation_id,
+                    "run_id": run_id,
                     "part": jsonable_encoder(part),
                 }
             )
