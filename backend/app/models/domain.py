@@ -72,6 +72,9 @@ class Family(AuditMixin, Base):
     activity_logs: Mapped[list["ActivityLog"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     media_assets: Mapped[list["MediaAsset"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_conversations: Mapped[list["AIConversation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
+    ai_conversation_events: Mapped[list["AIConversationEvent"]] = relationship(
+        back_populates="family", cascade="all, delete-orphan"
+    )
     ai_recommendations: Mapped[list["AIRecommendation"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_agent_runs: Mapped[list["AIAgentRun"]] = relationship(back_populates="family", cascade="all, delete-orphan")
     ai_messages: Mapped[list["AIMessage"]] = relationship(back_populates="family", cascade="all, delete-orphan")
@@ -827,6 +830,11 @@ class AIConversation(Base):
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_run_status: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    # Monotonic allocator for the canonical user-visible conversation timeline.
+    # AITimelineService increments this while holding the conversation row lock.
+    timeline_version: Mapped[int] = mapped_column(
+        sa.BigInteger(), default=0, server_default=sa.text("0"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
@@ -834,7 +842,12 @@ class AIConversation(Base):
     messages: Mapped[list["AIMessage"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
-        order_by=lambda: AIMessage.created_at,
+        order_by=lambda: (AIMessage.timeline_position, AIMessage.id),
+    )
+    timeline_events: Mapped[list["AIConversationEvent"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by=lambda: AIConversationEvent.sequence,
     )
 
 
@@ -929,6 +942,16 @@ class AIMessage(Base):
     status: Mapped[str] = mapped_column(String(32), default="completed", nullable=False, index=True)
     message_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
     client_message_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    # Sequence assigned to this message.created event.  Zero is reserved for
+    # legacy rows; newly prepared messages always receive a positive position
+    # through AITimelineService.
+    timeline_position: Mapped[int] = mapped_column(
+        sa.BigInteger(), default=0, server_default=sa.text("0"), nullable=False, index=True
+    )
+    # Sequence of the last canonical event materialized into this message.
+    snapshot_sequence: Mapped[int] = mapped_column(
+        sa.BigInteger(), default=0, server_default=sa.text("0"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
@@ -948,9 +971,65 @@ class AIRunEvent(Base):
     user_message: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    # Observability-only correlation to the canonical visible timeline.
+    timeline_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    timeline_sequence: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="ai_run_events")
+
+
+class AIConversationEvent(Base):
+    """Append-only event log for the user-visible AI conversation timeline.
+
+    ``sequence`` is allocated by :class:`AITimelineService` while the parent
+    conversation is locked.  The event table is intentionally independent of
+    ``AIRunEvent``: run events are diagnostic records and can never determine
+    where a message part is rendered.
+    """
+
+    __tablename__ = "ai_conversation_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id",
+            "sequence",
+            name="uq_ai_conversation_events_conversation_sequence",
+        ),
+        Index(
+            "ix_ai_conversation_events_conversation_sequence",
+            "conversation_id",
+            "sequence",
+        ),
+        Index("ix_ai_conversation_events_run_sequence", "run_id", "sequence"),
+        Index("ix_ai_conversation_events_message_sequence", "message_id", "sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    family_id: Mapped[str] = mapped_column(
+        ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_agent_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_messages.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    sequence: Mapped[int] = mapped_column(sa.BigInteger(), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    part_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    is_terminal: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa.false(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    family: Mapped["Family"] = relationship(back_populates="ai_conversation_events")
+    conversation: Mapped["AIConversation"] = relationship(back_populates="timeline_events")
 
 
 class AIRunTraceSpan(Base):
