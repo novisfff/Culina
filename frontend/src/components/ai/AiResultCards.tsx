@@ -418,16 +418,16 @@ function OperationResultCardContent({
     <article className="ai-result-card ai-query-result-card ai-operation-result-card">
       <header className="ai-query-card-head">
         <div className="ai-query-card-head-main">
-          <span className="ai-query-card-eyebrow">{viewModel.eyebrow}</span>
           <h3>{displayTitle}</h3>
         </div>
-        {shouldShowEntityCount && (
-          <div className="ai-query-card-context-badges">
+        <div className="ai-query-card-context-badges">
+          <span className="ai-query-card-eyebrow">{viewModel.eyebrow}</span>
+          {shouldShowEntityCount && (
             <span className="ai-query-context-badge">
               涉及 <strong>{entityCountLabel}</strong>
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </header>
       {shouldShowActionSummary && <p className="ai-query-reason">{actionSummary}</p>}
       {shouldShowExecutionExplanation && <p className="ai-query-reason">{executionExplanation}</p>}
@@ -452,8 +452,30 @@ function OperationResultCardContent({
           })}
         </div>
       )}
-      {(destinationText || !showRevertControl) && (
-        <div className="ai-operation-result-meta">
+      {showRevertControl ? (
+        <div className="ai-operation-result-actions">
+          <div className="ai-operation-result-action-group">
+            <button
+              className="ghost-button ai-operation-revert-button"
+              type="button"
+              disabled={!guardedRevertControl && (!showRevert || !conversationId || !isOnline)}
+              aria-disabled={guardedRevertControl || undefined}
+              aria-busy={revert.isPending}
+              onKeyDown={(event) => {
+                if (guardedRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+              }}
+              onClick={() => {
+                if (guardedRevertControl) return;
+                if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
+              }}
+            >
+              {revertLabel}
+            </button>
+            <div className={`ai-operation-result-revert-note tone-${viewModel.tone}`}>
+              <span>{displayedStatus}</span>
+              {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
+            </div>
+          </div>
           {destinationText && (
             <div className="ai-operation-result-footer" aria-label="查看提示">
               <span>查看位置</span>
@@ -461,36 +483,20 @@ function OperationResultCardContent({
               {destinationText !== `可前往${workspaceLabel}查看` && <small>{destinationText}</small>}
             </div>
           )}
-          {!showRevertControl && (
-            <div className={`ai-operation-result-revert-note tone-${viewModel.tone}`}>
-              <span>{displayedStatus}</span>
-              {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
-            </div>
-          )}
         </div>
-      )}
-      {showRevertControl ? (
-        <div className="ai-operation-result-actions">
-          <button
-            className="ghost-button ai-operation-revert-button"
-            type="button"
-            disabled={!guardedRevertControl && (!showRevert || !conversationId || !isOnline)}
-            aria-disabled={guardedRevertControl || undefined}
-            aria-busy={revert.isPending}
-            onKeyDown={(event) => {
-              if (guardedRevertControl && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
-            }}
-            onClick={() => {
-              if (guardedRevertControl) return;
-              if (projection.operation_id && isOnline) revert.mutate(projection.operation_id);
-            }}
-          >
-            {revertLabel}
-          </button>
+      ) : (destinationText || displayedStatus) ? (
+        <div className="ai-operation-result-meta">
           <div className={`ai-operation-result-revert-note tone-${viewModel.tone}`}>
             <span>{displayedStatus}</span>
             {viewModel.deadlineText ? <strong>{viewModel.deadlineText}</strong> : null}
           </div>
+          {destinationText && (
+            <div className="ai-operation-result-footer" aria-label="查看提示">
+              <span>查看位置</span>
+              <strong>{workspaceLabel}</strong>
+              {destinationText !== `可前往${workspaceLabel}查看` && <small>{destinationText}</small>}
+            </div>
+          )}
         </div>
       ) : null}
       <div

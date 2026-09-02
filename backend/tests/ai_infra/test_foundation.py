@@ -5495,6 +5495,30 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     events.append((event_name, json.loads("\n".join(data_lines))))
             delta_event = next(data for event_name, data in events if event_name == "message_delta")
             self.assertNotEqual(delta_event["part_id"], first_text_part["id"])
+            completed_input_event = next(
+                data
+                for event_name, data in events
+                if event_name == "message_part"
+                and data.get("part", {}).get("type") == "human_input_request"
+            )
+            self.assertEqual(completed_input_event["part"]["id"], request_part["id"])
+            self.assertEqual(completed_input_event["part"].get("status"), "completed")
+            self.assertEqual(
+                completed_input_event["part"].get("response", {}).get("selectedOptionIds"),
+                ["three-days"],
+            )
+            completed_input_event_index = next(
+                index
+                for index, (event_name, data) in enumerate(events)
+                if event_name == "message_part"
+                and data.get("part", {}).get("id") == request_part["id"]
+            )
+            delta_event_index = next(
+                index
+                for index, (event_name, data) in enumerate(events)
+                if event_name == "message_delta" and data.get("part_id") == delta_event.get("part_id")
+            )
+            self.assertLess(completed_input_event_index, delta_event_index)
             response_event = next(data for event_name, data in events if event_name == "response")
             parts = response_event["message"]["parts"]
             human_input_index = next(index for index, part in enumerate(parts) if part.get("type") == "human_input_request")

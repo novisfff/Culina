@@ -195,8 +195,11 @@ function isMessageFooterReady(message: AiMessage, isAssistantResponseActive: boo
   return !isUnfinishedAssistantMessage(message);
 }
 
-function hasDraftContent(message: AiMessage) {
-  return message.parts.some((part) => Boolean(part.approval || part.draft));
+function hasDraftOutcome(message: AiMessage) {
+  return message.parts.some((part) => (
+    Boolean(part.approval || part.draft)
+    || (part.type === 'result_card' && part.card?.type === 'operation_result')
+  ));
 }
 
 function ToolEventIcon({ event }: { event: AiRunEvent }) {
@@ -477,7 +480,7 @@ export function MessageBubble({
     if (part.type === 'error_recovery') return Boolean(part.card || part.text?.trim());
     return Boolean(part.card || part.approval || part.draft || part.request);
   });
-  const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftContent(message);
+  const isGeneratingDraft = !isUser && message.status === 'running' && runEvents.some(isDraftToolEvent) && !hasDraftOutcome(message);
   const hasPendingApprovalPart = message.parts.some(isPendingApprovalPart);
   const hasPendingHumanInputRequest = message.parts.some(isPendingHumanInputPart);
   const hasPendingInteractivePart = hasPendingApprovalPart || (hasPendingHumanInputRequest && !isThinking);

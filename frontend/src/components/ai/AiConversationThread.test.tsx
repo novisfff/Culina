@@ -80,6 +80,32 @@ function operationMessage(projectionOverrides: Partial<AiOperationResultProjecti
 }
 
 describe('MessageBubble operation result replacement', () => {
+  it('removes the draft placeholder when auto-execution produces its result card', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{ ...operationMessage(), status: 'running' }}
+        user={testUser}
+        runEvents={[
+          {
+            id: 'event-auto-execution-draft',
+            run_id: 'run-operation-result',
+            type: 'tool',
+            internal_code: 'food_profile.create_draft',
+            user_message: '生成「食物资料确认表单」',
+            status: 'completed',
+            created_at: '2026-08-24T15:29:59+08:00',
+          },
+        ]}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-operation-result-card')).not.toBeNull();
+    expect(rendered.container.querySelector('.ai-draft-generating-cue')).toBeNull();
+    expect(rendered.container.textContent).not.toContain('正在准备待确认草稿');
+    rendered.unmount();
+  });
+
   it('passes stable message/part context when the HTTP response replaces the result card', async () => {
     const updated = operationMessage({
       result_status: 'reverted',

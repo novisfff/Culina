@@ -22,6 +22,7 @@ from app.ai.workflows.runner_support.message_persistence import (
     conversation_context_with_state_patch,
     dedupe_message_parts,
     initial_assistant_message_metadata,
+    merge_message_part_timelines,
     merge_assistant_skill_metadata,
     message_metadata_with_draft_ids,
     message_metadata_with_model_usage_fallback,
@@ -166,7 +167,7 @@ class AssistantResultPersister:
                 metadata.pop("liveStreaming", None)
                 metadata.pop("liveTextPartIds", None)
                 metadata.pop("livePartIds", None)
-            message.parts = dedupe_message_parts([*existing_parts, *next_parts])
+            message.parts = merge_message_part_timelines(existing_parts, next_parts)
             metadata = merge_assistant_skill_metadata(metadata, skill_key=skill_key)
             message.message_metadata = metadata
         metadata = message_metadata_with_model_usage_fallback(

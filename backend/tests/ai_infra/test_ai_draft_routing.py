@@ -19,6 +19,7 @@ from app.ai.tools.draft_validation import (
     normalize_meal_plan_draft,
     normalize_shopping_list_draft,
 )
+from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.progressive_draft_publisher import ProgressiveDraftPublisher
 from app.ai.workspace_service import AIApplicationService
@@ -997,6 +998,71 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertEqual(persisted.status, "completed")
             self.assertEqual(persisted.approval_ids, [])
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
+
+    def test_final_persister_keeps_live_timeline_order_around_auto_execution_result(self) -> None:
+        request, _run_id = self._seed_route(suffix="persister-timeline")
+        outcome = self._route(request)
+        with self.SessionLocal() as db:
+            message = db.get(AIMessage, request.message_id)
+            assert message is not None
+            result_part = next(part for part in message.parts if part.get("type") == "result_card")
+
+        live_ai_stream_cache.append_delta(
+            family_id=request.family_id,
+            conversation_id=request.conversation_id,
+            run_id=request.run_id,
+            message_id=request.message_id,
+            part_id="live-explanation",
+            delta="我会把你选中的食物设为收藏。",
+            created_by=request.actor_user_id,
+        )
+        live_ai_stream_cache.append_part(
+            family_id=request.family_id,
+            conversation_id=request.conversation_id,
+            run_id=request.run_id,
+            message_id=request.message_id,
+            part=result_part,
+            created_by=request.actor_user_id,
+        )
+        try:
+            with self.SessionLocal() as db:
+                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
+                runner.assistant_result_persister.persist(
+                    {
+                        "family_id": request.family_id,
+                        "user_id": request.actor_user_id,
+                        "conversation_id": request.conversation_id,
+                        "run_id": request.run_id,
+                        "message": request.current_message,
+                    },
+                    SkillResult(
+                        text="我会把你选中的食物设为收藏。",
+                        drafts=[
+                            {
+                                "draft_type": request.draft_type,
+                                "payload": request.payload,
+                                "schema_version": request.schema_version,
+                                "draft_id": outcome.draft_id,
+                                "operation_id": outcome.operation_id,
+                            }
+                        ],
+                        status="completed",
+                    ),
+                    skill_key=None,
+                )
+                db.commit()
+                persisted_message = db.get(AIMessage, request.message_id)
+                assert persisted_message is not None
+
+                visible_part_types = [
+                    part.get("type")
+                    for part in persisted_message.parts
+                    if part.get("type") in {"text", "result_card"}
+                ]
+                self.assertEqual(visible_part_types, ["text", "result_card"])
+                self.assertEqual(sum(part.get("type") == "result_card" for part in persisted_message.parts), 1)
+        finally:
+            live_ai_stream_cache.clear_run(request.run_id)
 
     def test_final_persister_never_recreates_approval_for_no_change_draft(self) -> None:
         with self.SessionLocal() as db:

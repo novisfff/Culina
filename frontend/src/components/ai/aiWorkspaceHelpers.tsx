@@ -549,15 +549,19 @@ export function appendDeltaToMessageParts(
   delta: string,
   partId: string,
   _shouldSeparate: boolean,
-  appendAfterNonText: boolean,
+  _appendAfterNonText: boolean,
 ) {
+  // The stream endpoint returns the canonical source part id (including a
+  // server-created segment id when text resumes after a structural part).
+  // Keep that id for the local part so polling snapshots can merge by identity
+  // while the server is still a few deltas behind the live SSE stream.
   const existingPartIndex = parts.findIndex((part) => part.type === 'text' && part.id === partId);
   const continuationPrefix = `continuation-${partId}`;
   const isContinuationPartId = (id: string) => id === continuationPrefix || id.startsWith(`${continuationPrefix}-`);
   const lastPart = parts[parts.length - 1];
   const canAppendToLastText =
     lastPart?.type === 'text'
-    && (isContinuationPartId(lastPart.id) || (!appendAfterNonText && lastPart.id === partId));
+    && (isContinuationPartId(lastPart.id) || lastPart.id === partId);
   const nextContinuationPartId = () => {
     let candidate = continuationPrefix;
     let suffix = 2;
@@ -568,11 +572,9 @@ export function appendDeltaToMessageParts(
     }
     return candidate;
   };
-  const shouldAppendAtTail = existingPartIndex >= 0 && (existingPartIndex < parts.length - 1 || appendAfterNonText);
+  const shouldAppendAtTail = existingPartIndex >= 0 && existingPartIndex < parts.length - 1;
   const effectivePartId = canAppendToLastText
     ? lastPart.id
-    : appendAfterNonText
-      ? nextContinuationPartId()
     : shouldAppendAtTail
       ? nextContinuationPartId()
       : partId;
@@ -584,7 +586,7 @@ export function appendDeltaToMessageParts(
         : part,
     );
   }
-  if (appendAfterNonText || parts.length > 0) {
+  if (parts.length > 0) {
     return [...parts, { id: effectivePartId, type: 'text' as const, text: delta }];
   }
   return [{ id: effectivePartId, type: 'text' as const, text: delta }];

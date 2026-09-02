@@ -84,6 +84,57 @@ def dedupe_message_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return deduped
 
 
+def merge_message_part_timelines(
+    persisted_parts: list[dict[str, Any]],
+    streamed_parts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge durable parts into the stream timeline without changing event order.
+
+    Some durable parts, such as an auto-execution result, are committed before
+    the same part is published to the live stream.  Shared part ids are stable
+    anchors: persisted-only history stays before its next anchor, while new
+    streamed parts keep the position in which the user first saw them.
+    """
+    def operation_result_part_id(part: dict[str, Any]) -> str:
+        card = part.get("card") if isinstance(part.get("card"), dict) else {}
+        if part.get("type") != "result_card" or card.get("type") != "operation_result":
+            return ""
+        return str(part.get("id") or "")
+
+    persisted_ids = {
+        operation_result_part_id(part)
+        for part in persisted_parts
+        if operation_result_part_id(part)
+    }
+    streamed_ids = {
+        operation_result_part_id(part)
+        for part in streamed_parts
+        if operation_result_part_id(part)
+    }
+    shared_ids = persisted_ids & streamed_ids
+    if not shared_ids:
+        return dedupe_message_parts([*persisted_parts, *streamed_parts])
+
+    persisted_index_by_id = {
+        str(part.get("id") or ""): index
+        for index, part in enumerate(persisted_parts)
+        if str(part.get("id") or "") in shared_ids
+    }
+    merged: list[dict[str, Any]] = []
+    persisted_cursor = 0
+    for part in streamed_parts:
+        part_id = str(part.get("id") or "")
+        anchor_index = persisted_index_by_id.get(part_id)
+        if anchor_index is None or anchor_index < persisted_cursor:
+            merged.append(part)
+            continue
+        merged.extend(persisted_parts[persisted_cursor:anchor_index])
+        merged.append(part)
+        persisted_cursor = anchor_index + 1
+    merged.extend(persisted_parts[persisted_cursor:])
+    return dedupe_message_parts(merged)
+
+
 def sync_message_parts_with_current_approval_state(
     parts: list[dict[str, Any]] | None,
     *,
