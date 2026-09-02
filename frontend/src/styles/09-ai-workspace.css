@@ -8791,6 +8791,13 @@
   width: 100%;
 }
 
+/* Keep host-wrapped cards aligned with regular message parts. */
+.ai-approval-host,
+.ai-human-input-host {
+  width: 100%;
+  min-width: 0;
+}
+
 .ai-query-result-card {
   gap: 18px;
   padding: 22px;
