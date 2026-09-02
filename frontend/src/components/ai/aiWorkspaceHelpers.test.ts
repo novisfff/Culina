@@ -162,9 +162,66 @@ describe('aiWorkspaceHelpers', () => {
     expect(textParts).toEqual([
       parts[0],
       {
-        id: 'continuation-resume-text-after-approval',
+        id: 'resume-text-after-approval',
         type: 'text',
         text: '已确认并处理成功：番茄 2 个已录入库存。',
+      },
+    ]);
+  });
+
+  it('keeps a lagging remote continuation prefix in the same streamed text part', () => {
+    const operationCardPart: AiMessage['parts'][number] = {
+      id: 'operation-result',
+      type: 'result_card',
+      card: {
+        id: 'operation-result-card',
+        type: 'operation_result',
+        title: '已记录选择',
+        data: {
+          result_status: 'completed',
+          actionSummary: '已记录选择。',
+        },
+      } as AiResultCard,
+    };
+    const baseParts: AiMessage['parts'] = [
+      { id: 'initial-text', type: 'text', text: '请选择要继续处理的菜谱。' },
+      operationCardPart,
+    ];
+    const localParts = appendDeltaToMessageParts(
+      baseParts,
+      '已确认你选择的是“榨菜咸肉烧丝瓜”（无图片）。接下来',
+      'resume-text-after-selection',
+      false,
+      true,
+    );
+    const local: AiMessage = {
+      id: 'message-1',
+      conversation_id: 'conversation-1',
+      role: 'assistant',
+      content: '请选择要继续处理的菜谱。\n\n已确认你选择的是“榨菜咸肉烧丝瓜”（无图片）。接下来',
+      content_type: 'parts',
+      parts: localParts,
+      run_id: 'run-1',
+      status: 'running',
+      metadata: {},
+      created_at: '2026-05-30T00:00:00Z',
+    };
+    const remote: AiMessage = {
+      ...local,
+      parts: [
+        ...baseParts,
+        { id: 'resume-text-after-selection', type: 'text', text: '已确认' },
+      ],
+    };
+
+    const merged = mergeRemoteAndLocalMessage(remote, local);
+
+    expect(merged.parts.filter((part) => part.type === 'text')).toEqual([
+      baseParts[0],
+      {
+        id: 'resume-text-after-selection',
+        type: 'text',
+        text: '已确认你选择的是“榨菜咸肉烧丝瓜”（无图片）。接下来',
       },
     ]);
   });
