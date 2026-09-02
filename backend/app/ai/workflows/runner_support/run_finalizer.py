@@ -61,13 +61,20 @@ class RunFinalizer:
             status,
             state.get("error"),
         )
+        assistant_message_id = str(state.get("assistant_message_id") or "")
+        if not assistant_message_id:
+            raise RuntimeError("AI finalizer 缺少 canonical assistant_message_id")
         message = runner.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.desc())
+            select(AIMessage).where(
+                AIMessage.id == assistant_message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
         if message is None:
-            message = self._create_fallback_message(state, run=run, status=status)
+            raise RuntimeError("预创建的 canonical 助手消息不存在")
         terminal_text = self._finalize_message(state, message, status=status)
         persist_message_artifacts(
             runner.db,
@@ -139,33 +146,6 @@ class RunFinalizer:
         if status == RUNNING:
             return COMPLETED
         return status
-
-    def _create_fallback_message(
-        self,
-        state: WorkspaceGraphState,
-        *,
-        run: AIAgentRun | None,
-        status: str,
-    ) -> AIMessage:
-        text = "AI 工作台暂时失败，请重试。" if status == FAILED else "任务已结束。"
-        message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-            role="assistant",
-            content=text,
-            content_type="parts",
-            parts=[text_message_part(part_id=create_id("ai_part"), text=text)],
-            run_id=state["run_id"],
-            status=status,
-            message_metadata={
-                "intent": run.intent if run is not None else "workspace_orchestrator",
-                "agentKey": "workspace_orchestrator",
-            },
-            created_by=state["user_id"],
-        )
-        self.runner.db.add(message)
-        return message
 
     def _finalize_message(self, state: WorkspaceGraphState, message: AIMessage, *, status: str) -> str:
         message_parts = [part for part in (message.parts or []) if isinstance(part, dict)]

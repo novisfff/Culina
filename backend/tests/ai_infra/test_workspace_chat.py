@@ -1,6 +1,8 @@
 from ._support import *
 
 from app.ai.errors import ApprovalRequired
+from app.models.domain import AIConversationEvent
+from app.services.ai_timeline import AITimelineService
 
 
 class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
@@ -53,6 +55,18 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 )
                 db.add(run)
                 db.flush()
+                assistant_message = AITimelineService(db).create_message(
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    content_type="parts",
+                    parts=[],
+                    run_id=run.id,
+                    status="running",
+                    created_by=self.user.id,
+                ).message
+                assert assistant_message is not None
                 meal_plan_payload = {
                     "draftType": "meal_plan",
                     "schemaVersion": "meal_plan.v1",
@@ -92,6 +106,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                         "user_id": self.user.id,
                         "conversation_id": conversation.id,
                         "run_id": run.id,
+                        "assistant_message_id": assistant_message.id,
                         "message": "生成多份草稿",
                     },
                     SkillResult(
@@ -144,6 +159,18 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 )
                 db.add(run)
                 db.flush()
+                assistant_message = AITimelineService(db).create_message(
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    content_type="parts",
+                    parts=[],
+                    run_id=run.id,
+                    status="running",
+                    created_by=self.user.id,
+                ).message
+                assert assistant_message is not None
                 observed_at = datetime(2026, 6, 16, 1, 46, 15)
 
                 WorkspaceGraphRunner(service).assistant_result_persister.persist(
@@ -152,6 +179,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                         "user_id": self.user.id,
                         "conversation_id": conversation.id,
                         "run_id": run.id,
+                        "assistant_message_id": assistant_message.id,
                         "message": "记录时间对象",
                     },
                     SkillResult(
@@ -556,6 +584,47 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 runs = list(db.scalars(select(AIAgentRun).where(AIAgentRun.id == "agent_run-idempotent")))
                 self.assertEqual(len(user_messages), 1)
                 self.assertEqual(len(runs), 1)
+
+        def test_ai_workspace_precreates_canonical_user_and_assistant_messages(self) -> None:
+            payload = {
+                "message": "随便聊聊",
+                "client_message_id": "client-message-timeline-prepare",
+                "client_run_id": "agent_run-timeline-prepare",
+            }
+            response = self.client.post("/api/ai/chat", json=payload)
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+
+            with self.SessionLocal() as db:
+                messages = list(
+                    db.scalars(
+                        select(AIMessage)
+                        .where(AIMessage.conversation_id == data["conversation_id"])
+                        .order_by(AIMessage.timeline_position.asc())
+                    )
+                )
+                self.assertEqual([message.role for message in messages], ["user", "assistant"])
+                self.assertEqual(messages[1].id, data["message"]["id"])
+                self.assertGreater(messages[0].timeline_position, 0)
+                self.assertGreater(messages[1].timeline_position, messages[0].timeline_position)
+                created_events = list(
+                    db.scalars(
+                        select(AIConversationEvent)
+                        .where(
+                            AIConversationEvent.conversation_id == data["conversation_id"],
+                            AIConversationEvent.event_type == "message.created",
+                        )
+                        .order_by(AIConversationEvent.sequence.asc())
+                    )
+                )
+                self.assertEqual(
+                    [event.message_id for event in created_events],
+                    [messages[0].id, messages[1].id],
+                )
+                self.assertEqual(
+                    [event.sequence for event in created_events],
+                    [messages[0].timeline_position, messages[1].timeline_position],
+                )
 
         def test_ai_workspace_duplicate_running_client_run_returns_conflict(self) -> None:
             with self.SessionLocal() as db:

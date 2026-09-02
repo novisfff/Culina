@@ -16,17 +16,27 @@ class GraphRunInitializer:
     def initialize(self, state: WorkspaceGraphState) -> dict[str, str]:
         run_id = state.get("run_id")
         user_message_id = state.get("user_message_id")
-        if not run_id or not user_message_id:
-            raise RuntimeError("AI 运行必须先完成用户消息准备")
+        assistant_message_id = state.get("assistant_message_id")
+        if not run_id or not user_message_id or not assistant_message_id:
+            raise RuntimeError("AI 运行必须先完成 canonical 消息准备")
 
         run = self.db.get(AIAgentRun, run_id)
         user_message = self.db.get(AIMessage, user_message_id)
-        if run is None or user_message is None:
+        assistant_message = self.db.get(AIMessage, assistant_message_id)
+        if (
+            run is None
+            or user_message is None
+            or assistant_message is None
+            or assistant_message.run_id != run.id
+            or assistant_message.conversation_id != state.get("conversation_id")
+            or assistant_message.role != "assistant"
+        ):
             raise RuntimeError("预创建的 AI 运行状态不存在")
         self._record_initialize_event_if_needed(state, run)
         return {
             "run_id": run.id,
             "user_message_id": user_message.id,
+            "assistant_message_id": assistant_message.id,
             "status": CANCELLED if run.status == CANCELLED else RUNNING,
         }
 

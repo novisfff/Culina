@@ -25,6 +25,7 @@ from app.ai.workflows.runner_support.run_status import CANCELLED
 from app.ai.workflows.timeline import build_planner_conversation
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, MediaAsset
+from app.services.ai_timeline import AITimelineService
 from app.services.ai_operations.run_cancellation import (
     consume_precreated_run_cancellation,
     finalize_run_cancellation,
@@ -39,6 +40,7 @@ class PreparedUserMessage:
     conversation_id: str
     run_id: str
     user_message_id: str | None
+    assistant_message_id: str
     subject: dict[str, Any]
     attachments: list[dict[str, Any]]
 
@@ -57,6 +59,7 @@ class UserMessagePreparer:
         self.db = db
         self.provider_factory = provider_factory
         self.json_record = json_record
+        self.timeline = AITimelineService(db)
 
     def prepare(
         self,
@@ -130,6 +133,16 @@ class UserMessagePreparer:
             config_revision_id=selection.config_revision_id,
             model=getattr(selection.primary, "model_name", ""),
         )
+        # The run must exist before the canonical assistant message can be
+        # linked to it.  Both messages, their events and the run still commit
+        # atomically at the preparation boundary below.
+        self.db.flush()
+        assistant_message = self._create_assistant_message(
+            family_id=family_id,
+            user_id=user_id,
+            conversation_id=conversation.id,
+            run=run,
+        )
         conversation.prompt = message_summary
         conversation.last_message_at = utcnow()
         conversation.last_run_status = "running"
@@ -147,6 +160,7 @@ class UserMessagePreparer:
             self._finalize_precreated_cancellation(
                 run=run,
                 conversation=conversation,
+                assistant_message=assistant_message,
                 user_id=user_id,
             )
         try:
@@ -176,6 +190,7 @@ class UserMessagePreparer:
             conversation_id=conversation.id,
             run_id=run.id,
             user_message_id=user_message.id,
+            assistant_message_id=assistant_message.id,
             subject=normalized_subject,
             attachments=user_attachment_summaries,
         )
@@ -185,26 +200,27 @@ class UserMessagePreparer:
         *,
         run: AIAgentRun,
         conversation: AIConversation,
+        assistant_message: AIMessage,
         user_id: str,
     ) -> None:
         text = "已中止这次处理。"
-        message = AIMessage(
-            id=create_id("ai_message"),
+        self.timeline.append_part(
             family_id=run.family_id,
-            conversation_id=run.conversation_id,
-            role="assistant",
-            content=text,
-            content_type="parts",
-            parts=[text_message_part(part_id=create_id("ai_part"), text=text)],
+            conversation_id=conversation.id,
+            message_id=assistant_message.id,
             run_id=run.id,
-            status=CANCELLED,
-            message_metadata={
-                "intent": run.intent or "workspace_orchestrator",
-                "agentKey": run.agent_key or "workspace_orchestrator",
-            },
+            part=text_message_part(part_id=create_id("ai_part"), text=text),
             created_by=user_id,
         )
-        self.db.add(message)
+        self.timeline.terminal(
+            family_id=run.family_id,
+            conversation_id=conversation.id,
+            message_id=assistant_message.id,
+            run_id=run.id,
+            status=CANCELLED,
+            content=text,
+            created_by=user_id,
+        )
         finalize_run_cancellation(self.db, run=run)
         run.output_summary = text
         run.output = self.json_record({"text": text, "cards": [], "routing": {}})
@@ -235,6 +251,7 @@ class UserMessagePreparer:
             conversation_id=run.conversation_id,
             run_id=run.id,
             user_message_id=run.message_id,
+            assistant_message_id=assistant_message,
             subject=subject,
             attachments=[],
         )
@@ -279,8 +296,7 @@ class UserMessagePreparer:
         attachment_assets: list[MediaAsset],
     ) -> AIMessage:
         user_message_parts = build_user_message_parts(prompt, attachment_assets)
-        user_message = AIMessage(
-            id=create_id("ai_message"),
+        mutation = self.timeline.create_message(
             family_id=family_id,
             conversation_id=conversation_id,
             role="user",
@@ -291,9 +307,38 @@ class UserMessagePreparer:
             client_message_id=client_message_id,
             created_by=user_id,
         )
-        self.db.add(user_message)
-        self.db.flush()
+        user_message = mutation.message
+        if user_message is None:
+            raise RuntimeError("用户消息时间线事件缺少物化消息")
         return user_message
+
+    def _create_assistant_message(
+        self,
+        *,
+        family_id: str,
+        user_id: str,
+        conversation_id: str,
+        run: AIAgentRun,
+    ) -> AIMessage:
+        mutation = self.timeline.create_message(
+            family_id=family_id,
+            conversation_id=conversation_id,
+            role="assistant",
+            content="",
+            content_type="parts",
+            parts=[],
+            run_id=run.id,
+            status="running",
+            metadata={
+                "intent": run.intent or "workspace_orchestrator",
+                "agentKey": run.agent_key or "workspace_orchestrator",
+            },
+            created_by=user_id,
+        )
+        message = mutation.message
+        if message is None:
+            raise RuntimeError("助手消息时间线事件缺少物化消息")
+        return message
 
     def _bind_attachments_to_message(self, attachment_assets: list[MediaAsset], message_id: str) -> None:
         for asset in attachment_assets:

@@ -8,6 +8,7 @@ from app.ai.errors import ApprovalRequired
 from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.stream_bridge import consume_stream_graph_worker
+from app.services.ai_timeline import AITimelineService
 
 from ._support import *
 
@@ -874,7 +875,11 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     message = db.scalar(
                         select(AIMessage).where(AIMessage.run_id == run.id, AIMessage.role == "assistant")
                     )
-                    self.assertIsNone(message)
+                    self.assertIsNotNone(message)
+                    assert message is not None
+                    self.assertEqual(message.status, "running")
+                    self.assertEqual(message.parts, [])
+                    self.assertGreater(message.timeline_position, 0)
                     self.assertEqual(conversation.last_run_status, "running")
                     self.assertEqual(conversation.context.get("activeRunId"), run.id)
 
@@ -2370,6 +2375,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                         "user_id": self.user.id,
                         "conversation_id": conversation.id,
                         "run_id": run.id,
+                        "assistant_message_id": message.id,
                         "message": "确认更新菜谱",
                         "status": "completed",
                         "error": None,
@@ -2422,6 +2428,18 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 )
                 db.add_all([conversation, run])
                 db.flush()
+                message = AITimelineService(db).create_message(
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    content_type="parts",
+                    parts=[],
+                    run_id=run.id,
+                    status="running",
+                    created_by=self.user.id,
+                ).message
+                assert message is not None
 
                 WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
                     {
@@ -2429,6 +2447,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                         "user_id": self.user.id,
                         "conversation_id": conversation.id,
                         "run_id": run.id,
+                        "assistant_message_id": message.id,
                         "message": "安排三天晚餐",
                         "status": "completed",
                         "error": None,

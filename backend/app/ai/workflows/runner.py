@@ -281,6 +281,7 @@ class WorkspaceGraphRunner:
                     initial_skill_keys=initial_skill_keys,
                     run_id=prepared["run_id"],
                     user_message_id=prepared["user_message_id"],
+                    assistant_message_id=prepared["assistant_message_id"],
                     generation_contracts=contracts,
                 ),
                 config=config,
@@ -439,6 +440,7 @@ class WorkspaceGraphRunner:
                         initial_skill_keys=initial_skill_keys,
                         run_id=run_id,
                         user_message_id=prepared["user_message_id"],
+                        assistant_message_id=prepared["assistant_message_id"],
                         generation_contracts=contracts,
                     ),
                     config=config,
@@ -1805,7 +1807,10 @@ class WorkspaceGraphRunner:
         }
 
     def _live_message_id(self, state: WorkspaceGraphState, data: dict[str, Any]) -> str:
-        return str(data.get("message_id") or "").strip() or f"{state['run_id']}:assistant"
+        message_id = str(data.get("message_id") or state.get("assistant_message_id") or "").strip()
+        if not message_id:
+            raise RuntimeError("AI 流事件缺少 canonical assistant_message_id")
+        return message_id
 
     def _base_assistant_parts_from_live_stream(
         self,

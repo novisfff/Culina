@@ -82,11 +82,20 @@ class AssistantResultPersister:
             result.error = None
             if not result.text.strip():
                 result.text = "已取消这次任务。"
+        assistant_message_id = str(state.get("assistant_message_id") or "")
+        if not assistant_message_id:
+            raise RuntimeError("AI 结果缺少 canonical assistant_message_id")
         existing_message = runner.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            select(AIMessage).where(
+                AIMessage.id == assistant_message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
+        if existing_message is None:
+            raise RuntimeError("预创建的 canonical 助手消息不存在")
         preserved = self._preserve_committed_operation_after_provider_failure(
             state=state,
             result=result,
@@ -126,50 +135,38 @@ class AssistantResultPersister:
         if pending_human_input is not None:
             next_parts.append(human_input_request_message_part(part_id=create_id("ai_part"), request=pending_human_input))
         message = existing_message
-        metadata = dict(message.message_metadata or {}) if message is not None else {}
-        if message is None:
-            metadata_intent = "general_chat"
-            metadata_agent_key = "general_chat_agent"
-            if skill_key is None:
-                metadata_intent = "workspace_orchestrator"
-                metadata_agent_key = "workspace_orchestrator"
-            elif skill_key:
-                metadata_intent = runner.skill_registry.get(skill_key).manifest.intent
-                metadata_agent_key = runner.skill_registry.get(skill_key).manifest.agent_key
-            metadata = initial_assistant_message_metadata(
-                intent=metadata_intent,
-                agent_key=metadata_agent_key,
-                skill_key=skill_key,
-            )
-            message = AIMessage(
-                id=create_id("ai_message"),
-                family_id=state["family_id"],
-                conversation_id=state["conversation_id"],
-                role="assistant",
-                content=result.text,
-                content_type="parts",
-                parts=next_parts,
-                run_id=state["run_id"],
-                status=assistant_status,
-                message_metadata=metadata,
-                created_by=state["user_id"],
-            )
-            runner.db.add(message)
-        else:
-            live_text_part_ids = {
-                str(part_id)
-                for part_id in metadata.get("liveTextPartIds", [])
-                if isinstance(part_id, str) and part_id
+        metadata = dict(message.message_metadata or {})
+        metadata_intent = "general_chat"
+        metadata_agent_key = "general_chat_agent"
+        if skill_key is None:
+            metadata_intent = "workspace_orchestrator"
+            metadata_agent_key = "workspace_orchestrator"
+        elif skill_key:
+            metadata_intent = runner.skill_registry.get(skill_key).manifest.intent
+            metadata_agent_key = runner.skill_registry.get(skill_key).manifest.agent_key
+        if not metadata.get("intent") or metadata.get("intent") == "workspace_orchestrator":
+            metadata = {
+                **metadata,
+                **initial_assistant_message_metadata(
+                    intent=metadata_intent,
+                    agent_key=metadata_agent_key,
+                    skill_key=skill_key,
+                ),
             }
-            existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-            if live_text_part_ids:
-                existing_parts = [part for part in existing_parts if str(part.get("id") or "") not in live_text_part_ids]
-                metadata.pop("liveStreaming", None)
-                metadata.pop("liveTextPartIds", None)
-                metadata.pop("livePartIds", None)
-            message.parts = merge_message_part_timelines(existing_parts, next_parts)
-            metadata = merge_assistant_skill_metadata(metadata, skill_key=skill_key)
-            message.message_metadata = metadata
+        live_text_part_ids = {
+            str(part_id)
+            for part_id in metadata.get("liveTextPartIds", [])
+            if isinstance(part_id, str) and part_id
+        }
+        existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
+        if live_text_part_ids:
+            existing_parts = [part for part in existing_parts if str(part.get("id") or "") not in live_text_part_ids]
+            metadata.pop("liveStreaming", None)
+            metadata.pop("liveTextPartIds", None)
+            metadata.pop("livePartIds", None)
+        message.parts = merge_message_part_timelines(existing_parts, next_parts)
+        metadata = merge_assistant_skill_metadata(metadata, skill_key=skill_key)
+        message.message_metadata = metadata
         metadata = message_metadata_with_model_usage_fallback(
             metadata,
             fallback_used=result.fallback_used,

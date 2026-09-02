@@ -242,6 +242,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 initial_skill_keys=["meal_plan"],
                 run_id="run-1",
                 user_message_id="message-1",
+                assistant_message_id="message-2",
             )
 
             self.assertEqual(
@@ -269,6 +270,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                     "error": None,
                     "run_id": "run-1",
                     "user_message_id": "message-1",
+                    "assistant_message_id": "message-2",
                 },
             )
             self.assertEqual(
