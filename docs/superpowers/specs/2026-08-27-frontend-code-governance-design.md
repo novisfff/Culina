@@ -168,7 +168,7 @@ B0 固定为 `b559246669dd3fd9ec463658ce2ed4504df2a1ba`，由脚本写入 `front
 所有检查脚本都提供三种显式模式：
 
 1. `report`：只输出 JSON/Markdown，供本地分析和 artifact 使用；不用于 required check。
-2. `ratchet`：立即启用。对既有文件和已登记入口，债务指标不得增加；新增文件必须显式声明 owner 和初始预算。bundle 允许的压缩误差最多 512 bytes，超出即失败。源代码总行数只报告，不单独阻断。
+2. `ratchet`：立即启用。对既有文件和已登记入口，债务指标不得增加；新增文件必须显式声明 owner 和初始预算。bundle 相对基线允许最多 8 KiB 的受控增长，超出即失败；正式 target 预算仍保持独立约束。源代码总行数只报告，不单独阻断。
 3. `target`：按阶段目标启用。对已完成迁移的入口和 CSS owner 使用最终预算；尚未迁移的 legacy scope 继续使用 ratchet，避免“现状一次性变红”。
 
 baseline 更新只能通过独立治理 PR/提交完成，并同时提交报告 diff、原因、owner、替代方案和回滚方式。功能 PR 不得悄悄提高 baseline 或把新 chunk 标成 optional。

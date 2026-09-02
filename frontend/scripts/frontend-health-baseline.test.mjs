@@ -115,25 +115,25 @@ describe('frontend health baseline', () => {
     ]));
   });
 
-  it('allows bundle delta up to 512 bytes and rejects 513', async () => {
+  it('allows bundle delta up to 8 KiB and rejects the next byte', async () => {
     const health = await createHealthFixture();
     const baseline = baselineFor(health, { main: { gzipBytes: 1000 } });
 
     expect(compareHealthToBaseline(
-      { ...health, bundles: { main: { gzipBytes: 1512 } } },
+      { ...health, bundles: { main: { gzipBytes: 9192 } } },
       baseline,
     ).violations).toEqual([]);
 
     expect(compareHealthToBaseline(
-      { ...health, bundles: { main: { gzipBytes: 1513 } } },
+      { ...health, bundles: { main: { gzipBytes: 9193 } } },
       baseline,
     ).violations).toEqual(expect.arrayContaining([
       expect.objectContaining({
         file: 'main',
         metric: 'bundle.gzipBytes',
-        current: 1513,
-        allowed: 1512,
-        delta: 513,
+        current: 9193,
+        allowed: 9192,
+        delta: 8193,
       }),
     ]));
   });

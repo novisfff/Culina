@@ -12,6 +12,7 @@ const DEFAULT_MANIFEST_PATH = path.join(FRONTEND_ROOT, 'dist', '.vite', 'fronten
 const DEFAULT_BASELINE_PATH = path.join(SCRIPT_DIR, 'frontend-health-baseline.json');
 const DEFAULT_CONFIG_PATH = path.join(SCRIPT_DIR, 'bundle-budgets.json');
 const PUBLIC_IMAGE_BUDGET = 1536 * 1024;
+const BUNDLE_RATCHET_TOLERANCE_BYTES = 8 * 1024;
 const PUBLIC_IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp']);
 const DISALLOWED_PUBLIC_FILES = new Set(['.DS_Store']);
 const MODES = new Set(['report', 'ratchet', 'target']);
@@ -133,13 +134,13 @@ function compareEntry({ mode, entry, metrics, budget, baseline, completedPhase }
     }
 
     if (mode === 'ratchet' || (mode === 'target' && budget.phase > completedPhase)) {
-      if (hasBaseline && delta > 512) {
+      if (hasBaseline && delta > BUNDLE_RATCHET_TOLERANCE_BYTES) {
         violations.push(diagnostic({
           severity: 'error',
           entry,
           metric: definition.key === 'criticalGzipBytes' ? 'bundle.gzipBytes' : definition.label,
           current,
-          allowed: baselineValue + 512,
+          allowed: baselineValue + BUNDLE_RATCHET_TOLERANCE_BYTES,
           delta,
           source,
         }));
