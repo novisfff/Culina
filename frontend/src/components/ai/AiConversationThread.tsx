@@ -369,45 +369,45 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
     return movePostApprovalTextAfterOperationResult(timeline, parts);
   }
   const collapsedRunEventEntries = collapseRunActivityEntries(runEventEntries);
-  const eventCount = collapsedRunEventEntries.length;
-  const groupedParts = new Map<number, MessageTimelineItem[]>();
-  const addPartAtBoundary = (boundary: number, item: MessageTimelineItem) => {
-    const normalizedBoundary = Math.max(0, Math.min(boundary, eventCount));
-    groupedParts.set(normalizedBoundary, [...(groupedParts.get(normalizedBoundary) ?? []), item]);
-  };
-  parts.forEach((part, partIndex) => {
+  const durablePartTimeline = parts.flatMap((part, partIndex): MessageTimelineItem[] => {
     if (part.type === 'text') {
       const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
-      textSegments.forEach((text, segmentIndex) => {
-        addPartAtBoundary(0, {
-          key: `text:${part.id}:${segmentIndex}`,
-          type: 'text',
-          text,
-        });
-      });
-      return;
+      return textSegments.map((text, segmentIndex) => ({
+        key: `text:${part.id}:${segmentIndex}`,
+        type: 'text',
+        text,
+      }));
     }
-    addPartAtBoundary(eventCount, {
+    return [{
       key: `part:${part.id || partIndex}`,
       type: 'part',
       part,
-    });
+    }];
   });
 
-  const timeline: MessageTimelineItem[] = [...(groupedParts.get(0) ?? [])];
-  const displayedSkillNames = new Set<string>();
-  collapsedRunEventEntries.forEach((entry) => {
-    if (entry.event.type === 'skill') {
-      const skillName = extractSkillName(entry.event);
-      if (displayedSkillNames.has(skillName)) {
-        timeline.push(...(groupedParts.get(entry.sequence) ?? []));
-        return;
-      }
-      displayedSkillNames.add(skillName);
-    }
-    timeline.push({ key: `activity:${entry.key}`, type: 'activity', entry });
-    timeline.push(...(groupedParts.get(entry.sequence) ?? []));
-  });
+  // Run events are stored separately from message parts for older messages.
+  // The durable parts array is still the only source that knows where cards
+  // belong, so never rebuild it into "all text, then all cards". Insert the
+  // supplementary activity rows immediately before the first durable output
+  // card. A completed human-input part is already part of the preceding
+  // interaction and stays in place; a pending request remains the next output
+  // boundary, so its activity rows stay before the request as they did live.
+  const firstOutputPartIndex = durablePartTimeline.findIndex((item) => (
+    item.type === 'part'
+    && item.part.type !== 'text'
+    && !(item.part.type === 'human_input_request' && !isPendingHumanInputPart(item.part))
+  ));
+  const activityItems = collapsedRunEventEntries.map((entry) => ({
+    key: `activity:${entry.key}`,
+    type: 'activity' as const,
+    entry,
+  }));
+  const insertionIndex = firstOutputPartIndex >= 0 ? firstOutputPartIndex : durablePartTimeline.length;
+  const timeline = [
+    ...durablePartTimeline.slice(0, insertionIndex),
+    ...activityItems,
+    ...durablePartTimeline.slice(insertionIndex),
+  ];
   return movePostApprovalTextAfterOperationResult(timeline, parts);
 }
 

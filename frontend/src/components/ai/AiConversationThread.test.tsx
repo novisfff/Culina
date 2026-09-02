@@ -711,6 +711,44 @@ describe('MessageBubble human input rendering', () => {
 });
 
 describe('MessageBubble run activity rendering', () => {
+  it('keeps persisted cards in their durable order when historical run events hydrate', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          ...operationMessage(),
+          id: 'message-history-order',
+          run_id: 'run-history-order',
+          content: '先说明结果。\n\n结果之后还有补充。',
+          parts: [
+            { id: 'history-text-before', type: 'text', text: '先说明结果。' },
+            operationMessage().parts[0],
+            { id: 'history-text-after', type: 'text', text: '结果之后还有补充。' },
+          ],
+        }}
+        user={testUser}
+        runEvents={[{
+          id: 'history-tool',
+          run_id: 'run-history-order',
+          type: 'tool',
+          internal_code: 'food_profile.lookup',
+          user_message: '调用「食物资料」',
+          status: 'completed',
+          created_at: '2026-08-24T15:29:59+08:00',
+        }]}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    const body = rendered.container.querySelector('.ai-message-body') as HTMLElement;
+    const resultCard = body.querySelector('.ai-operation-result-card') as HTMLElement;
+    const activity = body.querySelector('.ai-run-activity') as HTMLElement;
+    const trailingText = Array.from(body.querySelectorAll<HTMLElement>('.ai-message-text-block'))
+      .find((block) => block.textContent?.includes('结果之后还有补充')) as HTMLElement;
+    expect(activity.compareDocumentPosition(resultCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(resultCard.compareDocumentPosition(trailingText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    rendered.unmount();
+  });
+
   it('renders cancelled run activity separately from failure', async () => {
     const cancelledEvent: AiRunEvent = {
       id: 'event-user-cancel',
