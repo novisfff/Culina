@@ -9,6 +9,11 @@ describe('AI workspace view boundaries', () => {
     expect(rendered.getByText('这条内容暂时无法显示')).toBeTruthy();
   });
 
+  it('does not render internal draft parts in the conversation transcript', () => {
+    const rendered = render(<AiMessagePartRenderer part={{ type: 'draft', id: 'draft-part', draft: { id: 'draft-1' } }} />);
+    expect(rendered.container.textContent).toBe('');
+  });
+
   it('loads markdown only for a markdown part', async () => {
     const rendered = render(<AiMessagePartRenderer part={{ type: 'markdown', id: 'part-2', text: '**内容**' }} />);
     await waitFor(() => expect(rendered.container.querySelector('.ai-message-markdown')).toBeTruthy());
