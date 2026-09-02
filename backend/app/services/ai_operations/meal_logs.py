@@ -298,7 +298,7 @@ def execute_meal_log_draft(
         # Full-detail updates retain the entity OCC contract.  Rating-only
         # writes are explicit field patches: the lock/re-read above supplies
         # the latest row and unrelated meal-log edits must not block them.
-        if concurrency_strategy not in {"field_patch", "idempotent_set", "insert"}:
+        if not (action == "rate_food" and concurrency_strategy == "field_patch"):
             assert_updated_at_matches(
                 actual=meal_log.updated_at,
                 expected=str(payload.get("baseUpdatedAt")),

@@ -14,6 +14,7 @@ from app.ai.workflows.runner_support.human_input_resume import (
     human_input_result_artifact,
     human_input_resume_payload_hash,
     human_input_resume_state_patch,
+    validate_human_input_selection,
 )
 from app.ai.workflows.runner_support.human_input_resume_claim import (
     claim_matches_resume,
@@ -61,10 +62,12 @@ class HumanInputResumeHandler:
         ):
             raise AIConflictError("这次补充信息任务已取消或结束，请刷新后重试")
         selected_option_ids = [
-            str(item)
+            str(item).strip()
             for item in (resume.get("selectedOptionIds") if isinstance(resume.get("selectedOptionIds"), list) else [])
             if str(item).strip()
         ]
+        selected_option_ids = list(dict.fromkeys(selected_option_ids))
+        validate_human_input_selection(pending=pending, selected_option_ids=selected_option_ids)
         text = str(resume.get("text") or "").strip()
         claim_token = stream_resume_claim_token(resume)
         if claim_token is not None:

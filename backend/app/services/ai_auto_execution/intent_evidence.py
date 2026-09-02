@@ -263,6 +263,46 @@ def trusted_sources_from_current_ui_subject(
     }
 
 
+def trusted_sources_from_human_input_result(
+    *,
+    artifact: dict[str, Any],
+    family_id: str,
+) -> dict[str, TrustedResolutionSource]:
+    """Trust only entities explicitly selected from the original options."""
+
+    if artifact.get("type") != "human.input_result" or artifact.get("status") != "completed":
+        return {}
+    payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
+    request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+    options = request.get("options") if isinstance(request.get("options"), list) else []
+    option_ids = {
+        str(option.get("id") or "").strip()
+        for option in options
+        if isinstance(option, dict) and str(option.get("id") or "").strip()
+    }
+    selected = payload.get("selectedOptionIds") if isinstance(payload.get("selectedOptionIds"), list) else []
+    selected_ids = list(dict.fromkeys(
+        str(option_id).strip()
+        for option_id in selected
+        if str(option_id).strip() and str(option_id).strip() in option_ids
+    ))
+    reference_id = str(artifact.get("id") or "").strip()
+    if not reference_id or not selected_ids:
+        return {}
+    return {
+        reference_id: TrustedResolutionSource(
+            kind="conversation_artifact",
+            reference_id=reference_id,
+            family_id=family_id,
+            entity_versions={entity_id: None for entity_id in selected_ids},
+            entity_values={
+                entity_id: {"entity_id": entity_id, "targetId": entity_id}
+                for entity_id in selected_ids
+            },
+        )
+    }
+
+
 def trusted_sources_from_tool_output(
     *,
     tool_name: str,
@@ -404,6 +444,8 @@ def _canonical_from_resolution_source(
         return _UNVERIFIABLE
     if field in facts:
         return facts[field]
+    if trusted.kind == "tool_result" and field.startswith("payload.") and field.count(".") == 1:
+        return facts.get(_field_leaf(field), facts.get(matcher_key, _UNVERIFIABLE))
     if trusted.kind != "tool_result" or "." in field or "[" in field:
         return _UNVERIFIABLE
     if matcher_key in facts:

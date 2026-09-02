@@ -736,9 +736,39 @@ def test_policy_registry_exposes_action_level_concurrency_strategies(policy_seed
         assert policy is not None
         assert auto_execution_policy_registry.concurrency_strategy(
             policy_key=policy.key,
+            policy_version=policy.version,
             draft_type=draft_type,
             payload=payload,
         ) == expected
+
+
+def test_concurrency_strategy_fails_closed_for_stale_policy_version(policy_seed: PolicySeed) -> None:
+    payload = _favorite(policy_seed, favorite=False)
+    assert auto_execution_policy_registry.concurrency_strategy(
+        policy_key="food.set_favorite",
+        policy_version="food.set_favorite.stale",
+        draft_type="food_profile",
+        payload=payload,
+    ) == "entity_version"
+
+
+def test_approval_normalization_does_not_refresh_missing_baseline(policy_seed: PolicySeed) -> None:
+    food = policy_seed.db.get(Food, policy_seed.food_ids[0])
+    assert food is not None
+    with pytest.raises(ValueError, match="baseUpdatedAt"):
+        normalize_food_profile_draft_for_tools(
+            policy_seed.db,
+            family_id=policy_seed.family_id,
+            phase="approval",
+            payload={
+                "draftType": "food_profile",
+                "schemaVersion": "food_profile_operation.v1",
+                "action": "set_favorite",
+                "targetId": food.id,
+                "before": {"favorite": bool(food.favorite)},
+                "payload": {"favorite": False},
+            },
+        )
 
 
 @pytest.mark.parametrize(("count", "expected"), [(1, "auto_execute"), (5, "auto_execute"), (6, "manual_confirmation")])

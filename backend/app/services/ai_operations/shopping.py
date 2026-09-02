@@ -359,7 +359,12 @@ def _apply_shopping_item_operations(
             item = locked_items[str(operation["targetId"])]
         except KeyError:
             raise AIConflictError("购物项不存在或已被删除")
-        if concurrency_strategy not in {"field_patch", "idempotent_set", "insert"}:
+        relaxed_concurrency = (
+            action == "update" and concurrency_strategy == "field_patch"
+        ) or (
+            action == "set_done" and concurrency_strategy == "idempotent_set"
+        )
+        if not relaxed_concurrency:
             assert_updated_at_matches(
                 actual=item.updated_at,
                 expected=str(operation.get("baseUpdatedAt")),

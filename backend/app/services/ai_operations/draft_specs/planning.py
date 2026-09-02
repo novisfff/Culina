@@ -157,6 +157,7 @@ def _normalize_shopping_list(context: DraftNormalizeContext) -> dict[str, Any]:
         family_id=context.family_id,
         conversation_id=context.conversation_id,
         payload=context.payload,
+        phase=context.phase,
     )
 
 

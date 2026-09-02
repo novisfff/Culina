@@ -11,6 +11,7 @@ from app.ai.tools.validation import validate_json_value
 from app.services.ai_auto_execution.intent_evidence import (
     intent_evidence_validation_record,
     trusted_sources_from_current_ui_subject,
+    trusted_sources_from_human_input_result,
     trusted_sources_from_tool_output,
     validate_intent_evidence,
 )
@@ -72,6 +73,67 @@ def test_explicit_context_resolution_requires_trusted_call_and_version() -> None
     assert validation.clarity == "explicit_context_resolved"
     assert validation.verified_fields == frozenset({"action", "targetId"})
     assert validation.verified_values["targetId"] == "food-tomato"
+    assert validation.reason_codes == ()
+
+
+def test_human_input_selection_is_trusted_only_for_selected_option() -> None:
+    artifact = {
+        "id": "human_input:req-1",
+        "type": "human.input_result",
+        "status": "completed",
+        "payload": {
+            "request": {"options": [{"id": "food-1"}, {"id": "food-2"}]},
+            "selectedOptionIds": ["food-1"],
+        },
+    }
+    trusted = trusted_sources_from_human_input_result(artifact=artifact, family_id="family-ai")
+    assert set(trusted["human_input:req-1"].entity_versions) == {"food-1"}
+
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            clarity="explicit_context_resolved",
+            quotes=[{"fields": ["action"], "text": "收藏这个"}],
+            sources=[{
+                "fields": ["targetId"],
+                "kind": "conversation_artifact",
+                "referenceId": "human_input:req-1",
+                "entityId": "food-2",
+            }],
+        ),
+        current_message="收藏这个",
+        family_id="family-ai",
+        requirements=(CriticalEvidenceRequirement("targetId", "food-2", "entity_id"),),
+        trusted_sources=trusted,
+    )
+    assert "resolution_source_untrusted" in validation.reason_codes
+
+
+def test_tool_source_bridges_shallow_payload_favorite() -> None:
+    trusted = trusted_sources_from_tool_output(
+        tool_name="food.read_by_id",
+        tool_call_id="call-food",
+        family_id="family-ai",
+        output={"item": {"id": "food-1", "favorite": True, "rowVersion": 2}},
+    )
+    validation = validate_intent_evidence(
+        evidence=_evidence(
+            clarity="explicit_context_resolved",
+            quotes=[{"fields": ["action", "payload.favorite"], "text": "收藏这个"}],
+            sources=[{
+                "fields": ["payload.favorite"],
+                "kind": "tool_result",
+                "referenceId": "call-food",
+                "entityId": "food-1",
+            }],
+        ),
+        current_message="收藏这个",
+        family_id="family-ai",
+        requirements=(
+            CriticalEvidenceRequirement("action", "set_favorite:true", "explicit_action"),
+            CriticalEvidenceRequirement("payload.favorite", True, "boolean_direction"),
+        ),
+        trusted_sources=trusted,
+    )
     assert validation.reason_codes == ()
 
 

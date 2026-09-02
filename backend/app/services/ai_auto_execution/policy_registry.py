@@ -54,6 +54,7 @@ class AutoExecutionPolicyRegistry:
         self,
         *,
         policy_key: str | None,
+        policy_version: str | None,
         draft_type: str,
         payload: dict[str, Any],
     ) -> ConcurrencyStrategy:
@@ -63,12 +64,14 @@ class AutoExecutionPolicyRegistry:
         policy key captured during policy evaluation; a missing or mismatched
         key deliberately falls back to the strict entity-version contract.
         """
-        if not policy_key:
+        if not policy_key or not policy_version:
             return "entity_version"
         policy = next((item for item in self._policies if item.key == policy_key), None)
-        if policy is None or draft_type not in policy.draft_types or not policy.matches(
-            draft_type=draft_type,
-            payload=payload,
+        if (
+            policy is None
+            or policy.version != policy_version
+            or draft_type not in policy.draft_types
+            or not policy.matches(draft_type=draft_type, payload=payload)
         ):
             return "entity_version"
         resolver = getattr(policy, "concurrency_strategy", None)

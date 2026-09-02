@@ -582,6 +582,15 @@ class DraftCommitCoordinator:
                         policy_key=(
                             request.policy_key
                             if request.execution_mode == "policy_auto"
+                            and request.policy_key == draft.policy_key
+                            and request.policy_version == draft.policy_version
+                            else None
+                        ),
+                        policy_version=(
+                            request.policy_version
+                            if request.execution_mode == "policy_auto"
+                            and request.policy_key == draft.policy_key
+                            and request.policy_version == draft.policy_version
                             else None
                         ),
                         draft_type=draft.draft_type,

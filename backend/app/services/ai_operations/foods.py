@@ -70,7 +70,8 @@ def execute_food_profile_draft(
     except (InventoryTargetNotFoundError, KeyError):
         raise AIConflictError("食物不存在或已被删除")
     action = str(payload.get("action") or "")
-    if concurrency_strategy not in {"field_patch", "idempotent_set", "insert"}:
+    relaxed_concurrency = action == "set_favorite" and concurrency_strategy == "idempotent_set"
+    if not relaxed_concurrency:
         assert_updated_at_matches(actual=food.updated_at, expected=str(payload.get("baseUpdatedAt")), label=f"食物 {food.name}")
     if action == "set_favorite":
         before_favorite = bool(food.favorite)

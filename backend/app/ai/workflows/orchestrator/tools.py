@@ -34,6 +34,7 @@ from app.ai.workflows.runner_support.run_summary import (
 )
 from app.services.ai_auto_execution.intent_evidence import (
     trusted_sources_from_current_ui_subject,
+    trusted_sources_from_human_input_result,
     trusted_sources_from_tool_output,
 )
 
@@ -69,6 +70,14 @@ class OrchestratorToolGateway:
                 family_id=context.family_id,
             )
         )
+        for artifact in context.current_run_artifacts:
+            if isinstance(artifact, dict):
+                self.state.trusted_resolution_sources.update(
+                    trusted_sources_from_human_input_result(
+                        artifact=artifact,
+                        family_id=context.family_id,
+                    )
+                )
 
     def refresh_tools(self) -> list[ToolDefinition]:
         self.context.ensure_active()
@@ -149,6 +158,9 @@ class OrchestratorToolGateway:
         if name in self.state.current_script_executors:
             definition = self.state.current_tool_definitions[name]
             output = self.state.current_script_executors[name].call(name, payload, progress_event_id=progress_event_id)
+            output = self._attach_intent_evidence_source(
+                name, definition.side_effect, output, tool_call_id=tool_call_id
+            )
             self._capture_tool_contract_metadata(name, definition.side_effect, output, definition=definition)
             return output
         if self.state.current_scoped_executor is None:
@@ -290,6 +302,9 @@ class OrchestratorToolGateway:
             )
         self.state.tool_signatures_this_call.append(budget_decision.signature)
         self.context.ensure_active()
+        output = self._attach_intent_evidence_source(
+            name, execution_definition.side_effect, output, tool_call_id=tool_call_id
+        )
         self._capture_tool_output(
             name,
             execution_definition.side_effect,
@@ -300,6 +315,33 @@ class OrchestratorToolGateway:
             definition=runtime_definition,
         )
         return output
+
+    def _attach_intent_evidence_source(
+        self,
+        name: str,
+        side_effect: str,
+        output: dict[str, Any],
+        *,
+        tool_call_id: str | None,
+    ) -> dict[str, Any]:
+        if side_effect != "read" or not tool_call_id or not isinstance(output, dict):
+            return output
+        sources = trusted_sources_from_tool_output(
+            tool_name=name,
+            tool_call_id=tool_call_id,
+            output=output,
+            family_id=self.context.family_id,
+        )
+        source = sources.get(str(tool_call_id))
+        if source is None:
+            return output
+        return {
+            **output,
+            "_intentEvidenceSource": {
+                "kind": source.kind,
+                "referenceId": source.reference_id,
+            },
+        }
 
     def _with_contextual_tool_payload(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         if name != "ui.propose_actions":

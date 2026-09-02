@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.workflows.conversations import require_conversation
-from app.ai.workflows.runner_support.human_input_resume import human_input_resume_payload_hash
+from app.ai.workflows.runner_support.human_input_resume import (
+    human_input_resume_payload_hash,
+    validate_human_input_selection,
+)
 from app.ai.workflows.runner_support.human_input_resume_claim import (
     STREAM_RESUME_CLAIM_TOKEN_KEY,
     claim_stream_human_input_resume,
@@ -104,6 +107,8 @@ class HumanInputResumePreparer:
             or str(pending.get("id") or "") != request_id
         ):
             raise AIConflictError("用户补充信息请求已变化，请刷新后重试")
+        selected_option_ids = list(dict.fromkeys(str(item).strip() for item in selected_option_ids if str(item).strip()))
+        validate_human_input_selection(pending=pending, selected_option_ids=selected_option_ids)
         run_id = run.id
         if current_stream_resume_claim(run) is not None:
             raise AIConflictError("这次补充信息任务正在处理中，请稍后刷新")
