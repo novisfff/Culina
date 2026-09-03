@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import select
+from sqlalchemy.dialects import mysql
 
 from app.core.enums import (
     FamilyModelResourceOperationStatus,
@@ -212,6 +213,25 @@ def test_expired_cleanup_tombstones_are_idempotent(
             db, cutoff=now - timedelta(days=7)
         ) == 0
         db.commit()
+
+
+def test_expired_cleanup_scan_skips_locked_profiles() -> None:
+    statements = []
+
+    class RecordingDb:
+        def scalars(self, statement):
+            statements.append(statement)
+            return iter(())
+
+        def flush(self) -> None:
+            return None
+
+    assert queue_expired_search_profile_cleanup_tombstones(
+        RecordingDb(), cutoff=utcnow()
+    ) == 0
+    assert len(statements) == 1
+    sql = str(statements[0].compile(dialect=mysql.dialect())).upper()
+    assert "FOR UPDATE SKIP LOCKED" in sql
 
 
 def test_pending_ensure_is_durable_and_retries_after_qdrant_failure(

@@ -131,7 +131,10 @@ def queue_expired_search_profile_cleanup_tombstones(
                 FamilySearchProfile.created_at.asc(),
                 FamilySearchProfile.id.asc(),
             )
-            .with_for_update()
+            # Cleanup is retryable: a request or resource-operation worker may
+            # briefly hold a profile lock, so do not wait behind it. The next
+            # maintenance poll will revisit any skipped candidate.
+            .with_for_update(skip_locked=True)
         )
     )
     for profile in candidates:
