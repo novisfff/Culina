@@ -32,6 +32,7 @@ from app.ai.workflows.runner_support.run_summary import (
     record_route_selection,
     record_tool_budget_exhausted,
 )
+from app.core.utils import create_id
 from app.services.ai_auto_execution.intent_evidence import (
     trusted_sources_from_current_ui_subject,
     trusted_sources_from_human_input_result,
@@ -131,6 +132,7 @@ class OrchestratorToolGateway:
                 }
                 self._capture_tool_contract_metadata(name, "control", output)
                 return output
+            self._advance_text_segment()
             output = execute_skill_injection(
                 payload=payload,
                 context=self.context,
@@ -157,6 +159,7 @@ class OrchestratorToolGateway:
             return output
         if name in self.state.current_script_executors:
             definition = self.state.current_tool_definitions[name]
+            self._advance_text_segment()
             output = self.state.current_script_executors[name].call(name, payload, progress_event_id=progress_event_id)
             output = self._attach_intent_evidence_source(
                 name, definition.side_effect, output, tool_call_id=tool_call_id
@@ -262,6 +265,7 @@ class OrchestratorToolGateway:
             else 0
         )
         try:
+            self._advance_text_segment()
             output = self.state.current_scoped_executor.call(
                 name,
                 prepared_payload.payload,
@@ -315,6 +319,17 @@ class OrchestratorToolGateway:
             definition=runtime_definition,
         )
         return output
+
+    def _advance_text_segment(self) -> None:
+        """Give text emitted after a visible tool boundary its own part.
+
+        A provider can emit text, call one or more tools, and then continue
+        emitting text in the same model turn.  Reusing the pre-tool part id
+        would make later deltas mutate text *before* the intervening activity
+        events, so every tool boundary starts a fresh stable text identity.
+        """
+
+        self.state.part_id = create_id("ai_part")
 
     def _attach_intent_evidence_source(
         self,

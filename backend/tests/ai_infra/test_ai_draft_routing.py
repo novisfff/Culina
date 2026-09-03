@@ -19,7 +19,6 @@ from app.ai.tools.draft_validation import (
     normalize_meal_plan_draft,
     normalize_shopping_list_draft,
 )
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.progressive_draft_publisher import ProgressiveDraftPublisher
 from app.ai.workspace_service import AIApplicationService
@@ -31,6 +30,7 @@ from app.models.domain import (
     AIAutoExecutionPreference,
     AIFamilyAutoExecutionPolicy,
     AIConversation,
+    AIConversationEvent,
     AIMessage,
     AIOperation,
     AIRunCancelRequest,
@@ -43,6 +43,7 @@ from app.models.domain import (
     ShoppingListItem,
 )
 from app.services.ai_auto_execution.catalog import CONSENT_NOTICE_VERSION
+from app.services.ai_timeline import AITimelineService
 from app.services.ai_revert.registry import ai_revert_adapter_registry
 from app.services.ai_auto_execution.policy_registry import auto_execution_policy_registry
 from app.services.ai_auto_execution.policy_types import (
@@ -825,6 +826,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                     "user_id": request.actor_user_id,
                     "conversation_id": request.conversation_id,
                     "run_id": request.run_id,
+                    "assistant_message_id": request.message_id,
                     "message": request.current_message,
                 }
             )
@@ -960,6 +962,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                         "user_id": request.actor_user_id,
                         "conversation_id": request.conversation_id,
                         "run_id": request.run_id,
+                        "assistant_message_id": request.message_id,
                         "message": request.current_message,
                     },
                     result=result,
@@ -977,6 +980,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                     "user_id": request.actor_user_id,
                     "conversation_id": request.conversation_id,
                     "run_id": request.run_id,
+                    "assistant_message_id": request.message_id,
                     "message": request.current_message,
                 },
                 SkillResult(
@@ -1001,68 +1005,73 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
 
     def test_final_persister_keeps_live_timeline_order_around_auto_execution_result(self) -> None:
         request, _run_id = self._seed_route(suffix="persister-timeline")
+        with self.SessionLocal() as db:
+            AITimelineService(db).append_part(
+                family_id=request.family_id,
+                conversation_id=request.conversation_id,
+                run_id=request.run_id,
+                message_id=request.message_id,
+                part={
+                    "id": "live-explanation",
+                    "type": "text",
+                    "text": "我会把你选中的食物设为收藏。",
+                },
+                created_by=request.actor_user_id,
+            )
+            db.commit()
         outcome = self._route(request)
         with self.SessionLocal() as db:
-            message = db.get(AIMessage, request.message_id)
-            assert message is not None
-            result_part = next(part for part in message.parts if part.get("type") == "result_card")
+            runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
+            runner.assistant_result_persister.persist(
+                {
+                    "family_id": request.family_id,
+                    "user_id": request.actor_user_id,
+                    "conversation_id": request.conversation_id,
+                    "run_id": request.run_id,
+                    "assistant_message_id": request.message_id,
+                    "message": request.current_message,
+                },
+                SkillResult(
+                    text="我会把你选中的食物设为收藏。",
+                    streamed_text_part_id="live-explanation",
+                    drafts=[
+                        {
+                            "draft_type": request.draft_type,
+                            "payload": request.payload,
+                            "schema_version": request.schema_version,
+                            "draft_id": outcome.draft_id,
+                            "operation_id": outcome.operation_id,
+                        }
+                    ],
+                    status="completed",
+                ),
+                skill_key=None,
+            )
+            db.commit()
+            persisted_message = db.get(AIMessage, request.message_id)
+            assert persisted_message is not None
 
-        live_ai_stream_cache.append_delta(
-            family_id=request.family_id,
-            conversation_id=request.conversation_id,
-            run_id=request.run_id,
-            message_id=request.message_id,
-            part_id="live-explanation",
-            delta="我会把你选中的食物设为收藏。",
-            created_by=request.actor_user_id,
-        )
-        live_ai_stream_cache.append_part(
-            family_id=request.family_id,
-            conversation_id=request.conversation_id,
-            run_id=request.run_id,
-            message_id=request.message_id,
-            part=result_part,
-            created_by=request.actor_user_id,
-        )
-        try:
-            with self.SessionLocal() as db:
-                runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
-                runner.assistant_result_persister.persist(
-                    {
-                        "family_id": request.family_id,
-                        "user_id": request.actor_user_id,
-                        "conversation_id": request.conversation_id,
-                        "run_id": request.run_id,
-                        "message": request.current_message,
-                    },
-                    SkillResult(
-                        text="我会把你选中的食物设为收藏。",
-                        drafts=[
-                            {
-                                "draft_type": request.draft_type,
-                                "payload": request.payload,
-                                "schema_version": request.schema_version,
-                                "draft_id": outcome.draft_id,
-                                "operation_id": outcome.operation_id,
-                            }
-                        ],
-                        status="completed",
-                    ),
-                    skill_key=None,
+            visible_part_types = [
+                part.get("type")
+                for part in persisted_message.parts
+                if part.get("type") in {"text", "result_card"}
+            ]
+            self.assertEqual(visible_part_types, ["text", "result_card"])
+            self.assertEqual(sum(part.get("type") == "result_card" for part in persisted_message.parts), 1)
+            events = list(
+                db.scalars(
+                    select(AIConversationEvent)
+                    .where(AIConversationEvent.conversation_id == request.conversation_id)
+                    .order_by(AIConversationEvent.sequence.asc())
                 )
-                db.commit()
-                persisted_message = db.get(AIMessage, request.message_id)
-                assert persisted_message is not None
-
-                visible_part_types = [
-                    part.get("type")
-                    for part in persisted_message.parts
-                    if part.get("type") in {"text", "result_card"}
-                ]
-                self.assertEqual(visible_part_types, ["text", "result_card"])
-                self.assertEqual(sum(part.get("type") == "result_card" for part in persisted_message.parts), 1)
-        finally:
-            live_ai_stream_cache.clear_run(request.run_id)
+            )
+            self.assertEqual(
+                [(event.event_type, event.part_id) for event in events[:2]],
+                [
+                    ("part.appended", "live-explanation"),
+                    ("part.appended", f"operation-result-part:{outcome.draft_id}"),
+                ],
+            )
 
     def test_final_persister_never_recreates_approval_for_no_change_draft(self) -> None:
         with self.SessionLocal() as db:
@@ -1081,6 +1090,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                     "user_id": request.actor_user_id,
                     "conversation_id": request.conversation_id,
                     "run_id": request.run_id,
+                    "assistant_message_id": request.message_id,
                     "message": request.current_message,
                 },
                 SkillResult(
@@ -1530,7 +1540,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertFalse(persisted_run.auto_execution_attempted)
             self.assertNotIn("autoExecutionBlocked", persisted_run.context_summary or {})
             self.assertEqual(db.scalar(select(func.count(AIAgentRun.id))), 1)
-            self.assertEqual(db.scalar(select(func.count(AIMessage.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AIMessage.id))), 2)
             self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 0)
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
             self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)
@@ -1552,7 +1562,7 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
                 )
             self.assertEqual(recovered_provider.calls, 0)
             self.assertEqual(db.scalar(select(func.count(AIAgentRun.id))), 1)
-            self.assertEqual(db.scalar(select(func.count(AIMessage.id))), 1)
+            self.assertEqual(db.scalar(select(func.count(AIMessage.id))), 2)
             self.assertEqual(db.scalar(select(func.count(AITaskDraft.id))), 0)
             self.assertEqual(db.scalar(select(func.count(AIApprovalRequest.id))), 0)
             self.assertEqual(db.scalar(select(func.count(AIOperation.id))), 0)

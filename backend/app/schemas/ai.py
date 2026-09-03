@@ -606,6 +606,34 @@ class AIMessageDTO(BaseModel):
     metadata: dict = Field(default_factory=dict)
     client_message_id: str | None = None
     created_at: datetime
+    timeline_position: int = 0
+    snapshot_sequence: int = 0
+
+
+class AITimelineEventDTO(BaseModel):
+    event_id: str
+    conversation_id: str
+    run_id: str | None = None
+    message_id: str | None = None
+    sequence: int
+    event_type: str
+    operation: str
+    part_id: str | None = None
+    payload: dict = Field(default_factory=dict)
+    is_terminal: bool = False
+
+
+class AIConversationSnapshotDTO(BaseModel):
+    conversation_id: str
+    snapshot_sequence: int
+    messages: list[AIMessageDTO] = Field(default_factory=list)
+
+
+class AIConversationReplayDTO(BaseModel):
+    conversation_id: str
+    from_sequence: int
+    to_sequence: int
+    events: list[AITimelineEventDTO] = Field(default_factory=list)
 
 
 class AIRunDTO(BaseModel):
@@ -854,6 +882,8 @@ class AIChatResponse(BaseModel):
     message: AIMessageDTO
     run: AIRunDTO
     events: list[AIRunEventDTO] = Field(default_factory=list)
+    snapshot_sequence: int | None = None
+    timeline_events: list[AITimelineEventDTO] = Field(default_factory=list)
     included: AIResponseIncludedDTO = Field(default_factory=AIResponseIncludedDTO)
 
 

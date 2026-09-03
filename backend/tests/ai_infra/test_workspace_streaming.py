@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.ai.errors import ApprovalRequired
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.stream_bridge import consume_stream_graph_worker
+from app.models.domain import AIConversationEvent
 from app.services.ai_timeline import AITimelineService
 
 from ._support import *
@@ -839,9 +839,8 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 threading.Event().wait(0.02)
 
             self.assertTrue(scrubbed, "background worker did not scrub transient history after disconnect")
-            self.assertEqual(live_ai_stream_cache.parts_for_run("agent_run-transient-stream-disconnect"), [])
 
-        def test_ai_workspace_caches_live_delta_for_other_clients_before_final_response(self) -> None:
+        def test_ai_workspace_persists_live_delta_before_publication(self) -> None:
             first_delta_persisted = threading.Event()
             continue_stream = threading.Event()
             provider = BlockingStreamingChatProvider(first_delta_persisted, continue_stream)
@@ -878,8 +877,24 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     self.assertIsNotNone(message)
                     assert message is not None
                     self.assertEqual(message.status, "running")
-                    self.assertEqual(message.parts, [])
+                    self.assertEqual(message.content, "第一段")
+                    self.assertEqual(
+                        [(part["type"], part.get("text")) for part in message.parts],
+                        [("text", "第一段")],
+                    )
                     self.assertGreater(message.timeline_position, 0)
+                    self.assertGreater(message.snapshot_sequence, message.timeline_position)
+                    visible_events = list(
+                        db.scalars(
+                            select(AIConversationEvent)
+                            .where(AIConversationEvent.conversation_id == conversation.id)
+                            .order_by(AIConversationEvent.sequence.asc())
+                        )
+                    )
+                    self.assertEqual(
+                        [event.event_type for event in visible_events[:3]],
+                        ["message.created", "message.created", "part.appended"],
+                    )
                     self.assertEqual(conversation.last_run_status, "running")
                     self.assertEqual(conversation.context.get("activeRunId"), run.id)
 
@@ -890,7 +905,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertEqual(len(assistant_messages), 1)
                 self.assertEqual(assistant_messages[0]["content"], "第一段")
                 self.assertEqual(assistant_messages[0]["status"], "running")
-                self.assertTrue(assistant_messages[0]["metadata"].get("liveStreaming"))
+                self.assertFalse(assistant_messages[0]["metadata"].get("liveStreaming", False))
 
                 continue_stream.set()
                 thread.join(timeout=5)
@@ -913,6 +928,16 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     self.assertNotIn("liveTextPartIds", message.message_metadata or {})
                     self.assertNotIn("activeRunId", conversation.context or {})
                     self.assertEqual(conversation.last_run_status, "completed")
+                    visible_events = list(
+                        db.scalars(
+                            select(AIConversationEvent)
+                            .where(AIConversationEvent.conversation_id == conversation.id)
+                            .order_by(AIConversationEvent.sequence.asc())
+                        )
+                    )
+                    self.assertEqual(visible_events[-1].event_type, "run.terminal")
+                    self.assertEqual(message.snapshot_sequence, conversation.timeline_version)
+                    self.assertEqual(visible_events[-1].sequence, conversation.timeline_version)
                 messages_response = self.client.get(f"/api/ai/conversations/{conversation.id}/messages")
                 self.assertEqual(messages_response.status_code, 200, messages_response.text)
                 final_messages = messages_response.json()
@@ -922,6 +947,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertEqual(assistant_messages[0]["status"], "completed")
                 self.assertFalse(assistant_messages[0]["metadata"].get("liveStreaming", False))
             finally:
+                pass
                 continue_stream.set()
                 thread.join(timeout=5)
 
@@ -993,6 +1019,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     self.assertEqual(len(stored_approval_parts), 1)
                     self.assertEqual(stored_approval_parts[0]["approval"]["status"], "approved")
             finally:
+                pass
                 continue_stream.set()
                 thread.join(timeout=5)
 
@@ -1056,34 +1083,14 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 db.add_all([conversation, message])
                 db.commit()
 
-            live_ai_stream_cache.append_activity(
-                family_id=self.family.id,
-                conversation_id=conversation_id,
-                run_id=run_id,
-                message_id=message_id,
-                part={
-                    "id": "activity-draft-overlay",
-                    "type": "run_activity",
-                    "activity": {
-                        "id": "progress-draft-overlay",
-                        "run_id": run_id,
-                        "type": "tool",
-                        "internal_code": "ingredient_profile.create_draft",
-                        "user_message": "生成「食材档案确认表单」",
-                        "status": "completed",
-                        "created_at": utcnow().isoformat(),
-                    },
-                },
-                created_by=self.user.id,
-            )
             try:
                 response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
                 self.assertEqual(response.status_code, 200, response.text)
                 assistant_message = next(message for message in response.json() if message["id"] == message_id)
                 part_types = [part["type"] for part in assistant_message["parts"]]
-                self.assertLess(part_types.index("run_activity"), part_types.index("approval_request"))
+                self.assertIn("approval_request", part_types)
             finally:
-                live_ai_stream_cache.clear_run(run_id)
+                pass
 
         def test_ai_workspace_live_overlay_preserves_resolved_approval_result_position(self) -> None:
             run_id = "agent-run-overlay-approval-result-order"
@@ -1185,45 +1192,16 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 db.add_all([conversation, message])
                 db.commit()
 
-            live_ai_stream_cache.append_part(
-                family_id=self.family.id,
-                conversation_id=conversation_id,
-                run_id=run_id,
-                message_id=message_id,
-                part=result_part,
-                created_by=self.user.id,
-            )
-            live_ai_stream_cache.append_activity(
-                family_id=self.family.id,
-                conversation_id=conversation_id,
-                run_id=run_id,
-                message_id=message_id,
-                part={
-                    "id": "activity-next-draft-overlay",
-                    "type": "run_activity",
-                    "activity": {
-                        "id": "progress-next-draft-overlay",
-                        "run_id": run_id,
-                        "type": "tool",
-                        "internal_code": "recipe.create_draft",
-                        "user_message": "生成「菜谱确认表单」",
-                        "status": "running",
-                        "created_at": utcnow().isoformat(),
-                    },
-                },
-                created_by=self.user.id,
-            )
             try:
                 response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
                 self.assertEqual(response.status_code, 200, response.text)
                 assistant_message = next(message for message in response.json() if message["id"] == message_id)
                 part_ids = [part["id"] for part in assistant_message["parts"]]
                 self.assertLess(part_ids.index("approval-part-overlay"), part_ids.index("operation-result-part-overlay"))
-                self.assertLess(part_ids.index("operation-result-part-overlay"), part_ids.index("activity-next-draft-overlay"))
                 self.assertEqual(part_ids.count("operation-result-part-overlay"), 1)
                 self.assertIn("approval-part-overlay", part_ids)
             finally:
-                live_ai_stream_cache.clear_run(run_id)
+                pass
 
         def test_ai_workspace_live_overlay_does_not_replace_completed_message(self) -> None:
             conversation_id = "conversation-live-overlay-completed"
@@ -1260,32 +1238,11 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 db.add_all([conversation, message])
                 db.commit()
 
-            live_ai_stream_cache.append_activity(
-                family_id=self.family.id,
-                conversation_id=conversation_id,
-                run_id=run_id,
-                message_id=message_id,
-                part={
-                    "id": "activity-stale-running",
-                    "type": "run_activity",
-                    "activity": {
-                        "id": "progress-stale-running",
-                        "run_id": run_id,
-                        "type": "tool",
-                        "internal_code": "recipe.create_draft",
-                        "user_message": "生成「菜谱确认表单」",
-                        "status": "running",
-                        "created_at": utcnow().isoformat(),
-                    },
-                },
-                created_by=self.user.id,
-            )
             response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
             self.assertEqual(response.status_code, 200, response.text)
             assistant_message = next(message for message in response.json() if message["id"] == message_id)
             self.assertEqual(assistant_message["status"], "completed")
             self.assertEqual([part["id"] for part in assistant_message["parts"]], ["text-completed"])
-            self.assertEqual(live_ai_stream_cache.parts_for_run(run_id), [])
 
         def test_graph_stream_worker_receives_bind_not_main_session(self) -> None:
             runner = WorkspaceGraphRunner.__new__(WorkspaceGraphRunner)
@@ -2236,7 +2193,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     ],
                     run_id=run.id,
                     status="running",
-                    message_metadata={"liveStreaming": True, "livePartIds": ["result-empty-followup"]},
+                    message_metadata={},
                     created_by=self.user.id,
                 )
                 db.add_all([conversation, run, message])
@@ -2249,6 +2206,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     "user_id": self.user.id,
                     "conversation_id": conversation.id,
                     "run_id": run.id,
+                    "assistant_message_id": message.id,
                     "message": "确认更新菜谱",
                     "status": "running",
                     "error": None,
@@ -2304,7 +2262,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertEqual(conversation.last_run_status, "completed")
                 self.assertNotIn("activeRunId", conversation.context or {})
 
-        def test_finalize_terminal_run_clears_stale_live_state_and_empty_text(self) -> None:
+        def test_finalize_terminal_run_persists_fallback_text_and_terminal_event(self) -> None:
             from app.ai.workflows.runner import WorkspaceGraphRunner
 
             with self.SessionLocal() as db:
@@ -2360,14 +2318,6 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 )
                 db.add_all([conversation, run, message])
                 db.flush()
-                live_ai_stream_cache.append_activity(
-                    family_id=self.family.id,
-                    conversation_id=conversation.id,
-                    run_id=run.id,
-                    message_id=message.id,
-                    part={"id": "live-result-finalize-stale-active", "type": "activity", "text": "处理中"},
-                    created_by=self.user.id,
-                )
 
                 WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))._finalize(
                     {
@@ -2389,7 +2339,15 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertEqual(message.content, "任务已完成。")
                 self.assertEqual(message.status, "completed")
                 self.assertNotIn("liveStreaming", message.message_metadata or {})
-                self.assertEqual(live_ai_stream_cache.parts_for_run(run.id), [])
+                events = list(
+                    db.scalars(
+                        select(AIConversationEvent)
+                        .where(AIConversationEvent.conversation_id == conversation.id)
+                        .order_by(AIConversationEvent.sequence.asc())
+                    )
+                )
+                self.assertEqual([event.event_type for event in events], ["part.appended", "run.terminal"])
+                self.assertEqual(message.snapshot_sequence, events[-1].sequence)
 
         def test_ai_workspace_finalize_does_not_overwrite_cancelled_run(self) -> None:
             from app.ai.workflows.runner import WorkspaceGraphRunner

@@ -144,24 +144,74 @@ class HumanInputResumeHandler:
         response_payload: dict[str, Any],
         result_artifact: dict[str, Any],
     ) -> None:
+        message_id = str(state.get("assistant_message_id") or "").strip()
+        if not message_id:
+            raise RuntimeError("人机输入恢复缺少 canonical assistant_message_id")
         message = self.runner.db.scalar(
             select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            .where(
+                AIMessage.id == message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
         if message is None:
-            return
+            raise RuntimeError("预创建的 canonical 助手消息不存在")
         responded_at = utcnow().isoformat()
-        message.parts = completed_human_input_request_parts(
+        next_parts = completed_human_input_request_parts(
             message.parts,
             pending_id=str(pending["id"]),
             response_payload=response_payload,
             responded_at=responded_at,
         )
-        message.message_metadata = human_input_message_metadata(
-            message.message_metadata if isinstance(message.message_metadata, dict) else {},
-            result_artifact=result_artifact,
+        original_by_id = {
+            str(part.get("id") or ""): part
+            for part in (message.parts or [])
+            if isinstance(part, dict) and str(part.get("id") or "")
+        }
+        replacement = next(
+            (
+                part
+                for part in next_parts
+                if isinstance(part, dict)
+                and str(part.get("id") or "") in original_by_id
+                and part != original_by_id[str(part.get("id") or "")]
+            ),
+            None,
         )
+        if replacement is None:
+            raise RuntimeError("canonical 人机输入请求 part 不存在")
+        self.runner.timeline_service.replace_part(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            message_id=message.id,
+            run_id=state["run_id"],
+            part_id=str(replacement["id"]),
+            part=replacement,
+            created_by=state.get("user_id"),
+        )
+        self.runner.timeline_service.update_message_metadata(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            message_id=message.id,
+            run_id=state["run_id"],
+            metadata=human_input_message_metadata(
+                message.message_metadata if isinstance(message.message_metadata, dict) else {},
+                result_artifact=result_artifact,
+            ),
+            created_by=state.get("user_id"),
+        )
+        if message.status != "running":
+            self.runner.timeline_service.update_message_status(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                status="running",
+                created_by=state.get("user_id"),
+            )
 
     def _update_run_and_conversation(
         self,

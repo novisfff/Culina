@@ -124,8 +124,8 @@ class WorkspaceOrchestratorAgent:
         root_tool_executor.context.trace_parent_span_id = context.trace_parent_span_id
         root_tool_executor.context.trace_round_index = trace_round_index
         stream_session_id = create_id("ai_stream")
-        message_id = f"{context.run_id}:orchestrator:{stream_session_id}:text"
-        part_id = f"{message_id}:text"
+        message_id = context.assistant_message_id or f"{context.run_id}:orchestrator:{stream_session_id}"
+        part_id = f"{context.run_id}:orchestrator:{stream_session_id}:text"
         state = OrchestratorRunState(
             active_skill_keys=active_skill_keys,
             profile_key=str(profile_state_value(profile_state, "key") or ""),
@@ -166,6 +166,7 @@ class WorkspaceOrchestratorAgent:
                 context.emit_progress("skill", f"{bundle.key}.start", f"调用「{bundle.display_name}」技能", status="completed")
 
         def finish_orchestrator_span(result: SkillResult) -> SkillResult:
+            result.streamed_text_part_id = state.part_id if state.streamed_text else None
             if orchestrator_span is not None:
                 span_status = "waiting" if result.status in {"waiting_approval", "waiting_input"} else result.status
                 orchestrator_span.finish(

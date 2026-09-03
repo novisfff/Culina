@@ -6,7 +6,7 @@ import {
 } from './aiApi';
 import { ApiError } from './request';
 import { setAccessToken, setAuthenticatedSession } from './request';
-import type { AiChatResponse, LoginResponse } from './types';
+import type { AiChatResponse, AiConversationReplay, AiConversationSnapshot, AiTimelineEvent, LoginResponse } from './types';
 
 function streamFrom(text: string) {
   return new ReadableStream<Uint8Array>({
@@ -925,5 +925,49 @@ describe('aiApi', () => {
     expect(partSpy).toHaveBeenCalledWith(messagePart);
     expect(progressSpy).toHaveBeenCalledWith(progress);
     expect(deltaSpy).toHaveBeenCalledWith(delta);
+  });
+
+  it('parses canonical timeline SSE ids and dispatches one timeline event', async () => {
+    const timelineEvent: AiTimelineEvent = {
+      event_id: 'timeline-2',
+      conversation_id: 'conversation-1',
+      run_id: 'run-1',
+      message_id: 'message-1',
+      sequence: 2,
+      event_type: 'part.delta',
+      operation: 'delta',
+      part_id: 'text-1',
+      payload: { delta: '后' },
+      is_terminal: false,
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      'id: timeline-2\nevent: timeline\ndata: {"event_id":"timeline-2","conversation_id":"conversation-1","run_id":"run-1","message_id":"message-1","sequence":2,"event_type":"part.delta","operation":"delta","part_id":"text-1","payload":{"delta":"后"}}\n\n'
+      + sseBlock('response', emptyChatResponse),
+      { status: 200 },
+    ));
+    const onTimelineEvent = vi.fn();
+    const onMessagePart = vi.fn();
+    const onMessageDelta = vi.fn();
+
+    await aiApi.streamChatAi({ message: '你好' }, { onTimelineEvent, onMessagePart, onMessageDelta });
+
+    expect(onTimelineEvent).toHaveBeenCalledWith(timelineEvent);
+    expect(onMessagePart).not.toHaveBeenCalled();
+    expect(onMessageDelta).not.toHaveBeenCalled();
+  });
+
+  it('reads snapshot and replay envelopes for canonical history recovery', async () => {
+    const snapshot: AiConversationSnapshot = { conversation_id: 'conversation-1', snapshot_sequence: 4, messages: [] };
+    const replay: AiConversationReplay = { conversation_id: 'conversation-1', from_sequence: 3, to_sequence: 4, events: [] };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/events?after_sequence=3')) return jsonResponse(replay);
+      return jsonResponse(snapshot);
+    });
+
+    await expect(aiApi.getAiMessages('conversation-1')).resolves.toEqual(snapshot);
+    await expect(aiApi.getAiConversationEvents('conversation-1', 3)).resolves.toEqual(replay);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/conversations/conversation-1/messages');
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('/api/ai/conversations/conversation-1/events?after_sequence=3');
   });
 });

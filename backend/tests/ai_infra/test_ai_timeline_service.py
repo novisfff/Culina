@@ -192,6 +192,121 @@ def test_service_replaces_parts_in_place_and_terminal_blocks_late_output() -> No
         db.close()
 
 
+def test_service_upsert_appends_once_then_replaces_at_the_same_position() -> None:
+    db = make_db()
+    try:
+        service = AITimelineService(db)
+        message_id = create_message(service, db)
+        service.append_part(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            part={"id": "before", "type": "text", "text": "前"},
+        )
+        appended = service.upsert_part(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            part={"id": "activity-1", "type": "run_activity", "activity": {"status": "running"}},
+        )
+        service.append_part(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            part={"id": "after", "type": "text", "text": "后"},
+        )
+        replaced = service.upsert_part(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            part={"id": "activity-1", "type": "run_activity", "activity": {"status": "completed"}},
+        )
+        db.commit()
+
+        message = db.get(AIMessage, message_id)
+        assert [part["id"] for part in message.parts] == ["before", "activity-1", "after"]
+        assert message.parts[1]["activity"]["status"] == "completed"
+        assert appended.event.event_type == "part.appended"
+        assert replaced.event.event_type == "part.replaced"
+    finally:
+        db.close()
+
+
+def test_service_append_text_delta_decides_append_or_delta_while_message_is_locked() -> None:
+    db = make_db()
+    try:
+        service = AITimelineService(db)
+        message_id = create_message(service, db)
+
+        first = service.append_text_delta(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            part_id="text-stream",
+            delta="第一段",
+        )
+        second = service.append_text_delta(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            part_id="text-stream",
+            delta="继续",
+        )
+        db.commit()
+
+        message = db.get(AIMessage, message_id)
+        assert message.parts == [
+            {"id": "text-stream", "type": "text", "text": "第一段继续"},
+        ]
+        assert first.event.event_type == "part.appended"
+        assert second.event.event_type == "part.delta"
+        assert (first.sequence, second.sequence) == (2, 3)
+    finally:
+        db.close()
+
+
+def test_service_metadata_update_is_a_canonical_snapshot_event() -> None:
+    db = make_db()
+    try:
+        service = AITimelineService(db)
+        message_id = create_message(service, db)
+
+        mutation = service.update_message_metadata(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            patch={"skillKey": "inventory_analysis", "temporary": True},
+        )
+        cleaned = service.update_message_metadata(
+            family_id="family-service",
+            conversation_id="conversation-service",
+            message_id=message_id,
+            run_id="run-service",
+            patch={"skillKeys": ["inventory_analysis"]},
+            remove_keys=("temporary",),
+        )
+        db.commit()
+
+        message = db.get(AIMessage, message_id)
+        assert message.message_metadata == {
+            "skillKey": "inventory_analysis",
+            "skillKeys": ["inventory_analysis"],
+        }
+        assert mutation.event.event_type == "message.metadata"
+        assert mutation.event.payload["metadata"]["temporary"] is True
+        assert cleaned.event.payload["metadata"] == message.message_metadata
+        assert message.snapshot_sequence == cleaned.sequence
+    finally:
+        db.close()
+
+
 def test_service_rejects_unknown_run_scope() -> None:
     db = make_db()
     try:

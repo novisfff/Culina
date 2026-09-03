@@ -30,6 +30,7 @@ from app.models.domain import (
     AITaskDraft,
 )
 from app.services.ai_operations.status import DRAFT_CANCELLED, is_draft_pending
+from app.services.ai_timeline import AITimelineService
 from app.services.serializers import serialize_ai_run, serialize_ai_run_cancel_request, serialize_ai_run_event
 
 
@@ -266,6 +267,42 @@ def cancellation_wins(
     return request is not None and request.status in {"requested", "applied"}
 
 
+def _canonical_assistant_message(
+    db: Session,
+    *,
+    run: AIAgentRun,
+) -> AIMessage | None:
+    """Resolve the one assistant snapshot owned by a run.
+
+    ``AIAgentRun.message_id`` points to the user message for historical rows,
+    so cancellation/failure code must not use it as an assistant lookup.  The
+    canonical protocol guarantees one assistant message per
+    ``(family, conversation, run)``; querying that exact scope makes legacy
+    rows recoverable while refusing to silently pick one of multiple
+    messages.  In particular, no timestamp or insertion-order heuristic is
+    allowed here.
+    """
+
+    if not run.conversation_id:
+        return None
+    candidates = list(
+        db.scalars(
+            select(AIMessage)
+            .where(
+                AIMessage.family_id == run.family_id,
+                AIMessage.conversation_id == run.conversation_id,
+                AIMessage.run_id == run.id,
+                AIMessage.role == "assistant",
+            )
+            .order_by(AIMessage.timeline_position.asc(), AIMessage.id.asc())
+            .with_for_update()
+        )
+    )
+    if len(candidates) > 1:
+        raise LookupError("运行关联了多个 canonical 助手消息")
+    return candidates[0] if candidates else None
+
+
 def finalize_run_cancellation(db: Session, *, run: AIAgentRun) -> None:
     run.status = CANCELLED
     run.error = None
@@ -280,25 +317,42 @@ def finalize_run_cancellation(db: Session, *, run: AIAgentRun) -> None:
         request.status = "applied"
         request.outcome_code = "cancelled"
         request.resolved_at = request.resolved_at or utcnow()
-    messages = list(
-        db.scalars(
-            select(AIMessage)
-            .where(
-                AIMessage.family_id == run.family_id,
-                AIMessage.run_id == run.id,
-                AIMessage.role == "assistant",
-            )
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
-            .with_for_update()
-        )
-    )
-    for message in messages:
-        message.status = CANCELLED
+    timeline = AITimelineService(db)
+    message = _canonical_assistant_message(db, run=run)
+    if message is not None and run.conversation_id and not timeline.has_terminal(
+        conversation_id=run.conversation_id,
+        message_id=message.id,
+    ):
         metadata = dict(message.message_metadata or {})
         metadata.pop("liveStreaming", None)
         metadata.pop("livePartIds", None)
         metadata.pop("liveTextPartIds", None)
-        message.message_metadata = metadata
+        if not str(message.content or "").strip() and not any(
+            isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
+            for part in (message.parts or [])
+        ):
+            timeline.append_part(
+                family_id=run.family_id,
+                conversation_id=run.conversation_id,
+                message_id=message.id,
+                run_id=run.id,
+                part={
+                    "id": f"cancelled-text:{run.id}",
+                    "type": "text",
+                    "text": "已中止这次处理。",
+                },
+                created_by=request.requested_by if request is not None else run.created_by,
+            )
+        timeline.terminal(
+            family_id=run.family_id,
+            conversation_id=run.conversation_id,
+            message_id=message.id,
+            run_id=run.id,
+            status=CANCELLED,
+            content=message.content or "已中止这次处理。",
+            metadata=metadata,
+            created_by=request.requested_by if request is not None else run.created_by,
+        )
     events = list(
         db.scalars(
             select(AIRunEvent)
@@ -356,6 +410,7 @@ def _finalize_waiting_run_cancellation(
     from app.services.ai_operations.messages import sync_message_approval_parts
 
     cancelled_at = utcnow()
+    timeline = AITimelineService(db)
     approvals = list(
         db.scalars(
             select(AIApprovalRequest)
@@ -385,18 +440,8 @@ def _finalize_waiting_run_cancellation(
         else []
     )
     drafts_by_id = {draft.id: draft for draft in drafts}
-    messages = list(
-        db.scalars(
-            select(AIMessage)
-            .where(
-                AIMessage.family_id == run.family_id,
-                AIMessage.run_id == run.id,
-                AIMessage.role == "assistant",
-            )
-            .order_by(AIMessage.id.asc())
-            .with_for_update()
-        )
-    )
+    message = _canonical_assistant_message(db, run=run)
+    messages = [message] if message is not None else []
     for approval in approvals:
         approval.status = CANCELLED
         approval.decision = None
@@ -431,13 +476,50 @@ def _finalize_waiting_run_cancellation(
             "",
         )
     for message in messages:
-        message.status = CANCELLED
         if request_id:
-            message.parts = cancelled_human_input_request_parts(
+            next_parts = cancelled_human_input_request_parts(
                 message.parts,
                 request_id=request_id,
                 cancelled_at=cancelled_at.isoformat(),
             )
+            current_by_id = {
+                str(part.get("id") or ""): part
+                for part in (message.parts or [])
+                if isinstance(part, dict) and str(part.get("id") or "")
+            }
+            for part in next_parts:
+                part_id = str(part.get("id") or "") if isinstance(part, dict) else ""
+                if part_id and part_id in current_by_id and part != current_by_id[part_id]:
+                    timeline.replace_part(
+                        family_id=run.family_id,
+                        conversation_id=run.conversation_id,
+                        message_id=message.id,
+                        run_id=run.id,
+                        part_id=part_id,
+                        part=part,
+                        created_by=requested_by,
+                    )
+        if not str(message.content or "").strip() and not any(
+            isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
+            for part in (message.parts or [])
+        ):
+            timeline.append_part(
+                family_id=run.family_id,
+                conversation_id=run.conversation_id,
+                message_id=message.id,
+                run_id=run.id,
+                part={"id": create_id("ai_part"), "type": "text", "text": "已中止这次处理。"},
+                created_by=requested_by,
+            )
+        timeline.terminal(
+            family_id=run.family_id,
+            conversation_id=run.conversation_id,
+            message_id=message.id,
+            run_id=run.id,
+            status=CANCELLED,
+            content=message.content or "已中止这次处理。",
+            created_by=requested_by,
+        )
 
     context_summary = dict(run.context_summary or {})
     context_summary.pop("pendingHumanInput", None)

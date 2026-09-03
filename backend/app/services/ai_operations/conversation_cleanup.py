@@ -6,7 +6,6 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.models.domain import (
     AIAgentRun,
     AIApprovalRequest,
@@ -188,6 +187,4 @@ def purge_ai_conversation_user_data(
 
     SQLAlchemyCheckpointSaver(db).delete_thread(conversation_id)
     db.delete(conversation)
-    for run_id in run_ids:
-        live_ai_stream_cache.clear_run(run_id)
     return True

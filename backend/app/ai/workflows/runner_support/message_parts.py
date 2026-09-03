@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 
 from app.models.domain import AIApprovalRequest, AITaskDraft
-from app.services.serializers import serialize_ai_approval_request, serialize_ai_task_draft
 
 
 ROUTED_WITHOUT_APPROVAL_STATUSES = {"auto_executed", "no_change", "execution_failed"}
@@ -92,6 +93,12 @@ def draft_route_status(draft_payload: dict[str, Any]) -> str:
 
 
 def draft_message_part(draft: AITaskDraft) -> dict[str, Any]:
+    # Import lazily: serializers projects operation results through the
+    # timeline service, while the workflow package imports this helper.  A
+    # module-level import would create a serializers -> timeline -> workflow
+    # -> serializers cycle during application startup.
+    from app.services.serializers import serialize_ai_task_draft
+
     return {
         "id": f"draft-part-{draft.id}",
         "type": "draft",
@@ -100,6 +107,8 @@ def draft_message_part(draft: AITaskDraft) -> dict[str, Any]:
 
 
 def approval_request_message_part(approval: AIApprovalRequest) -> dict[str, Any]:
+    from app.services.serializers import serialize_ai_approval_request
+
     return {
         "id": f"approval-part-{approval.id}",
         "type": "approval_request",
@@ -109,6 +118,22 @@ def approval_request_message_part(approval: AIApprovalRequest) -> dict[str, Any]
 
 def result_card_message_part(*, part_id: str, card: dict[str, Any]) -> dict[str, Any]:
     return {"id": part_id, "type": "result_card", "card": card}
+
+
+def result_card_part_id(card: dict[str, Any]) -> str:
+    """Return a deterministic part id for a provider result card.
+
+    Tool cards are created before the final assistant result is assembled.  A
+    random id here would make a retry append a second card and would force the
+    client to guess which copy is current.  Prefer the card's stable public id;
+    cards without one use a canonical payload digest.
+    """
+
+    card_id = str(card.get("id") or "").strip()
+    if card_id:
+        return f"result-card-part:{card_id}"
+    encoded = json.dumps(card, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return f"result-card-part:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:32]}"
 
 
 def operation_result_message_part(

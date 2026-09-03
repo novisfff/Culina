@@ -7,10 +7,10 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.utils import create_id
 from app.models.domain import AIApprovalRequest, AIMessage, AITaskDraft
 from app.services.ai_operations.registry import draft_operation_registry
 from app.services.ai_operations.result_projection import upsert_message_operation_result
+from app.services.ai_timeline import AITimelineService
 from app.services.ai_operations.artifacts import (
     approval_decision_artifacts,
     build_approval_result_card,
@@ -57,17 +57,35 @@ def sync_message_approval_parts(db: Session, *, draft: AITaskDraft, approval: AI
         return
     draft_record = jsonable_encoder(serialize_ai_task_draft(draft))
     approval_record = jsonable_encoder(serialize_ai_approval_request(approval))
-    next_parts: list[dict[str, Any]] = []
+    timeline = AITimelineService(db)
+    changed: list[dict[str, Any]] = []
     for part in message.parts:
         if part.get("type") == "draft" and part.get("draft", {}).get("id") == draft.id:
-            next_parts.append({**part, "draft": draft_record})
+            replacement = {**part, "draft": draft_record}
+            changed.append(replacement)
         elif part.get("type") == "approval_request" and part.get("approval", {}).get("id") == approval.id:
-            next_parts.append({**part, "approval": approval_record})
-        else:
-            next_parts.append(part)
-    message.parts = next_parts
+            replacement = {**part, "approval": approval_record}
+            changed.append(replacement)
+    for part in changed:
+        timeline.replace_part(
+            family_id=message.family_id,
+            conversation_id=message.conversation_id,
+            message_id=message.id,
+            run_id=message.run_id,
+            part_id=str(part["id"]),
+            part=part,
+            created_by=approval.updated_by or draft.updated_by,
+            allow_after_terminal=True,
+        )
     if approval.status == "cancelled" or draft.status == "cancelled":
-        message.status = "cancelled"
+        timeline.update_message_status(
+            family_id=message.family_id,
+            conversation_id=message.conversation_id,
+            message_id=message.id,
+            run_id=message.run_id,
+            status="cancelled",
+            created_by=approval.updated_by or draft.updated_by,
+        )
 
 
 def append_message_approval_part(db: Session, *, approval: AIApprovalRequest) -> None:
@@ -78,14 +96,19 @@ def append_message_approval_part(db: Session, *, approval: AIApprovalRequest) ->
         return
     if any(part.get("approval", {}).get("id") == approval.id for part in message.parts):
         return
-    message.parts = [
-        *message.parts,
-        {
-            "id": create_id("ai_part"),
+    AITimelineService(db).append_part(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        part={
+            "id": f"approval-part-{approval.id}",
             "type": "approval_request",
             "approval": jsonable_encoder(serialize_ai_approval_request(approval)),
         },
-    ]
+        created_by=approval.updated_by,
+        allow_after_terminal=True,
+    )
 
 
 def persist_message_artifacts(db: Session, *, message_id: str | None, artifacts: list[dict[str, Any]]) -> None:
@@ -94,26 +117,42 @@ def persist_message_artifacts(db: Session, *, message_id: str | None, artifacts:
     message = db.get(AIMessage, message_id)
     if message is None:
         return
-    metadata = dict(message.message_metadata or {})
-    existing = [artifact for artifact in metadata.get("artifacts") or [] if isinstance(artifact, dict)]
-    positions = {
-        str(item.get("id") or ""): index
-        for index, item in enumerate(existing)
-        if str(item.get("id") or "")
-    }
-    next_artifacts = list(existing)
-    for artifact in artifacts:
-        artifact_id = str(artifact.get("id") or "")
-        if not artifact_id:
-            continue
-        encoded = jsonable_encoder(artifact)
-        if artifact_id in positions:
-            next_artifacts[positions[artifact_id]] = encoded
-            continue
-        positions[artifact_id] = len(next_artifacts)
-        next_artifacts.append(encoded)
-    metadata["artifacts"] = next_artifacts
-    message.message_metadata = metadata
+    encoded_artifacts = [jsonable_encoder(artifact) for artifact in artifacts if isinstance(artifact, dict)]
+    if not encoded_artifacts:
+        return
+
+    def merge_artifacts(metadata: dict[str, Any]) -> dict[str, Any]:
+        next_metadata = dict(metadata)
+        existing = [artifact for artifact in next_metadata.get("artifacts") or [] if isinstance(artifact, dict)]
+        positions = {
+            str(item.get("id") or ""): index
+            for index, item in enumerate(existing)
+            if str(item.get("id") or "")
+        }
+        for artifact in encoded_artifacts:
+            artifact_id = str(artifact.get("id") or "")
+            if not artifact_id:
+                continue
+            if artifact_id in positions:
+                existing[positions[artifact_id]] = artifact
+            else:
+                positions[artifact_id] = len(existing)
+                existing.append(artifact)
+        next_metadata["artifacts"] = existing
+        return next_metadata
+
+    AITimelineService(db).update_message_metadata(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        updater=merge_artifacts,
+        created_by=message.created_by,
+        # Artifact projection can be refreshed by a revert after the run is
+        # terminal; it is still a canonical metadata event, never an ORM-only
+        # mutation.
+        allow_after_terminal=True,
+    )
 
 
 def append_message_result_card(db: Session, *, decision_result: dict[str, Any]) -> dict[str, Any] | None:
@@ -147,25 +186,19 @@ def append_message_result_card(db: Session, *, decision_result: dict[str, Any]) 
     if existing_part is not None:
         return existing_part
     result_part = {
-        "id": create_id("ai_part"),
+        "id": f"operation-result-part:{draft.get('id') or card.get('id')}",
         "type": "result_card",
         "card": jsonable_encoder(card),
     }
-    approval_id = str(approval.get("id") or "")
-    insert_after_index = next(
-        (
-            index
-            for index, part in enumerate(parts)
-            if part.get("type") == "approval_request"
-            and isinstance(part.get("approval"), dict)
-            and str(part["approval"].get("id") or "") == approval_id
-        ),
-        None,
+    AITimelineService(db).append_part(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        part=result_part,
+        created_by=message.created_by,
+        allow_after_terminal=True,
     )
-    if insert_after_index is None:
-        message.parts = [*parts, result_part]
-        return result_part
-    message.parts = [*parts[: insert_after_index + 1], result_part, *parts[insert_after_index + 1 :]]
     return result_part
 
 

@@ -122,6 +122,23 @@ def project_ai_message(payload: dict[str, Any], capabilities: DraftContractCapab
     return projected
 
 
+def project_ai_timeline_event(payload: dict[str, Any], capabilities: DraftContractCapabilities) -> dict[str, Any]:
+    """Project the public payload carried by a canonical timeline event.
+
+    Timeline identity and sequence are never altered by viewer capability
+    projection; only nested message/part/card data is filtered using the same
+    contract rules as snapshots and legacy response envelopes.
+    """
+    projected = copy.deepcopy(payload)
+    event_payload = projected.get("payload") if isinstance(projected.get("payload"), dict) else {}
+    if isinstance(event_payload.get("message"), dict):
+        event_payload["message"] = project_ai_message(event_payload["message"], capabilities)
+    if isinstance(event_payload.get("part"), dict):
+        event_payload["part"] = project_message_part(event_payload["part"], capabilities)
+    projected["payload"] = event_payload
+    return projected
+
+
 def project_ai_draft(payload: dict[str, Any], capabilities: DraftContractCapabilities) -> dict[str, Any]:
     projected = copy.deepcopy(payload)
     schema = _schema_from_draft(projected)
@@ -236,6 +253,11 @@ def project_ai_sse_event(
     payload = data if isinstance(data, dict) else {}
     if name == "response":
         return name, project_ai_chat_response(payload, viewer_capabilities)
+    if name == "timeline":
+        return name, project_ai_timeline_event(payload, viewer_capabilities)
+    if isinstance(payload.get("timeline_event"), dict):
+        payload = copy.deepcopy(payload)
+        payload["timeline_event"] = project_ai_timeline_event(payload["timeline_event"], viewer_capabilities)
     if name == "message_part":
         projected = copy.deepcopy(payload)
         if isinstance(projected.get("part"), dict):

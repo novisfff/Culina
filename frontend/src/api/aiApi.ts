@@ -16,6 +16,8 @@ import type {
   AiChatResponse,
   AiRunEvent,
   AiConversation,
+  AiConversationReplay,
+  AiConversationSnapshot,
   AiConversationVisibility,
   AiMessage,
   AiMessagePart,
@@ -30,6 +32,7 @@ import type {
   AiStatus,
   AiRunTraceResponse,
   AiRunTraceTreeResponse,
+  AiTimelineEvent,
   GenerateRecipeDraftPayload,
   GenerateRecipeDraftResponse,
 } from './types';
@@ -245,6 +248,7 @@ export type AssistantAudioTraceEvent = {
 };
 type AiChatStreamHandlers = {
   signal?: AbortSignal;
+  onTimelineEvent?: (event: AiTimelineEvent) => void;
   onProgress?: (event: AiRunEvent | { type: string; internal_code: string; user_message: string; status: AiRunEvent['status'] }) => void;
   onMessageDelta?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }) => void;
   onMessagePart?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart }) => void;
@@ -285,18 +289,40 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
   let finalResponse: AiChatResponse | null = null;
   const consumeBlock = (block: string) => {
     const lines = block.split('\n');
+    const idLine = lines.find((line) => line.startsWith('id:'));
+    const eventId = idLine ? idLine.slice(3).trim() : '';
     const eventLine = lines.find((line) => line.startsWith('event:'));
     const dataLines = lines.filter((line) => line.startsWith('data:'));
     if (!eventLine || dataLines.length === 0) return;
     const event = eventLine.slice(6).trim();
     const dataText = dataLines.map((line) => line.replace(/^data: ?/, '')).join('\n');
     const data = JSON.parse(dataText) as unknown;
+    const record = isRecord(data) ? data : null;
+    const timelinePayload = record?.timeline_event ?? (event === 'timeline' ? data : null);
+    let canonicalTimelineEventReceived = false;
+    if (timelinePayload && isRecord(timelinePayload)) {
+      const timelineEvent = {
+        ...timelinePayload,
+        event_id: typeof timelinePayload.event_id === 'string' && timelinePayload.event_id
+          ? timelinePayload.event_id
+          : eventId,
+        is_terminal: Boolean(timelinePayload.is_terminal),
+      } as AiTimelineEvent;
+      if (timelineEvent.event_id && typeof timelineEvent.sequence === 'number') {
+        canonicalTimelineEventReceived = true;
+        handlers.onTimelineEvent?.(timelineEvent);
+      }
+    }
     if (event === 'progress') {
       handlers.onProgress?.(data as AiRunEvent);
     } else if (event === 'message_part') {
-      handlers.onMessagePart?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart });
+      if (!canonicalTimelineEventReceived) {
+        handlers.onMessagePart?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart });
+      }
     } else if (event === 'message_delta') {
-      handlers.onMessageDelta?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string });
+      if (!canonicalTimelineEventReceived) {
+        handlers.onMessageDelta?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string });
+      }
     } else if (event === 'response') {
       finalResponse = data as AiChatResponse;
       handlers.onResponse?.(finalResponse);
@@ -394,7 +420,11 @@ export const aiApi = {
       method: 'POST',
     }),
   getAiMessages: (conversationId: string) =>
-    aiRequest<AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
+    aiRequest<AiConversationSnapshot | AiMessage[]>(`/api/ai/conversations/${conversationId}/messages?format=timeline`),
+  getAiConversationEvents: (conversationId: string, afterSequence = 0) =>
+    aiRequest<AiConversationReplay>(
+      `/api/ai/conversations/${conversationId}/events?after_sequence=${encodeURIComponent(String(Math.max(0, afterSequence)))}`,
+    ),
   recordAiRecommendationSelection: (
     messageId: string,
     payload: { part_id: string; card_id: string; entity_id: string; food_plan_item_id: string },

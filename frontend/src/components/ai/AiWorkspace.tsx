@@ -8,6 +8,7 @@ import type {
   AiChatAttachment,
   AiChatResponse,
   AiConversation,
+  AiConversationSnapshot,
   AiConversationVisibility,
   AiInventoryCardAction,
   AiInventoryResultItem,
@@ -17,6 +18,7 @@ import type {
   AiResultCard,
   AiRunEvent,
   AiTodayRecommendationItem,
+  AiTimelineEvent,
   CreateFoodPlanItemPayload,
   FoodPlanItem,
   UserSummary,
@@ -68,6 +70,13 @@ import { useAiConversationStreams } from './useAiConversationStreams';
 import { useAiThinkingState } from './useAiThinkingState';
 import { useAiRunCancellation } from '../../hooks/useAiRunCancellation';
 import { aiThreadAutoScrollKey, latestUserMessageScrollKey, useAiThreadAutoScroll } from './useAiThreadAutoScroll';
+import {
+  applyAiTimelineEvent,
+  createAiTimelineState,
+  mergeAiTimelineReplay,
+  selectAiTimelineMessages,
+  type AiTimelineState,
+} from './aiTimelineReducer';
 
 const LazyAiDebugEntry = lazy(loadAiDebug);
 type AiWorkspaceProps = {
@@ -209,6 +218,9 @@ export function AiWorkspace({
   const moveAttachmentScope = attachmentState.moveScope;
   const clearAttachmentScope = attachmentState.clearScope;
   const [localMessagesByConversationKey, setLocalMessagesByConversationKey] = useState<Record<string, AiMessage[]>>({});
+  const [timelineByConversationId, setTimelineByConversationId] = useState<Record<string, AiTimelineState>>({});
+  const timelineByConversationRef = useRef<Record<string, AiTimelineState>>({});
+  const replayingTimelineConversationRef = useRef<Set<string>>(new Set());
   const [runEventsById, setRunEventsById] = useState<Record<string, AiRunEvent[]>>({});
   const [recommendationPlanRequest, setRecommendationPlanRequest] = useState<AiRecommendationPlanRequest | null>(null);
   const [planFeedback, setPlanFeedback] = useState('');
@@ -396,6 +408,13 @@ export function AiWorkspace({
       delete next[conversationId];
       return next;
     });
+    setTimelineByConversationId((current) => {
+      if (!(conversationId in current)) return current;
+      const next = { ...current };
+      delete next[conversationId];
+      delete timelineByConversationRef.current[conversationId];
+      return next;
+    });
     clearComposerScope(conversationId);
     clearAttachmentScope(conversationId);
     setActiveStreamRunIdsByConversationKey((current) => {
@@ -465,6 +484,35 @@ export function AiWorkspace({
     enabled: Boolean(activeConversationId),
     refetchInterval: shouldRefreshActiveConversation ? 1200 : false,
   });
+  const remoteSnapshotMessages = useMemo<AiMessage[]>(() => {
+    const data = messagesQuery.data;
+    return Array.isArray(data) ? data : data?.messages ?? [];
+  }, [messagesQuery.data]);
+  const remoteSnapshotSequence = useMemo(() => {
+    const data = messagesQuery.data;
+    if (!data || Array.isArray(data)) {
+      return Math.max(0, ...remoteSnapshotMessages.map((message) => Number(message.snapshot_sequence ?? 0)));
+    }
+    return Number(data.snapshot_sequence || 0);
+  }, [messagesQuery.data, remoteSnapshotMessages]);
+  useEffect(() => {
+    if (!activeConversationId || messagesQuery.isError || !messagesQuery.data) return;
+    const incoming = createAiTimelineState(
+      Array.isArray(messagesQuery.data)
+        ? messagesQuery.data
+        : { ...messagesQuery.data, snapshot_sequence: remoteSnapshotSequence },
+      activeConversationId,
+    );
+    const previous = timelineByConversationRef.current[activeConversationId];
+    // A polling response can legitimately lag behind a live SSE event. Never
+    // replace a newer canonical state with that stale snapshot.
+    if (previous && incoming.lastSequence < previous.lastSequence) return;
+    timelineByConversationRef.current = {
+      ...timelineByConversationRef.current,
+      [activeConversationId]: incoming,
+    };
+    setTimelineByConversationId((current) => ({ ...current, [activeConversationId]: incoming }));
+  }, [activeConversationId, messagesQuery.data, messagesQuery.isError, remoteSnapshotSequence]);
   const aiStatusQuery = useQuery({
     queryKey: queryKeys.aiStatus(familyId),
     queryFn: api.getAiStatus,
@@ -494,7 +542,19 @@ export function AiWorkspace({
     }
   }, [activeConversationId, pendingApprovalsQuery.error, pendingApprovalsQuery.isError]);
   const messages = useMemo(() => {
-    const remote = messagesQuery.data ?? [];
+    const canonical = activeConversationId
+      ? timelineByConversationId[activeConversationId]
+      : activeConversationKey
+        ? timelineByConversationId[activeConversationKey]
+        : undefined;
+    const canonicalReady = Boolean(
+      canonical
+      && (
+        canonical.lastSequence > 0
+        || selectAiTimelineMessages(canonical).some((message) => Number(message.timeline_position ?? 0) > 0)
+      ),
+    );
+    const remote = canonicalReady ? selectAiTimelineMessages(canonical as AiTimelineState) : remoteSnapshotMessages;
     if (activeLocalMessages.length === 0) return remote;
     const localById = new Map(activeLocalMessages.map((item) => [item.id, item]));
     const localAssistantByRunId = new Map(
@@ -514,6 +574,7 @@ export function AiWorkspace({
         const localByRunId = item.role === 'assistant' && item.run_id ? localAssistantByRunId.get(item.run_id) : undefined;
         const matchingLocal = localById.get(item.id) ?? localByRunId;
         if (!matchingLocal) return item;
+        if (canonicalReady) return item;
         if (item.role === 'assistant' && item.run_id) {
           return mergeRemoteAndLocalMessage(item, matchingLocal);
         }
@@ -526,15 +587,31 @@ export function AiWorkspace({
         return true;
       }),
     ];
-  }, [activeLocalMessages, messagesQuery.data]);
+  }, [activeConversationId, activeLocalMessages, remoteSnapshotMessages, timelineByConversationId]);
   const settledApprovalIds = useMemo(() => collectSettledApprovalIds(messages), [messages]);
   const effectivePendingApprovals = useMemo(
     () => (pendingApprovalsQuery.data ?? []).filter((approval) => approval.status === 'pending' && !settledApprovalIds.has(approval.id)),
     [pendingApprovalsQuery.data, settledApprovalIds],
   );
   const displayedMessages = useMemo(() => {
-    const merged = mergePendingApprovalsIntoMessages(messages, effectivePendingApprovals);
+    const canonicalState = activeConversationId
+      ? timelineByConversationId[activeConversationId]
+      : activeConversationKey
+        ? timelineByConversationId[activeConversationKey]
+        : undefined;
+    const hasCanonicalTimeline = Boolean(
+      canonicalState
+      && (
+        canonicalState.lastSequence > 0
+        || selectAiTimelineMessages(canonicalState).some((message) => Number(message.timeline_position ?? 0) > 0)
+      ),
+    );
+    const merged = hasCanonicalTimeline
+      ? messages
+      : mergePendingApprovalsIntoMessages(messages, effectivePendingApprovals);
     if (
+      !hasCanonicalTimeline
+      &&
       activeConversationId &&
       serverActiveRunId &&
       isActiveConversationServerRunning &&
@@ -549,7 +626,7 @@ export function AiWorkspace({
       ];
     }
     return merged;
-  }, [activeConversationId, effectivePendingApprovals, isActiveConversationServerRunning, messages, serverActiveRunId]);
+  }, [activeConversationId, effectivePendingApprovals, isActiveConversationServerRunning, messages, serverActiveRunId, timelineByConversationId]);
   const hasPendingApproval = useMemo(() => {
     if (effectivePendingApprovals.length > 0) return true;
     return displayedMessages.some((message) => message.parts.some((part) => part.approval?.status === 'pending'));
@@ -639,7 +716,7 @@ export function AiWorkspace({
     }));
   }, []);
   useEffect(() => {
-    const remoteMessages = messagesQuery.data ?? [];
+    const remoteMessages = remoteSnapshotMessages;
     const missingRunIds = Array.from(
       new Set(
         remoteMessages
@@ -675,7 +752,7 @@ export function AiWorkspace({
     return () => {
       isCancelled = true;
     };
-  }, [activeStreamRunId, messagesQuery.data, runEventsById]);
+  }, [activeStreamRunId, remoteSnapshotMessages, runEventsById]);
   function updateLocalMessages(conversationKey: string, updater: (items: AiMessage[]) => AiMessage[]) {
     setLocalMessagesByConversationKey((current) => ({
       ...current,
@@ -703,7 +780,67 @@ export function AiWorkspace({
       };
     });
   }
+  function commitTimelineState(conversationId: string, state: AiTimelineState) {
+    timelineByConversationRef.current = {
+      ...timelineByConversationRef.current,
+      [conversationId]: state,
+    };
+    setTimelineByConversationId((current) => ({ ...current, [conversationId]: state }));
+  }
+  function timelineSeedForConversation(conversationId: string): AiMessage[] {
+    const cached = queryClient.getQueryData<AiConversationSnapshot | AiMessage[]>(queryKeys.aiMessages(conversationId));
+    if (Array.isArray(cached)) return cached;
+    if (cached && typeof cached === 'object' && Array.isArray(cached.messages)) return cached.messages;
+    return localMessagesByConversationKey[conversationId] ?? [];
+  }
+  function applyTimelineEvent(nextEvent: AiTimelineEvent, sourceConversationKey?: string) {
+    const conversationId = nextEvent.conversation_id;
+    let state = timelineByConversationRef.current[conversationId];
+    if (!state) {
+      state = createAiTimelineState(timelineSeedForConversation(conversationId), conversationId);
+      commitTimelineState(conversationId, state);
+    }
+    const result = applyAiTimelineEvent(state, nextEvent);
+    if (!result.needsReplay) {
+      commitTimelineState(conversationId, result.state);
+      if (sourceConversationKey && sourceConversationKey !== conversationId && isPendingConversationKey(sourceConversationKey)) {
+        commitTimelineState(sourceConversationKey, result.state);
+      }
+      return;
+    }
+    const gap = result.state.gap;
+    if (!gap || replayingTimelineConversationRef.current.has(conversationId)) return;
+    replayingTimelineConversationRef.current.add(conversationId);
+    void api.getAiConversationEvents(conversationId, state.lastSequence).then((replay) => {
+      const current = timelineByConversationRef.current[conversationId] ?? state;
+      const replayed = mergeAiTimelineReplay(current, replay);
+      const applied = applyAiTimelineEvent(replayed, nextEvent);
+      commitTimelineState(conversationId, applied.state);
+      if (sourceConversationKey && sourceConversationKey !== conversationId && isPendingConversationKey(sourceConversationKey)) {
+        commitTimelineState(sourceConversationKey, applied.state);
+      }
+      if (applied.needsReplay) {
+        void messagesQuery.refetch();
+      }
+    }).catch(() => {
+      void messagesQuery.refetch();
+    }).finally(() => {
+      replayingTimelineConversationRef.current.delete(conversationId);
+    });
+  }
   function ensureStreamingAssistantMessage(runId: string, conversationKey: string) {
+    // Canonical streams publish the assistant message.created anchor before
+    // progress events.  Once that anchor is present, a local assistant row is
+    // not just redundant: it creates a second identity that can briefly win
+    // during a render before the next snapshot arrives.  Keep the legacy
+    // placeholder only for older/non-canonical fixtures that have no anchor.
+    const canonicalState = timelineByConversationRef.current[conversationKey]
+      ?? timelineByConversationRef.current[streamConversationTargetRef.current[runId] ?? ''];
+    if (canonicalState?.messagesById && Object.values(canonicalState.messagesById).some(
+      (message) => message.role === 'assistant' && message.run_id === runId,
+    )) {
+      return;
+    }
     const messageId = `local-assistant-${runId}`;
     updateStreamLocalMessages(conversationKey, runId, undefined, (items, targetConversationKey) => {
       if (items.some((item) => item.id === messageId || item.run_id === runId)) return items;
@@ -722,6 +859,14 @@ export function AiWorkspace({
   function applyChatResponse(response: AiChatResponse, conversationKey: string, runId: string) {
     stopThinking(runId);
     stopThinking(response.run.id);
+    // The response carries the same canonical event log used by history and
+    // replay. Apply it first so the final render cannot append the assistant
+    // message after unrelated local items.
+    if (response.timeline_events?.length) {
+      [...response.timeline_events]
+        .sort((a, b) => a.sequence - b.sequence)
+        .forEach((event) => applyTimelineEvent(event));
+    }
     const finalStreamEvents = (streamProgressRef.current[runId] ?? []).map((event) => normalizeStreamEventForFinalRun(event, response));
     const responseEventIds = new Set(response.events.map((event) => event.id));
     const mergedEvents = [...finalStreamEvents.filter((event) => !responseEventIds.has(event.id)), ...response.events];
@@ -731,6 +876,7 @@ export function AiWorkspace({
       ? { ...includedMessage, id: targetMessageId, run_id: response.run.id }
       : includedMessage;
     const mergeWithLocalStreamParts = (localMessage: AiMessage | undefined): AiMessage => {
+      if (response.timeline_events?.length) return messageWithIncludedApprovals;
       if (!localMessage?.parts.length) return messageWithIncludedApprovals;
       const merged = mergeRemoteAndLocalMessage(messageWithIncludedApprovals, localMessage, { preferLocalOrder: true });
       return {
@@ -748,10 +894,15 @@ export function AiWorkspace({
       const currentItems = current[conversationKey] ?? [];
       const localStreamMessage = currentItems.find((item) => item.id === messageWithIncludedApprovals.id || item.id === response.message.id || item.run_id === response.run.id);
       const appendOnlyMessage = mergeWithLocalStreamParts(localStreamMessage);
-      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(response.conversation_id), (items = []) => [
-        ...items.filter((item) => item.id !== messageWithIncludedApprovals.id && item.id !== response.message.id && item.run_id !== response.run.id),
-        appendOnlyMessage,
-      ]);
+      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(response.conversation_id), (items = []) => {
+        const next = [
+          ...items.filter((item) => item.id !== messageWithIncludedApprovals.id && item.id !== response.message.id && item.run_id !== response.run.id),
+          appendOnlyMessage,
+        ];
+        return next.some((item) => Number(item.timeline_position ?? 0) > 0)
+          ? next.sort((a, b) => Number(a.timeline_position ?? 0) - Number(b.timeline_position ?? 0))
+          : next;
+      });
       const movedItems = [
         ...currentItems
           .filter((item) => item.id !== appendOnlyMessage.id && item.id !== response.message.id && item.run_id !== response.run.id)
@@ -974,9 +1125,11 @@ export function AiWorkspace({
   function markStreamingAssistantStopped(runId: string | null, text = '已取消这次任务。') {
     if (!runId) return;
     stopThinking(runId);
+    let markedExisting = false;
     const markItems = (items: AiMessage[]) =>
       items.map((item) => {
         if (item.run_id !== runId && item.id !== `local-assistant-${runId}`) return item;
+        markedExisting = true;
         if (hasSuccessfulOperationResult(item)) {
           if (item.status === 'failed' || item.status === 'cancelled') {
             return { ...item, status: 'completed' };
@@ -994,7 +1147,14 @@ export function AiWorkspace({
             : [{ id: `local-cancel-part-${runId}`, type: 'text' as const, text: nextText }, ...item.parts],
         };
       });
-    setLocalMessagesByConversationKey((current) => Object.fromEntries(Object.entries(current).map(([key, items]) => [key, markItems(items)])));
+    setLocalMessagesByConversationKey((current) => {
+      const next = Object.fromEntries(Object.entries(current).map(([key, items]) => [key, markItems(items)]));
+      if (markedExisting) return next;
+      const targetKey = streamConversationTargetRef.current[runId] ?? activeConversationKey;
+      if (!targetKey) return next;
+      const failure = markItems([createLocalAssistantMessage(runId, targetKey)])[0];
+      return { ...next, [targetKey]: [...(next[targetKey] ?? []), failure] };
+    });
     const conversationIds = new Set([activeConversationId, ...conversations.map((conversation) => conversation.id), ...Object.keys(localMessagesByConversationKey).filter((key) => !isPendingConversationKey(key))].filter((id): id is string => Boolean(id)));
     for (const conversationId of conversationIds) {
       queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => markItems(items));
@@ -1069,6 +1229,7 @@ export function AiWorkspace({
     submittingHumanInputRequestIds,
     submittingHumanInputByRequestId,
   } = useAiConversationStreams({
+    onTimelineEvent: applyTimelineEvent,
     activeStreamRunIdsByConversationKey,
     chatAbortByRunIdRef,
     streamMessageTargetRef,
@@ -1360,6 +1521,9 @@ export function AiWorkspace({
       client_message_id: clientMessageId,
       created_at: new Date().toISOString(),
     };
+    // Keep an optimistic row only until the server's canonical message.created
+    // event arrives. Canonical timeline rendering filters this row by run_id,
+    // so it can never become a second persisted message or affect ordering.
     const assistantMessage = createLocalAssistantMessage(clientRunId, conversationKey);
     updateLocalMessages(conversationKey, (items) => [...items, tempMessage, assistantMessage]);
     streamProgressRef.current = { ...streamProgressRef.current, [clientRunId]: [] };

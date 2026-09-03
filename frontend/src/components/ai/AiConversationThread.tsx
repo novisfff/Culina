@@ -290,86 +290,34 @@ type MessageTimelineItem =
   | { key: string; type: 'text'; text: string }
   | { key: string; type: 'part'; part: AiMessage['parts'][number] };
 
-function isOperationResultPart(part: AiMessage['parts'][number]) {
-  return part.type === 'result_card' && part.card?.type === 'operation_result';
-}
-
-function movePostApprovalTextAfterOperationResult(
-  timeline: MessageTimelineItem[],
-  parts: AiMessage['parts'],
-) {
-  if (!parts.some(isOperationResultPart)) return timeline;
-
-  let hasSettledApproval = false;
-  const postApprovalTextKeys = new Set<string>();
-  parts.forEach((part) => {
-    if (part.type === 'approval_request' && part.approval && !isPendingApprovalPart(part)) {
-      hasSettledApproval = true;
-      return;
-    }
-    if (part.type !== 'text' || !hasSettledApproval) return;
-    const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
-    textSegments.forEach((_text, segmentIndex) => {
-      postApprovalTextKeys.add(`text:${part.id}:${segmentIndex}`);
+function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[] = []): MessageTimelineItem[] {
+  // Message parts are already the materialized canonical timeline. Render
+  // them in exactly that order. In particular, never infer an anchor for
+  // approval/result cards from status or timestamps, and never inject run
+  // events from a second source into the user-visible message stream.
+  const activityStateByCollapseKey = new Map<string, { event: AiRunEvent; partIndex: number }>();
+  parts.forEach((part, partIndex) => {
+    if (part.type !== 'run_activity' || !part.activity) return;
+    const collapseKey = runActivityCollapseKey(part.activity);
+    if (!collapseKey) return;
+    const existing = activityStateByCollapseKey.get(collapseKey);
+    activityStateByCollapseKey.set(collapseKey, {
+      event: existing ? preferredRunActivityEvent(existing.event, part.activity) : part.activity,
+      partIndex,
     });
   });
-  if (postApprovalTextKeys.size === 0) return timeline;
-
-  const movedText = timeline.filter((item) => postApprovalTextKeys.has(item.key));
-  if (movedText.length === 0) return timeline;
-  const remaining = timeline.filter((item) => !postApprovalTextKeys.has(item.key));
-  let lastOperationResultIndex = -1;
-  remaining.forEach((item, index) => {
-    if (item.type === 'part' && isOperationResultPart(item.part)) lastOperationResultIndex = index;
-  });
-  if (lastOperationResultIndex < 0) return timeline;
-  return [
-    ...remaining.slice(0, lastOperationResultIndex + 1),
-    ...movedText,
-    ...remaining.slice(lastOperationResultIndex + 1),
-  ];
-}
-
-function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[]): MessageTimelineItem[] {
-  if (parts.some((part) => part.type === 'run_activity' && part.activity)) {
-    const activityStateByCollapseKey = new Map<string, { event: AiRunEvent; partIndex: number }>();
-    parts.forEach((part, partIndex) => {
-      if (part.type !== 'run_activity' || !part.activity) return;
+  const durableItems = parts.flatMap((part, partIndex): MessageTimelineItem[] => {
+    if (part.type === 'run_activity' && part.activity) {
       const collapseKey = runActivityCollapseKey(part.activity);
-      if (collapseKey) {
-        const existing = activityStateByCollapseKey.get(collapseKey);
-        activityStateByCollapseKey.set(collapseKey, {
-          event: existing ? preferredRunActivityEvent(existing.event, part.activity) : part.activity,
-          partIndex,
-        });
-      }
-    });
-    const timeline = parts.flatMap((part, partIndex): MessageTimelineItem[] => {
-      if (part.type === 'run_activity' && part.activity) {
-        const collapseKey = runActivityCollapseKey(part.activity);
-        const activityState = collapseKey ? activityStateByCollapseKey.get(collapseKey) : undefined;
-        if (activityState && activityState.partIndex !== partIndex) return [];
-        const activity = activityState?.event ?? part.activity;
-        return [{
-          key: `activity-part:${part.id || partIndex}`,
-          type: 'activity',
-          entry: { key: part.activity.id || part.id || `activity-${partIndex}`, event: activity, sequence: partIndex + 1 },
-        }];
-      }
-      if (part.type === 'text') {
-        const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
-        return textSegments.map((text, segmentIndex) => ({
-          key: `text:${part.id}:${segmentIndex}`,
-          type: 'text',
-          text,
-        }));
-      }
-      return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
-    });
-    return movePostApprovalTextAfterOperationResult(timeline, parts);
-  }
-  const collapsedRunEventEntries = collapseRunActivityEntries(runEventEntries);
-  const durablePartTimeline = parts.flatMap((part, partIndex): MessageTimelineItem[] => {
+      const activityState = collapseKey ? activityStateByCollapseKey.get(collapseKey) : undefined;
+      if (activityState && activityState.partIndex !== partIndex) return [];
+      const activity = activityState?.event ?? part.activity;
+      return [{
+        key: `activity-part:${part.id || partIndex}`,
+        type: 'activity',
+        entry: { key: part.activity.id || part.id || `activity-${partIndex}`, event: activity, sequence: partIndex + 1 },
+      }];
+    }
     if (part.type === 'text') {
       const textSegments = (part.text ?? '').split(/\n\n+/).map((segment) => segment.trim()).filter(Boolean);
       return textSegments.map((text, segmentIndex) => ({
@@ -378,37 +326,50 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
         text,
       }));
     }
-    return [{
-      key: `part:${part.id || partIndex}`,
-      type: 'part',
-      part,
-    }];
+    return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
   });
+  // Legacy messages may predate durable run_activity parts. Keep their
+  // progress visible as an observational footer, but never use it as an
+  // anchor for cards or text; canonical parts remain the sole ordering fact.
+  if (parts.some((part) => part.type === 'run_activity' && part.activity) || runEventEntries.length === 0) {
+    return durableItems;
+  }
+  const activityItems = collapseRunActivityEntries(runEventEntries).map((entry) => ({
+      key: `activity:${entry.key}`,
+      type: 'activity' as const,
+      entry,
+    }));
+  const firstOutputIndex = durableItems.findIndex((item) => item.type === 'part');
+  return firstOutputIndex < 0
+    ? [...durableItems, ...activityItems]
+    : [...durableItems.slice(0, firstOutputIndex), ...activityItems, ...durableItems.slice(firstOutputIndex)];
+}
 
-  // Run events are stored separately from message parts for older messages.
-  // The durable parts array is still the only source that knows where cards
-  // belong, so never rebuild it into "all text, then all cards". Insert the
-  // supplementary activity rows immediately before the first durable output
-  // card. A completed human-input part is already part of the preceding
-  // interaction and stays in place; a pending request remains the next output
-  // boundary, so its activity rows stay before the request as they did live.
-  const firstOutputPartIndex = durablePartTimeline.findIndex((item) => (
-    item.type === 'part'
-    && item.part.type !== 'text'
-    && !(item.part.type === 'human_input_request' && !isPendingHumanInputPart(item.part))
-  ));
-  const activityItems = collapsedRunEventEntries.map((entry) => ({
-    key: `activity:${entry.key}`,
-    type: 'activity' as const,
-    entry,
-  }));
-  const insertionIndex = firstOutputPartIndex >= 0 ? firstOutputPartIndex : durablePartTimeline.length;
-  const timeline = [
-    ...durablePartTimeline.slice(0, insertionIndex),
-    ...activityItems,
-    ...durablePartTimeline.slice(insertionIndex),
-  ];
-  return movePostApprovalTextAfterOperationResult(timeline, parts);
+function restoreLegacyApprovalResultOrder(
+  timeline: MessageTimelineItem[],
+  parts: AiMessage['parts'],
+) {
+  // Pre-protocol rows have no sequence metadata. Preserve their historical
+  // presentation for compatibility, while every sequenced message is already
+  // rendered strictly from the canonical part order above.
+  if (parts.some((part) => part.type === 'run_activity' && part.activity)) return timeline;
+  let approvalSettled = false;
+  const textKeys = new Set<string>();
+  parts.forEach((part) => {
+    if (part.type === 'approval_request' && part.approval && !isPendingApprovalPart(part)) {
+      approvalSettled = true;
+      return;
+    }
+    if (approvalSettled && part.type === 'text') {
+      (part.text ?? '').split(/\n\n+/).forEach((_segment, index) => textKeys.add(`text:${part.id}:${index}`));
+    }
+  });
+  if (textKeys.size === 0) return timeline;
+  const moved = timeline.filter((item) => textKeys.has(item.key));
+  const remaining = timeline.filter((item) => !textKeys.has(item.key));
+  const resultIndex = remaining.findIndex((item) => item.type === 'part' && item.part.type === 'result_card' && item.part.card?.type === 'operation_result');
+  if (resultIndex < 0 || moved.length === 0) return timeline;
+  return [...remaining.slice(0, resultIndex + 1), ...moved, ...remaining.slice(resultIndex + 1)];
 }
 
 export { HumanInputRequestPanel };
@@ -489,8 +450,16 @@ export function MessageBubble({
     !isUser
     && !hasSpecificProgressCue
     && isThinking;
-  const runEventEntries = !isUser ? toRunEventEntries(runEvents) : [];
-  const timelineItems = createMessageTimelineItems(displayParts, runEventEntries);
+  // Sequenced messages already carry run activity as canonical parts.  A
+  // separately fetched AIRunEvent list is allowed only for pre-protocol rows;
+  // injecting it into a canonical message would reintroduce a second ordering
+  // source and could move activity ahead of a result/text part.
+  const runEventEntries = !isUser && !message.timeline_position && !message.snapshot_sequence
+    ? toRunEventEntries(runEvents)
+    : [];
+  const timelineItems = (!message.timeline_position && !message.snapshot_sequence)
+    ? restoreLegacyApprovalResultOrder(createMessageTimelineItems(displayParts, runEventEntries), displayParts)
+    : createMessageTimelineItems(displayParts, runEventEntries);
   const firstPendingApprovalId = displayParts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
   const fallbackCode = isUser ? null : modelUsageFallbackCodeFromMessageMetadata(message.metadata);
 

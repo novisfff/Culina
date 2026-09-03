@@ -8,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.models.domain import AIMessage, AIOperation, AITaskDraft
+from app.services.ai_timeline import AITimelineService
 from app.services.ai_auto_execution.policy_types import (
     AICacheScope,
     AIOperationResultProjection,
@@ -277,36 +278,53 @@ def upsert_message_operation_result(
     message = db.get(AIMessage, message_id)
     if message is None:
         return {}
+    del approval_id
     encoded_card = jsonable_encoder(card)
-    parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-    existing_index = next(
+    existing_part = next(
         (
-            index
-            for index, part in enumerate(parts)
-            if _part_draft_id(part) == projection.draft_id
+            part
+            for part in (message.parts or [])
+            if isinstance(part, dict) and _part_draft_id(part) == projection.draft_id
         ),
         None,
     )
-    if existing_index is None:
-        result_part = {
-            "id": f"operation-result-part:{projection.draft_id}",
-            "type": "result_card",
-            "card": encoded_card,
-        }
-        approval_index = _matching_approval_index(parts, approval_id=approval_id)
-        if approval_index is None:
-            parts.append(result_part)
-        else:
-            parts.insert(approval_index + 1, result_part)
+    result_part = {
+        "id": (
+            str(existing_part.get("id") or "")
+            if existing_part is not None
+            else f"operation-result-part:{projection.draft_id}"
+        ),
+        "type": "result_card",
+        "card": encoded_card,
+    }
+    timeline = AITimelineService(db)
+    if existing_part is None:
+        mutation = timeline.append_part(
+            family_id=message.family_id,
+            conversation_id=message.conversation_id,
+            message_id=message.id,
+            run_id=message.run_id,
+            part=result_part,
+            created_by=message.created_by,
+            allow_after_terminal=True,
+        )
     else:
-        result_part = {
-            **parts[existing_index],
-            "type": "result_card",
-            "card": encoded_card,
-        }
-        parts[existing_index] = result_part
-    message.parts = parts
-    _upsert_message_artifacts(message, artifacts=artifacts)
+        mutation = timeline.replace_part(
+            family_id=message.family_id,
+            conversation_id=message.conversation_id,
+            message_id=message.id,
+            run_id=message.run_id,
+            part_id=result_part["id"],
+            part=result_part,
+            created_by=message.created_by,
+            allow_after_terminal=True,
+        )
+    message = mutation.message or message
+    _upsert_message_artifacts(
+        db,
+        message=message,
+        artifacts=artifacts,
+    )
     return result_part
 
 
@@ -355,29 +373,44 @@ def _matching_approval_index(
 
 
 def _upsert_message_artifacts(
-    message: AIMessage,
+    db: Session,
     *,
+    message: AIMessage,
     artifacts: tuple[dict[str, Any], ...],
 ) -> None:
-    metadata = copy.deepcopy(message.message_metadata or {})
-    existing = [item for item in metadata.get("artifacts") or [] if isinstance(item, dict)]
-    positions = {
-        str(item.get("id") or ""): index
-        for index, item in enumerate(existing)
-        if str(item.get("id") or "")
-    }
-    for artifact in artifacts:
-        artifact_id = str(artifact.get("id") or "")
-        if not artifact_id:
-            continue
-        encoded = jsonable_encoder(artifact)
-        if artifact_id in positions:
-            existing[positions[artifact_id]] = encoded
-        else:
-            positions[artifact_id] = len(existing)
-            existing.append(encoded)
-    metadata["artifacts"] = existing
-    message.message_metadata = metadata
+    encoded_artifacts = [jsonable_encoder(artifact) for artifact in artifacts if isinstance(artifact, dict)]
+    if not encoded_artifacts:
+        return
+
+    def merge_artifacts(metadata: dict[str, Any]) -> dict[str, Any]:
+        next_metadata = copy.deepcopy(metadata)
+        existing = [item for item in next_metadata.get("artifacts") or [] if isinstance(item, dict)]
+        positions = {
+            str(item.get("id") or ""): index
+            for index, item in enumerate(existing)
+            if str(item.get("id") or "")
+        }
+        for artifact in encoded_artifacts:
+            artifact_id = str(artifact.get("id") or "")
+            if not artifact_id:
+                continue
+            if artifact_id in positions:
+                existing[positions[artifact_id]] = artifact
+            else:
+                positions[artifact_id] = len(existing)
+                existing.append(artifact)
+        next_metadata["artifacts"] = existing
+        return next_metadata
+
+    AITimelineService(db).update_message_metadata(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        updater=merge_artifacts,
+        created_by=message.created_by,
+        allow_after_terminal=True,
+    )
 
 
 def hydrate_operation_result_server_now(

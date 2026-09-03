@@ -41,6 +41,7 @@ from app.ai.workflows.orchestrator.profiles import (
 )
 from app.ai.workflows.orchestrator import tools as orchestrator_tools
 from app.schemas.ai import AIResultCardDTO
+from app.services.ai_timeline import AITimelineService
 
 
 def _tool_names(tools) -> list[str]:
@@ -5174,6 +5175,21 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                 db.add_all([conversation, user_message, run])
                 db.commit()
 
+                assistant_message = AITimelineService(db).create_message(
+                    family_id=self.family.id,
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content="",
+                    content_type="parts",
+                    parts=[],
+                    run_id=run.id,
+                    status="running",
+                    metadata={},
+                    created_by=self.user.id,
+                ).message
+                assert assistant_message is not None
+                db.commit()
+
                 runner = WorkspaceGraphRunner(AIApplicationService(db, provider=FakeChatProvider()))
                 next_node = runner._route_after_orchestrator(
                     {
@@ -5187,6 +5203,7 @@ class AIFoundationTestCase(AIAgentInfraTestCase):
                         "user_id": self.user.id,
                         "conversation_id": conversation.id,
                         "run_id": run.id,
+                        "assistant_message_id": assistant_message.id,
                         "status": "running",
                         "agent_rounds": MAX_AGENT_ROUNDS,
                         "error": None,

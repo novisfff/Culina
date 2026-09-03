@@ -50,7 +50,14 @@ def build_planner_conversation(
                 AIMessage.family_id == family_id,
                 AIMessage.conversation_id == conversation_id,
             )
-            .order_by(AIMessage.created_at.desc())
+            # The canonical conversation sequence is the only ordering fact
+            # for new messages.  Keep created_at only as a bounded fallback
+            # for pre-protocol rows whose position is zero.
+            .order_by(
+                AIMessage.timeline_position.desc(),
+                AIMessage.created_at.desc(),
+                AIMessage.id.desc(),
+            )
             .limit(limit)
         )
     )
@@ -92,7 +99,14 @@ def build_planner_conversation(
                 drafts_by_message[draft.message_id] = []
             drafts_by_message[draft.message_id].append(draft)
     timeline: list[dict[str, Any]] = []
-    for message in sorted(recent, key=lambda item: (item.created_at.timestamp(), item.id)):
+    for message in sorted(
+        recent,
+        key=lambda item: (
+            (int(item.timeline_position) if int(item.timeline_position or 0) > 0 else 0),
+            item.created_at.timestamp(),
+            item.id,
+        ),
+    ):
         metadata = dict(message.message_metadata or {})
         if quick_task and message.role == "user" and message is recent[0]:
             metadata["quickTask"] = quick_task

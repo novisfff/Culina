@@ -79,6 +79,7 @@ export function useAiApprovalStream(context: StreamMutationContext) {
     try {
       void api.streamAiApprovalDecision(conversationKey, approvalId, decisionPayload, {
         signal: controller.signal,
+        onTimelineEvent: (event) => context.onTimelineEvent?.(event, conversationKey),
         onProgress: (event) => {
           const nextEvent = buildStreamProgressEvent(event, runId, 'approval-stream');
           if (!context.streamMessageTargetRef.current[nextEvent.run_id]) {

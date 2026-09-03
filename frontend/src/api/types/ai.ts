@@ -523,6 +523,46 @@ export interface AiMessage {
   metadata: Record<string, unknown>;
   client_message_id?: string | null;
   created_at: string;
+  /** Sequence of the canonical message.created event in the conversation timeline. */
+  timeline_position?: number;
+  /** Sequence of the last event materialized into this message snapshot. */
+  snapshot_sequence?: number;
+}
+
+export type AiTimelineEventType =
+  | 'message.created'
+  | 'message.metadata'
+  | 'message.status'
+  | 'part.appended'
+  | 'part.delta'
+  | 'part.replaced'
+  | 'run.terminal'
+  | (string & {});
+
+export interface AiTimelineEvent {
+  event_id: string;
+  conversation_id: string;
+  run_id?: string | null;
+  message_id?: string | null;
+  sequence: number;
+  event_type: AiTimelineEventType;
+  operation: string;
+  part_id?: string | null;
+  payload: Record<string, unknown>;
+  is_terminal?: boolean;
+}
+
+export interface AiConversationSnapshot {
+  conversation_id: string;
+  snapshot_sequence: number;
+  messages: AiMessage[];
+}
+
+export interface AiConversationReplay {
+  conversation_id: string;
+  from_sequence: number;
+  to_sequence: number;
+  events: AiTimelineEvent[];
 }
 
 export interface AiModelUsageFallback {
@@ -769,6 +809,8 @@ export interface AiChatResponse {
   message: AiMessage;
   run: AiRun;
   events: AiRunEvent[];
+  snapshot_sequence?: number;
+  timeline_events?: AiTimelineEvent[];
   included: {
     result_cards: AiResultCard[];
     drafts: AiTaskDraft[];

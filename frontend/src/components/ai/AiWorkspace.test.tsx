@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiApi } from '../../api/aiApi';
 import { api, ApiError } from '../../api/client';
-import type { AiChatResponse, AiMessage, AiResultCard, AiRunCancellationResponse, AiRunEvent } from '../../api/types';
+import type { AiChatResponse, AiMessage, AiResultCard, AiRunCancellationResponse, AiRunEvent, AiTimelineEvent } from '../../api/types';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
 import { AiWorkspace } from './AiWorkspace';
 import { approval, conversation, qualityMetrics } from './aiWorkspaceTestFixtures';
@@ -2520,6 +2520,73 @@ describe('AiWorkspace pending approval restore', () => {
     expect(settledActivityText).toContain('已生成「餐食计划确认表单」');
     expect(desktopView.textContent).not.toContain('正在准备待确认草稿');
     expect(desktopView.querySelector('.ai-run-activity-detail')).toBeNull();
+    rendered.unmount();
+  });
+
+  it('keeps canonical events for a newly-created conversation instead of falling back to local append order', async () => {
+    vi.spyOn(api, 'getAiMessages').mockResolvedValue([]);
+    vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
+    vi.spyOn(api, 'streamChatAi').mockImplementation(async (payload, handlers) => {
+      const conversationId = 'conversation-new';
+      const runId = payload.client_run_id ?? 'run-new';
+      const userMessage: AiMessage = {
+        id: 'message-user-new',
+        conversation_id: conversationId,
+        role: 'user',
+        content: '生成计划',
+        content_type: 'text',
+        parts: [],
+        status: 'completed',
+        metadata: {},
+        client_message_id: payload.client_message_id,
+        created_at: '2026-09-03T00:00:00Z',
+        timeline_position: 1,
+        snapshot_sequence: 1,
+      };
+      const assistantMessage: AiMessage = {
+        id: 'message-assistant-new',
+        conversation_id: conversationId,
+        role: 'assistant',
+        content: '',
+        content_type: 'parts',
+        parts: [],
+        run_id: runId,
+        status: 'running',
+        metadata: {},
+        created_at: '2026-09-03T00:00:00Z',
+        timeline_position: 2,
+        snapshot_sequence: 2,
+      };
+      const events: AiTimelineEvent[] = [
+        { event_id: 'event-new-user', conversation_id: conversationId, run_id: null, message_id: userMessage.id, sequence: 1, event_type: 'message.created', operation: 'append', payload: { message: userMessage } },
+        { event_id: 'event-new-assistant', conversation_id: conversationId, run_id: runId, message_id: assistantMessage.id, sequence: 2, event_type: 'message.created', operation: 'append', payload: { message: assistantMessage } },
+        { event_id: 'event-new-before', conversation_id: conversationId, run_id: runId, message_id: assistantMessage.id, sequence: 3, event_type: 'part.appended', operation: 'append', part_id: 'text-before', payload: { part: { id: 'text-before', type: 'text', text: 'before' } } },
+        { event_id: 'event-new-card', conversation_id: conversationId, run_id: runId, message_id: assistantMessage.id, sequence: 4, event_type: 'part.appended', operation: 'append', part_id: 'card', payload: { part: { id: 'card', type: 'result_card', card: { id: 'card-new', type: 'inventory_summary', title: 'result', data: { queryFocus: 'overview', availableCount: 0, expiringCount: 0, expiredCount: 0, lowStockCount: 0, foodStockCount: 0, items: [] } } } } },
+        { event_id: 'event-new-after', conversation_id: conversationId, run_id: runId, message_id: assistantMessage.id, sequence: 5, event_type: 'part.appended', operation: 'append', part_id: 'text-after', payload: { part: { id: 'text-after', type: 'text', text: 'after' } } },
+        { event_id: 'event-new-terminal', conversation_id: conversationId, run_id: runId, message_id: assistantMessage.id, sequence: 6, event_type: 'run.terminal', operation: 'terminal', is_terminal: true, payload: { status: 'completed', message: { ...assistantMessage, status: 'completed', content: 'before\\n\\nafter', content_type: 'parts', parts: [{ id: 'text-before', type: 'text', text: 'before' }, { id: 'card', type: 'result_card', card: { id: 'card-new', type: 'inventory_summary', title: 'result', data: { queryFocus: 'overview', availableCount: 0, expiringCount: 0, expiredCount: 0, lowStockCount: 0, items: [] } } }, { id: 'text-after', type: 'text', text: 'after' }] } } },
+      ];
+      events.forEach((event) => handlers?.onTimelineEvent?.(event));
+      return {
+        conversation_id: conversationId,
+        message: { ...assistantMessage, status: 'completed', content: 'before\\n\\nafter', content_type: 'parts', parts: events[2]!.payload.part && events[3]!.payload.part && events[4]!.payload.part ? [events[2]!.payload.part, events[3]!.payload.part, events[4]!.payload.part] as AiMessage['parts'] : [] },
+        run: { id: runId, agent_key: 'workspace_orchestrator', intent: 'general_chat', status: 'completed', model: 'fake', created_at: '2026-09-03T00:00:00Z' },
+        events: [],
+        timeline_events: events,
+        included: { result_cards: [], drafts: [], approvals: [] },
+      };
+    });
+    const rendered = await renderWithQuery(<AiWorkspace conversations={[]} isLoading={false} />);
+    await flushAsync();
+    changeInput(rendered.container.querySelector<HTMLTextAreaElement>('textarea.text-input') as HTMLTextAreaElement, '生成计划');
+    await act(async () => {
+      rendered.container.querySelector<HTMLFormElement>('form.ai-composer')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flushAsync();
+
+    const body = rendered.container.querySelector('.ai-desktop-view .ai-message-assistant .ai-message-body') as HTMLElement;
+    expect(body.textContent?.indexOf('before')).toBeLessThan(body.textContent?.indexOf('result'));
+    expect(body.textContent?.indexOf('result')).toBeLessThan(body.textContent?.indexOf('after'));
+    expect(rendered.container.querySelectorAll('.ai-desktop-view .ai-message-assistant')).toHaveLength(1);
     rendered.unmount();
   });
 

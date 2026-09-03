@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { isApiError } from '../../api/client';
-import type { AiChatResponse, AiMessagePart, AiRunEvent } from '../../api/types/ai';
+import type { AiChatResponse, AiMessagePart, AiRunEvent, AiTimelineEvent } from '../../api/types/ai';
 
 export type StreamProgressEvent = {
   id?: unknown;
@@ -13,6 +13,7 @@ export type StreamProgressEvent = {
 };
 
 export type StreamMutationContext = {
+  onTimelineEvent?: (event: AiTimelineEvent, conversationKey?: string) => void;
   activeStreamRunIdsByConversationKey: Record<string, string>;
   chatAbortByRunIdRef: MutableRefObject<Record<string, AbortController>>;
   streamMessageTargetRef: MutableRefObject<Record<string, string>>;
