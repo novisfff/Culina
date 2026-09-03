@@ -9,7 +9,7 @@ import type {
   AiMessage,
   AiResultCard,
 } from '../../api/types';
-import { updateAiConversationSnapshot } from './aiMessageCache';
+import { updateAiConversationSnapshot } from './aiWorkspaceHelpers';
 
 type InventoryDraftRequest = {
   item: AiInventoryResultItem;

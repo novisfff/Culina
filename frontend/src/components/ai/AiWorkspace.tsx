@@ -60,6 +60,7 @@ import {
   isSuccessfulOperationResultCard,
   preferredRunActivityEvent,
   runActivityCollapseKey,
+  updateAiConversationSnapshot,
 } from './aiWorkspaceHelpers';
 import { useAiConversationLiveSync } from './useAiConversationLiveSync';
 import { useAiAttachmentState } from './useAiAttachmentState';
@@ -77,7 +78,6 @@ import {
   selectAiTimelineMessages,
   type AiTimelineState,
 } from './aiTimelineReducer';
-import { updateAiConversationSnapshot } from './aiMessageCache';
 
 const LazyAiDebugEntry = lazy(loadAiDebug);
 type AiWorkspaceProps = {
