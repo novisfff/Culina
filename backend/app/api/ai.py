@@ -506,16 +506,15 @@ def stream_chat_ai(
 
 @router.get(
     "/api/ai/conversations/{conversation_id}/messages",
-    response_model=AIConversationSnapshotDTO | list[AIMessageDTO],
+    response_model=AIConversationSnapshotDTO,
 )
 def list_ai_messages(
     conversation_id: str,
     response: Response,
-    format: str = Query("legacy"),
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
     capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
-) -> list[dict]:
+) -> dict:
     user, membership = auth
     try:
         require_ai_conversation_access(
@@ -547,18 +546,15 @@ def list_ai_messages(
         )
         for item in serialized_messages
     ]
-    if format == "timeline":
-        snapshot = AITimelineService(db).snapshot(
-            family_id=membership.family_id,
-            conversation_id=conversation_id,
-        )
-        payload = {
-            "conversation_id": snapshot.conversation_id,
-            "snapshot_sequence": snapshot.snapshot_sequence,
-            "messages": projected_messages,
-        }
-    else:
-        payload = projected_messages
+    snapshot = AITimelineService(db).snapshot(
+        family_id=membership.family_id,
+        conversation_id=conversation_id,
+    )
+    payload = {
+        "conversation_id": snapshot.conversation_id,
+        "snapshot_sequence": snapshot.snapshot_sequence,
+        "messages": projected_messages,
+    }
     return rehydrate_media_access(
         db,
         family_id=membership.family_id,

@@ -900,7 +900,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
                 messages_response = self.client.get(f"/api/ai/conversations/{conversation.id}/messages")
                 self.assertEqual(messages_response.status_code, 200, messages_response.text)
-                live_messages = messages_response.json()
+                live_messages = messages_response.json()["messages"]
                 assistant_messages = [message for message in live_messages if message["role"] == "assistant"]
                 self.assertEqual(len(assistant_messages), 1)
                 self.assertEqual(assistant_messages[0]["content"], "第一段")
@@ -940,7 +940,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                     self.assertEqual(visible_events[-1].sequence, conversation.timeline_version)
                 messages_response = self.client.get(f"/api/ai/conversations/{conversation.id}/messages")
                 self.assertEqual(messages_response.status_code, 200, messages_response.text)
-                final_messages = messages_response.json()
+                final_messages = messages_response.json()["messages"]
                 assistant_messages = [message for message in final_messages if message["role"] == "assistant"]
                 self.assertEqual(len(assistant_messages), 1)
                 self.assertEqual(assistant_messages[0]["content"], "第一段第二段")
@@ -1086,7 +1086,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             try:
                 response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
                 self.assertEqual(response.status_code, 200, response.text)
-                assistant_message = next(message for message in response.json() if message["id"] == message_id)
+                assistant_message = next(message for message in response.json()["messages"] if message["id"] == message_id)
                 part_types = [part["type"] for part in assistant_message["parts"]]
                 self.assertIn("approval_request", part_types)
             finally:
@@ -1195,7 +1195,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             try:
                 response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
                 self.assertEqual(response.status_code, 200, response.text)
-                assistant_message = next(message for message in response.json() if message["id"] == message_id)
+                assistant_message = next(message for message in response.json()["messages"] if message["id"] == message_id)
                 part_ids = [part["id"] for part in assistant_message["parts"]]
                 self.assertLess(part_ids.index("approval-part-overlay"), part_ids.index("operation-result-part-overlay"))
                 self.assertEqual(part_ids.count("operation-result-part-overlay"), 1)
@@ -1240,7 +1240,7 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
 
             response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
             self.assertEqual(response.status_code, 200, response.text)
-            assistant_message = next(message for message in response.json() if message["id"] == message_id)
+            assistant_message = next(message for message in response.json()["messages"] if message["id"] == message_id)
             self.assertEqual(assistant_message["status"], "completed")
             self.assertEqual([part["id"] for part in assistant_message["parts"]], ["text-completed"])
 

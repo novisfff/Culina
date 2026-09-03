@@ -4,9 +4,12 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
+from datetime import timedelta
 
 from app.core.enums import AiMode
+from app.core.utils import utcnow
 from app.ai.workflows.runner_support.timeline_reducer import TimelineIntegrityError
+from app.ai.workflows.timeline import build_planner_conversation
 from app.db.base import Base
 from app.models.domain import AIAgentRun, AIConversation, AIConversationEvent, AIMessage, Family
 from app.services.ai_timeline import AITimelineService
@@ -104,6 +107,47 @@ def test_service_assigns_contiguous_sequences_and_replays_in_order() -> None:
         snapshot = service.snapshot(family_id="family-service", conversation_id="conversation-service")
         assert snapshot.snapshot_sequence == 3
         assert snapshot.messages[0]["parts"][0]["text"] == "前置"
+    finally:
+        db.close()
+
+
+def test_planner_does_not_fallback_to_created_at_for_message_order() -> None:
+    db = make_db()
+    try:
+        now = utcnow()
+        db.add_all([
+            AIMessage(
+                id="message-order-a",
+                family_id="family-service",
+                conversation_id="conversation-service",
+                role="user",
+                content="A",
+                content_type="text",
+                parts=[],
+                status="completed",
+                created_at=now + timedelta(seconds=2),
+            ),
+            AIMessage(
+                id="message-order-b",
+                family_id="family-service",
+                conversation_id="conversation-service",
+                role="assistant",
+                content="B",
+                content_type="text",
+                parts=[],
+                status="completed",
+                created_at=now,
+            ),
+        ])
+        db.commit()
+
+        timeline = build_planner_conversation(
+            db,
+            family_id="family-service",
+            conversation_id="conversation-service",
+        )
+
+        assert [item["id"] for item in timeline] == ["message-order-a", "message-order-b"]
     finally:
         db.close()
 

@@ -1813,7 +1813,17 @@ describe('AiWorkspace pending approval restore', () => {
         role: 'assistant',
         content: '已安排好晚餐。',
         content_type: 'parts',
-        parts: [{ id: 'text-1', type: 'text', text: '已安排好晚餐。' }],
+        parts: [
+          { id: 'progress-skill-part', type: 'run_activity', activity: {
+            id: 'progress-skill', run_id: 'run-1', type: 'skill', internal_code: 'meal_plan.start',
+            user_message: '调用「餐食计划」技能', status: 'completed', created_at: '2026-05-30T00:00:00Z',
+          } },
+          { id: 'progress-tool-part', type: 'run_activity', activity: {
+            id: 'progress-tool', run_id: 'run-1', type: 'tool', internal_code: 'inventory.read_available_items',
+            user_message: '调用「可用库存」', status: 'completed', created_at: '2026-05-30T00:00:01Z',
+          } },
+          { id: 'text-1', type: 'text', text: '已安排好晚餐。' },
+        ],
         run_id: 'run-1',
         status: 'completed',
         metadata: {},

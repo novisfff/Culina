@@ -191,12 +191,12 @@ describe('MessageBubble operation result replacement', () => {
           content_type: 'parts',
           parts: [
             { id: 'approval-order', type: 'approval_request', approval: resolvedApproval },
+            { id: 'operation-result-order', type: 'result_card', card: operationCard },
             {
               id: 'text-operation-summary',
               type: 'text',
               text: '已按你的确认，将选中的“板栗烧鸡”（家庭厨房、自制家常菜）加入收藏。',
             },
-            { id: 'operation-result-order', type: 'result_card', card: operationCard },
           ],
           run_id: 'run-operation-result-order',
           status: 'completed',
@@ -711,6 +711,34 @@ describe('MessageBubble human input rendering', () => {
 });
 
 describe('MessageBubble run activity rendering', () => {
+  it('does not derive visible activity from an unsequenced run-event stream', async () => {
+    const rendered = await renderWithQuery(
+      <MessageBubble
+        message={{
+          ...operationMessage(),
+          id: 'message-unsequenced',
+          run_id: 'run-unsequenced',
+          content: '已完成处理。',
+          parts: [{ id: 'text-unsequenced', type: 'text', text: '已完成处理。' }],
+        }}
+        user={testUser}
+        runEvents={[{
+          id: 'legacy-run-event',
+          run_id: 'run-unsequenced',
+          type: 'tool',
+          internal_code: 'legacy.lookup',
+          user_message: '旧事件不应进入消息正文',
+          status: 'completed',
+          created_at: '2026-08-24T15:29:59+08:00',
+        }]}
+        onApprovalDecision={() => undefined}
+      />,
+    );
+
+    expect(rendered.container.querySelector('.ai-run-activity')).toBeNull();
+    rendered.unmount();
+  });
+
   it('keeps persisted cards in their durable order when historical run events hydrate', async () => {
     const rendered = await renderWithQuery(
       <MessageBubble
@@ -721,20 +749,15 @@ describe('MessageBubble run activity rendering', () => {
           content: '先说明结果。\n\n结果之后还有补充。',
           parts: [
             { id: 'history-text-before', type: 'text', text: '先说明结果。' },
+            { id: 'history-activity', type: 'run_activity', activity: {
+              id: 'history-tool', run_id: 'run-history-order', type: 'tool', internal_code: 'food_profile.lookup',
+              user_message: '调用「食物资料」', status: 'completed', created_at: '2026-08-24T15:29:59+08:00',
+            } },
             operationMessage().parts[0],
             { id: 'history-text-after', type: 'text', text: '结果之后还有补充。' },
           ],
         }}
         user={testUser}
-        runEvents={[{
-          id: 'history-tool',
-          run_id: 'run-history-order',
-          type: 'tool',
-          internal_code: 'food_profile.lookup',
-          user_message: '调用「食物资料」',
-          status: 'completed',
-          created_at: '2026-08-24T15:29:59+08:00',
-        }]}
         onApprovalDecision={() => undefined}
       />,
     );
@@ -767,14 +790,13 @@ describe('MessageBubble run activity rendering', () => {
           role: 'assistant',
           content: '',
           content_type: 'parts',
-          parts: [],
+          parts: [{ id: 'cancel-activity', type: 'run_activity', activity: cancelledEvent }],
           run_id: 'run-user-cancel',
           status: 'cancelled',
           metadata: {},
           created_at: '2026-07-23T00:00:00Z',
         }}
         user={testUser}
-        runEvents={[cancelledEvent]}
         onApprovalDecision={() => undefined}
       />,
     );
@@ -951,10 +973,11 @@ describe('MessageBubble run activity rendering', () => {
     expect(activityRows.map((row) => row.textContent)).toEqual(['自动处理已完成', '已完成：调用「可用库存」']);
     expect(rendered.container.textContent).not.toContain('执行完成');
 
-    await rendered.rerender(renderMessage(
-      [{ id: 'dedup-text', type: 'text', text: '我会先检查菜谱草稿。' }],
-      [scriptRunning, scriptCompleted, toolRunning, toolCompleted],
-    ));
+    await rendered.rerender(renderMessage([
+      { id: 'dedup-text', type: 'text', text: '我会先检查菜谱草稿。' },
+      { id: 'script-completed-part', type: 'run_activity', activity: scriptCompleted },
+      { id: 'tool-completed-part', type: 'run_activity', activity: toolCompleted },
+    ]));
     await flushAsync();
     activityRows = Array.from(rendered.container.querySelectorAll<HTMLElement>('.ai-run-activity-summary .ai-run-activity-row'));
     expect(activityRows.map((row) => row.textContent)).toEqual(['自动处理已完成', '已完成：调用「可用库存」']);

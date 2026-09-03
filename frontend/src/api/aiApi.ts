@@ -248,6 +248,9 @@ export type AssistantAudioTraceEvent = {
 };
 type AiChatStreamHandlers = {
   signal?: AbortSignal;
+  // Ephemeral cooking-assistant streams do not persist a conversation
+  // timeline and intentionally use their own message callbacks.
+  acceptUnsequencedMessageEvents?: boolean;
   onTimelineEvent?: (event: AiTimelineEvent) => void;
   onProgress?: (event: AiRunEvent | { type: string; internal_code: string; user_message: string; status: AiRunEvent['status'] }) => void;
   onMessageDelta?: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }) => void;
@@ -299,7 +302,6 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
     const data = JSON.parse(dataText) as unknown;
     const record = isRecord(data) ? data : null;
     const timelinePayload = record?.timeline_event ?? (event === 'timeline' ? data : null);
-    let canonicalTimelineEventReceived = false;
     if (timelinePayload && isRecord(timelinePayload)) {
       const timelineEvent = {
         ...timelinePayload,
@@ -309,20 +311,15 @@ async function streamAiResponse(url: string, payload: unknown, handlers: AiChatS
         is_terminal: Boolean(timelinePayload.is_terminal),
       } as AiTimelineEvent;
       if (timelineEvent.event_id && typeof timelineEvent.sequence === 'number') {
-        canonicalTimelineEventReceived = true;
         handlers.onTimelineEvent?.(timelineEvent);
       }
     }
     if (event === 'progress') {
       handlers.onProgress?.(data as AiRunEvent);
-    } else if (event === 'message_part') {
-      if (!canonicalTimelineEventReceived) {
-        handlers.onMessagePart?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart });
-      }
-    } else if (event === 'message_delta') {
-      if (!canonicalTimelineEventReceived) {
-        handlers.onMessageDelta?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string });
-      }
+    } else if (event === 'message_part' && handlers.acceptUnsequencedMessageEvents) {
+      handlers.onMessagePart?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart });
+    } else if (event === 'message_delta' && handlers.acceptUnsequencedMessageEvents) {
+      handlers.onMessageDelta?.(data as { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string });
     } else if (event === 'response') {
       finalResponse = data as AiChatResponse;
       handlers.onResponse?.(finalResponse);
@@ -420,7 +417,7 @@ export const aiApi = {
       method: 'POST',
     }),
   getAiMessages: (conversationId: string) =>
-    aiRequest<AiConversationSnapshot | AiMessage[]>(`/api/ai/conversations/${conversationId}/messages?format=timeline`),
+    aiRequest<AiConversationSnapshot | AiMessage[]>(`/api/ai/conversations/${conversationId}/messages`),
   getAiConversationEvents: (conversationId: string, afterSequence = 0) =>
     aiRequest<AiConversationReplay>(
       `/api/ai/conversations/${conversationId}/events?after_sequence=${encodeURIComponent(String(Math.max(0, afterSequence)))}`,

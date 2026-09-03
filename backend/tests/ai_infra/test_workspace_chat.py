@@ -430,7 +430,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
 
             response = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
             self.assertEqual(response.status_code, 200, response.text)
-            self.assertEqual(len(response.json()), 2)
+            self.assertEqual(len(response.json()["messages"]), 2)
 
         def test_ai_workspace_messages_normalize_legacy_inventory_cards(self) -> None:
             with self.SessionLocal() as db:
@@ -494,7 +494,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
             )
 
             self.assertEqual(response.status_code, 200, response.text)
-            card = response.json()[0]["parts"][0]["card"]
+            card = response.json()["messages"][0]["parts"][0]["card"]
             self.assertEqual(card["data"]["queryFocus"], "overview")
             self.assertEqual(card["data"]["expiredCount"], 0)
             self.assertEqual(card["data"]["foodStockCount"], 0)

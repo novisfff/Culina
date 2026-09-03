@@ -602,6 +602,9 @@ describe('ApprovalPanel', () => {
           content: '购物清单里有 4 条“三文鱼”，请问要删除哪一条？',
           content_type: 'parts',
           parts: [
+            { id: 'progress-start-part', type: 'run_activity', activity: { id: 'progress-start', run_id: 'run-waiting', type: 'skill', internal_code: 'shopping_list.start', user_message: '调用「购物清单」技能', status: 'running', created_at: '2026-05-30T00:00:00Z' } },
+            { id: 'progress-tool-waiting-part', type: 'run_activity', activity: { id: 'progress-tool-waiting', run_id: 'run-waiting', type: 'tool', internal_code: 'human.request_input', user_message: '等待用户补充信息', status: 'waiting', created_at: '2026-05-30T00:00:01Z' } },
+            { id: 'progress-skill-waiting-part', type: 'run_activity', activity: { id: 'progress-skill-waiting', run_id: 'run-waiting', type: 'skill', internal_code: 'shopping_list.waiting_clarification', user_message: '购物清单等待补充信息', status: 'waiting', created_at: '2026-05-30T00:00:02Z' } },
             { id: 'part-text', type: 'text', text: '购物清单里有 4 条“三文鱼”，请问要删除哪一条？' },
             {
               id: 'part-card',

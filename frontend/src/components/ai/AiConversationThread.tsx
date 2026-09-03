@@ -90,10 +90,6 @@ type RunActivityEventEntry = {
   sequence: number;
 };
 
-function runEventKey(event: AiRunEvent, index: number) {
-  return event.id || `${event.internal_code}-${event.created_at}-${event.user_message}-${index}`;
-}
-
 const isDraftToolEvent = isDraftRunActivityEvent;
 
 type RunActivityItem = {
@@ -102,11 +98,6 @@ type RunActivityItem = {
   kind: 'skill' | 'tool' | 'draft';
   label: string;
 };
-
-function toRunEventEntries(events: AiRunEvent[]) {
-  return events
-    .map((event, index) => ({ key: runEventKey(event, index), event, sequence: index + 1 }));
-}
 
 function collapseRunActivityEntries(entries: RunActivityEventEntry[]) {
   const collapsedEntries: RunActivityEventEntry[] = [];
@@ -238,16 +229,14 @@ function SkillEventIcon() {
 
 function RunActivityInline({
   entries,
-  events = [],
   isLive,
   includeCompletedSkill = false,
 }: {
   entries?: RunActivityEventEntry[];
-  events?: AiRunEvent[];
   isLive: boolean;
   includeCompletedSkill?: boolean;
 }) {
-  const activityEntries = collapseRunActivityEntries(entries ?? toRunEventEntries(events));
+  const activityEntries = collapseRunActivityEntries(entries ?? []);
   const skillEntries = activityEntries.filter(({ event }) => event.type === 'skill');
   const displayedSkillEntry = includeCompletedSkill && !isLive
     ? skillEntries[skillEntries.length - 1]
@@ -290,7 +279,7 @@ type MessageTimelineItem =
   | { key: string; type: 'text'; text: string }
   | { key: string; type: 'part'; part: AiMessage['parts'][number] };
 
-function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: RunActivityEventEntry[] = []): MessageTimelineItem[] {
+function createMessageTimelineItems(parts: AiMessage['parts']): MessageTimelineItem[] {
   // Message parts are already the materialized canonical timeline. Render
   // them in exactly that order. In particular, never infer an anchor for
   // approval/result cards from status or timestamps, and never inject run
@@ -328,48 +317,7 @@ function createMessageTimelineItems(parts: AiMessage['parts'], runEventEntries: 
     }
     return [{ key: `part:${part.id || partIndex}`, type: 'part', part }];
   });
-  // Legacy messages may predate durable run_activity parts. Keep their
-  // progress visible as an observational footer, but never use it as an
-  // anchor for cards or text; canonical parts remain the sole ordering fact.
-  if (parts.some((part) => part.type === 'run_activity' && part.activity) || runEventEntries.length === 0) {
-    return durableItems;
-  }
-  const activityItems = collapseRunActivityEntries(runEventEntries).map((entry) => ({
-      key: `activity:${entry.key}`,
-      type: 'activity' as const,
-      entry,
-    }));
-  const firstOutputIndex = durableItems.findIndex((item) => item.type === 'part');
-  return firstOutputIndex < 0
-    ? [...durableItems, ...activityItems]
-    : [...durableItems.slice(0, firstOutputIndex), ...activityItems, ...durableItems.slice(firstOutputIndex)];
-}
-
-function restoreLegacyApprovalResultOrder(
-  timeline: MessageTimelineItem[],
-  parts: AiMessage['parts'],
-) {
-  // Pre-protocol rows have no sequence metadata. Preserve their historical
-  // presentation for compatibility, while every sequenced message is already
-  // rendered strictly from the canonical part order above.
-  if (parts.some((part) => part.type === 'run_activity' && part.activity)) return timeline;
-  let approvalSettled = false;
-  const textKeys = new Set<string>();
-  parts.forEach((part) => {
-    if (part.type === 'approval_request' && part.approval && !isPendingApprovalPart(part)) {
-      approvalSettled = true;
-      return;
-    }
-    if (approvalSettled && part.type === 'text') {
-      (part.text ?? '').split(/\n\n+/).forEach((_segment, index) => textKeys.add(`text:${part.id}:${index}`));
-    }
-  });
-  if (textKeys.size === 0) return timeline;
-  const moved = timeline.filter((item) => textKeys.has(item.key));
-  const remaining = timeline.filter((item) => !textKeys.has(item.key));
-  const resultIndex = remaining.findIndex((item) => item.type === 'part' && item.part.type === 'result_card' && item.part.card?.type === 'operation_result');
-  if (resultIndex < 0 || moved.length === 0) return timeline;
-  return [...remaining.slice(0, resultIndex + 1), ...moved, ...remaining.slice(resultIndex + 1)];
+  return durableItems;
 }
 
 export { HumanInputRequestPanel };
@@ -450,16 +398,9 @@ export function MessageBubble({
     !isUser
     && !hasSpecificProgressCue
     && isThinking;
-  // Sequenced messages already carry run activity as canonical parts.  A
-  // separately fetched AIRunEvent list is allowed only for pre-protocol rows;
-  // injecting it into a canonical message would reintroduce a second ordering
-  // source and could move activity ahead of a result/text part.
-  const runEventEntries = !isUser && !message.timeline_position && !message.snapshot_sequence
-    ? toRunEventEntries(runEvents)
-    : [];
-  const timelineItems = (!message.timeline_position && !message.snapshot_sequence)
-    ? restoreLegacyApprovalResultOrder(createMessageTimelineItems(displayParts, runEventEntries), displayParts)
-    : createMessageTimelineItems(displayParts, runEventEntries);
+  // Materialized message parts are the only source for visible order.
+  // AIRunEvent is observability state and is never inserted into the body.
+  const timelineItems = createMessageTimelineItems(displayParts);
   const firstPendingApprovalId = displayParts.find((part) => part.approval?.status === 'pending')?.approval?.id ?? null;
   const fallbackCode = isUser ? null : modelUsageFallbackCodeFromMessageMetadata(message.metadata);
 

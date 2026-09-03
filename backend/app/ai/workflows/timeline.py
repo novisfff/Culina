@@ -50,12 +50,11 @@ def build_planner_conversation(
                 AIMessage.family_id == family_id,
                 AIMessage.conversation_id == conversation_id,
             )
-            # The canonical conversation sequence is the only ordering fact
-            # for new messages.  Keep created_at only as a bounded fallback
-            # for pre-protocol rows whose position is zero.
+            # The canonical conversation sequence is the only ordering fact.
+            # Zero-position rows are invalid for the active protocol and are
+            # kept deterministic by id only until they are removed.
             .order_by(
                 AIMessage.timeline_position.desc(),
-                AIMessage.created_at.desc(),
                 AIMessage.id.desc(),
             )
             .limit(limit)
@@ -103,7 +102,6 @@ def build_planner_conversation(
         recent,
         key=lambda item: (
             (int(item.timeline_position) if int(item.timeline_position or 0) > 0 else 0),
-            item.created_at.timestamp(),
             item.id,
         ),
     ):
