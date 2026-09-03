@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiApi } from '../../api/aiApi';
 import { api, ApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
-import type { AiApprovalRequest, AiChatResponse, AiConversation, AiMessage, AiOperationResultProjection, AiOperationRevertResponse, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversation, AiConversationSnapshot, AiMessage, AiOperationResultProjection, AiOperationRevertResponse, AiResultCard, AiRunEvent, AiTaskDraft } from '../../api/types';
 import { cleanupTestDomAndMocks, flushAsync, renderWithQuery, waitForAsync } from '../../test/renderWithQuery';
 import { AiWorkspace } from './AiWorkspace';
 import { approval, conversation, mealPlanApproval, qualityMetrics } from './aiWorkspaceTestFixtures';
@@ -92,7 +92,7 @@ describe('AiWorkspace live sync and conversation migration', () => {
   it('replaces the matching local and query message part after the revert HTTP response', async () => {
     const initialMessage = operationResultMessage();
     vi.spyOn(api, 'getAiMessages')
-      .mockResolvedValueOnce([initialMessage])
+      .mockResolvedValueOnce({ conversation_id: 'conversation-1', snapshot_sequence: 1, messages: [initialMessage] })
       .mockImplementation(() => new Promise(() => undefined));
     vi.spyOn(api, 'getPendingAiApprovals').mockResolvedValue([]);
     const revertedProjection = operationProjection({
@@ -118,10 +118,10 @@ describe('AiWorkspace live sync and conversation migration', () => {
     });
     await flushAsync();
 
-    const cached = rendered.queryClient.getQueryData<AiMessage[]>(queryKeys.aiMessages('conversation-1'));
-    expect(cached?.[0]?.parts[0]?.card?.data.result_status).toBe('reverted');
+    const cached = rendered.queryClient.getQueryData<AiConversationSnapshot>(queryKeys.aiMessages('conversation-1'));
+    expect(cached?.messages[0]?.parts[0]?.card?.data.result_status).toBe('reverted');
     expect((rendered.container.querySelector('.ai-desktop-view') as HTMLElement).textContent).toContain('已撤销');
-    expect(cached?.[0]?.parts).toHaveLength(1);
+    expect(cached?.messages[0]?.parts).toHaveLength(1);
     rendered.unmount();
   });
 

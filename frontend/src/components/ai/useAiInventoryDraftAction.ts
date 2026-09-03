@@ -3,11 +3,13 @@ import type { Dispatch, SetStateAction } from 'react';
 import { api } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import type {
+  AiConversationSnapshot,
   AiInventoryCardAction,
   AiInventoryResultItem,
   AiMessage,
   AiResultCard,
 } from '../../api/types';
+import { updateAiConversationSnapshot } from './aiWorkspaceHelpers';
 
 type InventoryDraftRequest = {
   item: AiInventoryResultItem;
@@ -39,9 +41,10 @@ export function useAiInventoryDraftAction({
       action: payload.action,
     }),
     onSuccess: async (updatedMessage, payload) => {
-      queryClient.setQueryData<AiMessage[]>(
+      queryClient.setQueryData<AiConversationSnapshot>(
         queryKeys.aiMessages(updatedMessage.conversation_id),
-        (items = []) => items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item)),
+        (snapshot) => updateAiConversationSnapshot(snapshot, (items) =>
+          items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item))),
       );
       setLocalMessages((items) => items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item)));
       await Promise.all([

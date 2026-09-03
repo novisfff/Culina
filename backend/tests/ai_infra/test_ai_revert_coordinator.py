@@ -670,12 +670,10 @@ class AIRevertAPITest(AIRevertCoordinatorTest):
         response_now = NOW + timedelta(seconds=5)
 
         from app.api import ai_auto_execution as api_module
-        from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 
         replay_now = response_now + timedelta(seconds=1)
         with (
             patch.object(api_module, "utcnow", side_effect=[NOW, response_now, NOW, replay_now]),
-            patch.object(live_ai_stream_cache, "append_part", side_effect=AssertionError("no SSE publish")),
         ):
             response = self.client.post(
                 f"/api/ai/operations/{operation.id}/revert",

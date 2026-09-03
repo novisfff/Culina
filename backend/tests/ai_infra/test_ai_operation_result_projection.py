@@ -8,10 +8,15 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import Response
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from ._support import AIAgentInfraTestCase
 
+from app.core.enums import AiMode
 from app.models.domain import AIMessage, Food
+from app.models.domain import AIConversation, Base, Family
 from app.services.ai_auto_execution.policy_types import (
     AIOperationResultProjection,
     DraftExecutionReceipt,
@@ -101,12 +106,46 @@ def _projection(*, status: str = "completed", server_now: datetime = NOW) -> AIO
 
 class _MessageSession:
     def __init__(self, message: AIMessage) -> None:
+        # Result projection now deliberately uses the canonical timeline
+        # service, which must lock and validate the conversation before it can
+        # write a result-card event.  Keep this focused unit fixture backed by
+        # a real SQLite session instead of weakening production code with a
+        # fake-session compatibility path.
+        self.engine = create_engine(
+            "sqlite+pysqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            future=True,
+        )
+        Base.metadata.create_all(self.engine)
+        self.session = sessionmaker(
+            bind=self.engine,
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+            class_=Session,
+        )()
+        family = Family(id=message.family_id, name="结果投影测试家庭", motto="", location="")
+        conversation = AIConversation(
+            id=message.conversation_id,
+            family_id=message.family_id,
+            owner_user_id=None,
+            mode=AiMode.RECOMMENDATION,
+            prompt="结果投影测试",
+            response="",
+            context={},
+            title="结果投影测试",
+            summary="",
+            status="active",
+            created_by=None,
+        )
+        self.session.add_all([family, conversation, message])
+        self.session.commit()
         self.message = message
 
-    def get(self, model, identity):  # noqa: ANN001
-        if model is AIMessage and identity == self.message.id:
-            return self.message
-        return None
+    def __getattr__(self, name: str):  # noqa: ANN001
+        return getattr(self.session, name)
 
 
 class AIOperationResultProjectionTest(unittest.TestCase):
@@ -304,7 +343,7 @@ class AIOperationResultProjectionTest(unittest.TestCase):
         self.assertEqual(len(result_artifacts), 1)
         self.assertEqual(result_artifacts[0]["status"], "reverted")
 
-    def test_new_manual_result_is_inserted_after_matching_approval(self) -> None:
+    def test_new_manual_result_appends_to_the_canonical_timeline(self) -> None:
         module = _result_projection_module()
         message = AIMessage(
             id="message-result-order",
@@ -334,8 +373,8 @@ class AIOperationResultProjectionTest(unittest.TestCase):
         self.assertEqual([part["id"] for part in message.parts], [
             "before",
             "approval-part",
-            "operation-result-part:draft-result-1",
             "after",
+            "operation-result-part:draft-result-1",
         ])
 
     def test_message_rehydration_uses_fresh_response_clock_without_mutating_storage(self) -> None:
@@ -455,14 +494,48 @@ class AIOperationResultProjectionTest(unittest.TestCase):
             return {"id": item.id, "parts": [], "metadata": {}}
 
         class MessageSession:
+            def scalar(self, statement):  # noqa: ANN001
+                del statement
+                return SimpleNamespace(id="conversation-1", timeline_version=0)
+
             def scalars(self, statement):  # noqa: ANN001
                 del statement
-                return [SimpleNamespace(id="message-1"), SimpleNamespace(id="message-2")]
+                return [
+                    SimpleNamespace(
+                        id="message-1",
+                        conversation_id="conversation-1",
+                        role="assistant",
+                        content="",
+                        content_type="parts",
+                        parts=[],
+                        run_id=None,
+                        status="completed",
+                        message_metadata={},
+                        client_message_id=None,
+                        created_at=NOW,
+                        timeline_position=1,
+                        snapshot_sequence=1,
+                    ),
+                    SimpleNamespace(
+                        id="message-2",
+                        conversation_id="conversation-1",
+                        role="assistant",
+                        content="",
+                        content_type="parts",
+                        parts=[],
+                        run_id=None,
+                        status="completed",
+                        message_metadata={},
+                        client_message_id=None,
+                        created_at=NOW,
+                        timeline_position=2,
+                        snapshot_sequence=2,
+                    ),
+                ]
 
         with (
             patch.object(ai_api, "require_ai_conversation_access"),
             patch.object(ai_api, "serialize_ai_message", side_effect=serialize),
-            patch.object(ai_api.live_ai_stream_cache, "overlay_messages", side_effect=lambda **kwargs: kwargs["messages"]),
             patch.object(ai_api, "project_ai_message", side_effect=lambda item, _capabilities: item),
             patch.object(ai_api, "rehydrate_media_access", side_effect=lambda _db, **kwargs: kwargs["payload"]),
             patch.object(ai_api, "set_ai_client_aware_headers"),

@@ -18,6 +18,7 @@ export function useAiChatStream(context: StreamMutationContext) {
     try {
       const response = await api.streamChatAi(requestPayload, {
         signal: controller.signal,
+        onTimelineEvent: (event) => context.onTimelineEvent?.(event, conversationKey),
         onProgress: (event) => {
           const nextEvent = buildStreamProgressEvent(event, payload.client_run_id, 'stream');
           context.ensureStreamingAssistantMessage(nextEvent.run_id, conversationKey);

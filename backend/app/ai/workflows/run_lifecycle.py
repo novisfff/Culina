@@ -35,6 +35,7 @@ from app.services.ai_operations.status import (
     normalize_draft_status,
     operation_status_values,
 )
+from app.services.ai_timeline import AITimelineService
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,9 +238,25 @@ def _apply_retry_result_status(
 ) -> None:
     status = "completed" if succeeded else "failed"
     run.status = status
-    message = db.get(AIMessage, draft.message_id)
-    if message is not None:
-        message.status = status
+    message = db.scalar(
+        select(AIMessage).where(
+            AIMessage.id == draft.message_id,
+            AIMessage.family_id == run.family_id,
+            AIMessage.conversation_id == draft.conversation_id,
+            AIMessage.run_id == run.id,
+            AIMessage.role == "assistant",
+        )
+    )
+    if message is None:
+        raise AIConflictError("待恢复草稿缺少 canonical 助手消息")
+    AITimelineService(db).update_message_status(
+        family_id=run.family_id,
+        conversation_id=draft.conversation_id,
+        message_id=message.id,
+        run_id=run.id,
+        status=status,
+        created_by=run.created_by,
+    )
     conversation = db.get(AIConversation, draft.conversation_id)
     if conversation is not None:
         conversation.last_run_status = status
@@ -257,9 +274,25 @@ def _apply_manual_retry_waiting_status(
     draft: AITaskDraft,
 ) -> None:
     run.status = "waiting_approval"
-    message = db.get(AIMessage, draft.message_id)
-    if message is not None:
-        message.status = "waiting_approval"
+    message = db.scalar(
+        select(AIMessage).where(
+            AIMessage.id == draft.message_id,
+            AIMessage.family_id == run.family_id,
+            AIMessage.conversation_id == draft.conversation_id,
+            AIMessage.run_id == run.id,
+            AIMessage.role == "assistant",
+        )
+    )
+    if message is None:
+        raise AIConflictError("待恢复草稿缺少 canonical 助手消息")
+    AITimelineService(db).update_message_status(
+        family_id=run.family_id,
+        conversation_id=draft.conversation_id,
+        message_id=message.id,
+        run_id=run.id,
+        status="waiting_approval",
+        created_by=run.created_by,
+    )
     conversation = db.get(AIConversation, draft.conversation_id)
     if conversation is not None:
         conversation.last_run_status = "waiting_approval"

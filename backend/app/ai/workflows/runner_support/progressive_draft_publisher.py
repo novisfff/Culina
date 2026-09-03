@@ -14,9 +14,9 @@ from app.ai.workflows.runner_support.message_parts import (
     approval_request_message_part,
     draft_message_part,
 )
-from app.ai.workflows.runner_support.run_status import RUNNING, WAITING_APPROVAL
+from app.ai.workflows.runner_support.run_status import WAITING_APPROVAL
 from app.ai.workflows.state import WorkspaceGraphState
-from app.core.utils import create_id, utcnow
+from app.core.utils import utcnow
 from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -26,6 +26,7 @@ from app.services.ai_operations.run_cancellation import (
 from app.services.ai_operations.routing import DraftRouteRequest, route_draft
 from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
 from app.services.ai_auto_execution.policy_types import DraftRouteOutcome
+from app.services.ai_timeline import AITimelineService
 
 
 class ProgressiveDraftPublisher:
@@ -47,6 +48,7 @@ class ProgressiveDraftPublisher:
         self.optional_stream_writer = optional_stream_writer
         self.persistent_progress_writer = persistent_progress_writer
         self.registered_revert_adapters = registered_revert_adapters
+        self.timeline = AITimelineService(db)
 
     def create_publisher(
         self,
@@ -129,10 +131,17 @@ class ProgressiveDraftPublisher:
                     outcome,
                     published_part_ids=(draft_part["id"], approval_part["id"]),
                 )
-                message.message_metadata = append_progressive_draft_metadata(
-                    dict(message.message_metadata or {}),
-                    draft_id=draft.id,
-                    approval_id=approval.id,
+                self.timeline.update_message_metadata(
+                    family_id=state["family_id"],
+                    conversation_id=state["conversation_id"],
+                    message_id=message.id,
+                    run_id=state["run_id"],
+                    metadata=append_progressive_draft_metadata(
+                        dict(message.message_metadata or {}),
+                        draft_id=draft.id,
+                        approval_id=approval.id,
+                    ),
+                    created_by=state.get("user_id"),
                 )
             else:
                 part_ids = set(outcome.published_part_ids)
@@ -198,33 +207,22 @@ class ProgressiveDraftPublisher:
         )
 
     def _ensure_assistant_message(self, state: WorkspaceGraphState) -> AIMessage:
+        message_id = str(state.get("assistant_message_id") or "").strip()
+        if not message_id:
+            raise RuntimeError("草稿发布缺少 canonical assistant_message_id")
         message = self.db.scalar(
             select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            .where(
+                AIMessage.id == message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
         if message is not None:
             return message
-        message = AIMessage(
-            id=create_id("ai_message"),
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-            role="assistant",
-            content="",
-            content_type="parts",
-            parts=[],
-            run_id=state["run_id"],
-            status=RUNNING,
-            message_metadata={
-                "intent": "workspace_orchestrator",
-                "agentKey": "workspace_orchestrator",
-                "skillKey": None,
-            },
-            created_by=state["user_id"],
-        )
-        self.db.add(message)
-        self.db.flush()
-        return message
+        raise RuntimeError("预创建的 canonical 助手消息不存在")
 
     def mark_waiting_approval_state(self, state: WorkspaceGraphState) -> None:
         run = lock_run_for_transition(
@@ -239,13 +237,16 @@ class ProgressiveDraftPublisher:
         conversation = self.db.get(AIConversation, state["conversation_id"])
         if conversation is not None:
             conversation.last_run_status = WAITING_APPROVAL
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
-        )
-        if message is not None:
-            message.status = WAITING_APPROVAL
+        message = self._ensure_assistant_message(state)
+        if message.status != WAITING_APPROVAL:
+            self.timeline.update_message_status(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                status=WAITING_APPROVAL,
+                created_by=state.get("user_id"),
+            )
         self.db.flush()
 
     def _emit_parts(

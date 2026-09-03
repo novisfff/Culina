@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { isApiError } from '../../api/client';
-import type { AiChatResponse, AiMessagePart, AiRunEvent } from '../../api/types/ai';
+import type { AiChatResponse, AiMessagePart, AiRunEvent, AiTimelineEvent } from '../../api/types/ai';
 
 export type StreamProgressEvent = {
   id?: unknown;
@@ -13,6 +13,7 @@ export type StreamProgressEvent = {
 };
 
 export type StreamMutationContext = {
+  onTimelineEvent?: (event: AiTimelineEvent, conversationKey?: string) => void;
   activeStreamRunIdsByConversationKey: Record<string, string>;
   chatAbortByRunIdRef: MutableRefObject<Record<string, AbortController>>;
   streamMessageTargetRef: MutableRefObject<Record<string, string>>;
@@ -20,9 +21,9 @@ export type StreamMutationContext = {
   setActiveStreamRunIdsByConversationKey: Dispatch<SetStateAction<Record<string, string>>>;
   startThinking: (runId: string | null | undefined) => void;
   stopThinking: (runId: string | null | undefined) => void;
-  ensureStreamingAssistantMessage: (runId: string, conversationKey: string) => void;
   updateThinkingForProgressEvent: (event: AiRunEvent, fallbackRunId?: string | null) => void;
   upsertStreamProgressEvent: (event: AiRunEvent) => void;
+  ensureStreamingAssistantMessage: (runId: string, conversationKey: string) => void;
   applyStreamPart: (event: { message_id?: string; conversation_id?: string; run_id?: string; part: AiMessagePart }, conversationKey: string) => void;
   applyStreamDelta: (event: { message_id?: string; conversation_id?: string; run_id?: string; part_id?: string; delta: string }, conversationKey: string) => void;
   applyChatResponse: (response: AiChatResponse, conversationKey: string, runId: string) => void;

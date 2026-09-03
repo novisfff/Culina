@@ -7,8 +7,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.utils import create_id, utcnow
+from app.core.utils import utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage
+from app.services.ai_timeline import AITimelineService
 
 
 logger = logging.getLogger(__name__)
@@ -71,16 +72,53 @@ def mark_run_auto_execution_blocked(
 
     message = _locked_run_message(db, run=run)
     if message is None:
-        message = _create_blocked_assistant_message(db, run=run)
-    message.parts = _upsert_blocked_result_part(message.parts, run_id=run.id)
-    message.status = "failed"
-    message.content = AUTO_EXECUTION_BLOCKED_MESSAGE
-    message.content_type = "parts"
+        raise LookupError("预创建的 canonical 助手消息不存在")
+    blocked_parts = _upsert_blocked_result_part(message.parts, run_id=run.id)
+    blocked_part_id = next(
+        (
+            str(part.get("id") or "")
+            for part in blocked_parts
+            if isinstance(part, dict)
+            and isinstance(part.get("card"), dict)
+            and part["card"].get("id") == f"auto-execution-blocked-{run.id}"
+        ),
+        "",
+    )
+    if not blocked_part_id:
+        raise LookupError("自动执行阻断结果缺少稳定 part id")
+    blocked_part = next(
+        part for part in blocked_parts if isinstance(part, dict) and str(part.get("id") or "") == blocked_part_id
+    )
+    timeline = AITimelineService(db)
+    timeline.upsert_part(
+        family_id=run.family_id,
+        conversation_id=run.conversation_id,
+        message_id=message.id,
+        run_id=run.id,
+        part=blocked_part,
+        created_by=run.created_by,
+    )
     metadata = dict(message.message_metadata or {})
     metadata.pop("liveStreaming", None)
     metadata.pop("liveTextPartIds", None)
     metadata.pop("livePartIds", None)
-    message.message_metadata = metadata
+    timeline.update_message_metadata(
+        family_id=run.family_id,
+        conversation_id=run.conversation_id,
+        message_id=message.id,
+        run_id=run.id,
+        metadata=metadata,
+        created_by=run.created_by,
+    )
+    timeline.terminal(
+        family_id=run.family_id,
+        conversation_id=run.conversation_id,
+        message_id=message.id,
+        run_id=run.id,
+        status="failed",
+        content=AUTO_EXECUTION_BLOCKED_MESSAGE,
+        created_by=run.created_by,
+    )
     blocked_cards = [
         part["card"]
         for part in message.parts or []
@@ -162,34 +200,9 @@ def _locked_run_message(db: Session, *, run: AIAgentRun) -> AIMessage | None:
             AIMessage.run_id == run.id,
             AIMessage.role == "assistant",
         )
-        .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-
-
-def _create_blocked_assistant_message(db: Session, *, run: AIAgentRun) -> AIMessage:
-    if not run.conversation_id:
-        raise LookupError("AI Run 缺少会话，无法持久化自动执行阻断结果")
-    message = AIMessage(
-        id=create_id("ai_message"),
-        family_id=run.family_id,
-        conversation_id=run.conversation_id,
-        role="assistant",
-        content=AUTO_EXECUTION_BLOCKED_MESSAGE,
-        content_type="parts",
-        parts=[],
-        run_id=run.id,
-        status="failed",
-        message_metadata={
-            "intent": run.intent or "runtime_failed",
-            "agentKey": run.agent_key or "workspace_orchestrator",
-        },
-        created_by=run.created_by,
-    )
-    db.add(message)
-    db.flush()
-    return message
 
 
 def _upsert_blocked_result_part(parts: list[dict[str, Any]] | None, *, run_id: str) -> list[dict[str, Any]]:

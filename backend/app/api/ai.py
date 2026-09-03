@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.db.transactions import commit_session
 from app.models.domain import (
     AIConversation,
+    AIConversationEvent,
     AIMessage,
     AIRunLLMExchange,
     AIRunEvent,
@@ -29,7 +30,10 @@ from app.schemas.ai import (
     AIChatResponse,
     AIConversationOut,
     AIConversationVisibilityRequest,
+    AIConversationReplayDTO,
+    AIConversationSnapshotDTO,
     AIMessageDTO,
+    AITimelineEventDTO,
     AIInventoryQuickDraftRequest,
     AIHumanInputResponseRequest,
     AIQualityMetricsResponse,
@@ -65,7 +69,6 @@ from app.ai.workflows.conversation_access import (
     require_ai_run_access,
 )
 from app.ai.workflows.conversations import find_active_conversation_run
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.orchestrator.profiles import ORCHESTRATOR_PROFILE_REGISTRY, OrchestratorProfile, profile_with_skill_route_hints
 from app.ai.observability.serializers import serialize_ai_run_llm_exchange, serialize_ai_run_trace_span
 from app.services.ai_client_projection import (
@@ -75,9 +78,11 @@ from app.services.ai_client_projection import (
     project_ai_message,
     project_ai_run_event,
     project_ai_sse_event,
+    project_ai_timeline_event,
     require_viewer_contract,
 )
 from app.services.serializers import serialize_ai_conversation, serialize_ai_message, serialize_ai_run_event
+from app.services.ai_timeline import AITimelineService
 from app.services.ai_quality import build_ai_quality_metrics
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
 from app.services.ai_operations.result_projection import hydrate_operation_result_server_now
@@ -396,7 +401,13 @@ def stream_chat_ai(
     user, membership = auth
 
     def encode(event: str, data: dict) -> str:
-        return f"event: {event}\ndata: {json.dumps(jsonable_encoder(data), ensure_ascii=False)}\n\n"
+        encoded = jsonable_encoder(data)
+        event_id = None
+        if isinstance(encoded, dict):
+            nested = encoded.get("timeline_event") if isinstance(encoded.get("timeline_event"), dict) else None
+            event_id = encoded.get("event_id") or (nested or {}).get("event_id")
+        prefix = f"id: {event_id}\n" if isinstance(event_id, str) and event_id else ""
+        return f"{prefix}event: {event}\ndata: {json.dumps(encoded, ensure_ascii=False)}\n\n"
 
     def generate():
         try:
@@ -413,11 +424,10 @@ def stream_chat_ai(
                 attachments=[attachment.model_dump() for attachment in payload.attachments],
                 generation_contracts=capabilities.values,
                 discard_history_on_terminal=not payload.persist_history,
+                emit_timeline_prelude=True,
             ):
                 if event == "response":
                     commit_session(db)
-                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
-                    live_ai_stream_cache.clear_run(run_id)
                 projected_event, projected_data = project_ai_sse_event(
                     event,
                     data,
@@ -494,14 +504,17 @@ def stream_chat_ai(
     )
 
 
-@router.get("/api/ai/conversations/{conversation_id}/messages", response_model=list[AIMessageDTO])
+@router.get(
+    "/api/ai/conversations/{conversation_id}/messages",
+    response_model=AIConversationSnapshotDTO,
+)
 def list_ai_messages(
     conversation_id: str,
     response: Response,
     auth: tuple = Depends(get_current_auth),
     db: Session = Depends(get_db),
     capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
-) -> list[dict]:
+) -> dict:
     user, membership = auth
     try:
         require_ai_conversation_access(
@@ -517,7 +530,7 @@ def list_ai_messages(
         db.scalars(
             select(AIMessage)
             .where(AIMessage.conversation_id == conversation_id, AIMessage.family_id == membership.family_id)
-            .order_by(AIMessage.created_at.asc())
+            .order_by(AIMessage.timeline_position.asc(), AIMessage.id.asc())
         )
     )
     response_now = utcnow()
@@ -525,22 +538,139 @@ def list_ai_messages(
         serialize_ai_message(item, response_now=response_now)
         for item in messages
     ]
-    overlaid = live_ai_stream_cache.overlay_messages(
+    set_ai_client_aware_headers(response)
+    projected_messages = [
+        hydrate_operation_result_server_now(
+            project_ai_message(item, capabilities),
+            response_now,
+        )
+        for item in serialized_messages
+    ]
+    snapshot = AITimelineService(db).snapshot(
         family_id=membership.family_id,
         conversation_id=conversation_id,
-        messages=serialized_messages,
     )
-    set_ai_client_aware_headers(response)
+    payload = {
+        "conversation_id": snapshot.conversation_id,
+        "snapshot_sequence": snapshot.snapshot_sequence,
+        "messages": projected_messages,
+    }
     return rehydrate_media_access(
         db,
         family_id=membership.family_id,
-        payload=[
-            hydrate_operation_result_server_now(
-                project_ai_message(item, capabilities),
-                response_now,
+        payload=payload,
+    )
+
+
+@router.get(
+    "/api/ai/conversations/{conversation_id}/events",
+    response_model=AIConversationReplayDTO,
+)
+def list_ai_timeline_events(
+    conversation_id: str,
+    response: Response,
+    after_sequence: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
+) -> dict:
+    user, membership = auth
+    try:
+        require_ai_conversation_access(
+            db,
+            family_id=membership.family_id,
+            user_id=user.id,
+            conversation_id=conversation_id,
+            capability="view",
+        )
+        events = AITimelineService(db).replay(
+            family_id=membership.family_id,
+            conversation_id=conversation_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    payload = [
+        project_ai_timeline_event(event.to_dict(), capabilities)
+        for event in events
+    ]
+    set_ai_client_aware_headers(response)
+    return {
+        "conversation_id": conversation_id,
+        "from_sequence": payload[0]["sequence"] if payload else after_sequence + 1,
+        "to_sequence": payload[-1]["sequence"] if payload else after_sequence,
+        "events": payload,
+    }
+
+
+@router.get("/api/ai/conversations/{conversation_id}/events/stream")
+def stream_ai_timeline_events(
+    conversation_id: str,
+    after_sequence: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    auth: tuple = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+    capabilities: DraftContractCapabilities = Depends(get_ai_draft_contract_capabilities),
+) -> StreamingResponse:
+    user, membership = auth
+    cursor = max(after_sequence, 0)
+    if last_event_id:
+        try:
+            # Last-Event-ID is an opaque identity; only use it as a cursor when
+            # it resolves to a committed event in this conversation.
+            event_row = db.scalar(
+                select(AIConversationEvent.sequence).where(
+                    AIConversationEvent.id == last_event_id,
+                    AIConversationEvent.family_id == membership.family_id,
+                    AIConversationEvent.conversation_id == conversation_id,
+                )
             )
-            for item in overlaid
-        ],
+            if event_row is not None:
+                cursor = max(cursor, int(event_row))
+        except Exception:
+            # Invalid resume ids simply fall back to the explicit sequence.
+            pass
+
+    def encode(event: dict) -> str:
+        projected = project_ai_timeline_event(event, capabilities)
+        return (
+            f"id: {projected['event_id']}\n"
+            "event: timeline\n"
+            f"data: {json.dumps(jsonable_encoder(projected), ensure_ascii=False)}\n\n"
+        )
+
+    def generate():
+        try:
+            require_ai_conversation_access(
+                db,
+                family_id=membership.family_id,
+                user_id=user.id,
+                conversation_id=conversation_id,
+                capability="view",
+            )
+            events = AITimelineService(db).replay(
+                family_id=membership.family_id,
+                conversation_id=conversation_id,
+                after_sequence=cursor,
+                limit=limit,
+            )
+            for event in events:
+                yield encode(event.to_dict())
+        except LookupError as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc), 'status': 404}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Vary": AI_DRAFT_CONTRACTS_HEADER,
+        },
     )
 
 
@@ -1115,8 +1245,6 @@ def stream_ai_human_input_response(
             ):
                 if event == "response":
                     commit_session(db)
-                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
-                    live_ai_stream_cache.clear_run(run_id)
                 projected_event, projected_data = project_ai_sse_event(
                     event,
                     data,
@@ -1192,8 +1320,6 @@ def stream_ai_approval_decision(
             ):
                 if event == "response":
                     commit_session(db)
-                    run_id = data.get("run", {}).get("id") if isinstance(data.get("run"), dict) else None
-                    live_ai_stream_cache.clear_run(run_id)
                 projected_event, projected_data = project_ai_sse_event(
                     event,
                     data,

@@ -36,6 +36,7 @@ export function useAiHumanInputStream(context: StreamMutationContext) {
     try {
       const response = await api.streamAiHumanInputResponse(conversationKey, requestId, payload.response, {
         signal: controller.signal,
+        onTimelineEvent: (event) => context.onTimelineEvent?.(event, conversationKey),
         onProgress: (event) => {
           const nextEvent = buildStreamProgressEvent(event, runId, 'human-input-stream');
           if (!context.streamMessageTargetRef.current[nextEvent.run_id]) {

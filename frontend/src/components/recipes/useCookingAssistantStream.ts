@@ -322,6 +322,7 @@ export function useCookingAssistantStream({
         persist_history: false,
       }, {
         signal: controller.signal,
+        acceptUnsequencedMessageEvents: true,
         onProgress: (event: AiRunEvent | { user_message?: string }) => handleProgressEvent(event, assistantMessageId),
         onMessageDelta: (event) => appendAssistantDelta(assistantMessageId, event.delta),
         onMessagePart: (event) => handleMessagePart(event.part, assistantMessageId),

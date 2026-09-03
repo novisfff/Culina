@@ -52,6 +52,7 @@ class OrchestratorNode:
                     user_id=state["user_id"],
                     conversation_id=state["conversation_id"],
                     run_id=state["run_id"],
+                    assistant_message_id=state["assistant_message_id"],
                     conversation=execution_context.timeline,
                     current_message=state["message"],
                     subject=state.get("subject") or {},

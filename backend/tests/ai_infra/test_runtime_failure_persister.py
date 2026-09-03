@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.runtime_failure_persister import RuntimeFailurePersister
 from app.ai.workflows.runner_support.stream_bridge import handle_stream_worker_exception
-from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunEvent
+from app.models.domain import AIAgentRun, AIConversation, AIConversationEvent, AIMessage, AIRunEvent
 
 from ._support import *
 
@@ -154,6 +154,15 @@ class RuntimeFailurePersisterTestCase(AIAgentInfraTestCase):
             self.assertNotIn("livePartIds", message.message_metadata or {})
             self.assertEqual(conversation.last_run_status, "completed")
             self.assertNotIn("activeRunId", conversation.context or {})
+            terminal = db.scalar(
+                select(AIConversationEvent).where(
+                    AIConversationEvent.run_id == run_id,
+                    AIConversationEvent.is_terminal.is_(True),
+                )
+            )
+            self.assertIsNotNone(terminal)
+            assert terminal is not None
+            self.assertEqual(terminal.payload.get("status"), "completed")
             self.assertEqual(
                 db.scalar(
                     select(AIRunEvent.id).where(
@@ -195,6 +204,24 @@ class RuntimeFailurePersisterTestCase(AIAgentInfraTestCase):
             self.assertIn("provider disconnected", run.error or "")
             self.assertEqual(message.status, "failed")
             self.assertEqual(conversation.last_run_status, "failed")
+            self.assertEqual(
+                db.scalar(
+                    select(func.count(AIMessage.id)).where(
+                        AIMessage.run_id == run_id,
+                        AIMessage.role == "assistant",
+                    )
+                ),
+                1,
+            )
+            terminal = db.scalar(
+                select(AIConversationEvent).where(
+                    AIConversationEvent.run_id == run_id,
+                    AIConversationEvent.is_terminal.is_(True),
+                )
+            )
+            self.assertIsNotNone(terminal)
+            assert terminal is not None
+            self.assertEqual(terminal.payload.get("status"), "failed")
 
     def test_provider_failed_result_after_approval_keeps_committed_operation_result(self) -> None:
         conversation_id, run_id, message_id = self._seed_message_with_operation_result(
@@ -209,6 +236,7 @@ class RuntimeFailurePersisterTestCase(AIAgentInfraTestCase):
                     "user_id": self.user.id,
                     "conversation_id": conversation_id,
                     "run_id": run_id,
+                    "assistant_message_id": message_id,
                     "message": "收藏番茄小炒",
                     "last_decision": {
                         "approval": {"id": "approval-runtime-failure-provider-result"},
@@ -250,6 +278,7 @@ class RuntimeFailurePersisterTestCase(AIAgentInfraTestCase):
                     "user_id": self.user.id,
                     "conversation_id": conversation_id,
                     "run_id": run_id,
+                    "assistant_message_id": message_id,
                     "message": "删除另一条记录",
                     "last_decision": {
                         "approval": {"id": "approval-for-another-operation"},

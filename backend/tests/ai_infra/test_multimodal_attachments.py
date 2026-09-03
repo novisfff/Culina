@@ -658,7 +658,7 @@ class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
         response = self.client.get("/api/ai/conversations/conversation-media-history/messages")
 
         self.assertEqual(response.status_code, 200, response.text)
-        parts = response.json()[0]["parts"]
+        parts = response.json()["messages"][0]["parts"]
         image_asset = parts[0]["image"]["asset"]
         draft_image = parts[1]["draft"]["payload"]["operations"][0]["image"]
         self.assertNotEqual(image_asset["url"], legacy_url)
@@ -676,7 +676,7 @@ class AIWorkspaceMultimodalAttachmentTestCase(AIAgentInfraTestCase):
 
         deleted_response = self.client.get("/api/ai/conversations/conversation-media-history/messages")
         self.assertEqual(deleted_response.status_code, 200, deleted_response.text)
-        deleted_parts = deleted_response.json()[0]["parts"]
+        deleted_parts = deleted_response.json()["messages"][0]["parts"]
         self.assertFalse(any(part["type"] == "image" for part in deleted_parts))
         self.assertIsNone(deleted_parts[0]["draft"]["payload"]["operations"][0]["image"])
 

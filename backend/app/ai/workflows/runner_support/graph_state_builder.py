@@ -25,6 +25,7 @@ class GraphStateBuilder:
         initial_skill_keys: list[str],
         run_id: str,
         user_message_id: str,
+        assistant_message_id: str,
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         return {
@@ -50,6 +51,7 @@ class GraphStateBuilder:
             "error": None,
             "run_id": run_id,
             "user_message_id": user_message_id,
+            "assistant_message_id": assistant_message_id,
         }
 
     def build_human_input_resume_payload(
@@ -89,4 +91,3 @@ class GraphStateBuilder:
             "userId": user_id,
             "familyId": family_id,
         }
-

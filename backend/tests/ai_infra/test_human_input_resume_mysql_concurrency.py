@@ -27,6 +27,7 @@ from app.models.domain import (
     Membership,
     User,
 )
+from app.services.ai_timeline import AITimelineService
 
 
 FAMILY_ID = "family-human-input-mysql"
@@ -364,13 +365,18 @@ def test_mysql_worker_consumes_claim_and_clears_it(
         prepared = mysql_resume_context.prepare(request_db, stream=True)
 
     with mysql_resume_context.SessionLocal() as worker_db:
-        runner = SimpleNamespace(db=worker_db, _json_record=lambda value: value)
+        runner = SimpleNamespace(
+            db=worker_db,
+            timeline_service=AITimelineService(worker_db),
+            _json_record=lambda value: value,
+        )
         patch = HumanInputResumeHandler(runner).resume(
             state={
                 "family_id": FAMILY_ID,
                 "user_id": USER_ID,
                 "conversation_id": CONVERSATION_ID,
                 "run_id": RUN_ID,
+                "assistant_message_id": "message-human-input-mysql",
             },
             pending=PENDING_INPUT,
             resume=prepared.resume_payload,

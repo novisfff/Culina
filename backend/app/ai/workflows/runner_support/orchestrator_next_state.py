@@ -12,6 +12,7 @@ from app.ai.workflows.runner_support.message_parts import (
     draft_route_status,
 )
 from app.models.domain import AIAgentRun, AIApprovalRequest, AIConversation, AIMessage, AITaskDraft
+from app.services.ai_timeline import AITimelineService
 
 if TYPE_CHECKING:
     from app.ai.workflows.runner import WorkspaceGraphRunner
@@ -237,13 +238,28 @@ class OrchestratorNextStateResolver:
         run = self.runner.db.get(AIAgentRun, state["run_id"])
         if run is not None:
             run.status = "completed"
+        message_id = str(state.get("assistant_message_id") or "").strip()
+        if not message_id:
+            raise RuntimeError("已解决草稿重放缺少 canonical assistant_message_id")
         message = self.runner.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            select(AIMessage).where(
+                AIMessage.id == message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
-        if message is not None:
-            message.status = "completed"
+        if message is None:
+            raise RuntimeError("已解决草稿重放缺少 canonical 助手消息")
+        AITimelineService(self.runner.db).update_message_status(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            message_id=message.id,
+            run_id=state["run_id"],
+            status="completed",
+            created_by=state.get("user_id"),
+        )
         conversation = self.runner.db.get(AIConversation, state["conversation_id"])
         if conversation is not None:
             conversation.last_run_status = "completed"

@@ -316,6 +316,7 @@ class AIRunCancellationTestCase(AIAgentInfraTestCase):
                     "user_id": self.user.id,
                     "conversation_id": conversation.id,
                     "run_id": run.id,
+                    "assistant_message_id": message.id,
                     "message": "安排晚餐",
                     "status": "completed",
                     "error": "stale provider failure",

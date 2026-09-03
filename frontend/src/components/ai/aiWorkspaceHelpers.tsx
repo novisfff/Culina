@@ -1,4 +1,12 @@
-import type { AiApprovalRequest, AiChatResponse, AiMessage, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
+import type { AiApprovalRequest, AiChatResponse, AiConversationSnapshot, AiMessage, AiMessagePart, AiResultCard, AiRunEvent } from '../../api/types';
+
+export function updateAiConversationSnapshot(
+  snapshot: AiConversationSnapshot | undefined,
+  updateMessages: (messages: AiMessage[]) => AiMessage[],
+): AiConversationSnapshot | undefined {
+  if (!snapshot) return snapshot;
+  return { ...snapshot, messages: updateMessages(snapshot.messages) };
+}
 
 /**
  * Operation-result cards are the durable user-facing acknowledgement of an

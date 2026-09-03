@@ -20,7 +20,6 @@ from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
 from app.ai.workflows.conversations import (
     require_conversation,
 )
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner_support.assistant_result_persister import AssistantResultPersister
 from app.ai.workflows.runner_support.approval_resume_handler import ApprovalResumeHandler
 from app.ai.workflows.runner_support.approval_resume_preparer import ApprovalResumePreparer
@@ -39,7 +38,6 @@ from app.ai.workflows.runner_support.graph_run_initializer import GraphRunInitia
 from app.ai.workflows.runner_support.attachments import (
     normalize_chat_attachments,
 )
-from app.ai.workflows.runner_support.message_persistence import sync_message_parts_with_current_approval_state
 from app.ai.workflows.runner_support.message_preparation import message_summary
 from app.ai.workflows.runner_support.orchestrator_node import OrchestratorNode
 from app.ai.workflows.runner_support.progressive_draft_publisher import ProgressiveDraftPublisher
@@ -69,11 +67,12 @@ from app.ai.workflows.runner_support.run_status import (
 )
 from app.ai.workflows.orchestrator.signatures import tool_signature
 from app.ai.workflows.state import WorkspaceGraphState
-from app.core.utils import create_id
+from app.core.utils import create_id, utcnow
 from app.models.domain import (
     AIAgentRun,
     AIApprovalRequest,
     AIConversation,
+    AIConversationEvent,
     AIMessage,
     AIRunEvent,
     AIRunTraceSpan,
@@ -87,6 +86,7 @@ from app.services.ai_operations.run_cancellation import (
 )
 from app.services.ai_operations.conversation_cleanup import purge_ai_conversation_user_data
 from app.services.ai_operations.status import is_operation_completed
+from app.services.ai_timeline import AITimelineService, TimelineMutation
 from app.services.ai_revert.registry import ai_revert_adapter_registry
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.serializers import (
@@ -123,6 +123,7 @@ class WorkspaceGraphRunner:
         self.service = service
         self.db = service.db
         self.provider = service.provider
+        self.timeline_service = AITimelineService(self.db)
         self.skill_registry = build_workspace_skill_registry()
         validate_orchestrator_profile_registry(ORCHESTRATOR_PROFILE_REGISTRY, self.skill_registry)
         self.checkpointer = SQLAlchemyCheckpointSaver(self.db)
@@ -281,6 +282,7 @@ class WorkspaceGraphRunner:
                     initial_skill_keys=initial_skill_keys,
                     run_id=prepared["run_id"],
                     user_message_id=prepared["user_message_id"],
+                    assistant_message_id=prepared["assistant_message_id"],
                     generation_contracts=contracts,
                 ),
                 config=config,
@@ -329,6 +331,7 @@ class WorkspaceGraphRunner:
         attachments: list[dict[str, Any]] | None = None,
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
         discard_history_on_terminal: bool = False,
+        emit_timeline_prelude: bool = False,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         prompt = message.strip()
         normalized_attachments = normalize_chat_attachments(attachments)
@@ -388,6 +391,7 @@ class WorkspaceGraphRunner:
             prepared=prepared,
             generation_contracts=contracts,
             discard_history_on_terminal=discard_history_on_terminal,
+            emit_timeline_prelude=emit_timeline_prelude,
         )
 
     def _stream_prepared_user_message(
@@ -403,6 +407,7 @@ class WorkspaceGraphRunner:
         prepared: dict[str, Any],
         generation_contracts: frozenset[str] | set[str] | list[str] | None = None,
         discard_history_on_terminal: bool = False,
+        emit_timeline_prelude: bool = False,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         conversation_id = str(prepared["conversation_id"])
         config = self._config(conversation_id)
@@ -423,6 +428,35 @@ class WorkspaceGraphRunner:
             len(prompt),
         )
         try:
+            # Publish the canonical message-created events before any streamed
+            # part/delta.  The client timeline reducer must always have a
+            # durable message anchor before applying a visible mutation;
+            # creating a client-only assistant placeholder here would make
+            # reconnects and refreshes invent a second message identity.
+            def before_graph(runner: WorkspaceGraphRunner) -> Iterator[tuple[str, dict[str, Any]]]:
+                if not emit_timeline_prelude:
+                    return
+                message_ids = {
+                    str(prepared.get("user_message_id") or ""),
+                    str(prepared.get("assistant_message_id") or ""),
+                }
+                if not message_ids:
+                    return
+                created_events = list(
+                    runner.db.scalars(
+                        select(AIConversationEvent)
+                        .where(
+                            AIConversationEvent.family_id == family_id,
+                            AIConversationEvent.conversation_id == conversation_id,
+                            AIConversationEvent.message_id.in_(message_ids),
+                            AIConversationEvent.event_type == "message.created",
+                        )
+                        .order_by(AIConversationEvent.sequence.asc())
+                    )
+                )
+                for event in created_events:
+                    yield ("timeline", runner.timeline_service._event_value(event).to_dict())
+
             def graph_stream(runner: WorkspaceGraphRunner) -> Iterator[Any]:
                 return runner.graph.stream(
                     runner.graph_state_builder.build_initial_state(
@@ -439,6 +473,7 @@ class WorkspaceGraphRunner:
                         initial_skill_keys=initial_skill_keys,
                         run_id=run_id,
                         user_message_id=prepared["user_message_id"],
+                        assistant_message_id=prepared["assistant_message_id"],
                         generation_contracts=contracts,
                     ),
                     config=config,
@@ -465,6 +500,7 @@ class WorkspaceGraphRunner:
                 flow="user_message",
                 seen_event_ids=seen_event_ids,
                 on_completed=log_completed,
+                before_graph=before_graph,
                 discard_history_on_terminal=discard_history_on_terminal,
             )
         except GeneratorExit:
@@ -851,8 +887,28 @@ class WorkspaceGraphRunner:
             conversation.context = self._json_record(context)
         message_id = str(approval.get("message_id") or "")
         message = self.db.get(AIMessage, message_id) if message_id else None
-        if message is not None:
-            message.status = next_status
+        if message is not None and next_status not in {CANCELLED}:
+            # Approval decisions are visible mutations too.  Keep the
+            # canonical assistant snapshot and event log in lock-step instead
+            # of changing ``AIMessage.status`` behind the timeline's back.
+            if next_status in {COMPLETED, FAILED}:
+                self.timeline_service.terminal(
+                    family_id=message.family_id,
+                    conversation_id=message.conversation_id,
+                    message_id=message.id,
+                    run_id=message.run_id,
+                    status=next_status,
+                    created_by=user_id,
+                )
+            else:
+                self.timeline_service.update_message_status(
+                    family_id=message.family_id,
+                    conversation_id=message.conversation_id,
+                    message_id=message.id,
+                    run_id=message.run_id,
+                    status=next_status,
+                    created_by=user_id,
+                )
         self.db.flush()
         return serialized
 
@@ -1142,7 +1198,7 @@ class WorkspaceGraphRunner:
                 AIMessage.run_id == run_id,
                 AIMessage.role == "assistant",
             )
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            .order_by(AIMessage.timeline_position.asc(), AIMessage.id.asc())
             .execution_options(populate_existing=True)
         )
         if message is None:
@@ -1607,16 +1663,24 @@ class WorkspaceGraphRunner:
 
     def _chat_response(self, conversation_id: str, run_id: str) -> dict[str, Any]:
         run = self.db.get(AIAgentRun, run_id)
-        if run is None:
+        if run is None or run.conversation_id != conversation_id:
             raise RuntimeError("LangGraph 没有创建运行记录")
-        message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == run_id, AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.desc())
-            .execution_options(populate_existing=True)
+        assistant_messages = list(
+            self.db.scalars(
+                select(AIMessage)
+                .where(
+                    AIMessage.family_id == run.family_id,
+                    AIMessage.conversation_id == conversation_id,
+                    AIMessage.run_id == run_id,
+                    AIMessage.role == "assistant",
+                )
+                .order_by(AIMessage.timeline_position.asc(), AIMessage.id.asc())
+                .execution_options(populate_existing=True)
+            )
         )
-        if message is None:
-            raise RuntimeError("LangGraph 没有创建助手消息")
+        if len(assistant_messages) != 1:
+            raise RuntimeError("LangGraph 的 canonical 助手消息数量不一致")
+        message = assistant_messages[0]
         events = list(
             self.db.scalars(
                 select(AIRunEvent)
@@ -1641,8 +1705,6 @@ class WorkspaceGraphRunner:
                 .execution_options(populate_existing=True)
             )
         )
-        message.parts = sync_message_parts_with_current_approval_state(message.parts, drafts=drafts, approvals=approvals)
-        self.db.flush()
         cards = [
             part["card"]
             for part in (message.parts or [])
@@ -1653,6 +1715,14 @@ class WorkspaceGraphRunner:
             "message": serialize_ai_message(message),
             "run": serialize_ai_run(run),
             "events": [serialize_ai_run_event(event) for event in events],
+            "timeline_events": [
+                event.to_dict()
+                for event in self.timeline_service.replay(
+                    family_id=run.family_id,
+                    conversation_id=conversation_id,
+                    after_sequence=0,
+                )
+            ],
             "included": {
                 "result_cards": cards,
                 "drafts": [serialize_ai_task_draft(draft) for draft in drafts],
@@ -1687,12 +1757,14 @@ class WorkspaceGraphRunner:
                     writer({"event": event, "data": payload})
 
             if event_name == "message_delta":
-                data = self._cache_live_message_delta(state, data)
-                emit("message_delta", data)
+                persisted = self._persist_message_delta(state, data)
+                self._commit_visible_event(state, persisted, run_status="running")
+                emit("message_delta", self._stream_payload(data, persisted))
                 return
             if event_name == "message_part":
-                data = self._cache_live_message_part(state, data)
-                emit("message_part", data)
+                persisted = self._persist_message_part(state, data)
+                self._commit_visible_event(state, persisted, run_status="running")
+                emit("message_part", self._stream_payload(data, persisted))
                 return
             if event_name != "progress":
                 if event_name:
@@ -1703,7 +1775,8 @@ class WorkspaceGraphRunner:
 
             event_id = str(data.get("id") or create_id("ai_run_event"))
             event = self.db.get(AIRunEvent, event_id)
-            if event is None:
+            is_new_event = event is None
+            if is_new_event:
                 event = AIRunEvent(
                     id=event_id,
                     family_id=state["family_id"],
@@ -1714,41 +1787,57 @@ class WorkspaceGraphRunner:
                     user_message=str(data.get("user_message") or ""),
                     status=str(data.get("status") or "running"),
                     payload={},
+                    created_at=utcnow(),
                 )
                 self.db.add(event)
-                self.db.flush()
-                self._commit_stream_checkpoint(state, run_status=str(data.get("status") or "running"))
             else:
                 event.run_id = str(data.get("run_id") or event.run_id or state["run_id"])
                 event.type = str(data.get("type") or event.type or "event")
                 event.internal_code = str(data.get("internal_code") or event.internal_code or "progress")
                 event.user_message = str(data.get("user_message") or event.user_message or "")
                 event.status = str(data.get("status") or event.status or "running")
-                self.db.flush()
-                self._commit_stream_checkpoint(state, run_status=event.status)
             serialized_event = serialize_ai_run_event(event)
-            message_id, part = self._cache_live_activity_part(state, serialized_event)
+            message_id = self._live_message_id(state, data)
+            part = {
+                "id": f"activity-{event_id}",
+                "type": "run_activity",
+                "activity": serialized_event,
+            }
+            persisted = self.timeline_service.upsert_part(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message_id,
+                run_id=event.run_id,
+                part=jsonable_encoder(part),
+                created_by=state.get("user_id"),
+            )
+            event.timeline_event_id = persisted.event_id
+            event.timeline_sequence = persisted.sequence
+            self.db.flush()
+            self._commit_visible_event(state, persisted, run_status=event.status)
+            serialized_event = serialize_ai_run_event(event)
+            part = {**part, "activity": serialized_event}
             emit(
                 "message_part",
-                {
+                self._stream_payload({
                     "message_id": message_id,
                     "conversation_id": state["conversation_id"],
                     "run_id": event.run_id,
                     "part": part,
-                },
+                }, persisted),
             )
             emit("progress", serialized_event)
 
         return write
 
-    def _cache_live_message_delta(self, state: WorkspaceGraphState, data: dict[str, Any]) -> dict[str, Any]:
+    def _persist_message_delta(self, state: WorkspaceGraphState, data: dict[str, Any]) -> TimelineMutation:
         delta = str(data.get("delta") or "")
         if not delta:
-            return data
+            raise RuntimeError("AI 流事件缺少可见文字增量")
         message_id = self._live_message_id(state, data)
         part_id = str(data.get("part_id") or "").strip() or create_id("ai_part")
         run_id = str(data.get("run_id") or state["run_id"])
-        message_id, part_id = live_ai_stream_cache.append_delta(
+        return self.timeline_service.append_text_delta(
             family_id=state["family_id"],
             conversation_id=state["conversation_id"],
             run_id=run_id,
@@ -1757,96 +1846,58 @@ class WorkspaceGraphRunner:
             delta=delta,
             created_by=state.get("user_id"),
         )
-        return {
-            **data,
-            "message_id": message_id,
-            "conversation_id": state["conversation_id"],
-            "run_id": run_id,
-            "part_id": part_id,
-        }
 
-    def _cache_live_activity_part(self, state: WorkspaceGraphState, event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        run_id = str(event.get("run_id") or state["run_id"])
-        part = {
-            "id": f"activity-{event.get('id') or create_id('ai_run_event')}",
-            "type": "run_activity",
-            "activity": event,
-        }
-        return live_ai_stream_cache.append_activity(
-            family_id=state["family_id"],
-            conversation_id=state["conversation_id"],
-            run_id=run_id,
-            message_id=self._live_message_id(state, {}),
-            part=jsonable_encoder(part),
-            created_by=state.get("user_id"),
-        )
-
-    def _cache_live_message_part(self, state: WorkspaceGraphState, data: dict[str, Any]) -> dict[str, Any]:
+    def _persist_message_part(self, state: WorkspaceGraphState, data: dict[str, Any]) -> TimelineMutation:
         part = data.get("part") if isinstance(data.get("part"), dict) else {}
         if not part:
-            return data
+            raise RuntimeError("AI 流事件缺少可见消息 part")
         if not str(part.get("id") or "").strip():
             part = {**part, "id": create_id("ai_part")}
         run_id = str(data.get("run_id") or state["run_id"])
-        message_id, cached_part = live_ai_stream_cache.append_part(
+        message_id = self._live_message_id(state, data)
+        return self.timeline_service.upsert_part(
             family_id=state["family_id"],
             conversation_id=state["conversation_id"],
             run_id=run_id,
-            message_id=self._live_message_id(state, data),
+            message_id=message_id,
             part=jsonable_encoder(part),
             created_by=state.get("user_id"),
         )
-        return {
-            **data,
-            "message_id": message_id,
-            "conversation_id": state["conversation_id"],
-            "run_id": run_id,
-            "part": cached_part,
-        }
 
-    def _live_message_id(self, state: WorkspaceGraphState, data: dict[str, Any]) -> str:
-        return str(data.get("message_id") or "").strip() or f"{state['run_id']}:assistant"
-
-    def _base_assistant_parts_from_live_stream(
+    def _commit_visible_event(
         self,
         state: WorkspaceGraphState,
-        result_text: str,
+        mutation: TimelineMutation,
         *,
-        stop_after_first_draft: bool = False,
-    ) -> list[dict[str, Any]]:
-        live_parts = live_ai_stream_cache.parts_for_run(state.get("run_id"))
-        if not live_parts:
-            return [{"id": create_id("ai_part"), "type": "text", "text": result_text}]
-        parts = [dict(part) for part in live_parts if isinstance(part, dict)]
-        first_draft_index: int | None = None
-        if stop_after_first_draft:
-            first_draft_index = next(
-                (
-                    index
-                    for index, part in enumerate(parts)
-                    if part.get("type") in {"draft", "approval_request"}
-                ),
-                None,
-            )
-            if first_draft_index is not None:
-                parts = parts[:first_draft_index]
-        live_text = "\n\n".join(
-            str(part.get("text") or "").strip()
-            for part in parts
-            if part.get("type") == "text" and str(part.get("text") or "").strip()
+        run_status: str,
+    ) -> None:
+        if self._commit_stream_checkpoint(state, run_status=run_status):
+            return
+        raise RuntimeError(
+            f"AI timeline event {mutation.event_id} failed to commit before publication"
         )
-        final_text = (result_text or "").strip()
-        if stop_after_first_draft:
-            if final_text and not live_text and first_draft_index is None:
-                parts.append({"id": create_id("ai_part"), "type": "text", "text": result_text})
-            return parts
-        if final_text and not live_text:
-            parts.append({"id": create_id("ai_part"), "type": "text", "text": result_text})
-        elif final_text and final_text.startswith(live_text) and final_text != live_text:
-            tail = final_text[len(live_text):].strip()
-            if tail:
-                parts.append({"id": create_id("ai_part"), "type": "text", "text": tail})
-        return parts
+
+    @staticmethod
+    def _stream_payload(data: dict[str, Any], mutation: TimelineMutation) -> dict[str, Any]:
+        event = mutation.event
+        payload = {
+            **data,
+            "message_id": event.message_id,
+            "conversation_id": event.conversation_id,
+            "run_id": event.run_id,
+            "event_id": event.event_id,
+            "sequence": event.sequence,
+            "timeline_event": event.to_dict(),
+        }
+        if event.part_id:
+            payload["part_id"] = event.part_id
+        return payload
+
+    def _live_message_id(self, state: WorkspaceGraphState, data: dict[str, Any]) -> str:
+        message_id = str(data.get("message_id") or state.get("assistant_message_id") or "").strip()
+        if not message_id:
+            raise RuntimeError("AI 流事件缺少 canonical assistant_message_id")
+        return message_id
 
     def _commit_stream_checkpoint(self, state: WorkspaceGraphState, *, run_status: str) -> bool:
         try:

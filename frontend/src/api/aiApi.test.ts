@@ -6,7 +6,7 @@ import {
 } from './aiApi';
 import { ApiError } from './request';
 import { setAccessToken, setAuthenticatedSession } from './request';
-import type { AiChatResponse, LoginResponse } from './types';
+import type { AiChatResponse, AiConversationReplay, AiConversationSnapshot, AiTimelineEvent, LoginResponse } from './types';
 
 function streamFrom(text: string) {
   return new ReadableStream<Uint8Array>({
@@ -584,7 +584,7 @@ describe('aiApi', () => {
     await expect(aiApi.streamChatAi({ message: '你好' })).resolves.toEqual(response);
   });
 
-  it('delivers persisted operation results through the existing message_part callback', async () => {
+  it('delivers persisted operation results through the canonical timeline callback', async () => {
     const persistedPart = {
       message_id: 'message-1',
       conversation_id: 'conversation-1',
@@ -595,15 +595,20 @@ describe('aiApi', () => {
         card: operationResultCard(),
       },
     };
+    const timelineEvent = {
+      event_id: 'timeline-event-1', sequence: 1, conversation_id: 'conversation-1',
+      event_type: 'part.appended', message_id: 'message-1', part_id: persistedPart.part.id,
+      payload: { part: persistedPart.part }, is_terminal: false,
+    };
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      streamFrom(`${sseBlock('message_part', persistedPart)}${sseBlock('response', emptyChatResponse)}`),
+      streamFrom(`${sseBlock('timeline', timelineEvent)}${sseBlock('response', emptyChatResponse)}`),
       { status: 200 },
     ));
-    const onMessagePart = vi.fn();
+    const onTimelineEvent = vi.fn();
 
-    await expect(aiApi.streamChatAi({ message: '收藏番茄' }, { onMessagePart })).resolves.toEqual(emptyChatResponse);
+    await expect(aiApi.streamChatAi({ message: '收藏番茄' }, { onTimelineEvent })).resolves.toEqual(emptyChatResponse);
 
-    expect(onMessagePart).toHaveBeenCalledWith(persistedPart);
+    expect(onTimelineEvent).toHaveBeenCalledWith(timelineEvent);
   });
 
   it('sends image attachments in streamed chat payloads', async () => {
@@ -773,6 +778,7 @@ describe('aiApi', () => {
       .mockResolvedValue(new Response(streamFrom(`${sseBlock('message_part', messagePart)}${sseBlock('progress', progress)}${sseBlock('message_delta', delta)}${sseBlock('response', response)}`), { status: 200 }));
     const progressSpy = vi.fn();
     const partSpy = vi.fn();
+    const timelineSpy = vi.fn();
     const deltaSpy = vi.fn();
 
     await expect(
@@ -780,13 +786,14 @@ describe('aiApi', () => {
         'conversation-1',
         'approval-1',
         { decision: 'approved', draft_version: 1, values: { draft: {} } },
-        { onProgress: progressSpy, onMessagePart: partSpy, onMessageDelta: deltaSpy },
+        { onProgress: progressSpy, onTimelineEvent: timelineSpy, onMessagePart: partSpy, onMessageDelta: deltaSpy },
       ),
     ).resolves.toEqual(response);
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/conversations/conversation-1/approvals/approval-1/decision/stream');
-    expect(partSpy).toHaveBeenCalledWith(messagePart);
+    expect(partSpy).not.toHaveBeenCalled();
+    expect(deltaSpy).not.toHaveBeenCalled();
     expect(progressSpy).toHaveBeenCalledWith(progress);
-    expect(deltaSpy).toHaveBeenCalledWith(delta);
+    expect(timelineSpy).not.toHaveBeenCalled();
   });
 
   it('parses streamed cooking assistant audio events', async () => {
@@ -841,6 +848,7 @@ describe('aiApi', () => {
           onAssistantAudioDone: doneSpy,
           onAssistantAudioError: errorSpy,
           onAssistantAudioTrace: traceSpy,
+          acceptUnsequencedMessageEvents: true,
         },
       ),
     ).resolves.toEqual(response);
@@ -868,7 +876,7 @@ describe('aiApi', () => {
     );
   });
 
-  it('streams human input responses through the shared SSE parser', async () => {
+  it('ignores unsequenced legacy message events in the shared SSE parser', async () => {
     const response: AiChatResponse = {
       conversation_id: 'conversation-1',
       message: {
@@ -922,8 +930,53 @@ describe('aiApi', () => {
       ),
     ).resolves.toEqual(response);
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/conversations/conversation-1/human-input/human-input-1/response/stream');
-    expect(partSpy).toHaveBeenCalledWith(messagePart);
+    expect(partSpy).not.toHaveBeenCalled();
     expect(progressSpy).toHaveBeenCalledWith(progress);
-    expect(deltaSpy).toHaveBeenCalledWith(delta);
+    expect(deltaSpy).not.toHaveBeenCalled();
+  });
+
+  it('parses canonical timeline SSE ids and dispatches one timeline event', async () => {
+    const timelineEvent: AiTimelineEvent = {
+      event_id: 'timeline-2',
+      conversation_id: 'conversation-1',
+      run_id: 'run-1',
+      message_id: 'message-1',
+      sequence: 2,
+      event_type: 'part.delta',
+      operation: 'delta',
+      part_id: 'text-1',
+      payload: { delta: '后' },
+      is_terminal: false,
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      'id: timeline-2\nevent: timeline\ndata: {"event_id":"timeline-2","conversation_id":"conversation-1","run_id":"run-1","message_id":"message-1","sequence":2,"event_type":"part.delta","operation":"delta","part_id":"text-1","payload":{"delta":"后"}}\n\n'
+      + sseBlock('response', emptyChatResponse),
+      { status: 200 },
+    ));
+    const onTimelineEvent = vi.fn();
+    const onMessagePart = vi.fn();
+    const onMessageDelta = vi.fn();
+
+    await aiApi.streamChatAi({ message: '你好' }, { onTimelineEvent, onMessagePart, onMessageDelta });
+
+    expect(onTimelineEvent).toHaveBeenCalledWith(timelineEvent);
+    expect(onMessagePart).not.toHaveBeenCalled();
+    expect(onMessageDelta).not.toHaveBeenCalled();
+  });
+
+  it('reads snapshot and replay envelopes for canonical history recovery', async () => {
+    const snapshot: AiConversationSnapshot = { conversation_id: 'conversation-1', snapshot_sequence: 4, messages: [] };
+    const replay: AiConversationReplay = { conversation_id: 'conversation-1', from_sequence: 3, to_sequence: 4, events: [] };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/events?after_sequence=3')) return jsonResponse(replay);
+      return jsonResponse(snapshot);
+    });
+
+    await expect(aiApi.getAiMessages('conversation-1')).resolves.toEqual(snapshot);
+    await expect(aiApi.getAiConversationEvents('conversation-1', 3)).resolves.toEqual(replay);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/api/ai/conversations/conversation-1/messages');
+    expect(String(fetchSpy.mock.calls[0]?.[0])).not.toContain('format=');
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('/api/ai/conversations/conversation-1/events?after_sequence=3');
   });
 });

@@ -106,6 +106,7 @@ class SkillContext:
     conversation: list[dict[str, Any]]
     current_message: str
     tool_executor: ToolExecutor
+    assistant_message_id: str = ""
     subject: dict[str, Any] = field(default_factory=dict)
     orchestrator_profile: dict[str, Any] = field(default_factory=dict)
     current_message_attachments: list[dict[str, Any]] = field(default_factory=list)
@@ -172,6 +173,7 @@ class SkillResult:
     operation: str | None = None
     source_artifact_id: str | None = None
     requires_clarification: bool = False
+    streamed_text_part_id: str | None = None
 
 class BaseSkill:
     manifest: SkillManifest

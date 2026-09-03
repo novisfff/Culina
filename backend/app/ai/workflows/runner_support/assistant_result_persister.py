@@ -11,23 +11,20 @@ from app.ai.workflows.runner_support.message_parts import (
     aggregate_text_from_parts,
     draft_route_status,
     human_input_request_message_part,
-    missing_draft_approval_message_parts,
     matching_successful_operation_result_card,
+    result_card_part_id,
     result_card_message_part,
     result_cards_from_parts,
     operation_result_decision_identity,
     ROUTED_WITHOUT_APPROVAL_STATUSES,
 )
-from app.ai.workflows.runner_support.message_persistence import (
+from app.ai.workflows.runner_support.message_metadata import (
     conversation_context_with_state_patch,
-    dedupe_message_parts,
     initial_assistant_message_metadata,
-    merge_message_part_timelines,
     merge_assistant_skill_metadata,
     message_metadata_with_draft_ids,
     message_metadata_with_model_usage_fallback,
     run_output_payload,
-    sync_message_parts_with_current_approval_state,
 )
 from app.ai.workflows.runner_support.run_summary import result_context_summary
 from app.ai.workflows.state import WorkspaceGraphState
@@ -38,6 +35,7 @@ from app.services.ai_operations.run_cancellation import (
     finalize_run_cancellation,
     lock_run_for_transition,
 )
+from app.services.serializers import serialize_ai_approval_request, serialize_ai_task_draft
 from app.ai.workflows.runner_support.run_status import COMPLETED, WAITING_INPUT
 
 if TYPE_CHECKING:
@@ -77,16 +75,38 @@ class AssistantResultPersister:
         if cancellation_wins(runner.db, run=run):
             finalize_run_cancellation(runner.db, run=run)
             result.status = "cancelled"
-            result.cards = []
-            result.drafts = []
             result.error = None
             if not result.text.strip():
                 result.text = "已取消这次任务。"
+        assistant_message_id = str(state.get("assistant_message_id") or "")
+        if not assistant_message_id:
+            raise RuntimeError("AI 结果缺少 canonical assistant_message_id")
         existing_message = runner.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.asc(), AIMessage.id.asc())
+            select(AIMessage).where(
+                AIMessage.id == assistant_message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
+        if existing_message is None:
+            raise RuntimeError("预创建的 canonical 助手消息不存在")
+        # Cancellation finalizes the canonical message before control returns
+        # to the graph node.  There must be no second visible write after its
+        # terminal event; return the already materialized snapshot instead of
+        # trying to merge the provider result into it.
+        if result.status == "cancelled" and runner.timeline_service.has_terminal(
+            conversation_id=state["conversation_id"],
+            message_id=existing_message.id,
+        ):
+            return self._snapshot_result(
+                state,
+                run=run,
+                message=existing_message,
+                status="cancelled",
+                duration_ms=duration_ms,
+            )
         preserved = self._preserve_committed_operation_after_provider_failure(
             state=state,
             result=result,
@@ -111,72 +131,74 @@ class AssistantResultPersister:
         )
         assistant_status = "waiting_approval" if has_manual_draft else result.status
         cards = [] if has_manual_draft else validate_result_cards(result.cards)
-        next_parts = runner._base_assistant_parts_from_live_stream(
-            state,
-            result.text,
-            stop_after_first_draft=has_manual_draft,
-        )
+        message = existing_message
+        if result.text.strip() and not result.streamed_text_part_id:
+            runner.timeline_service.append_part(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                part={
+                    "id": create_id("ai_part"),
+                    "type": "text",
+                    "text": result.text,
+                },
+                created_by=state.get("user_id"),
+            )
         for card in cards:
-            next_parts.append(result_card_message_part(part_id=create_id("ai_part"), card=card))
+            runner.timeline_service.append_part(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                part=result_card_message_part(part_id=result_card_part_id(card), card=card),
+                created_by=state.get("user_id"),
+            )
         pending_human_input = (
             result.context_summary.get("pendingHumanInput")
             if isinstance(result.context_summary, dict) and isinstance(result.context_summary.get("pendingHumanInput"), dict)
             else None
         )
         if pending_human_input is not None:
-            next_parts.append(human_input_request_message_part(part_id=create_id("ai_part"), request=pending_human_input))
-        message = existing_message
-        metadata = dict(message.message_metadata or {}) if message is not None else {}
-        if message is None:
-            metadata_intent = "general_chat"
-            metadata_agent_key = "general_chat_agent"
-            if skill_key is None:
-                metadata_intent = "workspace_orchestrator"
-                metadata_agent_key = "workspace_orchestrator"
-            elif skill_key:
-                metadata_intent = runner.skill_registry.get(skill_key).manifest.intent
-                metadata_agent_key = runner.skill_registry.get(skill_key).manifest.agent_key
-            metadata = initial_assistant_message_metadata(
-                intent=metadata_intent,
-                agent_key=metadata_agent_key,
-                skill_key=skill_key,
-            )
-            message = AIMessage(
-                id=create_id("ai_message"),
+            request_id = str(pending_human_input.get("id") or create_id("ai_human_input"))
+            runner.timeline_service.append_part(
                 family_id=state["family_id"],
                 conversation_id=state["conversation_id"],
-                role="assistant",
-                content=result.text,
-                content_type="parts",
-                parts=next_parts,
+                message_id=message.id,
                 run_id=state["run_id"],
-                status=assistant_status,
-                message_metadata=metadata,
-                created_by=state["user_id"],
+                part=human_input_request_message_part(
+                    part_id=f"human-input-part-{request_id}",
+                    request=pending_human_input,
+                ),
+                created_by=state.get("user_id"),
             )
-            runner.db.add(message)
-        else:
-            live_text_part_ids = {
-                str(part_id)
-                for part_id in metadata.get("liveTextPartIds", [])
-                if isinstance(part_id, str) and part_id
+        metadata = dict(message.message_metadata or {})
+        metadata_intent = "general_chat"
+        metadata_agent_key = "general_chat_agent"
+        if skill_key is None:
+            metadata_intent = "workspace_orchestrator"
+            metadata_agent_key = "workspace_orchestrator"
+        elif skill_key:
+            metadata_intent = runner.skill_registry.get(skill_key).manifest.intent
+            metadata_agent_key = runner.skill_registry.get(skill_key).manifest.agent_key
+        if not metadata.get("intent") or metadata.get("intent") == "workspace_orchestrator":
+            metadata = {
+                **metadata,
+                **initial_assistant_message_metadata(
+                    intent=metadata_intent,
+                    agent_key=metadata_agent_key,
+                    skill_key=skill_key,
+                ),
             }
-            existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-            if live_text_part_ids:
-                existing_parts = [part for part in existing_parts if str(part.get("id") or "") not in live_text_part_ids]
-                metadata.pop("liveStreaming", None)
-                metadata.pop("liveTextPartIds", None)
-                metadata.pop("livePartIds", None)
-            message.parts = merge_message_part_timelines(existing_parts, next_parts)
-            metadata = merge_assistant_skill_metadata(metadata, skill_key=skill_key)
-            message.message_metadata = metadata
+        metadata.pop("liveStreaming", None)
+        metadata.pop("liveTextPartIds", None)
+        metadata.pop("livePartIds", None)
+        metadata = merge_assistant_skill_metadata(metadata, skill_key=skill_key)
         metadata = message_metadata_with_model_usage_fallback(
             metadata,
             fallback_used=result.fallback_used,
             fallback_reason_code=result.fallback_reason_code,
         )
-        message.message_metadata = metadata
-        runner.db.flush()
         drafts: list[AITaskDraft] = []
         approvals: list[AIApprovalRequest] = []
         for draft_payload, route_status in zip(draft_payloads, route_statuses, strict=True):
@@ -215,24 +237,61 @@ class AssistantResultPersister:
                 runner.db.refresh(approval)
             drafts.append(draft)
             approvals.append(approval)
-            next_draft_parts = missing_draft_approval_message_parts(
-                [part for part in (message.parts or []) if isinstance(part, dict)],
-                draft=draft,
-                approval=approval,
+            # A draft and its approval are visible parts with stable IDs.  The
+            # timeline service decides append vs replace while holding the
+            # message lock, so a replay updates the original position rather
+            # than deleting and re-appending it.
+            runner.timeline_service.upsert_part(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                part={
+                    "id": f"draft-part-{draft.id}",
+                    "type": "draft",
+                    "draft": runner._json_record(serialize_ai_task_draft(draft)),
+                },
+                created_by=state.get("user_id"),
             )
-            if next_draft_parts:
-                message.parts = dedupe_message_parts([*(message.parts or []), *next_draft_parts])
+            runner.timeline_service.upsert_part(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                part={
+                    "id": f"approval-part-{approval.id}",
+                    "type": "approval_request",
+                    "approval": runner._json_record(serialize_ai_approval_request(approval)),
+                },
+                created_by=state.get("user_id"),
+            )
         if drafts:
-            message.message_metadata = message_metadata_with_draft_ids(
+            metadata = message_metadata_with_draft_ids(
                 metadata,
                 drafts=drafts,
                 approvals=approvals,
             )
-        message.parts = sync_message_parts_with_current_approval_state(message.parts, drafts=drafts, approvals=approvals)
+        # Metadata is part of the canonical message snapshot as well.  It must
+        # be represented by a timeline event instead of an ORM-only mutation.
+        runner.timeline_service.update_message_metadata(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            message_id=message.id,
+            run_id=state["run_id"],
+            metadata=metadata,
+            created_by=state.get("user_id"),
+        )
         message_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
         aggregate_text = aggregate_text_from_parts(message_parts)
-        message.content = aggregate_text
-        message.status = assistant_status
+        if message.status != assistant_status:
+            runner.timeline_service.update_message_status(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                status=assistant_status,
+                created_by=state.get("user_id"),
+            )
         conversation = runner.db.get(AIConversation, state["conversation_id"])
         all_cards = result_cards_from_parts(message_parts)
         if run is not None:
@@ -293,6 +352,47 @@ class AssistantResultPersister:
             tool_call_count=len(result.tool_calls),
         )
 
+    def _snapshot_result(
+        self,
+        state: WorkspaceGraphState,
+        *,
+        run: Any,
+        message: AIMessage,
+        status: str,
+        duration_ms: int,
+    ) -> PersistedAssistantResult:
+        """Return the durable message without creating a second snapshot."""
+
+        parts = [part for part in (message.parts or []) if isinstance(part, dict)]
+        text = aggregate_text_from_parts(parts)
+        if run is not None:
+            run.status = status
+            run.error = None
+            run.output_summary = (text or str(message.content or ""))[:255]
+            run.output = self.runner._json_record(
+                run_output_payload(text=text, cards=result_cards_from_parts(parts), routing={})
+            )
+            run.duration_ms = int(run.duration_ms or 0) + duration_ms
+        conversation = self.runner.db.get(AIConversation, state["conversation_id"])
+        if conversation is not None:
+            conversation.last_run_status = status
+            conversation.last_message_at = utcnow()
+            conversation.response = text or str(message.content or "")
+            conversation.summary = conversation.response[:255]
+            context = dict(conversation.context or {})
+            context.pop("activeRunId", None)
+            conversation.context = self.runner._json_record(context)
+        return PersistedAssistantResult(
+            message=message,
+            message_id=message.id,
+            run_id=state["run_id"],
+            status=status,
+            draft_ids=[],
+            approval_ids=[],
+            card_count=len(result_cards_from_parts(parts)),
+            tool_call_count=0,
+        )
+
     def _preserve_committed_operation_after_provider_failure(
         self,
         *,
@@ -333,30 +433,32 @@ class AssistantResultPersister:
             return None
 
         next_status = self._message_status_after_preserved_operation(parts)
-        generic_failure_text = result.text.strip()
-        cleaned_parts = [
-            part
-            for part in parts
-            if not (
-                part.get("type") == "text"
-                and str(part.get("text") or "").strip() == generic_failure_text
-            )
-        ]
-        aggregate_text = aggregate_text_from_parts(cleaned_parts)
-        if not aggregate_text and str(message.content or "").strip() != generic_failure_text:
-            aggregate_text = str(message.content or "").strip()
-        message.parts = cleaned_parts
-        message.content = aggregate_text
-        message.content_type = "parts"
-        message.status = next_status
+        aggregate_text = aggregate_text_from_parts(parts)
         metadata = dict(message.message_metadata or {})
         metadata.pop("liveStreaming", None)
         metadata.pop("liveTextPartIds", None)
         metadata.pop("livePartIds", None)
-        message.message_metadata = metadata
 
         runner = self.runner
-        all_cards = result_cards_from_parts(cleaned_parts)
+        runner.timeline_service.update_message_metadata(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            message_id=message.id,
+            run_id=state["run_id"],
+            metadata=metadata,
+            created_by=state.get("user_id"),
+            allow_after_terminal=True,
+        )
+        if message.status != next_status:
+            runner.timeline_service.update_message_status(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                status=next_status,
+                created_by=state.get("user_id"),
+            )
+        all_cards = result_cards_from_parts(parts)
         if run is not None:
             run.status = next_status
             run.error = None

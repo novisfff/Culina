@@ -35,6 +35,7 @@ from app.services.inventory_operations import (
 from app.services.inventory_usage import tracks_quantity
 from app.services.inventory_versions import InventoryConflictError, require_expected_version
 from app.repos.inventory_operations import IDEMPOTENCY_KEY_REUSED_CODE
+from app.services.ai_timeline import AITimelineService
 
 
 MISSING_INVENTORY_BOUNDARY_DETAIL = "库存草稿缺少并发校验信息，请重新生成后确认"
@@ -363,9 +364,7 @@ def refresh_inventory_result_card(
     if not message_id or not result:
         return
     message = db.scalar(
-        select(AIMessage)
-        .where(AIMessage.id == message_id, AIMessage.family_id == family_id)
-        .with_for_update()
+        select(AIMessage).where(AIMessage.id == message_id, AIMessage.family_id == family_id)
     )
     if message is None:
         return
@@ -443,11 +442,10 @@ def refresh_inventory_result_card(
                 "handledBy": user_id,
             }
 
-    next_parts: list[dict[str, Any]] = []
+    replacements: list[dict[str, Any]] = []
     for part in message.parts or []:
         card = part.get("card")
         if not isinstance(card, dict) or card.get("type") != "inventory_summary":
-            next_parts.append(part)
             continue
         card_data = dict(card.get("data") or {})
         current_items = [item for item in card_data.get("items") or [] if isinstance(item, dict)]
@@ -464,8 +462,37 @@ def refresh_inventory_result_card(
             if item_id not in current_ids and len(refreshed_items) < 6:
                 refreshed_items.append({**record, "lastOperation": operation_by_item.get(item_id)})
         card_data["items"] = refreshed_items
-        next_parts.append({**part, "card": {**card, "data": card_data}})
-    message.parts = next_parts
-    metadata = dict(message.message_metadata or {})
-    metadata["lastInventoryOperations"] = jsonable_encoder(operations)
-    message.message_metadata = metadata
+        replacements.append({**part, "card": {**card, "data": card_data}})
+
+    timeline = AITimelineService(db)
+    for replacement in replacements:
+        part_id = str(replacement.get("id") or "")
+        if not part_id:
+            continue
+        timeline.replace_part(
+            family_id=message.family_id,
+            conversation_id=message.conversation_id,
+            message_id=message.id,
+            run_id=message.run_id,
+            part_id=part_id,
+            part=replacement,
+            created_by=user_id,
+            # Inventory refresh is an explicit user action and can happen
+            # after the assistant run has reached its terminal event.
+            allow_after_terminal=True,
+        )
+
+    def merge_operations(metadata: dict[str, Any]) -> dict[str, Any]:
+        next_metadata = dict(metadata)
+        next_metadata["lastInventoryOperations"] = jsonable_encoder(operations)
+        return next_metadata
+
+    timeline.update_message_metadata(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        updater=merge_operations,
+        created_by=user_id,
+        allow_after_terminal=True,
+    )

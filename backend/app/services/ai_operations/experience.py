@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.utils import create_id, utcnow
+from app.core.utils import utcnow
 from app.models.domain import (
     AIApprovalRequest,
     AIConversation,
@@ -22,6 +22,7 @@ from app.services.clock import today_for_family
 from app.services.inventory_operations import require_inventory_item
 from app.services.inventory_usage import tracks_quantity
 from app.services.serializers import serialize_ai_approval_request, serialize_ai_task_draft
+from app.services.ai_timeline import AITimelineService
 
 CreateDraftApproval = Callable[..., tuple[AITaskDraft, AIApprovalRequest]]
 
@@ -61,10 +62,11 @@ def record_recommendation_selection_for_card(
     entity_id: str,
     food_plan_item_id: str,
 ) -> AIMessage:
+    # The timeline service owns the conversation/message lock order.  This
+    # read is intentionally lock-free; the replacement below re-reads the
+    # canonical snapshot while holding ``conversation -> message`` locks.
     message = db.scalar(
-        select(AIMessage)
-        .where(AIMessage.id == message_id, AIMessage.family_id == family_id)
-        .with_for_update()
+        select(AIMessage).where(AIMessage.id == message_id, AIMessage.family_id == family_id)
     )
     if message is None:
         raise LookupError("AI 消息不存在")
@@ -77,16 +79,14 @@ def record_recommendation_selection_for_card(
         raise LookupError("菜单计划不存在")
 
     selected_name = ""
-    next_parts: list[dict[str, Any]] = []
+    replacement_part: dict[str, Any] | None = None
     matched = False
     for part in message.parts or []:
         if part.get("id") != part_id or not isinstance(part.get("card"), dict):
-            next_parts.append(part)
             continue
         card = dict(part["card"])
         effective_card_id = card.get("id") if isinstance(card.get("id"), str) and card["id"].strip() else f"{part_id}-card"
         if effective_card_id != card_id or card.get("type") != "today_recommendation":
-            next_parts.append(part)
             continue
         card["id"] = effective_card_id
         if not isinstance(card.get("title"), str) or not card["title"].strip():
@@ -116,7 +116,7 @@ def record_recommendation_selection_for_card(
             )
             matched = True
         data["recommendations"] = recommendations
-        next_parts.append({**part, "card": {**card, "data": data}})
+        replacement_part = {**part, "card": {**card, "data": data}}
     if not matched:
         raise ValueError("推荐卡片中没有找到对应食物")
 
@@ -130,15 +130,43 @@ def record_recommendation_selection_for_card(
         "planDate": plan_item.plan_date.isoformat(),
         "mealType": plan_item.meal_type.value if hasattr(plan_item.meal_type, "value") else str(plan_item.meal_type),
     }
-    metadata = dict(message.message_metadata or {})
-    existing_selections = [
-        item
-        for item in metadata.get("recommendationSelections") or []
-        if isinstance(item, dict) and item.get("foodPlanItemId") != plan_item.id
-    ]
-    metadata["recommendationSelections"] = [*existing_selections, selection]
-    message.parts = next_parts
-    message.message_metadata = metadata
+    if replacement_part is None:
+        raise ValueError("推荐卡片中没有找到对应食物")
+
+    timeline = AITimelineService(db)
+    timeline.replace_part(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        part_id=part_id,
+        part=replacement_part,
+        created_by=user_id,
+        # Selecting a recommendation is an explicit user mutation on an
+        # already completed assistant message, not a new model output.
+        allow_after_terminal=True,
+    )
+
+    def merge_selection(metadata: dict[str, Any]) -> dict[str, Any]:
+        next_metadata = dict(metadata)
+        existing_selections = [
+            item
+            for item in next_metadata.get("recommendationSelections") or []
+            if isinstance(item, dict) and item.get("foodPlanItemId") != plan_item.id
+        ]
+        next_metadata["recommendationSelections"] = [*existing_selections, selection]
+        return next_metadata
+
+    mutation = timeline.update_message_metadata(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        updater=merge_selection,
+        created_by=user_id,
+        allow_after_terminal=True,
+    )
+    message = mutation.message or message
 
     conversation = db.scalar(
         select(AIConversation).where(AIConversation.id == message.conversation_id, AIConversation.family_id == family_id)
@@ -171,9 +199,7 @@ def create_inventory_quick_draft_from_card(
     create_draft_approval: CreateDraftApproval,
 ) -> AIMessage:
     message = db.scalar(
-        select(AIMessage)
-        .where(AIMessage.id == message_id, AIMessage.family_id == family_id)
-        .with_for_update()
+        select(AIMessage).where(AIMessage.id == message_id, AIMessage.family_id == family_id)
     )
     if message is None:
         raise LookupError("AI 消息不存在")
@@ -297,25 +323,52 @@ def create_inventory_quick_draft_from_card(
         run_id=message.run_id,
         draft_payload=draft_payload,
     )
-    message.parts = [
-        *(message.parts or []),
-        {
-            "id": create_id("ai_part"),
+    timeline = AITimelineService(db)
+    timeline.append_part(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        part={
+            "id": f"draft-part-{draft.id}",
             "type": "draft",
             "draft": jsonable_encoder(serialize_ai_task_draft(draft)),
         },
-        {
-            "id": create_id("ai_part"),
+        created_by=user_id,
+        allow_after_terminal=True,
+    )
+    mutation = timeline.append_part(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        part={
+            "id": f"approval-part-{approval.id}",
             "type": "approval_request",
             "approval": jsonable_encoder(serialize_ai_approval_request(approval)),
         },
-    ]
-    metadata = dict(message.message_metadata or {})
-    metadata["lastInventoryDraft"] = {
-        "draftId": draft.id,
-        "approvalId": approval.id,
-        **metadata_extra,
-    }
-    message.message_metadata = metadata
+        created_by=user_id,
+        allow_after_terminal=True,
+    )
+
+    def merge_inventory_draft(metadata: dict[str, Any]) -> dict[str, Any]:
+        next_metadata = dict(metadata)
+        next_metadata["lastInventoryDraft"] = {
+            "draftId": draft.id,
+            "approvalId": approval.id,
+            **metadata_extra,
+        }
+        return next_metadata
+
+    mutation = timeline.update_message_metadata(
+        family_id=message.family_id,
+        conversation_id=message.conversation_id,
+        message_id=message.id,
+        run_id=message.run_id,
+        updater=merge_inventory_draft,
+        created_by=user_id,
+        allow_after_terminal=True,
+    )
+    message = mutation.message or message
     db.flush()
     return message

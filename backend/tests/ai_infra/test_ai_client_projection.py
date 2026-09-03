@@ -635,7 +635,7 @@ class AIClientProjectionRouteTestCase(AIAgentInfraTestCase):
         history = self.client.get(f"/api/ai/conversations/{conversation_id}/messages")
         self.assertEqual(history.status_code, 200, history.text)
         self.assertEqual(history.headers.get("Cache-Control"), "private, no-store")
-        message = next(item for item in history.json() if item["id"] == message_id)
+        message = next(item for item in history.json()["messages"] if item["id"] == message_id)
         self.assertTrue(all(part.get("type") == "error_recovery" for part in message["parts"]))
         self.assertTrue(all(part.get("draft") is None for part in message["parts"]))
         self.assertTrue(all(not artifact_contains_v2_command(item) for item in message["metadata"]["artifacts"]))
@@ -646,7 +646,7 @@ class AIClientProjectionRouteTestCase(AIAgentInfraTestCase):
             headers={AI_DRAFT_CONTRACTS_HEADER: f"{RECIPE_COOK_V1},{RECIPE_COOK_V2}"},
         )
         self.assertEqual(capable.status_code, 200, capable.text)
-        capable_message = next(item for item in capable.json() if item["id"] == message_id)
+        capable_message = next(item for item in capable.json()["messages"] if item["id"] == message_id)
         self.assertEqual(capable_message["parts"][0]["type"], "draft")
         self.assertEqual(capable_message["parts"][0]["draft"]["schema_version"], RECIPE_COOK_V2)
 

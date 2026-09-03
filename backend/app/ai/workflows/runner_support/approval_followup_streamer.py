@@ -33,6 +33,7 @@ from app.services.ai_operations.run_cancellation import (
     finalize_run_cancellation,
     lock_run_for_transition,
 )
+from app.services.ai_timeline import AITimelineService
 
 logger = logging.getLogger("app.ai.workflows.runner")
 
@@ -60,6 +61,7 @@ class ApprovalFollowupStreamer:
         self.tracer_for_state = tracer_for_state
         self.optional_stream_writer = optional_stream_writer
         self.persistent_progress_writer = persistent_progress_writer
+        self.timeline = AITimelineService(db)
 
     def stream_followup(
         self,
@@ -88,6 +90,18 @@ class ApprovalFollowupStreamer:
         # completion was already persisted.  Reusing the stable part id makes
         # the retry an idempotent no-op and avoids another provider call.
         if self._has_message_part(message, part_id):
+            part = next(
+                item
+                for item in (message.parts or [])
+                if isinstance(item, dict) and str(item.get("id") or "") == part_id
+            )
+            self.append_text_to_assistant_message(
+                state,
+                message,
+                part_id=part_id,
+                text=str(part.get("text") or ""),
+                status=terminal_status,
+            )
             return
         chunks: list[str] = []
         writer = self.persistent_progress_writer(self.optional_stream_writer(), state)
@@ -206,14 +220,20 @@ class ApprovalFollowupStreamer:
         )
 
     def _find_assistant_message(self, state: WorkspaceGraphState, approval: dict[str, Any]) -> AIMessage | None:
-        message_id = str(approval.get("message_id") or "")
-        message = self.db.get(AIMessage, message_id) if message_id else None
-        if message is not None:
-            return message
+        message_id = str(state.get("assistant_message_id") or "").strip()
+        approval_message_id = str(approval.get("message_id") or "").strip()
+        if not message_id:
+            raise RuntimeError("审批续写缺少 canonical assistant_message_id")
+        if approval_message_id and approval_message_id != message_id:
+            raise RuntimeError("审批请求与 canonical 助手消息不一致")
         return self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == state["run_id"], AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.desc(), AIMessage.id.desc())
+            select(AIMessage).where(
+                AIMessage.id == message_id,
+                AIMessage.family_id == state["family_id"],
+                AIMessage.conversation_id == state["conversation_id"],
+                AIMessage.run_id == state["run_id"],
+                AIMessage.role == "assistant",
+            )
         )
 
     def _provider_kwargs(
@@ -376,26 +396,27 @@ class ApprovalFollowupStreamer:
         if cancellation_wins(self.db, run=run):
             finalize_run_cancellation(self.db, run=run)
             raise AIExecutionCancelled("AI run was cancelled")
-        existing_parts = [part for part in (message.parts or []) if isinstance(part, dict)]
-        existing_parts = [part for part in existing_parts if str(part.get("id") or "") != part_id]
-        message.parts = [*existing_parts, text_message_part(part_id=part_id, text=text)]
-        metadata = dict(message.message_metadata or {})
-        live_text_part_ids = [
-            str(item)
-            for item in metadata.get("liveTextPartIds", [])
-            if isinstance(item, str) and item != part_id
-        ]
-        if live_text_part_ids:
-            metadata["liveTextPartIds"] = live_text_part_ids
-        else:
-            metadata.pop("liveTextPartIds", None)
-            metadata.pop("livePartIds", None)
-            metadata.pop("liveStreaming", None)
-        message.message_metadata = metadata
+        # The timeline service performs the existence check while holding the
+        # message lock.  This keeps a retry from appending a second text part
+        # when a stream callback races the resume finalizer.
+        self.timeline.upsert_part(
+            family_id=state["family_id"],
+            conversation_id=state["conversation_id"],
+            message_id=message.id,
+            run_id=state["run_id"],
+            part=text_message_part(part_id=part_id, text=text),
+            created_by=state.get("user_id"),
+        )
+        if message.status != status:
+            self.timeline.update_message_status(
+                family_id=state["family_id"],
+                conversation_id=state["conversation_id"],
+                message_id=message.id,
+                run_id=state["run_id"],
+                status=status,
+                created_by=state.get("user_id"),
+            )
         aggregate_text = aggregate_text_from_parts([part for part in (message.parts or []) if isinstance(part, dict)])
-        message.content = aggregate_text
-        message.content_type = "parts"
-        message.status = status
 
         conversation = self.db.get(AIConversation, state["conversation_id"])
         all_cards = result_cards_from_parts([part for part in (message.parts or []) if isinstance(part, dict)])

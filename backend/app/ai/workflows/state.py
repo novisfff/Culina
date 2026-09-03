@@ -17,6 +17,7 @@ class WorkspaceGraphState(TypedDict, total=False):
     orchestrator_profile: dict[str, Any]
     run_id: str
     user_message_id: str
+    assistant_message_id: str
     run_artifacts: list[dict[str, Any]]
     injected_skill_keys: list[str]
     injection_history: list[dict[str, Any]]

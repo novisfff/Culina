@@ -28,6 +28,7 @@ from app.models.domain import (
     Membership,
     User,
 )
+from app.services.ai_timeline import AITimelineService
 
 
 PENDING_INPUT = {
@@ -210,7 +211,16 @@ def _state(context: _ResumeContext) -> dict[str, Any]:
         "user_id": "user-resume-claim",
         "conversation_id": context.conversation_id,
         "run_id": context.run_id,
+        "assistant_message_id": "message-resume-claim",
     }
+
+
+def _runner(db: Session) -> Any:
+    return SimpleNamespace(
+        db=db,
+        timeline_service=AITimelineService(db),
+        _json_record=lambda value: value,
+    )
 
 
 def test_stream_prepare_commits_a_durable_claim_before_worker_handoff(
@@ -278,7 +288,7 @@ def test_worker_must_present_the_committed_claim_token(
     }
     runner = None
     with resume_context.SessionLocal() as worker_db:
-        runner = SimpleNamespace(db=worker_db, _json_record=lambda value: value)
+        runner = _runner(worker_db)
         handler = HumanInputResumeHandler(runner)
         with pytest.raises(AIConflictError):
             handler.resume(
@@ -299,7 +309,7 @@ def test_worker_consumes_claim_and_records_answer_once(
         prepared = resume_context.prepare(request_db)
 
     with resume_context.SessionLocal() as worker_db:
-        runner = SimpleNamespace(db=worker_db, _json_record=lambda value: value)
+        runner = _runner(worker_db)
         patch = HumanInputResumeHandler(runner).resume(
             state=_state(resume_context),
             pending=PENDING_INPUT,

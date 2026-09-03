@@ -636,6 +636,8 @@ def serialize_ai_message(item: AIMessage, *, response_now: datetime | None = Non
         ),
         "client_message_id": item.client_message_id,
         "created_at": _utc_datetime(item.created_at),
+        "timeline_position": int(getattr(item, "timeline_position", 0) or 0),
+        "snapshot_sequence": int(getattr(item, "snapshot_sequence", 0) or 0),
     }
 
 

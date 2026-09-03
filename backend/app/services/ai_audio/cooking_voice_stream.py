@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.ai.workspace_service import AIApplicationService
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.core.utils import create_id
 from app.services.ai_audio.dashscope_audio import RealtimeAudioProvider
 from app.services.ai_audio.realtime import RealtimeProviderScope
@@ -158,12 +157,6 @@ async def stream_cooking_assistant_voice_events(
                             continue
                         seen_cards.add(card_id)
                         emit({"type": "ui_actions", "card": card})
-                    run_id = (
-                        data.get("run", {}).get("id")
-                        if isinstance(data.get("run"), dict)
-                        else None
-                    )
-                    live_ai_stream_cache.clear_run(run_id)
                     final_text = "".join(assistant_text_parts).strip() or _text_from_response_message(data)
                     if final_text and not assistant_text_parts:
                         emit_tts_text(final_text)

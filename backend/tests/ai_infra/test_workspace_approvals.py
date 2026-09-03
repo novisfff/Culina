@@ -3993,9 +3993,9 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                 part_types = [part["type"] for part in message.parts]
                 self.assertEqual(
                     part_types,
-                    ["text", "draft", "approval_request", "result_card", "text"],
+                    ["text", "draft", "approval_request", "text", "result_card"],
                 )
-                self.assertEqual(message.parts[3]["card"]["id"], result_cards[0]["id"])
+                self.assertEqual(message.parts[4]["card"]["id"], result_cards[0]["id"])
 
         def test_approved_meal_plan_writes_one_transaction_level_highlight(self) -> None:
             with self.SessionLocal() as db:

@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.errors import AIRuntimeFailurePersistenceError, AutoExecutionBlockRequired
-from app.ai.workflows.live_stream_cache import live_ai_stream_cache
 from app.ai.workflows.runner_support.human_input_resume_claim import (
     clear_stream_resume_claim,
     current_stream_resume_claim,
@@ -23,6 +22,7 @@ from app.ai.workflows.runner_support.run_status import (
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunEvent
 from app.services.ai_operations.run_blocking import mark_run_auto_execution_blocked
+from app.services.ai_timeline import AITimelineService
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
     finalize_run_cancellation,
@@ -36,6 +36,7 @@ class RuntimeFailurePersister:
     def __init__(self, *, db: Session, json_record: Callable[[Any], Any]) -> None:
         self.db = db
         self.json_record = json_record
+        self.timeline = AITimelineService(db)
 
     def mark_failed(
         self,
@@ -66,7 +67,6 @@ class RuntimeFailurePersister:
                     family_id=family_id,
                     error=error,
                 )
-                live_ai_stream_cache.clear_run(run_id)
                 return False
             try:
                 run = lock_run_for_transition(
@@ -75,12 +75,10 @@ class RuntimeFailurePersister:
                     run_id=run_id,
                 )
             except LookupError:
-                live_ai_stream_cache.clear_run(run_id)
                 return False
             if cancellation_wins(self.db, run=run):
                 finalize_run_cancellation(self.db, run=run)
                 self.db.commit()
-                live_ai_stream_cache.clear_run(run_id)
                 return False
 
             # The approval commit and the provider/stream continuation are
@@ -93,7 +91,6 @@ class RuntimeFailurePersister:
                 conversation_id=conversation_id,
             ):
                 self.db.commit()
-                live_ai_stream_cache.clear_run(run_id)
                 return True
 
             if run.status in {*TERMINAL_RUN_STATUSES, WAITING_APPROVAL}:
@@ -101,16 +98,24 @@ class RuntimeFailurePersister:
                 clear_stream_resume_claim(run)
                 if had_stream_claim:
                     self.db.commit()
-                live_ai_stream_cache.clear_run(run_id)
                 return False
             text = "AI 服务暂时不可用，请稍后重试。"
-            self._get_or_create_failed_assistant_message(
+            message = self._get_canonical_assistant_message(
                 run=run,
                 run_id=run_id,
                 conversation_id=conversation_id,
                 family_id=family_id,
                 user_id=user_id,
                 text=text,
+            )
+            self.timeline.terminal(
+                family_id=family_id,
+                conversation_id=conversation_id,
+                message_id=message.id,
+                run_id=run_id,
+                status=FAILED,
+                content=message.content or text,
+                created_by=user_id,
             )
             self._append_runtime_error_event(
                 run_id=run_id,
@@ -122,7 +127,6 @@ class RuntimeFailurePersister:
             self._mark_run_failed(run, error=str(error), text=text)
             self._mark_conversation_failed(conversation_id=conversation_id, text=text)
             self.db.commit()
-            live_ai_stream_cache.clear_run(run_id)
             return False
         except Exception:
             self.db.rollback()
@@ -169,8 +173,34 @@ class RuntimeFailurePersister:
         metadata.pop("liveStreaming", None)
         metadata.pop("liveTextPartIds", None)
         metadata.pop("livePartIds", None)
-        message.message_metadata = metadata
-        message.status = next_status
+        self.timeline.update_message_metadata(
+            family_id=run.family_id,
+            conversation_id=conversation_id,
+            message_id=message.id,
+            run_id=run_id,
+            metadata=metadata,
+            created_by=message.created_by,
+            allow_after_terminal=True,
+        )
+        if next_status in TERMINAL_RUN_STATUSES:
+            self.timeline.terminal(
+                family_id=run.family_id,
+                conversation_id=conversation_id,
+                message_id=message.id,
+                run_id=run_id,
+                status=next_status,
+                content=message.content or "",
+                created_by=message.created_by,
+            )
+        elif message.status != next_status:
+            self.timeline.update_message_status(
+                family_id=run.family_id,
+                conversation_id=conversation_id,
+                message_id=message.id,
+                run_id=run_id,
+                status=next_status,
+                created_by=message.created_by,
+            )
 
         conversation = self.db.get(AIConversation, conversation_id)
         if conversation is not None:
@@ -199,11 +229,19 @@ class RuntimeFailurePersister:
         messages = list(
             self.db.scalars(
                 select(AIMessage)
-                .where(AIMessage.run_id == run_id, AIMessage.role == "assistant")
-                .order_by(AIMessage.created_at.desc(), AIMessage.id.desc())
+                .join(AIAgentRun, AIAgentRun.id == run_id)
+                .where(
+                    AIMessage.run_id == run_id,
+                    AIMessage.role == "assistant",
+                    AIMessage.family_id == AIAgentRun.family_id,
+                    AIMessage.conversation_id == AIAgentRun.conversation_id,
+                )
+                .order_by(AIMessage.timeline_position.asc(), AIMessage.id.asc())
                 .with_for_update()
             )
         )
+        if len(messages) > 1:
+            raise LookupError("运行关联了多个 canonical 助手消息")
         for message in messages:
             if not self._contains_successful_operation_result(message):
                 continue
@@ -279,7 +317,7 @@ class RuntimeFailurePersister:
         )
         self.db.commit()
 
-    def _get_or_create_failed_assistant_message(
+    def _get_canonical_assistant_message(
         self,
         *,
         run: AIAgentRun,
@@ -290,40 +328,46 @@ class RuntimeFailurePersister:
         text: str,
     ) -> AIMessage:
         message = self.db.scalar(
-            select(AIMessage)
-            .where(AIMessage.run_id == run_id, AIMessage.role == "assistant")
-            .order_by(AIMessage.created_at.desc())
+            select(AIMessage).where(
+                AIMessage.id == run.message_id,
+                AIMessage.family_id == family_id,
+                AIMessage.conversation_id == conversation_id,
+                AIMessage.run_id == run_id,
+                AIMessage.role == "assistant",
+            )
         )
         if message is None:
-            message = AIMessage(
-                id=create_id("ai_message"),
+            # ``AIAgentRun.message_id`` historically points at the user
+            # message.  Resolve the sole pre-created assistant by canonical
+            # run scope, never by created_at or by creating a replacement.
+            candidates = list(
+                self.db.scalars(
+                    select(AIMessage)
+                    .where(
+                        AIMessage.family_id == family_id,
+                        AIMessage.conversation_id == conversation_id,
+                        AIMessage.run_id == run_id,
+                        AIMessage.role == "assistant",
+                    )
+                    .order_by(AIMessage.timeline_position.asc(), AIMessage.id.asc())
+                )
+            )
+            if len(candidates) == 1:
+                message = candidates[0]
+        if message is None:
+            raise LookupError("预创建的 canonical 助手消息不存在")
+        if not message.content and not any(
+            isinstance(part, dict) and part.get("type") == "text" and str(part.get("text") or "").strip()
+            for part in (message.parts or [])
+        ):
+            self.timeline.append_part(
                 family_id=family_id,
                 conversation_id=conversation_id,
-                role="assistant",
-                content=text,
-                content_type="parts",
-                parts=[{"id": create_id("ai_part"), "type": "text", "text": text}],
+                message_id=message.id,
                 run_id=run_id,
-                status=FAILED,
-                message_metadata={
-                    "intent": run.intent or "runtime_failed",
-                    "agentKey": run.agent_key or "workspace_orchestrator",
-                },
+                part={"id": create_id("ai_part"), "type": "text", "text": text},
                 created_by=user_id,
             )
-            self.db.add(message)
-            return message
-
-        message.status = FAILED
-        if not message.content:
-            message.content = text
-        if not message.parts:
-            message.parts = [{"id": create_id("ai_part"), "type": "text", "text": message.content or text}]
-        metadata = dict(message.message_metadata or {})
-        metadata.pop("liveStreaming", None)
-        metadata.pop("liveTextPartIds", None)
-        metadata.pop("livePartIds", None)
-        message.message_metadata = metadata
         return message
 
     def _append_runtime_error_event(

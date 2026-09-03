@@ -46,8 +46,6 @@ export function useAiApprovalStream(context: StreamMutationContext) {
       context.startThinking(runId);
       if (payload.approval.message_id) {
         context.streamMessageTargetRef.current = { ...context.streamMessageTargetRef.current, [runId]: payload.approval.message_id };
-      } else {
-        context.ensureStreamingAssistantMessage(runId, conversationKey);
       }
     }
 
@@ -79,6 +77,16 @@ export function useAiApprovalStream(context: StreamMutationContext) {
     try {
       void api.streamAiApprovalDecision(conversationKey, approvalId, decisionPayload, {
         signal: controller.signal,
+        onTimelineEvent: (event) => {
+          context.onTimelineEvent?.(event, conversationKey);
+          const part = event.payload?.part;
+          if (part && typeof part === 'object' && !Array.isArray(part)) {
+            if (isSuccessfulApprovalResultPart(part as { type?: unknown; card?: unknown }, approvalId)) {
+              successfulOperationResultReceived = true;
+            }
+            if (context.isApprovalDecisionSettledPart(part as never, approvalId)) settle();
+          }
+        },
         onProgress: (event) => {
           const nextEvent = buildStreamProgressEvent(event, runId, 'approval-stream');
           if (!context.streamMessageTargetRef.current[nextEvent.run_id]) {
