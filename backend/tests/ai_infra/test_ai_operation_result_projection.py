@@ -494,9 +494,44 @@ class AIOperationResultProjectionTest(unittest.TestCase):
             return {"id": item.id, "parts": [], "metadata": {}}
 
         class MessageSession:
+            def scalar(self, statement):  # noqa: ANN001
+                del statement
+                return SimpleNamespace(id="conversation-1", timeline_version=0)
+
             def scalars(self, statement):  # noqa: ANN001
                 del statement
-                return [SimpleNamespace(id="message-1"), SimpleNamespace(id="message-2")]
+                return [
+                    SimpleNamespace(
+                        id="message-1",
+                        conversation_id="conversation-1",
+                        role="assistant",
+                        content="",
+                        content_type="parts",
+                        parts=[],
+                        run_id=None,
+                        status="completed",
+                        message_metadata={},
+                        client_message_id=None,
+                        created_at=NOW,
+                        timeline_position=1,
+                        snapshot_sequence=1,
+                    ),
+                    SimpleNamespace(
+                        id="message-2",
+                        conversation_id="conversation-1",
+                        role="assistant",
+                        content="",
+                        content_type="parts",
+                        parts=[],
+                        run_id=None,
+                        status="completed",
+                        message_metadata={},
+                        client_message_id=None,
+                        created_at=NOW,
+                        timeline_position=2,
+                        snapshot_sequence=2,
+                    ),
+                ]
 
         with (
             patch.object(ai_api, "require_ai_conversation_access"),

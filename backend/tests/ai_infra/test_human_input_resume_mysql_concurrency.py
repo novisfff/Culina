@@ -371,6 +371,7 @@ def test_mysql_worker_consumes_claim_and_clears_it(
                 "user_id": USER_ID,
                 "conversation_id": CONVERSATION_ID,
                 "run_id": RUN_ID,
+                "assistant_message_id": "message-human-input-mysql",
             },
             pending=PENDING_INPUT,
             resume=prepared.resume_payload,
