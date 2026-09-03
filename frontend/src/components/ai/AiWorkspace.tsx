@@ -77,6 +77,7 @@ import {
   selectAiTimelineMessages,
   type AiTimelineState,
 } from './aiTimelineReducer';
+import { updateAiConversationSnapshot } from './aiMessageCache';
 
 const LazyAiDebugEntry = lazy(loadAiDebug);
 type AiWorkspaceProps = {
@@ -1568,9 +1569,10 @@ export function AiWorkspace({
       entity_id: recommendationPlanRequest.recommendation.entityId,
       food_plan_item_id: planItem.id,
     });
-    queryClient.setQueryData<AiMessage[]>(
+    queryClient.setQueryData<AiConversationSnapshot>(
       queryKeys.aiMessages(updatedMessage.conversation_id),
-      (items = []) => items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item)),
+      (snapshot) => updateAiConversationSnapshot(snapshot, (items) =>
+        items.map((item) => (item.id === updatedMessage.id ? updatedMessage : item))),
     );
     setLocalMessagesByConversationKey((current) => {
       const next = { ...current };
@@ -1599,7 +1601,10 @@ export function AiWorkspace({
     });
     const conversationId = activeConversationId;
     if (conversationId) {
-      queryClient.setQueryData<AiMessage[]>(queryKeys.aiMessages(conversationId), (items = []) => replaceInMessages(items));
+      queryClient.setQueryData<AiConversationSnapshot>(
+        queryKeys.aiMessages(conversationId),
+        (snapshot) => updateAiConversationSnapshot(snapshot, replaceInMessages),
+      );
     }
     setLocalMessagesByConversationKey((current) => Object.fromEntries(
       Object.entries(current).map(([conversationKey, items]) => [conversationKey, replaceInMessages(items)]),
