@@ -404,7 +404,7 @@ class AIAudioService:
                 dependencies=dependencies,
                 usage_adapter=adapter,
             )
-        if binding.adapter_kind == "dashscope_http":
+        if binding.adapter_kind == "dashscope":
             return DashScopeAudioProvider(
                 config,
                 dependencies=dependencies,

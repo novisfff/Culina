@@ -167,7 +167,7 @@ def test_openai_audio_dispatches_before_decrypt_and_uses_shared_transport() -> N
 
 def test_dashscope_tts_downloads_generated_url_through_shared_transport() -> None:
     binding = _binding(
-        adapter_kind="dashscope_http",
+        adapter_kind="dashscope",
         options={"voice": "Cherry", "output_format": "mp3"},
     )
     timeline: list[str] = []
@@ -184,7 +184,7 @@ def test_dashscope_tts_downloads_generated_url_through_shared_transport() -> Non
         def download_media(self, url: str, **kwargs: object) -> ProviderMedia:
             assert url == "https://audio.example/media/a.mp3"
             assert kwargs["source"] == binding.endpoint
-            assert kwargs["adapter_kind"] == "dashscope_http"
+            assert kwargs["adapter_kind"] == "dashscope"
             timeline.append("download")
             return ProviderMedia(b"audio", "audio/mpeg", binding.endpoint)
 
@@ -207,7 +207,7 @@ def test_dashscope_tts_downloads_generated_url_through_shared_transport() -> Non
 
 def test_dashscope_transport_contract_failure_remains_uncertain_after_dispatch() -> None:
     binding = _binding(
-        adapter_kind="dashscope_http",
+        adapter_kind="dashscope",
         options={"voice": "Cherry", "output_format": "mp3"},
     )
     timeline: list[str] = []
@@ -406,7 +406,7 @@ def test_realtime_state_contains_revision_identity_without_provider_label() -> N
         provider_profile_version_id="profile-version-a",
         requested_model="realtime-model",
         binding_identity_checksum="checksum-a",
-        adapter_kind="dashscope_realtime",
+        adapter_kind="dashscope",
         recipe_id="recipe-a",
         cook_session_id="cook-a",
         session_revision=1,

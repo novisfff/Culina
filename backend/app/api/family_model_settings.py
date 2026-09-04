@@ -65,6 +65,10 @@ from app.services.family_model_settings.credentials import (
     update_provider_profile,
     verify_owner_password,
 )
+from app.services.family_model_settings.adapter_registry import (
+    DASHSCOPE_API_BASE_URL,
+    DASHSCOPE_WEBSOCKET_BASE_URL,
+)
 from app.services.family_model_settings.drafts import (
     SaveConfigDraftCommand,
     load_config_draft,
@@ -548,8 +552,12 @@ def create_provider_profile_view(
                 display_name=payload.display_name,
                 adapter_kind=payload.adapter_kind,
                 auth_mode=payload.auth_mode,
-                api_base_url=payload.api_base_url,
-                websocket_base_url=payload.websocket_base_url,
+                api_base_url=payload.api_base_url or DASHSCOPE_API_BASE_URL,
+                websocket_base_url=payload.websocket_base_url or (
+                    DASHSCOPE_WEBSOCKET_BASE_URL
+                    if payload.adapter_kind == "dashscope"
+                    else None
+                ),
                 options=payload.options.model_dump(mode="json", exclude_none=True),
                 api_key=(
                     payload.api_key.get_secret_value() if payload.api_key is not None else None

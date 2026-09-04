@@ -75,4 +75,4 @@
 ### Task 5: Verification
 
 - [ ] Run focused backend pytest suites, backend compileall, frontend typecheck, and `git diff --check`.
-- [ ] Review all changed references to ensure no `dashscope_http` or `dashscope_realtime` remains.
+- [ ] Review all changed references to ensure no `dashscope_http` or `dashscope_realtime` remains in production code.

@@ -90,6 +90,26 @@ def test_profile_create_response_is_write_only_for_key(
         assert profile.current_secret_version_id == secret.id
 
 
+def test_create_dashscope_profile_uses_server_owned_endpoints(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    response = family_model_api.client.post(
+        "/api/family/model-settings/provider-profiles",
+        json={
+            "display_name": "通义千问",
+            "adapter_kind": "dashscope",
+            "auth_mode": "api_key",
+            "api_key": SECRET_MARKER,
+            "idempotency_key": "dashscope-profile-1",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["api_base_url"] == "https://dashscope.aliyuncs.com/api/v1"
+    assert body["websocket_base_url"] == "wss://dashscope.aliyuncs.com/api-ws/v1"
+
+
 def test_invalid_provider_request_never_echoes_write_only_key(
     family_model_api: FamilyModelApiContext,
 ) -> None:

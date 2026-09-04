@@ -16,3 +16,4 @@ minio==7.2.10
 Pillow==12.3.0
 av==18.0.0
 certifi==2026.2.25
+dashscope==1.27.3

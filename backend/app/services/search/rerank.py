@@ -356,7 +356,7 @@ class OpenAICompatibleRerankClient:
             raise _AmbiguousRerankTransportFailure(str(exc)) from exc
 
     def _endpoint_name(self) -> str:
-        if self.binding is not None and self.binding.adapter_kind == "dashscope_http":
+        if self.binding is not None and self.binding.adapter_kind == "dashscope":
             return "reranks"
         if self.provider == "dashscope":
             return "reranks"

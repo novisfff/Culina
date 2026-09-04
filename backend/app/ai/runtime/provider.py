@@ -8,6 +8,7 @@ from app.ai.runtime.factory import (
 )
 from app.ai.runtime.openai_chat import OpenAICompatibleChatProvider
 from app.ai.runtime.openai_responses import OpenAIResponsesChatProvider
+from app.ai.runtime.dashscope_chat import DashScopeChatProvider
 from app.ai.runtime.types import (
     AssistantMessageHandler,
     BaseChatProvider,
@@ -27,6 +28,7 @@ __all__ = [
     "DisabledChatProvider",
     "OpenAICompatibleChatProvider",
     "OpenAIResponsesChatProvider",
+    "DashScopeChatProvider",
     "ProviderImageInput",
     "ProviderUserContent",
     "ProviderUserInput",

@@ -67,6 +67,8 @@ from app.repos.family_model_settings.profiles import (
 )
 from app.services.activity import log_activity
 from app.services.family_model_settings.adapter_registry import (
+    DASHSCOPE_API_BASE_URL,
+    DASHSCOPE_WEBSOCKET_BASE_URL,
     adapter_definition,
     require_adapter_endpoint_contract,
 )
@@ -731,6 +733,11 @@ def canonical_credential_scope(
     """
 
     definition = adapter_definition(adapter_kind)
+    if adapter_kind == "dashscope":
+        if auth_mode != "api_key":
+            raise FamilyModelProviderProtocolUnsupported()
+        api_base_url = DASHSCOPE_API_BASE_URL
+        websocket_base_url = DASHSCOPE_WEBSOCKET_BASE_URL
     main_protocol = (
         "http"
         if any(protocol in {"http", "https"} for protocol in definition.http_protocols)

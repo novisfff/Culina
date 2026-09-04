@@ -303,7 +303,7 @@ def _dashscope_stt_probe_payload(model: str) -> dict[str, object]:
     }
 
 
-def _dashscope_http_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str, dict[str, object]]:
+def _dashscope_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str, dict[str, object]]:
     """Return a native DashScope probe instead of assuming OpenAI wire paths."""
 
     model = binding.requested_model
@@ -351,8 +351,8 @@ def _http_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str, dict[s
 
     if binding.adapter_kind == "openai_compatible_http":
         return _openai_http_probe_request(binding)
-    if binding.adapter_kind == "dashscope_http":
-        return _dashscope_http_probe_request(binding)
+    if binding.adapter_kind == "dashscope":
+        return _dashscope_probe_request(binding)
     raise FamilyModelProviderProtocolUnsupported()
 
 

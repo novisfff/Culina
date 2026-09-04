@@ -125,6 +125,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   }, [selectedProfile?.id]);
 
   const isRealtime = isFamilyModelRealtimeAdapter(createForm.adapterKind);
+  const isDashScope = createForm.adapterKind === 'dashscope';
 
   function beginCreate() {
     setCreateForm(INITIAL_CREATE_FORM);
@@ -152,7 +153,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
       display_name: createForm.displayName.trim(),
       adapter_kind: createForm.adapterKind,
       auth_mode: createForm.authMode,
-      api_base_url: createForm.apiBaseUrl.trim(),
+      ...(createForm.apiBaseUrl.trim() ? { api_base_url: createForm.apiBaseUrl.trim() } : {}),
       websocket_base_url: null,
       options: {},
       ...(createForm.authMode === 'api_key' ? { api_key: createForm.apiKey } : {}),
@@ -446,10 +447,12 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                     setCreateForm((current) => ({
                       ...current,
                       adapterKind,
-                      apiBaseUrl: isFamilyModelRealtimeAdapter(current.adapterKind) === isFamilyModelRealtimeAdapter(adapterKind)
+                      apiBaseUrl: adapterKind === 'dashscope'
+                        ? ''
+                        : isFamilyModelRealtimeAdapter(current.adapterKind) === isFamilyModelRealtimeAdapter(adapterKind)
                         ? current.apiBaseUrl
                         : '',
-                      authMode: isFamilyModelRealtimeAdapter(adapterKind) ? 'api_key' : current.authMode,
+                      authMode: adapterKind === 'dashscope' || isFamilyModelRealtimeAdapter(adapterKind) ? 'api_key' : current.authMode,
                     }));
                   }}
                 />
@@ -460,10 +463,17 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           <div className="family-model-settings-form-section">
           <h3 className="family-model-settings-form-section-title">连接与验证</h3>
             <div className="family-model-settings-form-grid">
-              <label className="family-model-settings-field">
-                <span>{isRealtime ? '实时地址' : 'API 地址'}</span>
-                <input type="url" value={createForm.apiBaseUrl} disabled={props.busy} placeholder={isRealtime ? 'wss://provider.example/realtime' : 'https://provider.example/v1'} onChange={(event) => setCreateForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} required />
-              </label>
+              {isDashScope ? (
+                <div className="family-model-settings-field">
+                  <span>服务地址</span>
+                  <p>将自动使用千问官方服务地址，无需手动配置。</p>
+                </div>
+              ) : (
+                <label className="family-model-settings-field">
+                  <span>{isRealtime ? '实时地址' : 'API 地址'}</span>
+                  <input type="url" value={createForm.apiBaseUrl} disabled={props.busy} placeholder={isRealtime ? 'wss://provider.example/realtime' : 'https://provider.example/v1'} onChange={(event) => setCreateForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} required />
+                </label>
+              )}
               <div className="family-model-settings-field">
                 <span>验证方式</span>
                 <DropdownSelect

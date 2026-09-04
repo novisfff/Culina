@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.runtime.openai_chat import OpenAICompatibleChatProvider
 from app.ai.runtime.openai_responses import OpenAIResponsesChatProvider
+from app.ai.runtime.dashscope_chat import DashScopeChatProvider
 from app.ai.runtime.types import BaseChatProvider
 from app.core.config import get_settings
 from app.db.session import SessionLocal
@@ -237,10 +238,17 @@ class FamilyChatProviderFactory:
             signer=decode_receipt_integrity_keyring(settings).signer(),
             binding=binding,
         )
-        constructor: type[OpenAICompatibleChatProvider] | type[OpenAIResponsesChatProvider]
+        constructor: type[OpenAICompatibleChatProvider] | type[OpenAIResponsesChatProvider] | type[DashScopeChatProvider]
         # Adapter-owned profile options are immutable. The public schema does
         # not expose this protocol knob yet, but keeping the choice bound to the
         # revision lets an already-published internal profile stay reproducible.
+        if binding.adapter_kind == "dashscope":
+            return DashScopeChatProvider(
+                binding=binding,
+                resolve_dispatch_credential=resolver.resolve_dispatch_credential,
+                usage_adapter=usage_adapter,
+                model_usage_required=True,
+            )
         if binding.options.get("runtime_protocol") == "responses":
             constructor = OpenAIResponsesChatProvider
         else:

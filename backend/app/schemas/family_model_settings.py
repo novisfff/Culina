@@ -14,6 +14,10 @@ from pydantic import (
 )
 
 from app.core.enums import FamilyModelProviderStatus, ModelUsageMeter
+from app.services.family_model_settings.adapter_registry import (
+    DASHSCOPE_API_BASE_URL,
+    DASHSCOPE_WEBSOCKET_BASE_URL,
+)
 
 
 FamilyModelCapability = Literal[
@@ -28,8 +32,7 @@ FamilyModelCapability = Literal[
 FamilyModelAdapterKind = Literal[
     "openai_compatible_http",
     "openai_realtime",
-    "dashscope_http",
-    "dashscope_realtime",
+    "dashscope",
 ]
 FamilyModelAuthMode = Literal["api_key", "no_auth"]
 
@@ -68,8 +71,8 @@ class ProviderCredentialMetadataOut(BaseModel):
 class ProviderProfileCreateRequest(_StrictModel):
     display_name: str = Field(min_length=1, max_length=160)
     adapter_kind: FamilyModelAdapterKind
-    auth_mode: FamilyModelAuthMode
-    api_base_url: str = Field(min_length=1, max_length=2048)
+    auth_mode: FamilyModelAuthMode = "api_key"
+    api_base_url: str | None = Field(default=None, max_length=2048)
     websocket_base_url: str | None = Field(default=None, max_length=2048)
     options: ProviderProfileScopeOptions = Field(default_factory=ProviderProfileScopeOptions)
     workspace_id: str | None = Field(default=None, min_length=1, max_length=160)
@@ -94,6 +97,12 @@ class ProviderProfileCreateRequest(_StrictModel):
 
     @model_validator(mode="after")
     def _require_auth_material(self) -> ProviderProfileCreateRequest:
+        if self.adapter_kind == "dashscope":
+            self.api_base_url = DASHSCOPE_API_BASE_URL
+            self.websocket_base_url = DASHSCOPE_WEBSOCKET_BASE_URL
+            self.auth_mode = "api_key"
+        elif not self.api_base_url:
+            raise ValueError("family_model_api_base_url_required")
         direct_scope = {
             key: value
             for key, value in {

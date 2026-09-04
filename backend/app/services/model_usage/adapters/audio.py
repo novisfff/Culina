@@ -97,7 +97,7 @@ class AudioUsageAdapter(MeteredProviderAdapter):
         self.variant_key = self.binding.variant_key
 
     def _tts_character_count(self, sanitized_text: str) -> int:
-        if self.binding is not None and self.binding.adapter_kind == "dashscope_http":
+        if self.binding is not None and self.binding.adapter_kind == "dashscope":
             return dashscope_tts_billable_characters(sanitized_text)
         return len(sanitized_text)
 

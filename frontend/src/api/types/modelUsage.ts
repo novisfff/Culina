@@ -111,8 +111,7 @@ export type FamilyModelCapability = ModelUsageCapability;
 export type FamilyModelAdapterKind =
   | 'openai_compatible_http'
   | 'openai_realtime'
-  | 'dashscope_http'
-  | 'dashscope_realtime';
+  | 'dashscope';
 
 export type FamilyModelAuthMode = 'api_key' | 'no_auth';
 export type FamilyModelProviderStatus = 'active' | 'disabled' | 'archived';
@@ -152,7 +151,7 @@ export interface FamilyModelProviderProfileCreate {
   display_name: string;
   adapter_kind: FamilyModelAdapterKind;
   auth_mode: FamilyModelAuthMode;
-  api_base_url: string;
+  api_base_url?: string;
   websocket_base_url?: string | null;
   options?: FamilyModelProviderScopeOptions;
   api_key?: string;

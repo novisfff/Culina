@@ -888,7 +888,7 @@ def image_provider_from_adapter(
 
     if binding.capability != "image_generation":
         raise ModelUsageContractError("image_binding_required")
-    if binding.adapter_kind == "dashscope_http":
+    if binding.adapter_kind == "dashscope":
         return DashScopeImageGenerationProvider(binding, dependencies)
     if binding.adapter_kind == "openai_compatible_http":
         return OpenAIImageGenerationProvider(binding, dependencies)

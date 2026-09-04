@@ -83,7 +83,7 @@ class DashScopeAudioProvider:
     ) -> None:
         binding = config.binding
         if (
-            binding.adapter_kind != "dashscope_http"
+            binding.adapter_kind != "dashscope"
             or binding.capability not in {"stt", "tts"}
         ):
             raise ModelUsageContractError("audio_binding_adapter_unsupported")
@@ -372,7 +372,7 @@ class RealtimeAudioProvider:
         dependencies: AudioProviderDependencies,
     ) -> None:
         if config.binding.capability != "realtime_audio" or config.binding.adapter_kind not in {
-            "dashscope_realtime",
+            "dashscope",
             "openai_realtime",
         }:
             raise ModelUsageContractError("realtime_binding_adapter_unsupported")
@@ -660,7 +660,7 @@ class RealtimeAudioProvider:
             raise _KnownNoSendRealtimeFailure(
                 ModelUsageContractError("audio_dispatch_credential_required")
             )
-        headers = {"OpenAI-Beta": "realtime=v1"}
+        headers = {} if self.binding.adapter_kind == "dashscope" else {"OpenAI-Beta": "realtime=v1"}
         if credential.api_key:
             headers["Authorization"] = f"Bearer {credential.api_key}"
         endpoint_url = realtime_endpoint_url(self.binding)
@@ -1018,7 +1018,7 @@ def _extract_qwen_asr_delta_text(event: dict[str, Any]) -> str:
 
 
 def _realtime_tts_characters(adapter_kind: str, text: str) -> int:
-    return dashscope_tts_billable_characters(text) if adapter_kind == "dashscope_realtime" else len(text)
+    return dashscope_tts_billable_characters(text) if adapter_kind == "dashscope" else len(text)
 
 
 def _pcm16_duration_seconds(payload: bytes, *, sample_rate: int) -> Decimal:
