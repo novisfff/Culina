@@ -22,6 +22,8 @@ EXPECTED_MODEL_PROVIDER_SEND_POINTS = {
     "app/ai/images/generation.py:_download_media:self.dependencies.transport.download_media",
     "app/ai/images/generation.py:_post_json:self.dependencies.transport.request",
     "app/ai/runtime/family_transport.py:request_json:self.transport.request",
+    "app/ai/runtime/dashscope_chat.py:_dispatch_openai_request:client.chat.completions.create",
+    "app/ai/runtime/dashscope_chat.py:iterate:client.chat.completions.create",
     "app/services/ai_audio/dashscope_audio.py:_request_json:self.dependencies.transport.request",
     "app/services/ai_audio/dashscope_audio.py:_websocket:self.dependencies.transport.connect_websocket",
     "app/services/ai_audio/dashscope_audio.py:synthesize:self.dependencies.transport.download_media",
