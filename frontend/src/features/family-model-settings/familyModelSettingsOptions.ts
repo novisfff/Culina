@@ -24,13 +24,12 @@ export const FAMILY_MODEL_ADAPTER_OPTIONS: ReadonlyArray<{
   description: string;
 }> = [
   { value: 'openai_compatible_http', label: 'OpenAI 兼容 HTTP', description: '支持对话、图片、语音和搜索功能。' },
-  { value: 'dashscope_http', label: 'DashScope HTTP', description: '支持通义兼容的 HTTP 模型功能。' },
+  { value: 'dashscope', label: 'DashScope（通义千问）', description: '统一支持对话、图片、语音和实时交互。只需配置一个 API 密钥。' },
   { value: 'openai_realtime', label: 'OpenAI Realtime', description: '仅用于实时语音。' },
-  { value: 'dashscope_realtime', label: 'DashScope Realtime', description: '仅用于实时语音。' },
 ];
 
 export function isFamilyModelRealtimeAdapter(adapterKind: FamilyModelAdapterKind): boolean {
-  return adapterKind === 'openai_realtime' || adapterKind === 'dashscope_realtime';
+  return adapterKind === 'openai_realtime';
 }
 
 export const FAMILY_MODEL_METER_LABELS: Partial<Record<ModelUsageMeter, string>> = {
@@ -54,5 +53,6 @@ export function profileSupportsCapability(
 ): boolean {
   if (profile.archived || profile.status !== 'active') return false;
   const isRealtime = isFamilyModelRealtimeAdapter(profile.adapter_kind);
+  if (profile.adapter_kind === 'dashscope') return true;
   return capability === 'realtime_audio' ? isRealtime : !isRealtime;
 }

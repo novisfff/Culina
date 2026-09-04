@@ -78,6 +78,8 @@ _HTTP_BILLING_SCHEMES: Mapping[FamilyModelCapability, tuple[str, ...]] = Mapping
 _REALTIME_BILLING_SCHEMES: Mapping[FamilyModelCapability, tuple[str, ...]] = MappingProxyType(
     {"realtime_audio": ("realtime-asr-seconds-tts-characters-v1",)}
 )
+DASHSCOPE_API_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
+DASHSCOPE_WEBSOCKET_BASE_URL = "wss://dashscope.aliyuncs.com/api-ws/v1"
 
 _ADAPTERS: Mapping[FamilyModelAdapterKind, AdapterDefinition] = MappingProxyType(
     {
@@ -90,27 +92,31 @@ _ADAPTERS: Mapping[FamilyModelAdapterKind, AdapterDefinition] = MappingProxyType
             free_probe_path="/models",
             media_host_policy="same_origin",
         ),
-        "dashscope_http": _definition(
-            kind="dashscope_http",
-            capabilities=_HTTP_CAPABILITIES,
+        "dashscope": _definition(
+            kind="dashscope",
+            capabilities=frozenset(
+                {
+                    "llm",
+                    "image_generation",
+                    "stt",
+                    "tts",
+                    "realtime_audio",
+                    "embedding",
+                    "rerank",
+                }
+            ),
             auth_modes=frozenset({"api_key"}),
-            http_protocols=frozenset({"https"}),
-            billing_schemes=_HTTP_BILLING_SCHEMES,
+            http_protocols=frozenset({"https", "wss"}),
+            billing_schemes={
+                **_HTTP_BILLING_SCHEMES,
+                "realtime_audio": _REALTIME_BILLING_SCHEMES["realtime_audio"],
+            },
             free_probe_path=None,
             media_host_policy="dashscope_declared_hosts",
             declared_media_hosts=frozenset({"dashscope.aliyuncs.com"}),
         ),
         "openai_realtime": _definition(
             kind="openai_realtime",
-            capabilities=frozenset({"realtime_audio"}),
-            auth_modes=frozenset({"api_key"}),
-            http_protocols=frozenset({"wss"}),
-            billing_schemes=_REALTIME_BILLING_SCHEMES,
-            free_probe_path=None,
-            media_host_policy="inline_only",
-        ),
-        "dashscope_realtime": _definition(
-            kind="dashscope_realtime",
             capabilities=frozenset({"realtime_audio"}),
             auth_modes=frozenset({"api_key"}),
             http_protocols=frozenset({"wss"}),

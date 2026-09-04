@@ -87,7 +87,7 @@ def test_connection_check_without_declared_free_probe_never_sends_a_request(
 ) -> None:
     profile = family_model_api.create_profile(
         display_name="DashScope",
-        adapter_kind="dashscope_http",
+        adapter_kind="dashscope",
         api_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         idempotency_key="profile-no-probe-1",
     )

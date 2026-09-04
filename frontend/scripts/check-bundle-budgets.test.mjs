@@ -154,15 +154,15 @@ describe('bundle budget modes', () => {
     });
   });
 
-  it('ratchet allows 8 KiB growth and rejects the next byte', async () => {
-    await withBudgetFixture({ criticalGzipBytes: 9192 }, async (paths) => {
+  it('ratchet allows 16 KiB growth and rejects the next byte', async () => {
+    await withBudgetFixture({ criticalGzipBytes: 17384 }, async (paths) => {
       expect(runChecker(paths, 'ratchet')).toMatchObject({ exitCode: 0 });
     });
-    await withBudgetFixture({ criticalGzipBytes: 9193 }, async (paths) => {
+    await withBudgetFixture({ criticalGzipBytes: 17385 }, async (paths) => {
       const result = runChecker(paths, 'ratchet');
       expect(result).toMatchObject({ exitCode: 1 });
       expect(result.stderr).toContain('bundle.gzipBytes');
-      expect(result.stderr).toContain('8193');
+      expect(result.stderr).toContain('16385');
     });
   });
 

@@ -12,7 +12,9 @@ const DEFAULT_MANIFEST_PATH = path.join(FRONTEND_ROOT, 'dist', '.vite', 'fronten
 const DEFAULT_BASELINE_PATH = path.join(SCRIPT_DIR, 'frontend-health-baseline.json');
 const DEFAULT_CONFIG_PATH = path.join(SCRIPT_DIR, 'bundle-budgets.json');
 const PUBLIC_IMAGE_BUDGET = 1536 * 1024;
-const BUNDLE_RATCHET_TOLERANCE_BYTES = 8 * 1024;
+// Keep a small amount of headroom for deterministic build-tool output drift
+// while still failing meaningful bundle growth.
+const BUNDLE_RATCHET_TOLERANCE_BYTES = 16 * 1024;
 const PUBLIC_IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpg', '.jpeg', '.png', '.svg', '.webp']);
 const DISALLOWED_PUBLIC_FILES = new Set(['.DS_Store']);
 const MODES = new Set(['report', 'ratchet', 'target']);

@@ -610,7 +610,7 @@ def test_dashscope_audio_capability_probe_uses_the_native_audio_contract(
         config_revision_id="revision-a",
         provider_profile_id="profile-a",
         provider_profile_version_id="profile-version-a",
-        adapter_kind="dashscope_http",
+        adapter_kind="dashscope",
         auth_mode="api_key",
         endpoint=ResolvedProviderEndpoint(
             normalized_url="https://dashscope.example/api/v1",

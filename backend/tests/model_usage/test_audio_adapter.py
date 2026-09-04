@@ -204,7 +204,7 @@ def test_dashscope_tts_uses_provider_billable_character_rules(
         model="qwen3-tts-flash",
         provider_profile_id="dashscope",
         variant_key="voice=default",
-        adapter_kind="dashscope_http",
+        adapter_kind="dashscope",
     )
     adapter = AudioUsageAdapter(
         capability=ModelUsageCapability.TTS,

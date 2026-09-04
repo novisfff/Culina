@@ -28,6 +28,20 @@ def test_provider_request_forbids_server_owned_and_unknown_fields() -> None:
         )
 
 
+def test_dashscope_provider_only_requires_api_key_and_uses_official_endpoints() -> None:
+    payload = ProviderProfileCreateRequest.model_validate(
+        {
+            "display_name": "通义千问",
+            "adapter_kind": "dashscope",
+            "api_key": "sk-test",
+            "idempotency_key": "dashscope-create-1",
+        }
+    )
+    assert payload.api_base_url == "https://dashscope.aliyuncs.com/api/v1"
+    assert payload.websocket_base_url == "wss://dashscope.aliyuncs.com/api-ws/v1"
+    assert payload.auth_mode == "api_key"
+
+
 def test_provider_response_has_no_encrypted_or_plain_secret_fields() -> None:
     assert {
         "api_key",

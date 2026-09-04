@@ -18,9 +18,15 @@ def test_adapter_registry_is_closed_and_explicit() -> None:
     )
     assert openai_http.auth_modes == frozenset({"api_key", "no_auth"})
     assert "realtime_audio" not in openai_http.capabilities
-    assert adapter_definition("dashscope_realtime").capabilities == frozenset(
-        {"realtime_audio"}
+    dashscope = adapter_definition("dashscope")
+    assert dashscope.capabilities == frozenset(
+        {"llm", "image_generation", "stt", "tts", "realtime_audio", "embedding", "rerank"}
     )
+    assert dashscope.auth_modes == frozenset({"api_key"})
+    with pytest.raises(FamilyModelProviderProtocolUnsupported):
+        adapter_definition("dashscope_http")
+    with pytest.raises(FamilyModelProviderProtocolUnsupported):
+        adapter_definition("dashscope_realtime")
     with pytest.raises(FamilyModelProviderProtocolUnsupported):
         adapter_definition("arbitrary_python_module")
 

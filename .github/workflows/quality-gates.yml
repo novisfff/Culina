@@ -302,7 +302,15 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install pip-audit==2.9.0
       - name: Audit production dependency graphs
-        run: npm run audit:prod
+        run: |
+          set +e
+          npm run audit:prod 2>&1 | tee dependency-audit.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ] && grep -Eq '503 Service Unavailable|audit endpoint returned an error' dependency-audit.log; then
+            echo "::warning::Dependency audit service was unavailable; audit deferred to a later run."
+            exit 0
+          fi
+          exit "$status"
 
   frontend-typecheck:
     name: Frontend Typecheck

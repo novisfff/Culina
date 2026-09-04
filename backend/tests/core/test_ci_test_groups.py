@@ -26,7 +26,7 @@ def test_repository_ci_groups_cover_every_backend_test_directory_once() -> None:
     assert "meal_logs" in groups["service"]
     assert "deployment" in groups["service"]
     assert "ai_audio" in groups["ai"]
-    assert len(discovered) == 16
+    assert len(discovered) == 17
 
 
 def test_group_validation_rejects_missing_duplicate_and_unknown_directories() -> None:

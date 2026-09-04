@@ -15,7 +15,8 @@
     ],
     "ai": [
       "ai_audio",
-      "ai_infra"
+      "ai_infra",
+      "ai_runtime"
     ],
     "ai_evals": [
       "ai_evals"

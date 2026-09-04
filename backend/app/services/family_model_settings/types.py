@@ -18,8 +18,7 @@ FamilyModelCapability = Literal[
 FamilyModelAdapterKind = Literal[
     "openai_compatible_http",
     "openai_realtime",
-    "dashscope_http",
-    "dashscope_realtime",
+    "dashscope",
 ]
 FamilyModelAuthMode = Literal["api_key", "no_auth"]
 
