@@ -47,6 +47,7 @@ def test_dashscope_generation_response_is_normalized(monkeypatch) -> None:
     assert seen["client_kwargs"] == {
         "api_key": None,
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "max_retries": 0,
     }
     assert seen["model"] == "qwen-plus"
     assert seen["messages"][-1]["content"] == "介绍一下自己"
@@ -90,6 +91,7 @@ def test_dashscope_multimodal_uses_same_openai_compatible_path(monkeypatch) -> N
     assert seen["client_kwargs"] == {
         "api_key": None,
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "max_retries": 0,
     }
     messages = seen["messages"]
     assert isinstance(messages, list)
@@ -137,5 +139,6 @@ def test_dashscope_resolves_one_dispatch_key_for_sdk_call(monkeypatch) -> None:
     assert seen["client_kwargs"] == {
         "api_key": "sk-one-key",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "max_retries": 0,
     }
     assert seen["messages"][-1]["content"] == "hi"

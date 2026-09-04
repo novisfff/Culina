@@ -69,11 +69,19 @@ class DashScopeChatProvider(OpenAICompatibleChatProvider):
 
         if request.get("stream"):
             def iterate() -> Iterator[Any]:
-                with openai.OpenAI(api_key=api_key, base_url=DASHSCOPE_COMPATIBLE_BASE_URL) as client:
+                with openai.OpenAI(
+                    api_key=api_key,
+                    base_url=DASHSCOPE_COMPATIBLE_BASE_URL,
+                    max_retries=0,
+                ) as client:
                     yield from client.chat.completions.create(**request)
 
             return iterate()
-        with openai.OpenAI(api_key=api_key, base_url=DASHSCOPE_COMPATIBLE_BASE_URL) as client:
+        with openai.OpenAI(
+            api_key=api_key,
+            base_url=DASHSCOPE_COMPATIBLE_BASE_URL,
+            max_retries=0,
+        ) as client:
             return client.chat.completions.create(**request)
 
     def _dispatch_chat_request(self, request: dict[str, Any], *, permit: DispatchPermit | None) -> Any:
