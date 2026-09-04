@@ -52,14 +52,30 @@ def test_dashscope_generation_response_is_normalized(monkeypatch) -> None:
     assert seen["messages"][-1]["content"] == "介绍一下自己"
 
 
-def test_dashscope_multimodal_routes_image_messages(monkeypatch) -> None:
+def test_dashscope_multimodal_uses_same_openai_compatible_path(monkeypatch) -> None:
     seen: dict[str, object] = {}
 
-    def call(**kwargs):
-        seen.update(kwargs)
-        return {"request_id": "req-2", "output": {"choices": [{"message": {"role": "assistant", "content": "图"}}]}}
+    class _Completions:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return {
+                "id": "req-2",
+                "model": "qwen-plus",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "图"}}],
+            }
 
-    monkeypatch.setattr("app.ai.runtime.dashscope_chat.dashscope.MultiModalConversation.call", call)
+    class _Client:
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+            self.chat = type("_Chat", (), {"completions": _Completions()})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr("app.ai.runtime.dashscope_chat.openai.OpenAI", _Client)
     provider = DashScopeChatProvider(binding=_binding(supports_vision=True))
 
     result = provider.generate(
@@ -71,10 +87,15 @@ def test_dashscope_multimodal_routes_image_messages(monkeypatch) -> None:
     )
 
     assert result.text == "图"
+    assert seen["client_kwargs"] == {
+        "api_key": None,
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    }
     messages = seen["messages"]
     assert isinstance(messages, list)
     assert any(
-        part.get("image", "").startswith("data:image/png;base64,")
+        part.get("type") == "image_url"
+        and part.get("image_url", {}).get("url", "").startswith("data:image/png;base64,")
         for part in messages[-1]["content"]
         if isinstance(part, dict)
     )

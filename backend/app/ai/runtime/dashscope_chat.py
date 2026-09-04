@@ -3,29 +3,25 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any, Callable
 
-import dashscope
 import openai
 
-from app.ai.runtime.messages import dump_value
 from app.ai.runtime.openai_chat import OpenAICompatibleChatProvider
-from app.ai.runtime.types import ProviderUserContent, ProviderUserInput
+from app.ai.runtime.types import ProviderUserContent
 from app.services.family_model_settings.types import DispatchCredential, ResolvedCapabilityBinding
 from app.services.model_usage.types import DispatchPermit
 from app.services.model_usage.errors import ModelUsageContractError
 
 
-DASHSCOPE_HTTP_API_URL = "https://dashscope.aliyuncs.com/api/v1"
 DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
 class DashScopeChatProvider(OpenAICompatibleChatProvider):
-    """DashScope chat provider using the protocol appropriate to each request.
+    """DashScope chat provider using one OpenAI-compatible chat protocol.
 
     The inherited orchestration keeps Culina's tool-loop, tracing and usage
-    settlement behavior. Text/tool requests use DashScope's OpenAI-compatible
-    endpoint, while image requests use the native multimodal SDK. The dispatch
-    credential is resolved immediately before the provider call and is never
-    stored on the provider.
+    settlement behavior for text, image, tool and streaming requests. The
+    dispatch credential is resolved immediately before the provider call and
+    is never stored on the provider.
     """
 
     def __init__(
@@ -53,33 +49,6 @@ class DashScopeChatProvider(OpenAICompatibleChatProvider):
         self._resolve_dispatch_credential = resolve_dispatch_credential
         self._deferred_transport = None
 
-    def _request_messages(self, request: dict[str, Any]) -> list[dict[str, Any]]:
-        messages = request.get("messages")
-        return messages if isinstance(messages, list) else []
-
-    @staticmethod
-    def _dashscope_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        converted: list[dict[str, Any]] = []
-        for message in messages:
-            role = str(message.get("role") or "user")
-            content = message.get("content")
-            if isinstance(content, list):
-                parts: list[dict[str, Any]] = []
-                for part in content:
-                    if not isinstance(part, dict):
-                        continue
-                    if part.get("type") == "text":
-                        parts.append({"text": str(part.get("text") or "")})
-                    elif part.get("type") == "image_url":
-                        image_url = part.get("image_url")
-                        if isinstance(image_url, dict):
-                            image_url = image_url.get("url")
-                        if image_url:
-                            parts.append({"image": str(image_url)})
-                content = parts
-            converted.append({"role": role, "content": content if content is not None else ""})
-        return converted
-
     def _credential(self, permit: DispatchPermit | None) -> str | None:
         if self._resolve_dispatch_credential is None:
             return None
@@ -90,34 +59,6 @@ class DashScopeChatProvider(OpenAICompatibleChatProvider):
         if not credential.api_key:
             raise ModelUsageContractError("family_model_secret_unavailable")
         return credential.api_key
-
-    @staticmethod
-    def _normalize_response(response: Any, *, model: str) -> dict[str, Any]:
-        payload = dump_value(response)
-        if not isinstance(payload, dict):
-            payload = {}
-        output = payload.get("output") if isinstance(payload.get("output"), dict) else {}
-        choices = output.get("choices") if isinstance(output.get("choices"), list) else []
-        if choices:
-            raw_message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-            message = dump_value(raw_message) if raw_message is not None else {}
-            if not isinstance(message, dict):
-                message = {}
-        else:
-            message = {"role": "assistant", "content": output.get("text") or ""}
-        message.setdefault("role", "assistant")
-        message.setdefault("content", output.get("text") or "")
-        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else None
-        return {
-            "id": payload.get("request_id"),
-            "model": model,
-            "choices": [{"index": 0, "message": message, "delta": message}],
-            "usage": usage,
-        }
-
-    def _normalize_stream(self, stream: Any, *, model: str) -> Iterator[dict[str, Any]]:
-        for response in stream:
-            yield self._normalize_response(response, model=model)
 
     def _dispatch_openai_request(self, request: dict[str, Any], *, api_key: str | None) -> Any:
         """Call DashScope's OpenAI-compatible endpoint without retaining credentials.
@@ -137,41 +78,7 @@ class DashScopeChatProvider(OpenAICompatibleChatProvider):
 
     def _dispatch_chat_request(self, request: dict[str, Any], *, permit: DispatchPermit | None) -> Any:
         api_key = self._credential(permit)
-        raw_messages = self._request_messages(request)
-        is_multimodal = any(
-            isinstance(message.get("content"), list)
-            and any(
-                isinstance(part, dict)
-                and (
-                    part.get("type") == "image_url"
-                    or part.get("image")
-                    or part.get("image_url")
-                )
-                for part in message["content"]
-            )
-            for message in raw_messages
-            if isinstance(message, dict)
-        )
-        if not is_multimodal:
-            return self._dispatch_openai_request(request, api_key=api_key)
-
-        kwargs: dict[str, Any] = {
-            "model": str(request.get("model") or self.model_name),
-            "messages": self._dashscope_messages(raw_messages),
-            "api_key": api_key,
-            "temperature": request.get("temperature"),
-            "max_tokens": request.get("max_tokens"),
-            "tools": request.get("tools") or None,
-            "result_format": "message",
-        }
-        stream = bool(request.get("stream"))
-        if stream:
-            kwargs["stream"] = True
-            kwargs["incremental_output"] = True
-        dashscope.base_http_api_url = DASHSCOPE_HTTP_API_URL
-        call = dashscope.MultiModalConversation.call if is_multimodal else dashscope.Generation.call
-        response = call(**{key: value for key, value in kwargs.items() if value is not None})
-        return self._normalize_stream(response, model=kwargs["model"]) if stream else self._normalize_response(response, model=kwargs["model"])
+        return self._dispatch_openai_request(request, api_key=api_key)
 
     def _request_openai_messages(self, system: str, user: ProviderUserContent) -> list[dict[str, Any]]:
         # Reuse the OpenAI content encoder so binary image input remains
