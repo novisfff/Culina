@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from typing import Any, Callable
 
 import dashscope
+import openai
 
 from app.ai.runtime.messages import dump_value
 from app.ai.runtime.openai_chat import OpenAICompatibleChatProvider
@@ -14,15 +15,17 @@ from app.services.model_usage.errors import ModelUsageContractError
 
 
 DASHSCOPE_HTTP_API_URL = "https://dashscope.aliyuncs.com/api/v1"
+DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
 class DashScopeChatProvider(OpenAICompatibleChatProvider):
-    """Chat provider backed by the native DashScope SDK.
+    """DashScope chat provider using the protocol appropriate to each request.
 
     The inherited orchestration keeps Culina's tool-loop, tracing and usage
-    settlement behavior.  Only request/response translation is provider
-    specific; the dispatch credential is resolved immediately before the SDK
-    call and is never stored on the provider.
+    settlement behavior. Text/tool requests use DashScope's OpenAI-compatible
+    endpoint, while image requests use the native multimodal SDK. The dispatch
+    credential is resolved immediately before the provider call and is never
+    stored on the provider.
     """
 
     def __init__(
@@ -116,23 +119,51 @@ class DashScopeChatProvider(OpenAICompatibleChatProvider):
         for response in stream:
             yield self._normalize_response(response, model=model)
 
+    def _dispatch_openai_request(self, request: dict[str, Any], *, api_key: str | None) -> Any:
+        """Call DashScope's OpenAI-compatible endpoint without retaining credentials.
+
+        A streaming response is lazy, so the client lifetime is scoped to the
+        returned iterator and is closed as soon as the stream is exhausted.
+        """
+
+        if request.get("stream"):
+            def iterate() -> Iterator[Any]:
+                with openai.OpenAI(api_key=api_key, base_url=DASHSCOPE_COMPATIBLE_BASE_URL) as client:
+                    yield from client.chat.completions.create(**request)
+
+            return iterate()
+        with openai.OpenAI(api_key=api_key, base_url=DASHSCOPE_COMPATIBLE_BASE_URL) as client:
+            return client.chat.completions.create(**request)
+
     def _dispatch_chat_request(self, request: dict[str, Any], *, permit: DispatchPermit | None) -> Any:
         api_key = self._credential(permit)
+        raw_messages = self._request_messages(request)
+        is_multimodal = any(
+            isinstance(message.get("content"), list)
+            and any(
+                isinstance(part, dict)
+                and (
+                    part.get("type") == "image_url"
+                    or part.get("image")
+                    or part.get("image_url")
+                )
+                for part in message["content"]
+            )
+            for message in raw_messages
+            if isinstance(message, dict)
+        )
+        if not is_multimodal:
+            return self._dispatch_openai_request(request, api_key=api_key)
+
         kwargs: dict[str, Any] = {
             "model": str(request.get("model") or self.model_name),
-            "messages": self._dashscope_messages(self._request_messages(request)),
+            "messages": self._dashscope_messages(raw_messages),
             "api_key": api_key,
             "temperature": request.get("temperature"),
             "max_tokens": request.get("max_tokens"),
             "tools": request.get("tools") or None,
             "result_format": "message",
         }
-        is_multimodal = any(
-            isinstance(message.get("content"), list)
-            and any(isinstance(part, dict) and part.get("image") for part in message["content"])
-            for message in kwargs["messages"]
-            if isinstance(message, dict)
-        )
         stream = bool(request.get("stream"))
         if stream:
             kwargs["stream"] = True

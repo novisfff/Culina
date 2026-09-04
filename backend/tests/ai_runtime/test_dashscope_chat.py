@@ -17,17 +17,37 @@ def _binding(*, supports_vision: bool = False):
 def test_dashscope_generation_response_is_normalized(monkeypatch) -> None:
     seen: dict[str, object] = {}
 
-    def call(**kwargs):
-        seen.update(kwargs)
-        return {"request_id": "req-1", "output": {"text": "你好"}, "usage": {"input_tokens": 3, "output_tokens": 2}}
+    class _Completions:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return {
+                "id": "req-1",
+                "model": "qwen-plus",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "你好"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+            }
 
-    monkeypatch.setattr("app.ai.runtime.dashscope_chat.dashscope.Generation.call", call)
+    class _Client:
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+            self.chat = type("_Chat", (), {"completions": _Completions()})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr("app.ai.runtime.dashscope_chat.openai.OpenAI", _Client)
     provider = DashScopeChatProvider(binding=_binding())
 
     result = provider.generate(system="你是助手", user="介绍一下自己")
 
     assert result.text == "你好"
-    assert "api_key" not in seen
+    assert seen["client_kwargs"] == {
+        "api_key": None,
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    }
     assert seen["model"] == "qwen-plus"
     assert seen["messages"][-1]["content"] == "介绍一下自己"
 
@@ -67,7 +87,22 @@ def test_dashscope_resolves_one_dispatch_key_for_sdk_call(monkeypatch) -> None:
         seen.update(kwargs)
         return {"output": {"text": "ok"}}
 
-    monkeypatch.setattr("app.ai.runtime.dashscope_chat.dashscope.Generation.call", call)
+    class _Client:
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+            self.chat = type(
+                "_Chat",
+                (),
+                {"completions": type("_Completions", (), {"create": staticmethod(call)})()},
+            )()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr("app.ai.runtime.dashscope_chat.openai.OpenAI", _Client)
     provider = DashScopeChatProvider(
         binding=_binding(),
         resolve_dispatch_credential=lambda binding, secret_version: DispatchCredential(
@@ -78,4 +113,8 @@ def test_dashscope_resolves_one_dispatch_key_for_sdk_call(monkeypatch) -> None:
         ),
     )
     provider.generate(system="", user="hi")
-    assert seen["api_key"] == "sk-one-key"
+    assert seen["client_kwargs"] == {
+        "api_key": "sk-one-key",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    }
+    assert seen["messages"][-1]["content"] == "hi"
