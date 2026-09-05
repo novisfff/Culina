@@ -30,7 +30,6 @@ jobs:
       frontend_e2e: ${{ steps.classify.outputs.frontend_e2e }}
       frontend_ai_contract: ${{ steps.classify.outputs.frontend_ai_contract }}
       frontend_governance: ${{ steps.classify.outputs.frontend_governance }}
-      frontend_release_evidence: ${{ steps.classify.outputs.frontend_release_evidence }}
       backend_service: ${{ steps.classify.outputs.backend_service }}
       backend_ai: ${{ steps.classify.outputs.backend_ai }}
       ai_evals: ${{ steps.classify.outputs.ai_evals }}
@@ -554,7 +553,6 @@ jobs:
           RESULT_FRONTEND_AI_CONTRACT: ${{ needs.frontend-ai-contract.result }}
           REQUIRE_FRONTEND_GOVERNANCE: ${{ needs.classify.outputs.frontend_governance }}
           RESULT_FRONTEND_GOVERNANCE: ${{ needs.frontend-governance.result }}
-          REQUIRE_FRONTEND_RELEASE_EVIDENCE: ${{ needs.classify.outputs.frontend_release_evidence }}
           REQUIRE_BACKEND_SERVICE: ${{ needs.classify.outputs.backend_service }}
           RESULT_BACKEND_SERVICE: ${{ needs.backend-service.result }}
           REQUIRE_BACKEND_AI: ${{ needs.classify.outputs.backend_ai }}

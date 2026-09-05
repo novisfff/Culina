@@ -171,7 +171,7 @@ describe('verifyGateResults', () => {
   it('passes when selected jobs succeed and unselected jobs are skipped', () => {
     const env = { CLASSIFY_RESULT: 'success' };
     const selected = new Set(['frontend_focus', 'frontend_typecheck']);
-    for (const gate of ['frontend_focus', 'frontend_typecheck', 'frontend_full', 'frontend_style', 'frontend_build', 'frontend_e2e', 'frontend_ai_contract', 'frontend_governance', 'frontend_release_evidence', 'backend_service', 'backend_ai', 'ai_evals', 'backend_search', 'backend_mysql', 'backend_migration', 'dependency_audit', 'deployment_smokes']) {
+    for (const gate of ['frontend_focus', 'frontend_typecheck', 'frontend_full', 'frontend_style', 'frontend_build', 'frontend_e2e', 'frontend_ai_contract', 'frontend_governance', 'backend_service', 'backend_ai', 'ai_evals', 'backend_search', 'backend_mysql', 'backend_migration', 'dependency_audit', 'deployment_smokes']) {
       env[`REQUIRE_${gate.toUpperCase()}`] = String(selected.has(gate));
       env[`RESULT_${gate.toUpperCase()}`] = selected.has(gate) ? 'success' : 'skipped';
     }
