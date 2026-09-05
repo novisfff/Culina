@@ -296,8 +296,6 @@ const DEPENDENCY_PATTERNS = Object.freeze([
 const DEPLOYMENT_PATTERNS = Object.freeze([
   /^deploy\//,
   /^(?:Dockerfile|\.dockerignore)/,
-  /^frontend\/playwright\.deployment\.config\./,
-  /^frontend\/e2e\/realtime-websocket-deployment\.spec\./,
 ]);
 
 export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', forceFull = false } = {}) {

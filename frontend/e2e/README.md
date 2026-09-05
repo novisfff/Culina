@@ -1,6 +1,6 @@
 # Culina P0 浏览器测试
 
-这里保存阻断式 P0 浏览器测试。测试使用标准 Playwright Test runner 和独立的 `e2e/fixtures/apiMocks.mjs`，不依赖预览脚本或外部后端。
+这里保存阻断式 P0 浏览器测试。当前仅保留核心主页面和关键家庭流程，测试使用标准 Playwright Test runner 和独立的 `e2e/fixtures/apiMocks.mjs`，不依赖预览脚本或外部后端。
 
 ## 本地运行
 
