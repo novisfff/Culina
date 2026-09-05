@@ -309,7 +309,7 @@ class OrchestratorToolGateway:
         output = self._attach_intent_evidence_source(
             name, execution_definition.side_effect, output, tool_call_id=tool_call_id
         )
-        self._capture_tool_output(
+        output = self._capture_tool_output(
             name,
             execution_definition.side_effect,
             prepared_payload.payload,
@@ -407,7 +407,7 @@ class OrchestratorToolGateway:
         *,
         tool_call_id: str | None = None,
         definition: ToolDefinition | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         self._capture_tool_contract_metadata(name, side_effect, output, definition=definition)
         if side_effect == "read":
             self.state.read_outputs.setdefault(name, []).append(output)
@@ -434,8 +434,8 @@ class OrchestratorToolGateway:
         if name == "human.request_input":
             raise_human_input_request(state=self.state, output=output)
         if side_effect != "draft":
-            return
-        capture_draft_output(
+            return output
+        routed_result = capture_draft_output(
             state=self.state,
             injection_manager=self.injection_manager,
             tool_name=name,
@@ -447,6 +447,9 @@ class OrchestratorToolGateway:
             family_id=self.context.family_id,
             trusted_resolution_sources=self.state.trusted_resolution_sources,
         )
+        if routed_result:
+            return {**output, **routed_result}
+        return output
 
     def _capture_tool_contract_metadata(
         self,

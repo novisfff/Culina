@@ -166,6 +166,25 @@ export interface FamilyModelProviderProfilePatch {
   idempotency_key: string;
 }
 
+export interface FamilyModelProviderProfileDeletePayload {
+  base_profile_version_number: number;
+  confirmation_name: string;
+  idempotency_key: string;
+}
+
+export interface FamilyModelProviderProfileReference {
+  type: string;
+  name: string;
+  description: string;
+  resource_id: string;
+  can_unbind: boolean;
+}
+
+export interface FamilyModelProviderProfileDeletionCheck {
+  can_delete: boolean;
+  blocking_references: FamilyModelProviderProfileReference[];
+}
+
 export interface RotateFamilyModelProviderProfileKeyPayload {
   new_api_key: string;
   base_settings_version_number: number;
@@ -359,6 +378,16 @@ export interface FamilyModelCapabilityTestPayload {
   confirm_billable: boolean;
   base_draft_version_number: number;
   idempotency_key: string;
+  /** Optional unsaved binding values used by the search replacement probe. */
+  provider_profile_id?: string;
+  requested_model?: string;
+  dimensions?: number;
+}
+
+export interface FamilyModelCapabilityTestOverride {
+  provider_profile_id?: string;
+  requested_model?: string;
+  dimensions?: number;
 }
 
 export interface FamilyModelCapabilityTestResult {

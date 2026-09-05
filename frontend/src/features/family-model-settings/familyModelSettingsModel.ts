@@ -339,8 +339,12 @@ function safeErrorCode(reason: unknown): string | null {
 const SAFE_ERROR_MESSAGES: Record<string, string> = {
   family_search_initial_confirmation_required: '首次配置搜索模型前需要确认。确认后系统会为家庭内容生成搜索数据并开启搜索；今后更换模型服务、模型或维度时，需要重新生成全部搜索数据。',
   family_search_profile_locked: '搜索设置已生效。请前往“智能搜索”，通过确认流程更换模型服务、模型或维度。',
+  family_search_profile_identity_conflict: '这个搜索模型身份之前已经使用过，不能重复创建。请更换模型、维度或服务版本。',
   family_model_settings_version_conflict: '配置已在别处更新，请刷新后继续编辑。',
   family_model_settings_not_configured: '当前家庭还没有可用的模型配置。请先启用功能，并补全模型服务和模型名称。',
+  family_model_config_pointer_invalid: '当前配置数据不一致，请刷新后重试；如果仍然失败，需要管理员修复配置。',
+  family_model_price_pointer_invalid: '当前价格配置与模型配置不一致，请刷新后重试；如果仍然失败，需要管理员修复配置。',
+  family_model_search_profile_pointer_invalid: '当前搜索配置数据不一致，请刷新后重试；如果仍然失败，需要管理员修复配置。',
   family_model_capability_disabled: '当前配置未启用此功能。请先在“功能设置”中启用并补全信息。',
   family_model_provider_disabled: '当前配置使用的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
   family_model_secret_unavailable: '当前服务的 API 密钥不可用。请修改密钥后重试。',

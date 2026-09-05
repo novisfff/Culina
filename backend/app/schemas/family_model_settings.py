@@ -147,6 +147,30 @@ class ProviderProfilePatchRequest(_StrictModel):
         return self
 
 
+class DeleteProviderProfileRequest(_StrictModel):
+    base_profile_version_number: int = Field(ge=1)
+    confirmation_name: str = Field(min_length=1, max_length=160)
+    idempotency_key: str = Field(min_length=8, max_length=160)
+
+    @field_validator("confirmation_name", "idempotency_key", mode="before")
+    @classmethod
+    def _strip_delete_strings(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProviderProfileReferenceOut(BaseModel):
+    type: str
+    name: str
+    description: str
+    resource_id: str
+    can_unbind: bool = True
+
+
+class ProviderProfileDeletionCheckOut(BaseModel):
+    can_delete: bool
+    blocking_references: list[ProviderProfileReferenceOut] = Field(default_factory=list)
+
+
 class ProviderProfileOut(BaseModel):
     id: str
     display_name: str
@@ -486,9 +510,18 @@ class CapabilityTestRequest(_StrictModel):
     variant_key: str = Field(min_length=1, max_length=120)
     confirm_billable: bool = False
     base_draft_version_number: int | None = Field(default=None, ge=0)
+    provider_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
+    requested_model: str | None = Field(default=None, min_length=1, max_length=160)
+    dimensions: int | None = Field(default=None, ge=1, le=65536)
     idempotency_key: str = Field(min_length=8, max_length=160)
 
-    @field_validator("variant_key", "idempotency_key", mode="before")
+    @field_validator(
+        "variant_key",
+        "provider_profile_id",
+        "requested_model",
+        "idempotency_key",
+        mode="before",
+    )
     @classmethod
     def _strip_capability_test_strings(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value

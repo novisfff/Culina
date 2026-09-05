@@ -22,6 +22,21 @@ function budgetBlockedSearchIndexJob(): SearchIndexJobResponse {
   };
 }
 
+function cancelledSearchIndexJob(): SearchIndexJobResponse {
+  return {
+    job_id: 'search-index-job-cancelled',
+    status: 'cancelled',
+    error: null,
+    error_code: null,
+    entity_type: 'recipe',
+    entity_id: 'recipe-1',
+    target_name: '番茄炒蛋',
+    vector_status: 'point_delete_pending',
+    created_at: '2026-07-30T00:00:00Z',
+    completed_at: '2026-07-30T00:01:00Z',
+  };
+}
+
 function nonRetryableFailedImageJob(): AiRenderResponse & { can_retry: boolean } {
   return {
     job_id: 'image-job-uncertain-1',
@@ -93,6 +108,32 @@ describe('useAiImageJobMonitor', () => {
       status: 'failed',
       can_retry: false,
       description: '图片生成服务的执行结果暂时无法确认；为避免重复生成，本次不会自动重试。',
+    });
+
+    unmount();
+    client.clear();
+  });
+
+  it('exposes cancelled search cleanup as a terminal notification', async () => {
+    vi.spyOn(api, 'getActiveAiRenderJobs').mockResolvedValue([]);
+    vi.spyOn(api, 'getActiveSearchIndexJobs').mockResolvedValue([cancelledSearchIndexJob()]);
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result, unmount } = renderHook(() => useAiImageJobMonitor(true), { wrapper });
+
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.items[0]).toMatchObject({
+      status: 'cancelled',
+      can_retry: false,
+      can_dismiss: true,
     });
 
     unmount();

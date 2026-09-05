@@ -1334,7 +1334,7 @@ Expected: FAIL because manual result cards are approval-shaped and there is no r
 
 - [ ] **Step 3: Implement one safe projection and stable result artifacts**
 
-Use a fixed field whitelist and server-owned explanations:
+Use a fixed field whitelist for machine-readable results. Only manual-approval and lifecycle states may carry server-owned explanations; policy-auto results are handed back to the Orchestrator for model-authored follow-up text:
 
 ```python
 PUBLIC_RESULT_FIELDS = (
@@ -1346,7 +1346,6 @@ PUBLIC_RESULT_FIELDS = (
 
 EXECUTION_EXPLANATIONS = {
     "manual_approval": "已按你的确认执行。",
-    "policy_auto": "你明确要求执行此操作，且它符合已开启的低风险规则。",
     "policy_no_change": "相关内容已经是你要求的状态。",
 }
 

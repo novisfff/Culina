@@ -211,6 +211,7 @@ def apply_locked_food_plan_operation(
             entity_type="meal_plan",
             entity_id=item.id,
             delete_vector=True,
+            user_id=user_id,
         )
         db.delete(item)
         log_activity(

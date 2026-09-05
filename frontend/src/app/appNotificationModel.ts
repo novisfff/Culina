@@ -4,7 +4,7 @@ export type BackgroundTaskNotification = {
   kind: 'background_task';
   notification_id: string;
   task_kind: 'image' | 'search_index';
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   can_retry: boolean;
   can_dismiss: boolean;
   /** A stable backend code when one is available. Do not use display text as a branch condition. */
@@ -112,6 +112,6 @@ export function appNotificationStatusLabel(item: AppNotificationItem) {
     case 'succeeded':
       return '已完成';
     case 'failed':
-      return item.can_retry ? '失败，可重试' : '失败';
+      return '失败';
   }
 }

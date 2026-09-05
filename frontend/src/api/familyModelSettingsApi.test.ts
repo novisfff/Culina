@@ -129,6 +129,33 @@ describe('familyModelSettingsApi transport', () => {
     });
   });
 
+  it('checks and deletes a provider profile through the encoded profile path', async () => {
+    mockRequest.mockResolvedValue({ can_delete: true, blocking_references: [] });
+    const profileId = 'profile / one';
+
+    await familyModelSettingsApi.checkProviderProfileDeletion(profileId);
+    expect(mockRequest).toHaveBeenLastCalledWith(
+      '/api/family/model-settings/provider-profiles/profile%20%2F%20one/deletion-check',
+    );
+
+    await familyModelSettingsApi.deleteProviderProfile(profileId, {
+      base_profile_version_number: 7,
+      confirmation_name: '家庭主服务',
+      idempotency_key: 'delete-provider-1',
+    });
+    expect(mockRequest).toHaveBeenLastCalledWith(
+      '/api/family/model-settings/provider-profiles/profile%20%2F%20one',
+      {
+        method: 'DELETE',
+        body: JSON.stringify({
+          base_profile_version_number: 7,
+          confirmation_name: '家庭主服务',
+          idempotency_key: 'delete-provider-1',
+        }),
+      },
+    );
+  });
+
   it('saves and validates draft data without family or actor fields', async () => {
     mockRequest.mockResolvedValue({});
     const draft = {
@@ -171,6 +198,27 @@ describe('familyModelSettingsApi transport', () => {
         confirm_billable: true,
         base_draft_version_number: 3,
         idempotency_key: 'test-key-1',
+      }),
+    });
+    await familyModelSettingsApi.testCapability('embedding', {
+      variant_key: 'search',
+      confirm_billable: true,
+      base_draft_version_number: 3,
+      provider_profile_id: 'profile-1',
+      requested_model: 'text-embedding-v4',
+      dimensions: 3072,
+      idempotency_key: 'test-key-2',
+    });
+    expect(mockRequest).toHaveBeenLastCalledWith('/api/family/model-settings/capabilities/embedding/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        variant_key: 'search',
+        confirm_billable: true,
+        base_draft_version_number: 3,
+        provider_profile_id: 'profile-1',
+        requested_model: 'text-embedding-v4',
+        dimensions: 3072,
+        idempotency_key: 'test-key-2',
       }),
     });
 

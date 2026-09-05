@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -33,6 +33,8 @@ from app.schemas.family_model_settings import (
     ProviderConnectionCheckOut,
     ProviderConnectionCheckRequest,
     ProviderProfileCreateRequest,
+    DeleteProviderProfileRequest,
+    ProviderProfileDeletionCheckOut,
     ProviderProfileOut,
     ProviderProfilePatchRequest,
     RotateProviderProfileSecretOut,
@@ -64,6 +66,10 @@ from app.services.family_model_settings.credentials import (
     rotate_profile_secret,
     update_provider_profile,
     verify_owner_password,
+)
+from app.services.family_model_settings.deletion import (
+    delete_provider_profile,
+    provider_profile_deletion_check,
 )
 from app.services.family_model_settings.adapter_registry import (
     DASHSCOPE_API_BASE_URL,
@@ -120,6 +126,7 @@ from app.services.model_usage.facade import ModelUsageFacade
 from app.services.model_usage.preflight import decode_receipt_integrity_keyring
 from app.services.family_model_settings.types import (
     CreateProviderProfileCommand,
+    DeleteProviderProfileCommand,
     RotateProfileSecretCommand,
     UpdateProviderProfileCommand,
 )
@@ -331,6 +338,8 @@ def _domain_error(exc: FamilyModelSettingsError) -> HTTPException:
             FamilyModelConfigurationAlreadyPublished,
         ),
     ) or exc.code.endswith("_conflict"):
+        if isinstance(exc, FamilyModelProviderProfileInUse) and exc.references:
+            detail["blocking_references"] = list(exc.references)
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     if isinstance(exc, (FamilyModelProviderTransportError, FamilyModelProviderResponseTooLarge)):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
@@ -606,6 +615,69 @@ def patch_provider_profile_view(
         raise _domain_error(exc) from exc
 
 
+@router.get(
+    "/provider-profiles/{profile_id}/deletion-check",
+    response_model=ProviderProfileDeletionCheckOut,
+    response_model_exclude_none=True,
+)
+def provider_profile_deletion_check_view(
+    profile_id: str,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> ProviderProfileDeletionCheckOut:
+    _, membership = auth
+    try:
+        require_provider_profile(
+            db,
+            family_id=membership.family_id,
+            profile_id=profile_id,
+        )
+        result = provider_profile_deletion_check(
+            db,
+            family_id=membership.family_id,
+            profile_id=profile_id,
+        )
+        return ProviderProfileDeletionCheckOut(
+            can_delete=result.can_delete,
+            blocking_references=[
+                reference.record() for reference in result.blocking_references
+            ],
+        )
+    except FamilyModelSettingsError as exc:
+        raise _domain_error(exc) from exc
+
+
+@router.delete(
+    "/provider-profiles/{profile_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_provider_profile_view(
+    profile_id: str,
+    payload: DeleteProviderProfileRequest,
+    auth: tuple = Depends(require_owner),
+    db: Session = Depends(get_db),
+    cipher: FamilyModelCredentialCipher = Depends(get_family_model_credential_cipher),
+) -> Response:
+    user, membership = auth
+    try:
+        delete_provider_profile(
+            db,
+            DeleteProviderProfileCommand(
+                family_id=membership.family_id,
+                actor_user_id=user.id,
+                profile_id=profile_id,
+                base_profile_version_number=payload.base_profile_version_number,
+                confirmation_name=payload.confirmation_name,
+                idempotency_key=payload.idempotency_key,
+            ),
+            cipher=cipher,
+        )
+        commit_session(db)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except FamilyModelSettingsError as exc:
+        raise _domain_error(exc) from exc
+
+
 @router.post(
     "/provider-profiles/{profile_id}/rotate-key",
     response_model=RotateProviderProfileSecretOut,
@@ -750,6 +822,9 @@ def capability_test_view(
                 confirm_billable=payload.confirm_billable,
                 idempotency_key=payload.idempotency_key,
                 base_draft_version_number=payload.base_draft_version_number,
+                provider_profile_id=payload.provider_profile_id,
+                requested_model=payload.requested_model,
+                dimensions=payload.dimensions,
             ),
             dependencies=dependencies,
         )

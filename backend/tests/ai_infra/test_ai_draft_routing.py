@@ -115,11 +115,20 @@ class PolicyFavoriteProvider(BaseChatProvider):
         }
         if self.base_updated_at is not None:
             draft["baseUpdatedAt"] = self.base_updated_at
-        tool_handler(
+        operation_output = tool_handler(
             "food_profile.create_draft",
             {"draft": draft},
         )
-        raise AssertionError("routed draft must stop the provider loop")
+        operation_result = operation_output.get("operation_result") if isinstance(operation_output, dict) else None
+        if not isinstance(operation_result, dict):
+            raise AssertionError("auto-routed draft must return operation_result to the provider")
+        if message_handler is not None:
+            message_handler("已根据当前结果完成收藏。")
+        return ChatProviderResult(
+            text="已根据当前结果完成收藏。",
+            status="completed",
+            model=self.model_name,
+        )
 
     @staticmethod
     def assert_tool_available(tools, name: str) -> None:
@@ -1155,6 +1164,13 @@ class AIDraftRoutingTestCase(AIAgentInfraTestCase):
             self.assertTrue(
                 any(part.get("type") == "result_card" for part in response["message"]["parts"])
             )
+            visible_text = "".join(
+                str(part.get("text") or "")
+                for part in response["message"]["parts"]
+                if part.get("type") == "text"
+            )
+            self.assertIn("已根据当前结果完成收藏。", visible_text)
+            self.assertNotIn("符合服务端开放的低风险规则", visible_text)
 
     def test_policy_auto_favorite_uses_idempotent_set_after_unrelated_food_change(self) -> None:
         request, run_id = self._seed_route(suffix="favorite-unrelated-change", favorite=True)

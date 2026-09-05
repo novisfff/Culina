@@ -7,8 +7,22 @@ from pydantic import BaseModel, Field
 
 
 SearchEntityType = Literal["ingredient", "food", "recipe", "meal_plan"]
-SearchIndexJobStatus = Literal["queued", "running", "succeeded", "failed", "budget_blocked"]
-SearchIndexVectorStatus = Literal["pending", "indexed", "skipped", "failed"]
+SearchIndexJobStatus = Literal[
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "budget_blocked",
+    "cancelled",
+]
+SearchIndexVectorStatus = Literal[
+    "pending",
+    "indexed",
+    "skipped",
+    "failed",
+    "delete_pending",
+    "point_delete_pending",
+]
 
 
 class SearchResultItemOut(BaseModel):

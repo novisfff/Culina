@@ -140,6 +140,10 @@ describe('familyModelSettingsModel', () => {
       '当前家庭还没有可用的模型配置。请先启用功能，并补全模型服务和模型名称。',
     ],
     [
+      'family_search_profile_identity_conflict',
+      '这个搜索模型身份之前已经使用过，不能重复创建。请更换模型、维度或服务版本。',
+    ],
+    [
       'family_model_capability_disabled',
       '当前配置未启用此功能。请先在“功能设置”中启用并补全信息。',
     ],

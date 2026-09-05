@@ -274,6 +274,9 @@ export function AppNotificationCenter(props: {
                   ? item.can_dismiss && Boolean(props.onDismissBackgroundTask)
                   : Boolean(props.onDismissModelUsageAlert);
                 const statusClass = isBackgroundTask ? `status-${item.status}` : `severity-${item.severity}`;
+                const mobileStackClass = variant === 'mobileIcon' && (canRetry || canDismiss)
+                  ? ' is-mobile-stacked'
+                  : '';
                 const rowIcon = isBackgroundTask
                   ? item.status === 'failed' ? 'bell' : item.status === 'succeeded' ? 'check' : 'circle'
                   : 'bell';
@@ -299,7 +302,7 @@ export function AppNotificationCenter(props: {
                 return (
                   <div
                     key={item.notification_id}
-                    className={`app-notification-row ${statusClass}${item.kind === 'model_usage_alert' ? ' is-actionable' : ''}`}
+                    className={`app-notification-row ${statusClass}${item.kind === 'model_usage_alert' ? ' is-actionable' : ''}${mobileStackClass}`}
                   >
                     {item.kind === 'model_usage_alert' ? (
                       <button
@@ -315,18 +318,18 @@ export function AppNotificationCenter(props: {
                       <span className="app-notification-row-actions">
                         {canRetry && (
                           <button
-                            className="app-notification-retry"
+                            className={`app-notification-retry${isRetrying ? ' is-retrying' : ''}`}
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
                               props.onRetryBackgroundTask?.(item.notification_id);
                             }}
                             disabled={isRetrying}
-                            aria-label={`重试${item.title}`}
+                            aria-label={isRetrying ? `正在重试${item.title}` : `重试${item.title}`}
+                            aria-busy={isRetrying}
                             title={isRetrying ? '重试中' : '重试'}
                           >
                             <span aria-hidden="true"><DashboardIcon name="refresh" /></span>
-                            {isRetrying ? '重试中' : '重试'}
                           </button>
                         )}
                         <button

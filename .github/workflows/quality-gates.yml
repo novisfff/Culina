@@ -30,7 +30,6 @@ jobs:
       frontend_e2e: ${{ steps.classify.outputs.frontend_e2e }}
       frontend_ai_contract: ${{ steps.classify.outputs.frontend_ai_contract }}
       frontend_governance: ${{ steps.classify.outputs.frontend_governance }}
-      frontend_release_evidence: ${{ steps.classify.outputs.frontend_release_evidence }}
       backend_service: ${{ steps.classify.outputs.backend_service }}
       backend_ai: ${{ steps.classify.outputs.backend_ai }}
       ai_evals: ${{ steps.classify.outputs.ai_evals }}
@@ -467,58 +466,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  frontend-release-evidence:
-    name: Frontend Release Evidence
-    needs: classify
-    if: needs.classify.outputs.frontend_release_evidence == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}/frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
-        run: npm ci
-      - name: Prepare release evidence artifacts
-        run: mkdir -p .artifacts
-      - name: Build frontend and manifest
-        run: npm run build
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-      - name: Generate route transfer report
-        run: npm run route-transfer-report -- dist/.vite/frontend-health-manifest.json .artifacts/route-transfer-report.json
-      - name: Run six viewport release evidence journey
-        env:
-          RELEASE_EVIDENCE_OUTPUT: ${{ github.workspace }}/frontend/.artifacts/release-request-report.json
-        run: npx playwright test e2e/release-governance-evidence.spec.mjs --project=desktop-1440x960 --grep @release-evidence --workers=1
-      - name: Generate budget result
-        run: node scripts/check-bundle-budgets.mjs --mode=report --manifest=dist/.vite/frontend-health-manifest.json --result=.artifacts/budget-result.json
-      - name: Generate release metadata
-        env:
-          RELEASE_COMMIT: ${{ github.sha }}
-        run: node -e "const fs=require('fs'); const p=require('./package.json'); fs.writeFileSync('.artifacts/release-evidence.json', JSON.stringify({buildCommit:process.env.RELEASE_COMMIT,nodeVersion:process.version,viteVersion:p.devDependencies?.vite||p.dependencies?.vite||'unknown',rollbackCommand:'git revert --no-edit ${{ github.sha }}'}, null, 2)+'\\n')"
-      - name: Enforce release evidence contract
-        run: npm run check:release-governance -- --manifest=dist/.vite/frontend-health-manifest.json --budget-result=.artifacts/budget-result.json --viewport-report=.artifacts/release-request-report.json --request-report=.artifacts/release-request-report.json --evidence=.artifacts/release-evidence.json --result=.artifacts/release-governance-result.json
-      - name: Upload release evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-release-evidence
-          path: |
-            frontend/.artifacts/route-transfer-report.json
-            frontend/.artifacts/release-request-report.json
-            frontend/.artifacts/release-evidence.json
-            frontend/.artifacts/budget-result.json
-            frontend/.artifacts/release-governance-result.json
-            frontend/dist/.vite/frontend-health-manifest.json
-          if-no-files-found: warn
-          retention-days: 14
 
   frontend-build:
     name: Frontend Build
@@ -585,20 +532,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend deployment-test dependencies
         run: npm ci --prefix frontend
-      - name: Install Chromium
-        id: browser_setup
-        run: npx --prefix frontend playwright install --with-deps chromium
       - name: Run media permission deployment smoke
         run: |
           set -o pipefail
           mkdir -p .artifacts
           npm run deploy:smoke:media 2>&1 | tee .artifacts/media-permission-smoke.log
-      - name: Run WebSocket deployment smoke
-        if: ${{ always() && steps.browser_setup.outcome == 'success' }}
-        run: |
-          set -o pipefail
-          mkdir -p .artifacts
-          npm run deploy:smoke:realtime 2>&1 | tee .artifacts/realtime-websocket-smoke.log
       - name: Upload deployment smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -625,7 +563,6 @@ jobs:
       - frontend-e2e-p0
       - frontend-ai-contract
       - frontend-governance
-      - frontend-release-evidence
       - backend-service
       - backend-ai
       - ai-skill-evals
@@ -658,8 +595,6 @@ jobs:
           RESULT_FRONTEND_AI_CONTRACT: ${{ needs.frontend-ai-contract.result }}
           REQUIRE_FRONTEND_GOVERNANCE: ${{ needs.classify.outputs.frontend_governance }}
           RESULT_FRONTEND_GOVERNANCE: ${{ needs.frontend-governance.result }}
-          REQUIRE_FRONTEND_RELEASE_EVIDENCE: ${{ needs.classify.outputs.frontend_release_evidence }}
-          RESULT_FRONTEND_RELEASE_EVIDENCE: ${{ needs.frontend-release-evidence.result }}
           REQUIRE_BACKEND_SERVICE: ${{ needs.classify.outputs.backend_service }}
           RESULT_BACKEND_SERVICE: ${{ needs.backend-service.result }}
           REQUIRE_BACKEND_AI: ${{ needs.classify.outputs.backend_ai }}

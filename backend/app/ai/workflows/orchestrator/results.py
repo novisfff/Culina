@@ -10,7 +10,6 @@ from app.ai.workflows.orchestrator.completion import ORCHESTRATOR_TERMINAL_OUTPU
 from app.ai.workflows.orchestrator.state import OrchestratorRunState
 from app.ai.workflows.orchestrator.tools import SkillInjectionManager
 from app.ai.workflows.result_cards import validate_result_cards
-from app.services.ai_auto_execution.policy_types import DraftRouteOutcome
 
 
 class OrchestratorResultAssembler:
@@ -90,35 +89,6 @@ class OrchestratorResultAssembler:
             context_summary=self.orchestrator_context_summary(state),
             status="waiting_approval",
             model=model or model_name(context),
-            fallback_used=fallback_used,
-            fallback_reason_code=fallback_reason_code,
-            tool_calls=context.tool_executor.records(),
-        )
-
-    def routed_result(
-        self,
-        context: SkillContext,
-        state: OrchestratorRunState,
-        outcome: DraftRouteOutcome,
-        *,
-        model: str | None = None,
-        fallback_used: bool = False,
-        fallback_reason_code: str | None = None,
-    ) -> SkillResult:
-        drafts = self.validated_drafts(state.draft_outputs, state.active_skill_keys)
-        failed = outcome.status == "execution_failed"
-        route_text = (
-            outcome.projection.execution_explanation
-            if outcome.projection is not None
-            else ""
-        )
-        return SkillResult(
-            text="".join(state.streamed_text).strip() or route_text,
-            drafts=drafts,
-            context_summary=self.orchestrator_context_summary(state),
-            status="failed" if failed else "completed",
-            model=model or model_name(context),
-            error=(route_text or "draft_auto_execution_failed") if failed else None,
             fallback_used=fallback_used,
             fallback_reason_code=fallback_reason_code,
             tool_calls=context.tool_executor.records(),
@@ -250,6 +220,15 @@ class OrchestratorResultAssembler:
         validated: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
         for draft in drafts:
+            # A policy-routed draft has already been committed and its result
+            # card was persisted by the publisher.  It is tool context for the
+            # next model turn, not a pending approval draft to expose again.
+            if str(draft.get("route_status") or "") in {
+                "auto_executed",
+                "no_change",
+                "execution_failed",
+            }:
+                continue
             draft_type = str(draft.get("draft_type") or "")
             if draft_type not in allowed:
                 raise ValueError(f"Orchestrator generated undeclared draft type: {draft_type}")

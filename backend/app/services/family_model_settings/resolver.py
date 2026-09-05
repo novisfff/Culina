@@ -15,6 +15,7 @@ from app.repos.family_model_settings.configurations import (
 from app.repos.family_model_settings.profiles import (
     get_provider_profile,
     get_provider_profile_version,
+    get_current_provider_secret_version,
     get_provider_secret_version,
     require_provider_profile,
 )
@@ -279,19 +280,33 @@ class FamilyModelConfigurationResolver:
                 secret_version_id=None,
                 api_key=None,
             )
-        if credential_secret_version_id is None:
-            raise FamilyModelSecretUnavailable()
         profile = require_provider_profile(
             self.db,
             family_id=binding.family_id,
             profile_id=binding.provider_profile_id,
         )
-        version = get_provider_secret_version(
-            self.db,
-            family_id=binding.family_id,
-            profile_id=binding.provider_profile_id,
-            secret_version_id=credential_secret_version_id,
-        )
+        # Monitoring-mode model-usage permits can be fail-open when the
+        # ledger is temporarily unavailable.  Such permits intentionally do
+        # not carry a reservation-pinned secret version, but a family search
+        # profile still has to be able to make its one authorized send.  Use
+        # the current active secret only for this immutable search binding;
+        # regular capability bindings remain strict and require a pinned
+        # version from the dispatch reservation.
+        if credential_secret_version_id is None:
+            if not isinstance(binding, ResolvedSearchProfile):
+                raise FamilyModelSecretUnavailable()
+            version = get_current_provider_secret_version(
+                self.db,
+                family_id=binding.family_id,
+                profile=profile,
+            )
+        else:
+            version = get_provider_secret_version(
+                self.db,
+                family_id=binding.family_id,
+                profile_id=binding.provider_profile_id,
+                secret_version_id=credential_secret_version_id,
+            )
         if (
             version is None
             or version.status is FamilyModelSecretStatus.DESTROYED

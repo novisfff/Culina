@@ -202,6 +202,25 @@ class AIOperationResultProjectionTest(unittest.TestCase):
         self.assertEqual(projection.execution_mode, "manual_approval")
         self.assertEqual(projection.execution_explanation, "已按你的确认执行。")
 
+    def test_policy_auto_projection_does_not_include_canned_assistant_explanation(self) -> None:
+        module = _result_projection_module()
+        projection = module.project_ai_operation_result(
+            draft=_draft(execution_route="policy_auto"),
+            operation=_operation(execution_mode="policy_auto"),
+            entities=(),
+            cache_scopes=("ai_conversation",),
+            server_now=NOW,
+        )
+
+        self.assertEqual(projection.execution_mode, "policy_auto")
+        self.assertEqual(projection.execution_explanation, "")
+        card = module.build_operation_result_card(
+            projection,
+            title="已收藏食物",
+            workspace_label="食物库",
+        )
+        self.assertEqual(card["data"]["actionSummary"], "已收藏食物")
+
     def test_completed_revert_availability_requires_adapter_context_and_live_deadline(self) -> None:
         module = _result_projection_module()
         cases = (

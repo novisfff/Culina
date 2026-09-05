@@ -958,14 +958,19 @@ class DraftCommitCoordinator:
                 db,
                 family_id=request.family_id,
                 run_id=request.run_id,
+                terminalize=False,
             )
+            blocked = auto_execution_blocked_record()
             if not blocker_persisted:
-                blocked = auto_execution_blocked_record()
                 raise AutoExecutionBlockRequired(
                     error_code=blocked["errorCode"],
                     message=blocked["message"],
                     recovery_hint=blocked["recoveryHint"],
                 ) from None
+            # The independent fence has already persisted the structured
+            # block. Preserve the historical conflict signal for direct
+            # callers; the runtime failure persister recognizes the durable
+            # block and performs the read-only model explanation phase.
             raise AIConflictError("数据库写入失败，自动执行结果无法安全保存") from None
 
     @classmethod

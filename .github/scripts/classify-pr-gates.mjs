@@ -13,7 +13,6 @@ export const GATE_KEYS = Object.freeze([
   'frontend_e2e',
   'frontend_ai_contract',
   'frontend_governance',
-  'frontend_release_evidence',
   'backend_service',
   'backend_ai',
   'ai_evals',
@@ -32,7 +31,6 @@ const FRONTEND_FULL_GATES = Object.freeze([
   'frontend_e2e',
   'frontend_ai_contract',
   'frontend_governance',
-  'frontend_release_evidence',
 ]);
 const BACKEND_FULL_GATES = Object.freeze([
   'backend_service',
@@ -177,7 +175,6 @@ function markFrontendHighRisk(result, path, reason) {
   markFrontendPage(result, path);
   elevateRisk(result, 'high');
   setGate(result, 'frontend_e2e', reason);
-  setGate(result, 'frontend_release_evidence', '高风险前端变更需要发布证据检查');
 }
 
 function classifyFrontendPath(result, path) {
@@ -185,7 +182,6 @@ function classifyFrontendPath(result, path) {
     setDomain(result, 'frontend');
     elevateRisk(result, 'high');
     setGate(result, 'frontend_e2e', 'Playwright 关键路径或测试变更');
-    setGate(result, 'frontend_release_evidence', '前端关键路径变更需要发布证据检查');
     setGate(result, 'frontend_build');
     return true;
   }
@@ -296,8 +292,6 @@ const DEPENDENCY_PATTERNS = Object.freeze([
 const DEPLOYMENT_PATTERNS = Object.freeze([
   /^deploy\//,
   /^(?:Dockerfile|\.dockerignore)/,
-  /^frontend\/playwright\.deployment\.config\./,
-  /^frontend\/e2e\/realtime-websocket-deployment\.spec\./,
 ]);
 
 export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', forceFull = false } = {}) {

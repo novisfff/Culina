@@ -780,6 +780,7 @@ class SearchIndexJob(Base):
     entity_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     target_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     vector_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    document_generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Safe provider diagnostics for a failed profile rebuild.  These are kept
     # separate from the human-readable ``error`` so the API can expose useful

@@ -8,7 +8,6 @@ from app.ai.errors import (
     AIExecutionCancelled,
     ApprovalRequired,
     AutoExecutionBlockRequired,
-    DraftRouted,
     HumanInputRequired,
     ToolBudgetHardStop,
 )
@@ -259,7 +258,7 @@ class WorkspaceOrchestratorAgent:
                 )
             try:
                 provider_result = self.provider.generate_with_tools(**provider_kwargs)
-            except (ApprovalRequired, DraftRouted, HumanInputRequired, ToolBudgetHardStop, AIExecutionCancelled, AutoExecutionBlockRequired):
+            except (ApprovalRequired, HumanInputRequired, ToolBudgetHardStop, AIExecutionCancelled, AutoExecutionBlockRequired):
                 # These exceptions are control-flow signals raised by the
                 # tool gateway and must continue to the dedicated handlers
                 # below.  A Provider exception, on the other hand, is a
@@ -283,18 +282,6 @@ class WorkspaceOrchestratorAgent:
                 log_turn_completed(result)
                 return finish_orchestrator_span(result)
             result = self.result_assembler.completed_result(provider_result, context, state)
-            log_turn_completed(result)
-            return finish_orchestrator_span(result)
-        except DraftRouted as exc:
-            control_flow = provider_control_flow_metadata(exc)
-            result = self.result_assembler.routed_result(
-                context,
-                state,
-                exc.outcome,
-                model=control_flow.model,
-                fallback_used=control_flow.fallback_used,
-                fallback_reason_code=control_flow.fallback_reason_code,
-            )
             log_turn_completed(result)
             return finish_orchestrator_span(result)
         except ApprovalRequired as exc:

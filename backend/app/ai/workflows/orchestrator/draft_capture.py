@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.ai.errors import ApprovalRequired, DraftRouted
+from app.ai.errors import ApprovalRequired
 from app.ai.tools.base import ToolDefinition
 from app.ai.workflows.orchestrator.skill_injection import SkillInjectionManager
 from app.ai.workflows.orchestrator.continuation import normalize_continuation
@@ -176,7 +176,7 @@ def capture_draft_output(
     current_message: str = "",
     family_id: str = "",
     trusted_resolution_sources: dict[str, TrustedResolutionSource] | None = None,
-) -> None:
+) -> dict[str, Any] | None:
     state.draft_created_this_call = True
     input_draft = tool_payload.get("draft") if isinstance(tool_payload.get("draft"), dict) else {}
     raw_intent_evidence = input_draft.get("intentEvidence") if isinstance(input_draft.get("intentEvidence"), dict) else None
@@ -238,5 +238,22 @@ def capture_draft_output(
         route_status = str(draft_record.get("route_status") or "")
         route_outcome = draft_record.get("route_outcome")
         if route_status in {"auto_executed", "no_change", "execution_failed"} and route_outcome is not None:
-            raise DraftRouted(route_outcome)
+            state.draft_routed_this_call = True
+            projection = getattr(route_outcome, "projection", None)
+            operation_result: dict[str, Any] = {
+                "route_status": route_status,
+                "draft_id": str(getattr(route_outcome, "draft_id", "") or ""),
+                "approval_id": getattr(route_outcome, "approval_id", None),
+                "operation_id": getattr(route_outcome, "operation_id", None),
+            }
+            if projection is not None:
+                from app.services.ai_operations.result_projection import (
+                    serialize_ai_operation_result_projection,
+                )
+
+                operation_result["projection"] = serialize_ai_operation_result_projection(projection)
+            # Return the committed result as an ordinary tool result.  The
+            # provider must see it and decide how to explain the outcome; the
+            # runtime must not terminate the model turn with a canned sentence.
+            return {"operation_result": operation_result}
     raise ApprovalRequired("approval required")

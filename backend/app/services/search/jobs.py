@@ -162,7 +162,7 @@ def _search_document_deletion_was_completed(
     entity_type: str,
     entity_id: str,
 ) -> bool:
-    if entity_type != "meal_plan":
+    if entity_type not in SEARCH_INDEX_ENTITY_TYPES:
         return False
     return db.scalar(
         select(SearchIndexJob.id).where(
@@ -177,12 +177,28 @@ def _search_document_deletion_was_completed(
 
 
 def _search_entity_still_exists(db: Session, *, job: SearchIndexJob) -> bool:
+    # Canonical/profile indexing jobs are allowed to operate on a persisted
+    # SearchDocument before the domain fixture is visible in this transaction.
+    # Only meal-plan refresh jobs need an entity existence check here.
     if job.entity_type != "meal_plan":
         return True
+    return _search_entity_exists_for_deletion(db, job=job)
+
+
+def _search_entity_exists_for_deletion(db: Session, *, job: SearchIndexJob) -> bool:
+    model_by_type = {
+        "ingredient": Ingredient,
+        "food": Food,
+        "recipe": Recipe,
+        "meal_plan": FoodPlanItem,
+    }
+    model = model_by_type.get(job.entity_type)
+    if model is None:
+        return False
     return db.scalar(
-        select(FoodPlanItem.id).where(
-            FoodPlanItem.family_id == job.family_id,
-            FoodPlanItem.id == job.entity_id,
+        select(model.id).where(
+            model.family_id == job.family_id,
+            model.id == job.entity_id,
         )
     ) is not None
 
@@ -198,6 +214,25 @@ def enqueue_search_index_job(
 ) -> SearchIndexJob:
     if entity_type not in SEARCH_INDEX_ENTITY_TYPES:
         raise ValueError("Unsupported search index entity type")
+    existing = db.scalar(
+        select(SearchIndexJob)
+        .where(
+            SearchIndexJob.family_id == family_id,
+            SearchIndexJob.search_profile_id.is_(None),
+            SearchIndexJob.entity_type == entity_type,
+            SearchIndexJob.entity_id == entity_id,
+            SearchIndexJob.status == "queued",
+            SearchIndexJob.vector_status == "pending",
+        )
+        .order_by(SearchIndexJob.created_at.desc(), SearchIndexJob.id.desc())
+        .with_for_update()
+    )
+    if existing is not None:
+        existing.user_id = user_id
+        if target_name:
+            existing.target_name = target_name[:255]
+        existing.updated_at = utcnow()
+        return existing
     now = utcnow()
     job = SearchIndexJob(
         id=create_id("search-index-job"),
@@ -225,8 +260,23 @@ def enqueue_search_document_deletion_job(
     entity_id: str,
     target_name: str = "",
 ) -> SearchIndexJob:
-    if entity_type != "meal_plan":
+    if entity_type not in SEARCH_INDEX_ENTITY_TYPES:
         raise ValueError("Unsupported search document deletion entity type")
+    existing = db.scalar(
+        select(SearchIndexJob)
+        .where(
+            SearchIndexJob.family_id == family_id,
+            SearchIndexJob.search_profile_id.is_(None),
+            SearchIndexJob.entity_type == entity_type,
+            SearchIndexJob.entity_id == entity_id,
+            SearchIndexJob.vector_status == SEARCH_DOCUMENT_DELETE_PENDING,
+            SearchIndexJob.status.in_(("queued", "running", "failed")),
+        )
+        .order_by(SearchIndexJob.created_at.desc(), SearchIndexJob.id.desc())
+        .with_for_update()
+    )
+    if existing is not None:
+        return existing
     job = enqueue_search_index_job(
         db,
         family_id=family_id,
@@ -282,6 +332,7 @@ def enqueue_search_profile_document_job(
     if existing is not None:
         # A budget block is deliberately retained until its policy/period
         # changes.  New content must not silently reset that admission gate.
+        existing.document_generation = profile_document.generation
         return existing
     now = utcnow()
     job = SearchIndexJob(
@@ -290,6 +341,7 @@ def enqueue_search_profile_document_job(
         search_profile_id=profile.id,
         config_revision_id=config_revision_id,
         price_version_id=price_version_id,
+        document_generation=profile_document.generation,
         user_id=user_id,
         status="queued",
         entity_type=document.entity_type,
@@ -453,7 +505,10 @@ def list_active_search_index_jobs(db: Session, *, family_id: str) -> list[Search
             SearchIndexJob.family_id == family_id,
             or_(
                 SearchIndexJob.status.in_(("queued", "running", "budget_blocked")),
-                SearchIndexJob.completed_at >= cutoff,
+                and_(
+                    SearchIndexJob.status.in_(("succeeded", "failed")),
+                    SearchIndexJob.completed_at >= cutoff,
+                ),
             ),
         )
         .order_by(SearchIndexJob.created_at.desc(), SearchIndexJob.id)
@@ -988,20 +1043,13 @@ def _prepare_search_document_deletion(
         if (
             job is None
             or job.search_profile_id is not None
-            or job.entity_type != "meal_plan"
             or job.vector_status != SEARCH_DOCUMENT_DELETE_PENDING
         ):
             return None
-        target_exists = db.scalar(
-            select(FoodPlanItem.id).where(
-                FoodPlanItem.family_id == job.family_id,
-                FoodPlanItem.id == job.entity_id,
-            )
-        )
-        if target_exists is not None:
+        if _search_entity_exists_for_deletion(db, job=job):
             _mark_job_failure_in_session(
                 job,
-                error="删除索引任务对应的餐食计划仍然存在",
+                error="删除索引任务对应的业务对象仍然存在",
                 error_code="search_delete_target_present",
                 increment_provider_attempt=True,
                 now=utcnow(),

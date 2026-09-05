@@ -19,7 +19,8 @@ export type FamilyModelSettingsBusyAction =
   | 'validate'
   | 'rotate'
   | 'test'
-  | 'rebuild';
+  | 'rebuild'
+  | 'delete';
 
 export type FamilyModelSettingsState = {
   section: FamilyModelSettingsSection;

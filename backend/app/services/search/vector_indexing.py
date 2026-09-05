@@ -6,7 +6,11 @@ from typing import Callable
 
 from sqlalchemy.orm import Session
 
-from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
+from app.core.enums import (
+    FamilyModelSearchProfileStatus,
+    ModelUsageAttributionKind,
+    ModelUsageOperationSource,
+)
 from app.db.session import SessionLocal
 from app.models.domain import SearchDocument, SearchIndexJob
 from app.models.family_model_settings import FamilySearchProfile, FamilySearchProfileDocument
@@ -27,6 +31,7 @@ class SearchProfileDocumentSnapshot:
     entity_id: str
     semantic_text: str
     content_hash: str
+    generation: int
     document_builder_version: str
     embedding_model: str
     embedding_dimensions: int
@@ -87,6 +92,7 @@ def snapshot_profile_document(
         entity_id=document.entity_id,
         semantic_text=document.semantic_text,
         content_hash=document.content_hash,
+        generation=profile_document.generation,
         document_builder_version=search_profile.document_builder_version,
         embedding_model=search_profile.embedding_model,
         embedding_dimensions=search_profile.dimensions,
@@ -104,6 +110,7 @@ def profile_pending_vector_is_current(
         and row.search_profile_id == snapshot.search_profile_id
         and row.search_document_id == snapshot.search_document_id
         and row.content_hash == snapshot.content_hash
+        and row.generation == snapshot.generation
         and row.vector_json is not None
         and row.vector_dimensions == snapshot.embedding_dimensions
         and row.status == "pending_handoff"
@@ -120,6 +127,7 @@ def profile_pending_vector_is_current_without_vector(
         and row.search_profile_id == snapshot.search_profile_id
         and row.search_document_id == snapshot.search_document_id
         and row.content_hash == snapshot.content_hash
+        and row.generation == snapshot.generation
         and row.status in {"pending", "indexing", "pending_handoff"}
     )
 
@@ -165,6 +173,11 @@ def prepare_profile_vector_handoff(
         search_profile.id != snapshot.search_profile_id
         or search_profile.family_id != snapshot.family_id
         or profile_document.search_profile_id != search_profile.id
+        or search_profile.status
+        not in {
+            FamilyModelSearchProfileStatus.PROVISIONING,
+            FamilyModelSearchProfileStatus.ACTIVE,
+        }
         or not profile_pending_vector_is_current(profile_document, snapshot)
     ):
         return None

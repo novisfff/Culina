@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.enums import FamilyModelSearchProfileStatus
 from app.models.family_model_settings import FamilySearchProfile, FamilySearchProfileDocument
 from app.services.search.vector_indexing import (
     SearchProfileDocumentSnapshot,
@@ -70,6 +71,7 @@ def test_pending_handoff_targets_exact_profile() -> None:
         document_builder_version="v1",
         index_identity_checksum="a" * 64,
         qdrant_collection="culina_fsp_profile_a",
+        status=FamilyModelSearchProfileStatus.ACTIVE,
     )
     profile_document = FamilySearchProfileDocument(
         id="profile-document-a",
@@ -90,6 +92,7 @@ def test_pending_handoff_targets_exact_profile() -> None:
         entity_id="ingredient-a",
         semantic_text="食材：番茄",
         content_hash=profile_document.content_hash,
+        generation=profile_document.generation,
         document_builder_version="v1",
         embedding_model="embedding-a",
         embedding_dimensions=3,

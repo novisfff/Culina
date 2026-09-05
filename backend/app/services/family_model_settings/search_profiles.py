@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -47,9 +48,11 @@ from app.models.family_model_settings import (
 )
 from app.models.model_usage import ModelUsagePriceRate, ModelUsagePriceVersion
 from app.repos.family_model_settings.configurations import (
+    get_config_draft,
     get_capability_binding,
     get_config_revision,
     get_family_price_version,
+    get_search_profile_by_identity,
 )
 from app.repos.family_model_settings.idempotency import claim_operation, complete_operation
 from app.repos.family_model_settings.profiles import (
@@ -85,6 +88,7 @@ from app.services.family_model_settings.errors import (
     FamilyModelOperationInProgress,
     FamilyModelProviderProfileNotFound,
     FamilyModelSecretUnavailable,
+    FamilyModelSearchProfileIdentityConflict,
     FamilyModelSettingsError,
     FamilyModelSettingsVersionConflict,
 )
@@ -775,6 +779,16 @@ def _ensure_no_live_replacement(
         raise FamilyModelSettingsError("family_search_rebuild_in_progress")
 
 
+def _is_search_profile_identity_integrity_error(exc: IntegrityError) -> bool:
+    """Recognize only the profile identity constraint, across MySQL and SQLite."""
+
+    message = str(exc.orig)
+    return "uq_family_search_profile_identity" in message or (
+        "family_search_profiles.family_id" in message
+        and "family_search_profiles.index_identity_checksum" in message
+    )
+
+
 def _insert_candidate_price(
     db: Session,
     *,
@@ -939,7 +953,17 @@ def seed_search_profile_documents(
                 target_name=document.title_text,
             )
         )
-    refresh_profile_progress(db, profile=profile)
+    counts = refresh_profile_progress(db, profile=profile)
+    if enqueue_jobs and counts.total == 0 and counts.ready:
+        # No document job will complete to trigger the normal activation
+        # callback. Empty families are still valid search indexes, so switch
+        # the immutable snapshot immediately after collection setup.
+        activate_ready_search_profile(
+            db,
+            family_id=family_id,
+            profile_id=profile.id,
+            actor_user_id=user_id,
+        )
     return tuple(jobs)
 
 
@@ -1022,6 +1046,17 @@ def create_search_replacement(
     )
     if hmac.compare_digest(embedding.identity_checksum, active.index_identity_checksum):
         raise FamilyModelDraftInvalid("family_search_profile_locked")
+    # Profile identities are immutable for a family, including historical
+    # cancelled/superseded rows. Reusing one would violate the database
+    # invariant and cannot be activated against the new base profile.
+    existing_identity = get_search_profile_by_identity(
+        db,
+        family_id=command.family_id,
+        index_identity_checksum=embedding.identity_checksum,
+        for_update=True,
+    )
+    if existing_identity is not None:
+        raise FamilyModelSearchProfileIdentityConflict()
     preview = _replacement_preview(
         db,
         command=command,
@@ -1053,7 +1088,13 @@ def create_search_replacement(
         created_by=command.actor_user_id,
     )
     db.add(profile)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        if _is_search_profile_identity_integrity_error(exc):
+            raise FamilyModelSearchProfileIdentityConflict() from exc
+        raise
     candidate_price = _insert_candidate_price(
         db,
         family_id=command.family_id,
@@ -1300,6 +1341,51 @@ def _profile_is_ready(db: Session, *, profile: FamilySearchProfile) -> bool:
         db, family_id=profile.family_id, search_profile_id=profile.id
     )
     return counts.ready
+
+
+def _sync_config_draft_after_activation(
+    db: Session,
+    *,
+    profile: FamilySearchProfile,
+    revision: FamilyModelConfigRevision,
+    actor_user_id: str,
+) -> None:
+    """Keep the persisted form baseline aligned with the newly active search profile.
+
+    The form is retained as an internal save/idempotency receipt even though
+    the product has no user-facing publish step. A completed replacement must
+    therefore not leave the next settings read pointing at the superseded
+    embedding identity.
+    """
+
+    draft = get_config_draft(db, family_id=profile.family_id, for_update=True)
+    if draft is None:
+        return
+    payload = dict(draft.payload_json) if isinstance(draft.payload_json, Mapping) else {}
+    payload["base_config_revision_id"] = revision.id
+    payload["search_profile_id"] = profile.id
+    bindings = payload.get("bindings")
+    if isinstance(bindings, list):
+        next_bindings: list[dict[str, object]] = []
+        for raw in bindings:
+            if not isinstance(raw, Mapping):
+                continue
+            binding = dict(raw)
+            if (
+                binding.get("capability") == "embedding"
+                and binding.get("variant_key") == "search"
+            ):
+                binding["provider_profile_id"] = profile.provider_profile_id
+                binding["requested_model"] = profile.embedding_model
+                binding["dimensions"] = profile.dimensions
+            next_bindings.append(binding)
+        payload["bindings"] = next_bindings
+    draft.base_config_revision_id = revision.id
+    draft.payload_json = payload
+    draft.validation_status = "valid"
+    draft.validation_errors_json = []
+    draft.updated_at = utcnow()
+    draft.updated_by = actor_user_id
 
 
 def _binding_identity_checksum(
@@ -1969,6 +2055,12 @@ def activate_ready_search_profile(
         config_checksum=new_revision.config_checksum,
         price_checksum=new_price.manifest_checksum,
         search_profile_id=profile.id,
+    )
+    _sync_config_draft_after_activation(
+        db,
+        profile=profile,
+        revision=new_revision,
+        actor_user_id=actor_user_id,
     )
     log_activity(
         db,

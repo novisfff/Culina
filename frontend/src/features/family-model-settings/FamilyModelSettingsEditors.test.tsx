@@ -166,6 +166,21 @@ describe('Family model settings editors', () => {
     expect(screen.getByLabelText('API 密钥')).toBeVisible();
   });
 
+  it('在 DashScope 创建表单中只保留整行 API 密钥', async () => {
+    const user = userEvent.setup();
+    render(<ProviderProfileEditor {...providerProps({ profiles: [], selectedProfileId: null })} />);
+
+    await chooseDropdown(user, '连接方式', /^DashScope/);
+
+    expect(screen.queryByText('连接与验证')).not.toBeInTheDocument();
+    expect(screen.queryByText('服务地址')).not.toBeInTheDocument();
+    expect(screen.queryByText('验证方式')).not.toBeInTheDocument();
+    const keyInput = screen.getByLabelText('API 密钥');
+    const keySection = keyInput.closest('.family-model-settings-form-section');
+    if (!keySection) throw new Error('Expected the DashScope API key section.');
+    expect(keySection).toHaveClass('family-model-settings-provider-key-only');
+  });
+
   it('updates an API Key without asking for the account password', async () => {
     const user = userEvent.setup();
     const props = providerProps();
@@ -182,6 +197,94 @@ describe('Family model settings editors', () => {
       base_settings_version_number: settings.version_number,
     });
     expect(screen.queryByLabelText('新的 API 密钥')).not.toBeInTheDocument();
+  });
+
+  it('checks a provider before deleting and confirms only when unbound', async () => {
+    const user = userEvent.setup();
+    const onCheckDelete = vi.fn().mockResolvedValue({ can_delete: true, blocking_references: [] });
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    render(<ProviderProfileEditor {...providerProps({ onCheckDelete, onDelete })} />);
+
+    await user.click(screen.getByRole('button', { name: '删除服务' }));
+    await waitFor(() => expect(onCheckDelete).toHaveBeenCalledWith(profile.id));
+    expect(screen.getByRole('dialog')).toHaveTextContent('删除“家庭主服务”？');
+    await user.click(screen.getByRole('button', { name: '确认删除' }));
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(profile.id, {
+      base_profile_version_number: profile.profile_version_number,
+      confirmation_name: profile.display_name,
+    }));
+  });
+
+  it('opens the delete dialog immediately while the preflight check is pending', async () => {
+    const user = userEvent.setup();
+    let resolveCheck: ((value: { can_delete: boolean; blocking_references: [] }) => void) | undefined;
+    const onCheckDelete = vi.fn(() => new Promise<{ can_delete: boolean; blocking_references: [] }>((resolve) => {
+      resolveCheck = resolve;
+    }));
+    render(<ProviderProfileEditor {...providerProps({ onCheckDelete, onDelete: vi.fn() })} />);
+
+    await user.click(screen.getByRole('button', { name: '删除服务' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('正在检查“家庭主服务”');
+    expect(screen.getByRole('button', { name: '处理中…' })).toBeDisabled();
+
+    resolveCheck?.({ can_delete: true, blocking_references: [] });
+    expect(await screen.findByRole('dialog')).toHaveTextContent('删除“家庭主服务”？');
+  });
+
+  it('shows every blocking binding instead of opening a destructive confirmation', async () => {
+    const user = userEvent.setup();
+    const onCheckDelete = vi.fn().mockResolvedValue({
+      can_delete: false,
+      blocking_references: [
+        {
+          type: 'search_profile',
+          name: '智能搜索',
+          description: '向量索引使用模型：text-embedding-3-small',
+          resource_id: 'search-profile-a',
+          can_unbind: true,
+        },
+      ],
+    });
+    const onDelete = vi.fn();
+    render(<ProviderProfileEditor {...providerProps({ onCheckDelete, onDelete })} />);
+
+    await user.click(screen.getByRole('button', { name: '删除服务' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('无法删除“家庭主服务”');
+    expect(screen.getByRole('dialog')).toHaveTextContent('智能搜索');
+    expect(screen.getByRole('dialog')).toHaveTextContent('向量索引使用模型：text-embedding-3-small');
+    expect(screen.queryByRole('button', { name: '确认删除' })).not.toBeInTheDocument();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the delete dialog visible when the preflight check fails', async () => {
+    const user = userEvent.setup();
+    render(<ProviderProfileEditor {...providerProps({
+      onCheckDelete: vi.fn().mockRejectedValue(new Error('network unavailable')),
+      onDelete: vi.fn(),
+    })} />);
+
+    await user.click(screen.getByRole('button', { name: '删除服务' }));
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('无法检查删除条件');
+    expect(screen.getByRole('dialog')).toHaveTextContent('请重试删除检查。');
+  });
+
+  it('shows a delete-specific retry when the delete request fails', async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockRejectedValue(new Error('conflict'));
+    render(<ProviderProfileEditor {...providerProps({
+      onCheckDelete: vi.fn().mockResolvedValue({ can_delete: true, blocking_references: [] }),
+      onDelete,
+    })} />);
+
+    await user.click(screen.getByRole('button', { name: '删除服务' }));
+    await user.click(await screen.findByRole('button', { name: '确认删除' }));
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('删除“家庭主服务”失败');
+    expect(screen.getByRole('dialog')).toHaveTextContent('删除没有完成，服务仍然保留。请重试删除。');
+    expect(screen.getByRole('button', { name: '重试删除' })).toBeVisible();
   });
 
   it('reports a reachable Provider and the number of discovered models', async () => {
@@ -328,6 +431,7 @@ describe('Family model settings editors', () => {
     expect(within(card).getByRole('button', { name: '模型服务' })).toBeDisabled();
     expect(within(card).getByLabelText('模型名称')).toBeDisabled();
     expect(within(card).getByLabelText('模型维度')).toBeDisabled();
+    expect(within(card).getByRole('button', { name: '测试功能' })).toBeDisabled();
   });
 
   it('groups capabilities by task and expands one configuration at a time', async () => {
@@ -392,7 +496,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByText('未配置智能搜索')).toBeVisible();
+    expect(screen.getByText('搜索尚未启用')).toBeVisible();
   });
 
   it('confirms the first vector identity before saving it', async () => {
@@ -424,7 +528,7 @@ describe('Family model settings editors', () => {
     await user.click(screen.getByRole('button', { name: '确认搜索模型' }));
 
     expect(screen.getByRole('dialog', { name: '确认开启智能搜索' })).toBeVisible();
-    expect(screen.getByText(/后续更换模型服务、搜索模型或维度时，需要重新生成搜索数据/)).toBeVisible();
+    expect(screen.getByText(/今后更换搜索模型、模型服务或维度时，需要重新生成搜索数据/)).toBeVisible();
     expect(onConfirmInitialSearchIndex).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '确认并开启搜索' }));
@@ -448,7 +552,11 @@ describe('Family model settings editors', () => {
       ...base,
       search_profile_id: 'search-profile-a',
       active_embedding_binding: activeEmbedding,
-      bindings: base.bindings.map((binding) => binding.capability === 'embedding' ? activeEmbedding : binding),
+      // The editable draft can lag during a replacement; the read-only card
+      // must continue to show the identity that runtime search actually uses.
+      bindings: base.bindings.map((binding) => binding.capability === 'embedding'
+        ? { ...activeEmbedding, requested_model: 'draft-only-model', dimensions: 3072 }
+        : binding),
     };
 
     render(
@@ -467,11 +575,125 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByText('需要谨慎确认')).toBeVisible();
-    expect(screen.getByText(/更换模型服务、搜索模型或维度时，需要重新生成搜索数据/)).toBeVisible();
+    expect(screen.getByRole('heading', { name: '当前生效模型' })).toBeVisible();
+    expect(screen.getByText('text-embedding-3-small')).toBeVisible();
+    expect(screen.getByText('1536')).toBeVisible();
+    expect(screen.queryByText('draft-only-model')).not.toBeInTheDocument();
+    expect(screen.queryByText('高影响操作')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '更换搜索模型' }));
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(screen.getByRole('dialog')).toHaveTextContent('更换搜索模型');
+    expect(screen.getByText('高影响操作')).toBeVisible();
+    expect(screen.getByText(/选择新的服务、模型和维度/)).toBeVisible();
     expect(screen.getByLabelText('新的搜索模型')).toBeVisible();
     expect(screen.getByRole('button', { name: '查看更新范围' })).toBeDisabled();
+  });
+
+  it('shows an immediate launch status while the replacement request is pending', async () => {
+    const user = userEvent.setup();
+    const base = createEmptyFamilyModelDraft();
+    const embedding = base.bindings.find(
+      (binding): binding is FamilyModelEmbeddingBindingDraft => binding.capability === 'embedding',
+    );
+    if (!embedding) throw new Error('Expected the Embedding binding.');
+    const activeEmbedding = {
+      ...embedding,
+      enabled: true,
+      provider_profile_id: profile.id,
+      requested_model: 'text-embedding-3-small',
+    };
+    const activeDraft = {
+      ...base,
+      search_profile_id: 'search-profile-a',
+      active_embedding_binding: activeEmbedding,
+      bindings: base.bindings.map((binding) => binding.capability === 'embedding' ? activeEmbedding : binding),
+      price_rates: [{
+        capability: 'embedding' as const,
+        variant_key: 'search',
+        meter: 'embedding_tokens' as const,
+        unit_quantity: '1000',
+        unit_price: '0.01',
+        source_currency: 'CNY',
+        fx_to_cny: '1',
+        reported_model_aliases: [],
+      }],
+    };
+    const replacement = {
+      profile_id: 'search-profile-new',
+      status: 'provisioning' as const,
+      total_documents: 171,
+      indexed_documents: 0,
+      failed_documents: 0,
+      budget_blocked_documents: 0,
+      retryable: false,
+      created_at: '2026-08-19T10:00:00Z',
+      activated_at: null,
+    };
+    let resolveCreate: ((value: typeof replacement) => void) | undefined;
+    const createSearchReplacement = vi.fn(() => new Promise<typeof replacement>((resolve) => {
+      resolveCreate = resolve;
+    }));
+    const onReplacementProfileIdChange = vi.fn();
+    const onTestCapability = vi.fn()
+      .mockResolvedValueOnce({ status: 'failed', detail: '模型服务拒绝了请求（HTTP 422）。' })
+      .mockResolvedValueOnce({ status: 'succeeded', detail: '模型响应正常。' });
+
+    render(
+      <SearchProfilePanel
+        settings={{ ...settings, active_search_profile_id: 'search-profile-a' }}
+        draft={activeDraft}
+        busyAction={null}
+        searchReplacement={null}
+        replacementProfileId={null}
+        actions={{
+          previewSearchReplacement: vi.fn().mockResolvedValue({
+            document_count: 171,
+            minimum_estimated_tokens: 171,
+            conservative_estimated_tokens: 342,
+            minimum_estimated_cost_cny: '0.01',
+            conservative_estimated_cost_cny: '0.02',
+            confirmation_checksum: 'checksum',
+          }),
+          createSearchReplacement,
+        } as unknown as React.ComponentProps<typeof SearchProfilePanel>['actions']}
+        onReplacementProfileIdChange={onReplacementProfileIdChange}
+        onDraftChange={vi.fn()}
+        onConfirmInitialSearchIndex={vi.fn().mockResolvedValue(undefined)}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+        onTestCapability={onTestCapability}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '更换搜索模型' }));
+    await chooseDropdown(user, '新的模型服务', /家庭主服务/);
+    await user.type(screen.getByLabelText('新的搜索模型'), 'text-embedding-v4');
+    expect(screen.queryByText('先测试模型连通性')).not.toBeInTheDocument();
+    expect(screen.queryByText(/测试只发送一条固定短文本/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '测试模型' }));
+    await waitFor(() => expect(onTestCapability).toHaveBeenCalledWith('embedding', 'search', true, {
+      provider_profile_id: profile.id,
+      requested_model: 'text-embedding-v4',
+      dimensions: 1536,
+    }));
+    expect(screen.getByRole('alert')).toHaveTextContent('模型服务拒绝了请求（HTTP 422）');
+    await user.click(screen.getByRole('button', { name: '重新测试' }));
+    expect(screen.getByRole('button', { name: '测试成功' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '查看更新范围' }));
+    await screen.findByText('预计更新 171 项家庭内容的搜索数据');
+    await user.type(screen.getByLabelText('当前密码'), 'password');
+    await user.click(screen.getByLabelText(/我确认更换搜索模型/));
+    await user.click(screen.getByRole('button', { name: '确认并开始更新' }));
+
+    expect(screen.getByRole('status', { name: '搜索更新启动状态' })).toHaveTextContent('更新任务正在启动');
+    expect(screen.getByRole('status', { name: '搜索更新启动状态' })).toHaveTextContent('当前搜索仍可继续使用');
+    expect(screen.getByText('预计更新 171 项家庭内容的搜索数据')).toBeVisible();
+    expect(screen.getByLabelText('当前密码')).toBeDisabled();
+    expect(createSearchReplacement).toHaveBeenCalledTimes(1);
+
+    resolveCreate?.(replacement);
+    await waitFor(() => expect(onReplacementProfileIdChange).toHaveBeenCalledWith('search-profile-new'));
+    expect(screen.getByRole('heading', { name: '智能搜索更新进度' })).toBeVisible();
+    expect(screen.getByText('0 / 171')).toBeVisible();
   });
 
   it('shows a restored rebuild failure and lets the Owner retry it', async () => {
@@ -517,7 +739,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByText('智能搜索准备失败')).toBeVisible();
+    expect(screen.getByRole('heading', { name: '智能搜索更新进度' })).toBeVisible();
     expect(screen.getByText('失败 4 项')).toBeVisible();
     expect(screen.getByRole('alert')).toHaveTextContent('嵌入服务拒绝了请求（HTTP 400）');
     expect(screen.getByRole('alert')).toHaveTextContent('Provider HTTP 400');
@@ -611,7 +833,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByText('当前智能搜索已启用')).toBeVisible();
+    expect(screen.getByText('当前搜索已生效')).toBeVisible();
     expect(screen.queryByRole('heading', { name: '智能搜索更新进度' })).not.toBeInTheDocument();
   });
 

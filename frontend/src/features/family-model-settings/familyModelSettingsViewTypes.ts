@@ -1,5 +1,6 @@
 import type {
   FamilyModelConfigDraft,
+  FamilyModelCapabilityTestOverride,
   FamilyModelDraftValidation,
   FamilyModelPrices,
   FamilyModelProviderConnectionCheckResult,
@@ -52,6 +53,7 @@ export type FamilyModelSettingsSurfaceProps = {
     capability: Parameters<FamilyModelSettingsMutationActions['testCapability']>[0],
     variantKey: string,
     confirmBillable: boolean,
+    override?: FamilyModelCapabilityTestOverride,
   ) => Promise<Awaited<ReturnType<FamilyModelSettingsMutationActions['testCapability']>>>;
   onValidate: () => Promise<void>;
   onReplacementProfileIdChange: (profileId: string | null) => void;

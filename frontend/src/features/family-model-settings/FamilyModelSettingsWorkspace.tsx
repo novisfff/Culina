@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { PageLoadingState, StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
+  FamilyModelCapabilityTestOverride,
   FamilyModelDraftValidation,
   UserRole,
 } from '../../api/types/modelUsage';
@@ -240,6 +241,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     capability: Parameters<typeof mutationState.actions.testCapability>[0],
     variantKey: string,
     confirmBillable: boolean,
+    override?: FamilyModelCapabilityTestOverride,
   ) => {
     const currentDraft = state.state.dirty ? await persistDraft() : serverDraft;
     if (!currentDraft) throw new Error('家庭模型设置还没有加载完成，请稍后再试。');
@@ -248,6 +250,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
       variantKey,
       confirmBillable,
       currentDraft.draft_version_number,
+      override,
     );
   }, [mutationState.actions, persistDraft, serverDraft, state.state.dirty]);
 
@@ -327,7 +330,7 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
         <StateBlock
           status="error"
           title="暂时无法加载家庭 AI 服务"
-          description="请稍后重试，已有草稿不会因此丢失。"
+          description="请稍后重试，已保存的配置不会因此丢失。"
           actionLabel="重新加载"
           onAction={() => {
             void Promise.all([

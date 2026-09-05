@@ -527,7 +527,7 @@ class FamilyOpenAICompatibleEmbeddingClient:
         usage_adapter: EmbeddingUsageAdapter,
         model_usage_required: bool = True,
     ) -> None:
-        if binding.adapter_kind != "openai_compatible_http":
+        if binding.adapter_kind not in {"openai_compatible_http", "dashscope"}:
             raise ModelUsageContractError("embedding_binding_adapter_unsupported")
         if usage_adapter.binding is not binding and usage_adapter.binding != binding:
             raise ModelUsageContractError("embedding_binding_required")
@@ -666,6 +666,7 @@ class FamilyOpenAICompatibleEmbeddingClient:
                 body,
                 expected_count=len(texts),
                 dimensions=self.dimensions,
+                adapter_kind=self.binding.adapter_kind,
             )
         except _KnownNoSendEmbeddingFailure as exc:
             # The permit exists but credential decrypt/auth header assembly did
@@ -737,14 +738,31 @@ class FamilyOpenAICompatibleEmbeddingClient:
 
 def _embedding_endpoint_url(binding: ResolvedSearchProfile) -> str:
     parsed = urlsplit(binding.endpoint.normalized_url)
-    path = f"{parsed.path.rstrip('/')}/embeddings"
-    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+    endpoint_path = (
+        "services/embeddings/text-embedding/text-embedding"
+        if binding.adapter_kind == "dashscope"
+        else "embeddings"
+    )
+    path = "/".join(
+        part.strip("/") for part in (parsed.path, endpoint_path) if part.strip("/")
+    )
+    return urlunsplit((parsed.scheme, parsed.netloc, f"/{path}", "", ""))
 
 
 def _embedding_payload(
     binding: ResolvedSearchProfile,
     texts: list[str],
 ) -> dict[str, object]:
+    if binding.adapter_kind == "dashscope":
+        # DashScope's native embedding endpoint uses a different envelope
+        # from its OpenAI-compatible endpoint.  Keep the profile dimensions
+        # as a local output invariant; the native API chooses the model's
+        # supported dimension and the parser rejects a mismatch safely.
+        return {
+            "model": binding.embedding_model,
+            "input": {"texts": texts},
+            "parameters": {"text_type": "document"},
+        }
     payload: dict[str, object] = {"model": binding.embedding_model, "input": texts}
     if binding.dimensions > 0:
         payload["dimensions"] = binding.dimensions
@@ -756,7 +774,7 @@ def _optional_string(value: object) -> str | None:
 
 
 def _provider_request_id(response: object, body: dict[str, object]) -> str | None:
-    body_id = _optional_string(body.get("id"))
+    body_id = _optional_string(body.get("id")) or _optional_string(body.get("request_id"))
     if body_id is not None:
         return body_id
     headers = getattr(response, "headers", None)
@@ -773,15 +791,20 @@ def _parse_vectors(
     *,
     expected_count: int,
     dimensions: int,
+    adapter_kind: str | None = None,
 ) -> list[list[float]]:
     data = body.get("data")
+    if data is None and adapter_kind == "dashscope":
+        output = body.get("output")
+        if isinstance(output, dict):
+            data = output.get("embeddings")
     if not isinstance(data, list):
         raise EmbeddingUnavailableError("embedding response missing data")
     vectors: list[tuple[int, list[float]]] = []
     for position, item in enumerate(data):
         if not isinstance(item, dict) or not isinstance(item.get("embedding"), list):
             raise EmbeddingUnavailableError("embedding response item missing vector")
-        index = item.get("index", position)
+        index = item.get("index", item.get("text_index", position))
         if isinstance(index, bool) or not isinstance(index, int):
             raise EmbeddingUnavailableError("embedding response index invalid")
         try:
@@ -810,7 +833,7 @@ def build_embedding_client(
     """Build a family-bound client or fail closed without a resolved profile."""
 
     if profile is not None:
-        if profile.adapter_kind != "openai_compatible_http":
+        if profile.adapter_kind not in {"openai_compatible_http", "dashscope"}:
             raise ModelUsageContractError("embedding_binding_adapter_unsupported")
         if usage_dependencies is None or resolve_dispatch_credential is None or transport is None:
             raise ModelUsageContractError("family_embedding_dependencies_required")

@@ -8,6 +8,9 @@ from sqlalchemy import select
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.runtime_failure_persister import RuntimeFailurePersister
 from app.ai.workflows.runner_support.stream_bridge import handle_stream_worker_exception
+from app.ai.errors import AIConflictError, AutoExecutionBlockRequired
+from app.ai.runtime.provider import ChatProviderResult
+from app.services.ai_operations.run_blocking import mark_run_auto_execution_blocked
 from app.models.domain import AIAgentRun, AIConversation, AIConversationEvent, AIMessage, AIRunEvent
 
 from ._support import *
@@ -97,6 +100,157 @@ class RuntimeFailurePersisterTestCase(AIAgentInfraTestCase):
             db.add_all([conversation, run, message])
             db.commit()
         return conversation_id, run_id, message_id
+
+    def test_auto_execution_block_is_explained_by_model_without_tools(self) -> None:
+        conversation_id, run_id, message_id = self._seed_message_with_operation_result(
+            suffix="blocked-explanation",
+            operation_status="pending",
+        )
+
+        class ExplanationProvider(FakeChatProvider):
+            def __init__(self) -> None:
+                super().__init__(
+                    text="服务端无法安全确认这次写入，已停止继续执行，请核对后再手动重试。"
+                )
+                self.calls: list[dict[str, object]] = []
+
+            def generate(self, *, system: str, user: str, usage_attribution=None) -> ChatProviderResult:
+                self.calls.append(
+                    {
+                        "system": system,
+                        "user": user,
+                        "usage_attribution": usage_attribution,
+                    }
+                )
+                return ChatProviderResult(
+                    text=self.text,
+                    status="completed",
+                    model=self.model_name,
+                )
+
+            def generate_with_tools(self, **_kwargs):
+                raise AssertionError("blocked-result explanation must not enter the tool loop")
+
+        provider = ExplanationProvider()
+        with self.SessionLocal() as db:
+            persister = RuntimeFailurePersister(
+                db=db,
+                json_record=jsonable_encoder,
+                provider=provider,
+            )
+            absorbed = persister.mark_failed(
+                run_id=run_id,
+                conversation_id=conversation_id,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                error=AutoExecutionBlockRequired(
+                    error_code="draft_terminalization_failed",
+                    message="自动执行结果未能安全保存，已停止继续重试",
+                    recovery_hint="retry_later_or_contact_support",
+                ),
+            )
+            self.assertTrue(absorbed)
+
+        self.assertEqual(len(provider.calls), 1)
+        call = provider.calls[0]
+        system = str(call["system"])
+        payload = json.loads(str(call["user"]))
+        self.assertIn("不要调用工具", system)
+        self.assertIn("不要自行重试", system)
+        self.assertNotIn("tools", call)
+        self.assertEqual(payload["operationResult"]["status"], "failed")
+        self.assertFalse(payload["operationResult"]["retryAllowed"])
+        self.assertTrue(payload["operationResult"]["requiresUserReview"])
+
+        with self.SessionLocal() as db:
+            run = db.get(AIAgentRun, run_id)
+            message = db.get(AIMessage, message_id)
+            conversation = db.get(AIConversation, conversation_id)
+            assert run is not None and message is not None and conversation is not None
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(message.status, "failed")
+            self.assertEqual(message.content, provider.text)
+            self.assertEqual(conversation.response, provider.text)
+            self.assertTrue(
+                any(
+                    isinstance(part, dict)
+                    and part.get("type") == "result_card"
+                    and (part.get("card") or {}).get("data", {}).get("errorCode")
+                    == "draft_terminalization_failed"
+                    for part in (message.parts or [])
+                )
+            )
+
+    def test_auto_execution_block_uses_safe_fallback_when_explanation_fails(self) -> None:
+        conversation_id, run_id, message_id = self._seed_message_with_operation_result(
+            suffix="blocked-fallback",
+            operation_status="pending",
+        )
+
+        class FailingExplanationProvider(FakeChatProvider):
+            def generate(self, *, system: str, user: str, usage_attribution=None) -> ChatProviderResult:
+                raise RuntimeError("provider unavailable")
+
+        with self.SessionLocal() as db:
+            persister = RuntimeFailurePersister(
+                db=db,
+                json_record=jsonable_encoder,
+                provider=FailingExplanationProvider(),
+            )
+            self.assertTrue(
+                persister.mark_failed(
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    error=AutoExecutionBlockRequired(
+                        error_code="draft_terminalization_failed",
+                        message="自动执行结果未能安全保存，已停止继续重试",
+                        recovery_hint="retry_later_or_contact_support",
+                    ),
+                )
+            )
+
+        with self.SessionLocal() as db:
+            message = db.get(AIMessage, message_id)
+            run = db.get(AIAgentRun, run_id)
+            assert message is not None and run is not None
+            self.assertEqual(message.content, "自动执行结果未能安全保存，已停止继续重试")
+            self.assertEqual(run.output_summary, "自动执行结果未能安全保存，已停止继续重试")
+
+    def test_persisted_block_marker_is_recovered_from_conflict_error(self) -> None:
+        conversation_id, run_id, message_id = self._seed_message_with_operation_result(
+            suffix="blocked-marker",
+            operation_status="pending",
+        )
+        provider = FakeChatProvider(text="服务端已阻断不确定写入，请核对后再手动重试。")
+        with self.SessionLocal() as db:
+            mark_run_auto_execution_blocked(
+                db,
+                family_id=self.family.id,
+                run_id=run_id,
+                terminalize=False,
+            )
+            db.commit()
+            persister = RuntimeFailurePersister(
+                db=db,
+                json_record=jsonable_encoder,
+                provider=provider,
+            )
+            self.assertTrue(
+                persister.mark_failed(
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    error=AIConflictError("数据库写入失败，自动执行结果无法安全保存"),
+                )
+            )
+
+        with self.SessionLocal() as db:
+            message = db.get(AIMessage, message_id)
+            assert message is not None
+            self.assertEqual(message.content, provider.text)
 
     def test_worker_exception_after_committed_operation_result_returns_success_response(self) -> None:
         conversation_id, run_id, message_id = self._seed_message_with_operation_result(

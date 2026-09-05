@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from app.services.ai_auto_execution.policy_types import DraftRouteOutcome
-
 
 class AIConflictError(ValueError):
     """The requested AI state transition conflicts with persisted state."""
@@ -57,14 +52,6 @@ class HumanInputRequired(Exception):
 
 class ApprovalRequired(Exception):
     """The current AI run produced a draft and must wait for approval."""
-
-
-class DraftRouted(ApprovalRequired):
-    """The current AI run routed a draft without entering model control again."""
-
-    def __init__(self, outcome: DraftRouteOutcome) -> None:
-        super().__init__(outcome.status)
-        self.outcome = outcome
 
 
 class ToolBudgetHardStop(Exception):

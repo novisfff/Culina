@@ -123,3 +123,34 @@ def test_profile_document_progress_tracks_indexed_failed_and_budget_blocked(
         db, family_id="family-a", search_profile_id=profile.id
     ) == counts
     assert (profile.total_documents, profile.indexed_documents, profile.failed_documents) == (4, 2, 1)
+
+
+def test_content_change_resets_profile_document_attempt_budget(model_usage_db: Session) -> None:
+    db = model_usage_db
+    _add_families(db)
+    profile = _profile(family_id="family-a", profile_id="profile-content-reset")
+    document = _document(family_id="family-a", document_id="document-content-reset")
+    db.add_all((profile, document))
+    db.flush()
+    row = ensure_profile_document(
+        db,
+        family_id=profile.family_id,
+        search_profile_id=profile.id,
+        search_document_id=document.id,
+        content_hash=document.content_hash,
+    )
+    row.attempt_count = 2
+    row.last_attempt_at = document.created_at
+    row.status = "failed"
+
+    changed = ensure_profile_document(
+        db,
+        family_id=profile.family_id,
+        search_profile_id=profile.id,
+        search_document_id=document.id,
+        content_hash="new-content-hash",
+    )
+
+    assert changed.attempt_count == 0
+    assert changed.last_attempt_at is None
+    assert changed.status == "pending"

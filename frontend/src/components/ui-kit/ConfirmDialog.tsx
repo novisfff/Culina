@@ -47,6 +47,7 @@ export function ConfirmDialog({
   return (
     <WorkspaceOverlayFrame
       rootClassName={rootClassName}
+      busy={isSubmitting}
       closeOnBackdrop={!isSubmitting}
       onClose={closeIfAllowed}
     >
@@ -56,6 +57,7 @@ export function ConfirmDialog({
         closeLabel={resolvedCloseLabel}
         closeAriaLabel={typeof resolvedCloseLabel === 'string' ? resolvedCloseLabel : '关闭确认弹窗'}
         className={modalClassName}
+        busy={isSubmitting}
         onClose={closeIfAllowed}
         footerActions={
           <FormActions

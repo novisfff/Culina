@@ -11,6 +11,8 @@ import type {
   FamilyModelProviderConnectionCheckResult,
   FamilyModelProviderProfile,
   FamilyModelProviderProfileCreate,
+  FamilyModelProviderProfileDeletePayload,
+  FamilyModelProviderProfileDeletionCheck,
   FamilyModelProviderProfilePatch,
   FamilyModelSearchReplacement,
   FamilyModelSearchReplacementMutationPayload,
@@ -53,6 +55,13 @@ export const familyModelSettingsApi = {
   patchProviderProfile: (profileId: string, payload: FamilyModelProviderProfilePatch) =>
     request<FamilyModelProviderProfile>(profilePath(profileId), {
       method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  checkProviderProfileDeletion: (profileId: string) =>
+    request<FamilyModelProviderProfileDeletionCheck>(`${profilePath(profileId)}/deletion-check`),
+  deleteProviderProfile: (profileId: string, payload: FamilyModelProviderProfileDeletePayload) =>
+    request<void>(profilePath(profileId), {
+      method: 'DELETE',
       body: JSON.stringify(payload),
     }),
   rotateProviderProfileKey: (profileId: string, payload: RotateFamilyModelProviderProfileKeyPayload) =>
