@@ -368,7 +368,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
               </button>
             </div>
           </section>
-          {replacementIsCandidate && preview ? (
+          {replacementIsCandidate && replacement && preview ? (
             <section className="family-model-settings-search-replacing" aria-labelledby="family-model-search-replacing-title">
               <div className="family-model-settings-search-section-head">
                 <div>
@@ -379,9 +379,9 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
                 <span className="family-model-settings-search-replacing-badge">即将生效</span>
               </div>
               <div className="family-model-settings-search-current-grid">
-                <div><span>模型服务</span><strong>{props.settings.provider_profiles.find((profile) => profile.id === preview.provider_profile_id)?.display_name ?? '当前服务'}</strong></div>
-                <div><span>模型名称</span><strong>{preview.requested_model}</strong></div>
-                <div><span>模型维度</span><strong>{preview.dimensions} 维</strong></div>
+                <div><span>模型服务</span><strong>{props.settings.provider_profiles.find((profile) => profile.id === providerProfileId)?.display_name ?? '当前服务'}</strong></div>
+                <div><span>模型名称</span><strong>{requestedModel}</strong></div>
+                <div><span>模型维度</span><strong>{dimensions} 维</strong></div>
               </div>
               <div className="family-model-settings-search-replacing-progress" role="status">
                 <span className="family-model-settings-search-replacing-dot" aria-hidden="true" />
