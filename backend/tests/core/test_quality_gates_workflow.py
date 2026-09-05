@@ -76,11 +76,10 @@ def test_quality_gates_block_style_drift_migrations_and_production_vulnerabiliti
     assert "npm run audit:prod" in workflow
 
 
-def test_quality_gates_run_blocking_media_and_websocket_compose_smokes() -> None:
+def test_quality_gates_run_blocking_media_compose_smoke() -> None:
     workflow = _quality_gates_workflow()
 
     assert "deployment-compose-smokes:" in workflow
     assert "npm run deploy:smoke:media" in workflow
-    assert "npm run deploy:smoke:realtime" in workflow
-    assert "playwright install --with-deps chromium" in workflow
-    assert workflow.count("set -o pipefail") == 2
+    assert "npm run deploy:smoke:realtime" not in workflow
+    assert workflow.count("set -o pipefail") == 1
