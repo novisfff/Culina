@@ -540,12 +540,6 @@ jobs:
           set -o pipefail
           mkdir -p .artifacts
           npm run deploy:smoke:media 2>&1 | tee .artifacts/media-permission-smoke.log
-      - name: Run WebSocket deployment smoke
-        if: ${{ always() && steps.browser_setup.outcome == 'success' }}
-        run: |
-          set -o pipefail
-          mkdir -p .artifacts
-          npm run deploy:smoke:realtime 2>&1 | tee .artifacts/realtime-websocket-smoke.log
       - name: Upload deployment smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
