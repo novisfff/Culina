@@ -393,8 +393,8 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
             <div className="family-model-settings-search-section-head">
               <div>
                 <span className="family-model-settings-search-eyebrow">可选配置</span>
-                <h3 id="family-model-search-sort-title">搜索排序</h3>
-                <p>只影响结果展示顺序，不会触发向量重建。</p>
+                <h3 id="family-model-search-sort-title">搜索模型</h3>
+                <p>当前模型已生效；搜索排序只影响结果展示顺序，不会触发向量重建。</p>
               </div>
             </div>
             <CapabilityBindingEditor
@@ -402,7 +402,7 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
               profiles={props.settings.provider_profiles}
               busy={busy}
               scope="search"
-              onlyCapabilities={['rerank']}
+              onlyCapabilities={['embedding', 'rerank']}
               embedded
               onDraftChange={handleSearchDraftChange}
               onDiscoverModels={props.onDiscoverModels}
