@@ -79,6 +79,7 @@ def delete_search_document(
     entity_id: str,
     delete_vector: bool = False,
     vector_store: VectorStore | None = None,
+    user_id: str = "search-document-deletion",
 ) -> None:
     document = db.scalar(
         select(SearchDocument).where(
@@ -87,6 +88,43 @@ def delete_search_document(
             SearchDocument.entity_id == entity_id,
         )
     )
+    if document is None:
+        return
+
+    if delete_vector:
+        # The caller is usually deleting the domain row in the same
+        # transaction. If no profile-scoped vector was ever materialized,
+        # there is no external side effect to wait for and the canonical row
+        # can be removed immediately. Once profile rows exist, keep the
+        # canonical/profile identity until the durable deletion job has
+        # removed every profile-scoped Qdrant point.
+        # Callers may have created the profile row earlier in the same
+        # transaction while using ``autoflush=False``; make that state visible
+        # before deciding whether an external delete is required.
+        db.flush()
+        has_profile_documents = db.scalar(
+            select(FamilySearchProfileDocument.id).where(
+                FamilySearchProfileDocument.search_document_id == document.id
+            ).limit(1)
+        ) is not None
+        if not has_profile_documents:
+            db.delete(document)
+            del vector_store, user_id
+            return
+
+        from app.services.search.jobs import enqueue_search_document_deletion_job
+
+        enqueue_search_document_deletion_job(
+            db,
+            family_id=family_id,
+            user_id=user_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            target_name=document.title_text,
+        )
+        del vector_store
+        return
+
     if document is not None:
         profile_documents = list(
             db.scalars(
@@ -100,4 +138,4 @@ def delete_search_document(
         db.delete(document)
     # Collection cleanup is profile-aware and durable.  It cannot be done
     # against one global collection from this canonical-document boundary.
-    del delete_vector, vector_store
+    del delete_vector, vector_store, user_id

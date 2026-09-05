@@ -6,8 +6,20 @@ import type { ModelUsageErrorCode } from './modelUsage';
 
 export type SearchEntityType = 'ingredient' | 'food' | 'recipe' | 'meal_plan';
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | string;
-export type SearchIndexJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'budget_blocked';
-export type SearchIndexVectorStatus = 'pending' | 'indexed' | 'skipped' | 'failed';
+export type SearchIndexJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'budget_blocked'
+  | 'cancelled';
+export type SearchIndexVectorStatus =
+  | 'pending'
+  | 'indexed'
+  | 'skipped'
+  | 'failed'
+  | 'delete_pending'
+  | 'point_delete_pending';
 export type SearchResultEntity = Ingredient | Food | Recipe | FoodPlanItem;
 
 export interface SearchResultItem {

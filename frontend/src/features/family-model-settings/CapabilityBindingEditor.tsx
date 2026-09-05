@@ -23,6 +23,7 @@ export type CapabilityBindingEditorProps = {
   scope?: 'general' | 'search';
   embedded?: boolean;
   blockedTests?: readonly FamilyModelCapability[];
+  onlyCapabilities?: readonly FamilyModelCapability[];
 };
 
 type ModelDiscoveryState =
@@ -143,10 +144,14 @@ function getCapabilityIcon(capability: FamilyModelCapability) {
 }
 
 export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
-  const visibleGroups = CAPABILITY_GROUPS.filter((group) => (
-    props.scope === 'search' ? group.id === 'search' : group.id !== 'search'
-  ));
-  const visibleCapabilities = new Set(visibleGroups.flatMap((group) => group.capabilities));
+  const allowedCapabilities = props.onlyCapabilities ? new Set(props.onlyCapabilities) : null;
+  const visibleGroups = CAPABILITY_GROUPS.filter((group) => {
+    const inScope = props.scope === 'search' ? group.id === 'search' : group.id !== 'search';
+    return inScope && (!allowedCapabilities || group.capabilities.some((capability) => allowedCapabilities.has(capability)));
+  });
+  const visibleCapabilities = new Set(
+    visibleGroups.flatMap((group) => group.capabilities).filter((capability) => !allowedCapabilities || allowedCapabilities.has(capability)),
+  );
   const [capabilityTests, setCapabilityTests] = useState<Record<string, CapabilityTestState>>({});
   const [selectedBindingKey, setSelectedBindingKey] = useState(() => {
     const visibleBindings = props.draft.bindings.filter((binding) => visibleCapabilities.has(binding.capability));
@@ -257,14 +262,14 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
             </div>
           ) : null}
           <div className="family-model-settings-binding-list">
-            {props.draft.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => group.capabilities.includes(binding.capability)).map(({ binding, index }) => {
+            {props.draft.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => group.capabilities.includes(binding.capability) && (!allowedCapabilities || allowedCapabilities.has(binding.capability))).map(({ binding, index }) => {
               const key = bindingKey(binding);
               const embeddingLocked = isActiveEmbedding(props.draft, binding);
               const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability));
               const expanded = selectedBindingKey === key;
               const capabilityTest = capabilityTests[key];
               const testBlocked = props.blockedTests?.includes(binding.capability) ?? false;
-              const canRunDraftTest = bindingCanRunDraftTest(binding) && !testBlocked;
+              const canRunDraftTest = bindingCanRunDraftTest(binding) && !testBlocked && !embeddingLocked;
               return (
                 <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
                   <div className="family-model-settings-binding-head">
@@ -439,6 +444,8 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                       type="button"
                       title={testBlocked
                         ? '请先确认搜索模型并开启智能搜索。'
+                        : embeddingLocked
+                          ? '当前搜索模型已生效，请在“智能搜索”中通过更换模型流程测试候选配置。'
                         : !canRunDraftTest
                           ? '请先启用功能，并补全模型服务和模型名称。'
                           : capabilityTest?.message}

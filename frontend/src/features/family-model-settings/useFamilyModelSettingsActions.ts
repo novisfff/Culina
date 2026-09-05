@@ -9,9 +9,11 @@ import {
 import type {
   CreateFamilyModelSearchReplacementPayload,
   FamilyModelCapability,
+  FamilyModelCapabilityTestOverride,
   FamilyModelConfigDraft,
   FamilyModelProviderConnectionCheckPayload,
   FamilyModelProviderProfileCreate,
+  FamilyModelProviderProfileDeletePayload,
   FamilyModelProviderProfilePatch,
   FamilyModelSearchReplacementBasePayload,
   FamilyModelSearchReplacementMutationPayload,
@@ -34,6 +36,10 @@ export interface UseFamilyModelSettingsActionsArgs {
   onBusy?: (action: FamilyModelSettingsBusyAction) => void;
   onSettled?: () => void;
 }
+
+type RunOptions = {
+  reportError?: boolean;
+};
 
 function idempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -111,6 +117,7 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
   const run = useCallback(async <T,>(
     action: FamilyModelSettingsBusyAction,
     operation: () => Promise<T>,
+    options: RunOptions = {},
   ): Promise<T> => {
     if (pending.current) throw new Error('操作正在进行，请稍候。');
     pending.current = true;
@@ -120,7 +127,9 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     try {
       return await operation();
     } catch (reason) {
-      setErrorMessage(safeFamilyModelSettingsError(reason));
+      if (options.reportError !== false) {
+        setErrorMessage(safeFamilyModelSettingsError(reason));
+      }
       throw reason;
     } finally {
       pending.current = false;
@@ -194,6 +203,26 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     });
   }, [idempotentRequest, refreshSettingsInBackground, requireContext, run]);
 
+  const checkProviderProfileDeletion = useCallback(async (profileId: string) => {
+    requireContext();
+    return run('test', () => familyModelSettingsApi.checkProviderProfileDeletion(profileId), { reportError: false });
+  }, [requireContext, run]);
+
+  const deleteProviderProfile = useCallback(async (
+    profileId: string,
+    input: Omit<FamilyModelProviderProfileDeletePayload, 'idempotency_key'>,
+  ) => {
+    requireContext();
+    return run('delete', async () => {
+      const operation = `delete-provider:${profileId}`;
+      const result = await idempotentRequest(operation, input, (key) => (
+        familyModelSettingsApi.deleteProviderProfile(profileId, { ...input, idempotency_key: key })
+      ));
+      refreshSettingsInBackground();
+      return result;
+    }, { reportError: false });
+  }, [idempotentRequest, refreshSettingsInBackground, requireContext, run]);
+
   const rotateProviderProfileKey = useCallback(async (
     profileId: string,
     input: Omit<Parameters<typeof familyModelSettingsApi.rotateProviderProfileKey>[1], 'idempotency_key'>,
@@ -226,10 +255,11 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
     variantKey: string,
     confirmBillable: boolean,
     baseDraftVersionNumber: number,
+    override?: FamilyModelCapabilityTestOverride,
   ) => {
     requireContext();
     if (!confirmBillable) throw new Error('请先确认这会产生真实模型费用。');
-    const input = { capability, variantKey, confirmBillable, baseDraftVersionNumber };
+    const input = { capability, variantKey, confirmBillable, baseDraftVersionNumber, ...override };
     return run('test', async () => {
       const operation = `test-capability:${capability}:${variantKey}`;
       const result = await idempotentRequest(operation, input, (key) => familyModelSettingsApi.testCapability(capability, {
@@ -237,6 +267,7 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
         confirm_billable: true,
         base_draft_version_number: baseDraftVersionNumber,
         idempotency_key: key,
+        ...override,
       }));
       refreshSettingsInBackground();
       return result;
@@ -300,6 +331,8 @@ export function useFamilyModelSettingsActions(args: UseFamilyModelSettingsAction
       validateDraft,
       createProviderProfile,
       patchProviderProfile,
+      checkProviderProfileDeletion,
+      deleteProviderProfile,
       rotateProviderProfileKey,
       checkProviderConnection,
       testCapability,

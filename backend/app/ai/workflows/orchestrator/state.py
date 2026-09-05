@@ -40,6 +40,7 @@ class OrchestratorRunState:
     tool_budget_hard_stopped: bool = False
     tool_budget_last_output: dict[str, Any] | None = None
     draft_created_this_call: bool = False
+    draft_routed_this_call: bool = False
     human_input_requested_this_call: bool = False
     current_scoped_executor: Any | None = None
     current_script_executors: dict[str, SkillScriptExecutor] = field(default_factory=dict)

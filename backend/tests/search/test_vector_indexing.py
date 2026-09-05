@@ -13,7 +13,11 @@ from app.models.family_model_settings import (
     FamilySearchProfileDocument,
 )
 from app.services.search.embeddings import MeteredEmbeddingResult
-from app.services.search.vector_indexing import index_pending_search_documents
+from app.services.search.vector_indexing import (
+    index_pending_search_documents,
+    prepare_profile_vector_handoff,
+    snapshot_profile_document,
+)
 from app.services.search.vector_store import VectorStoreUnavailableError
 from tests.search._support import session_factory
 
@@ -229,6 +233,32 @@ def test_stale_profile_vector_handoff_requeues_job_and_releases_lock() -> None:
     assert profile_document is not None
     assert profile_document.status == "pending"
     assert profile_document.vector_json is None
+
+
+def test_cancelled_profile_cannot_prepare_vector_handoff() -> None:
+    SessionLocal = session_factory()
+    with SessionLocal() as db:
+        document, _job = _seed_profile_job(db, suffix="cancelled-handoff")
+        profile = db.get(FamilySearchProfile, "profile-cancelled-handoff")
+        profile_document = db.scalar(select(FamilySearchProfileDocument))
+        assert profile is not None and profile_document is not None
+        snapshot = snapshot_profile_document(
+            profile_document,
+            document=document,
+            search_profile=profile,
+        )
+        profile_document.vector_json = [0.1, 0.2]
+        profile_document.vector_dimensions = 2
+        profile_document.status = "pending_handoff"
+        profile.status = FamilyModelSearchProfileStatus.CANCELLED
+
+        handoff = prepare_profile_vector_handoff(
+            profile_document,
+            snapshot=snapshot,
+            search_profile=profile,
+        )
+
+    assert handoff is None
 
 
 def test_unexpected_profile_worker_exception_is_persisted_instead_of_staying_running() -> None:

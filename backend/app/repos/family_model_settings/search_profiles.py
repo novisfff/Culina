@@ -161,11 +161,14 @@ def ensure_profile_document(
         db.flush()
         return row
     if row.content_hash != content_hash:
+        row.generation = (row.generation or 0) + 1
         row.content_hash = content_hash
         row.status = "pending"
         row.vector_json = None
         row.vector_dimensions = None
         row.error_code = None
+        row.attempt_count = 0
+        row.last_attempt_at = None
         row.indexed_at = None
     return row
 

@@ -47,8 +47,15 @@ def mark_run_auto_execution_blocked(
     *,
     family_id: str,
     run_id: str,
+    terminalize: bool = True,
 ) -> AIAgentRun | None:
-    """Persist an idempotent Run/message fact that prevents provider replay."""
+    """Persist an idempotent Run/message fact that prevents provider replay.
+
+    ``terminalize=False`` is used when a read-only model explanation should be
+    generated after the blocked fact is durably committed.  No write/tool
+    decision is possible in that phase; callers must finalize the failed
+    message with :func:`finalize_auto_execution_blocked_response`.
+    """
     run = db.scalar(
         select(AIAgentRun)
         .where(AIAgentRun.id == run_id, AIAgentRun.family_id == family_id)
@@ -110,15 +117,16 @@ def mark_run_auto_execution_blocked(
         metadata=metadata,
         created_by=run.created_by,
     )
-    timeline.terminal(
-        family_id=run.family_id,
-        conversation_id=run.conversation_id,
-        message_id=message.id,
-        run_id=run.id,
-        status="failed",
-        content=AUTO_EXECUTION_BLOCKED_MESSAGE,
-        created_by=run.created_by,
-    )
+    if terminalize:
+        timeline.terminal(
+            family_id=run.family_id,
+            conversation_id=run.conversation_id,
+            message_id=message.id,
+            run_id=run.id,
+            status="failed",
+            content=AUTO_EXECUTION_BLOCKED_MESSAGE,
+            created_by=run.created_by,
+        )
     blocked_cards = [
         part["card"]
         for part in message.parts or []
@@ -140,7 +148,7 @@ def mark_run_auto_execution_blocked(
         )
         .with_for_update()
     )
-    if conversation is not None:
+    if conversation is not None and terminalize:
         conversation.last_run_status = "failed"
         conversation.last_message_at = utcnow()
         conversation.response = AUTO_EXECUTION_BLOCKED_MESSAGE
@@ -153,11 +161,66 @@ def mark_run_auto_execution_blocked(
     return run
 
 
+def finalize_auto_execution_blocked_response(
+    db: Session,
+    *,
+    family_id: str,
+    run_id: str,
+    text: str,
+) -> AIAgentRun | None:
+    """Close a previously persisted block with model text or safe fallback."""
+    run = db.scalar(
+        select(AIAgentRun)
+        .where(AIAgentRun.id == run_id, AIAgentRun.family_id == family_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if run is None or not run.conversation_id:
+        return None
+    message = _locked_run_message(db, run=run)
+    if message is None:
+        raise LookupError("预创建的 canonical 助手消息不存在")
+    timeline = AITimelineService(db)
+    timeline.terminal(
+        family_id=family_id,
+        conversation_id=run.conversation_id,
+        message_id=message.id,
+        run_id=run.id,
+        status="failed",
+        content=text,
+        created_by=run.created_by,
+    )
+    run.output_summary = text[:255]
+    output = dict(run.output or {})
+    output["text"] = text
+    run.output = output
+    conversation = db.scalar(
+        select(AIConversation)
+        .where(
+            AIConversation.id == run.conversation_id,
+            AIConversation.family_id == family_id,
+        )
+        .with_for_update()
+    )
+    if conversation is not None:
+        conversation.last_run_status = "failed"
+        conversation.last_message_at = utcnow()
+        conversation.response = text
+        conversation.summary = text[:255]
+        context = dict(conversation.context or {})
+        if context.get("activeRunId") == run.id:
+            context.pop("activeRunId", None)
+        conversation.context = context
+    db.flush()
+    return run
+
+
 def persist_run_auto_execution_blocked_after_rollback(
     db: Session,
     *,
     family_id: str,
     run_id: str | None,
+    terminalize: bool = True,
 ) -> bool:
     """Rollback poisoned work, then record the blocked Run in an independent transaction."""
     bind = db.get_bind()
@@ -177,6 +240,7 @@ def persist_run_auto_execution_blocked_after_rollback(
                 recovery_db,
                 family_id=family_id,
                 run_id=run_id,
+                terminalize=terminalize,
             )
             if run is None:
                 recovery_db.rollback()

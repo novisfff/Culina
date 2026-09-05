@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from sqlalchemy import select
 
 from app.core.enums import FamilyModelPricePurpose, FamilyModelSearchProfileStatus
@@ -9,6 +10,7 @@ from app.models.domain import SearchDocument
 from app.models.family_model_settings import (
     FamilyModelCapabilityBinding,
     FamilyModelConfigRevision,
+    FamilyModelConfigDraft,
     FamilyModelSettings,
     FamilySearchProfile,
 )
@@ -26,6 +28,8 @@ from app.services.family_model_settings.search_profiles import (
     seed_search_profile_documents,
 )
 from app.services.search.jobs import _activate_profile_if_ready
+from app.services.model_usage.errors import ModelUsageContractError
+from app.services.model_usage.pricing import lock_active_model_price_snapshot
 
 from tests.family_model_settings._support import FamilyModelApiContext, family_model_api
 
@@ -189,6 +193,72 @@ def test_initial_profile_remains_keyword_only_until_activation(
         assert profile.status is FamilyModelSearchProfileStatus.ACTIVE
 
 
+def test_zero_document_profile_activates_after_collection_seed(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    provider = family_model_api.create_profile(idempotency_key="search-zero-doc-provider")
+    published = _publish(
+        family_model_api,
+        profile_id=str(provider["id"]),
+        id_suffix="zero-doc",
+    )
+    profile_id = str(published["search_profile_id"])
+
+    with family_model_api.session_factory() as db:
+        jobs = seed_search_profile_documents(
+            db,
+            family_id="family-a",
+            profile_id=profile_id,
+            enqueue_jobs=True,
+        )
+        db.commit()
+
+    assert jobs == ()
+    with family_model_api.session_factory() as db:
+        settings = db.get(FamilyModelSettings, "family-a")
+        profile = db.get(FamilySearchProfile, profile_id)
+        assert settings is not None and profile is not None
+        assert profile.status is FamilyModelSearchProfileStatus.ACTIVE
+        assert settings.active_search_profile_id == profile_id
+
+
+def test_active_snapshot_rejects_mismatched_search_profile_pointer(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    provider = family_model_api.create_profile(idempotency_key="search-pointer-provider")
+    initial = _publish(
+        family_model_api,
+        profile_id=str(provider["id"]),
+        id_suffix="pointer-initial",
+    )
+    _activate_initial(family_model_api, str(initial["search_profile_id"]))
+
+    with family_model_api.session_factory() as db:
+        settings = db.get(FamilyModelSettings, "family-a")
+        revision = db.get(FamilyModelConfigRevision, settings.active_config_revision_id)
+        assert settings is not None and revision is not None
+        profile = FamilySearchProfile(
+            id="search-pointer-foreign",
+            family_id="family-a",
+            provider_profile_id="provider-pointer",
+            provider_profile_version_id="provider-version-pointer",
+            adapter_kind="openai_compatible_http",
+            embedding_model="pointer-foreign-model",
+            dimensions=2,
+            distance="Cosine",
+            document_builder_version="family-model-search-v1",
+            index_identity_checksum="f" * 64,
+            qdrant_collection="pointer-foreign-collection",
+            status=FamilyModelSearchProfileStatus.ACTIVE,
+        )
+        db.add(profile)
+        db.flush()
+        settings.active_search_profile_id = profile.id
+        with pytest.raises(ModelUsageContractError) as exc_info:
+            lock_active_model_price_snapshot(db, family_id="family-a")
+        assert exc_info.value.code == "family_model_search_profile_pointer_invalid"
+
+
 def test_replacement_creates_one_candidate_collection_price_and_outbox(
     family_model_api: FamilyModelApiContext,
 ) -> None:
@@ -348,6 +418,14 @@ def test_activation_merges_candidate_embedding_without_restoring_old_llm(
         assert active_price is not None
         assert active_price.purpose is FamilyModelPricePurpose.ACTIVE
         assert active_price.search_profile_id is None
+        draft = db.get(FamilyModelConfigDraft, "family-a")
+        assert draft is not None
+        assert draft.payload_json["search_profile_id"] == candidate.profile_id
+        embedding = next(
+            item for item in draft.payload_json["bindings"] if item["capability"] == "embedding"
+        )
+        assert embedding["requested_model"] == "family-embedding-b"
+        assert embedding["dimensions"] == 3
 
 
 def test_retry_and_cancel_reuse_candidate_profile_without_overwriting_active(

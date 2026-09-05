@@ -115,6 +115,9 @@ class CapabilityTestCommand:
     confirm_billable: bool
     idempotency_key: str
     base_draft_version_number: int | None = None
+    provider_profile_id: str | None = None
+    requested_model: str | None = None
+    dimensions: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -738,6 +741,21 @@ def _materialize_draft_test_binding(
         ),
         None,
     )
+    if target_binding is not None:
+        override: dict[str, object] = {}
+        if command.provider_profile_id is not None:
+            override["provider_profile_id"] = command.provider_profile_id
+        if command.requested_model is not None:
+            override["requested_model"] = command.requested_model
+        if command.dimensions is not None and command.capability == "embedding":
+            override["dimensions"] = command.dimensions
+        if override:
+            # Replacement probes intentionally test the candidate even when
+            # the persisted draft still has the active binding locked or
+            # disabled while the rebuild form is open.
+            override["enabled"] = True
+        if override:
+            target_binding = target_binding.model_copy(update=override)
     if (
         command.capability == "llm"
         and command.variant_key == "fallback"
@@ -753,12 +771,7 @@ def _materialize_draft_test_binding(
     ):
         raise FamilyModelDraftInvalid("family_model_llm_fallback_requires_primary")
 
-    target_bindings = tuple(
-        binding
-        for binding in payload.bindings
-        if binding.capability == command.capability
-        and binding.variant_key == command.variant_key
-    )
+    target_bindings = (target_binding,) if target_binding is not None else ()
     target_rates = tuple(
         rate
         for rate in payload.price_rates
@@ -780,6 +793,14 @@ def _materialize_draft_test_binding(
         network_policy=dependencies.network_policy,
         draft_version_number=command.base_draft_version_number,
         validate_fallback_graph=False,
+        enforce_search_identity=not any(
+            value is not None
+            for value in (
+                command.provider_profile_id,
+                command.requested_model,
+                command.dimensions,
+            )
+        ),
     )
     if validation.errors:
         # Do not expose provider details; the first stable domain code is

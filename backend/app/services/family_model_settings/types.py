@@ -163,6 +163,40 @@ class UpdateProviderProfileCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class DeleteProviderProfileCommand:
+    family_id: str
+    actor_user_id: str
+    profile_id: str
+    base_profile_version_number: int
+    confirmation_name: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderProfileReference:
+    type: str
+    name: str
+    description: str
+    resource_id: str
+    can_unbind: bool = True
+
+    def record(self) -> dict[str, object]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "description": self.description,
+            "resource_id": self.resource_id,
+            "can_unbind": self.can_unbind,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderProfileDeletionCheck:
+    can_delete: bool
+    blocking_references: tuple[ProviderProfileReference, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderProfileSnapshot:
     id: str
     display_name: str

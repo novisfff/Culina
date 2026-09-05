@@ -589,6 +589,7 @@ def delete_food_plan_item(
         entity_type="meal_plan",
         entity_id=item.id,
         delete_vector=True,
+        user_id=user.id,
     )
     db.delete(item)
     log_activity(

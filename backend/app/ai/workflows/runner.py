@@ -151,6 +151,7 @@ class WorkspaceGraphRunner:
         self.runtime_failure_persister = RuntimeFailurePersister(
             db=self.db,
             json_record=self._json_record,
+            provider=self.provider,
         )
         self.approval_resume_preparer = ApprovalResumePreparer(
             db=self.db,

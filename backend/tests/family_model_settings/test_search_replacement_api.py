@@ -198,6 +198,74 @@ def test_search_replacement_api_preview_create_replay_and_safe_progress(
         assert forbidden not in serialized
 
 
+def test_search_replacement_rejects_identity_used_by_cancelled_profile(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    base_profile_id, target_profile_id = _prepare_active_search(
+        family_model_api,
+        suffix="identity-conflict",
+    )
+    settings = family_model_api.client.get("/api/family/model-settings")
+    assert settings.status_code == 200, settings.text
+    request = _replacement_input(
+        base_settings_version_number=settings.json()["version_number"],
+        base_search_profile_id=base_profile_id,
+        provider_profile_id=target_profile_id,
+    )
+    preview = family_model_api.client.post(
+        "/api/family/model-settings/search/replacements/preview",
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    created = family_model_api.client.post(
+        "/api/family/model-settings/search/replacements",
+        json=request
+        | {
+            "confirm_checksum": preview.json()["confirmation_checksum"],
+            "current_password": "OwnerPass123",
+            "idempotency_key": "search-api-identity-conflict-first",
+        },
+    )
+    assert created.status_code == 200, created.text
+    profile_id = created.json()["profile_id"]
+
+    current_settings = family_model_api.client.get("/api/family/model-settings")
+    assert current_settings.status_code == 200, current_settings.text
+    cancelled = family_model_api.client.post(
+        f"/api/family/model-settings/search/replacements/{profile_id}/cancel",
+        json={
+            "base_settings_version_number": current_settings.json()["version_number"],
+            "idempotency_key": "search-api-identity-conflict-cancel",
+        },
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+
+    settings = family_model_api.client.get("/api/family/model-settings")
+    assert settings.status_code == 200, settings.text
+    request = _replacement_input(
+        base_settings_version_number=settings.json()["version_number"],
+        base_search_profile_id=base_profile_id,
+        provider_profile_id=target_profile_id,
+    )
+    preview = family_model_api.client.post(
+        "/api/family/model-settings/search/replacements/preview",
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    duplicate = family_model_api.client.post(
+        "/api/family/model-settings/search/replacements",
+        json=request
+        | {
+            "confirm_checksum": preview.json()["confirmation_checksum"],
+            "current_password": "OwnerPass123",
+            "idempotency_key": "search-api-identity-conflict-second",
+        },
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()["detail"]["code"] == "family_search_profile_identity_conflict"
+
+
 def test_failed_initial_search_can_be_abandoned_without_reverting_other_capabilities(
     family_model_api: FamilyModelApiContext,
 ) -> None:

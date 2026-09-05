@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import (
+    FamilyModelConfigRevisionStatus,
+    FamilyModelSearchProfileStatus,
     ModelUsageCapability,
     ModelUsageMeter,
     ModelUsageMeterRole,
@@ -16,6 +18,10 @@ from app.core.enums import (
 )
 from app.core.utils import create_id, utcnow
 from app.models.model_usage import ModelUsagePriceRate, ModelUsagePriceVersion
+from app.repos.family_model_settings.configurations import (
+    get_config_revision,
+    get_search_profile,
+)
 from app.repos.model_usage.catalog import (
     current_published_version,
     get_candidate_search_price_version,
@@ -449,6 +455,25 @@ def lock_active_model_price_snapshot(
         config_revision_id=settings.active_config_revision_id,
         price_version_id=settings.active_price_version_id,
     )
+    revision = get_config_revision(
+        db,
+        family_id=family_id,
+        config_revision_id=settings.active_config_revision_id,
+    )
+    if revision is None or revision.status is not FamilyModelConfigRevisionStatus.PUBLISHED:
+        raise ModelUsageContractError("family_model_config_pointer_invalid")
+    if settings.active_search_profile_id is not None:
+        profile = get_search_profile(
+            db,
+            family_id=family_id,
+            search_profile_id=settings.active_search_profile_id,
+        )
+        if (
+            profile is None
+            or profile.status is not FamilyModelSearchProfileStatus.ACTIVE
+            or revision.search_profile_id != profile.id
+        ):
+            raise ModelUsageContractError("family_model_search_profile_pointer_invalid")
     return ActiveModelPriceSnapshot(
         family_id=family_id,
         config_revision_id=settings.active_config_revision_id,

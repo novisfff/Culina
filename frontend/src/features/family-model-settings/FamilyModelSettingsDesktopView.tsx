@@ -277,7 +277,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
                 : props.state.dirty
                   ? '修改将在稍后自动保存'
                   : props.serverDraft.validation_status === 'invalid'
-                    ? '修改已保存，配置仍可继续完善；当前可用配置不受影响'
+                    ? '部分修改已生效；未通过校验的功能继续使用原配置'
                     : props.settings.active_config_revision_id
                       ? '配置已自动保存并生效'
                       : '修改会自动保存，信息完整后立即生效'}
@@ -297,6 +297,8 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
             onCreate={(input) => props.actions.createProviderProfile({ ...input, idempotency_key: '' })}
             onPatch={(profileId, input) => props.actions.patchProviderProfile(profileId, { ...input, idempotency_key: '' })}
             onRotate={(profileId, input) => props.actions.rotateProviderProfileKey(profileId, input)}
+            onCheckDelete={props.actions.checkProviderProfileDeletion}
+            onDelete={props.actions.deleteProviderProfile}
             onCheck={(profileId) => props.actions.checkProviderConnection(profileId)}
           />
         ) : null}

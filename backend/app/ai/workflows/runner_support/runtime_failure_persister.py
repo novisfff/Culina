@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import inspect
+import json
 import logging
 from typing import Any
 
@@ -21,7 +23,15 @@ from app.ai.workflows.runner_support.run_status import (
 )
 from app.core.utils import create_id, utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage, AIRunEvent
-from app.services.ai_operations.run_blocking import mark_run_auto_execution_blocked
+from app.services.ai_operations.run_blocking import (
+    AUTO_EXECUTION_BLOCKED_MESSAGE,
+    auto_execution_blocked_record,
+    finalize_auto_execution_blocked_response,
+    is_run_auto_execution_blocked,
+    mark_run_auto_execution_blocked,
+)
+from app.services.model_usage.types import UsageAttribution
+from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
 from app.services.ai_timeline import AITimelineService
 from app.services.ai_operations.run_cancellation import (
     cancellation_wins,
@@ -33,9 +43,10 @@ logger = logging.getLogger("app.ai.workflows.runner")
 
 
 class RuntimeFailurePersister:
-    def __init__(self, *, db: Session, json_record: Callable[[Any], Any]) -> None:
+    def __init__(self, *, db: Session, json_record: Callable[[Any], Any], provider: Any | None = None) -> None:
         self.db = db
         self.json_record = json_record
+        self.provider = provider
         self.timeline = AITimelineService(db)
 
     def mark_failed(
@@ -60,14 +71,35 @@ class RuntimeFailurePersister:
         requires_auto_execution_block = isinstance(error, AutoExecutionBlockRequired)
         try:
             self.db.rollback()
+            if not requires_auto_execution_block:
+                try:
+                    probe_run = lock_run_for_transition(
+                        self.db,
+                        family_id=family_id,
+                        run_id=run_id,
+                    )
+                except LookupError:
+                    probe_run = None
+                requires_auto_execution_block = bool(
+                    probe_run is not None and is_run_auto_execution_blocked(probe_run)
+                )
             if requires_auto_execution_block:
+                if isinstance(error, AutoExecutionBlockRequired):
+                    blocked_error = error
+                else:
+                    record = auto_execution_blocked_record()
+                    blocked_error = AutoExecutionBlockRequired(
+                        error_code=record["errorCode"],
+                        message=record["message"],
+                        recovery_hint=record["recoveryHint"],
+                    )
                 self._persist_auto_execution_block(
                     run_id=run_id,
                     conversation_id=conversation_id,
                     family_id=family_id,
-                    error=error,
+                    error=blocked_error,
                 )
-                return False
+                return True
             try:
                 run = lock_run_for_transition(
                     self.db,
@@ -303,6 +335,7 @@ class RuntimeFailurePersister:
             self.db,
             family_id=family_id,
             run_id=run_id,
+            terminalize=False,
         )
         if run is None:
             raise LookupError("AI Run 不存在，无法持久化自动执行阻断结果")
@@ -312,10 +345,88 @@ class RuntimeFailurePersister:
             conversation_id=conversation_id,
             family_id=family_id,
             error=error.message,
-            text=error.message,
+            text=AUTO_EXECUTION_BLOCKED_MESSAGE,
             internal_code=error.error_code,
         )
         self.db.commit()
+        explanation = self._generate_auto_execution_block_explanation(
+            run=run,
+            error=error,
+        )
+        final_text = explanation or AUTO_EXECUTION_BLOCKED_MESSAGE
+        finalize_auto_execution_blocked_response(
+            self.db,
+            family_id=family_id,
+            run_id=run_id,
+            text=final_text,
+        )
+        self.db.commit()
+
+    def _generate_auto_execution_block_explanation(
+        self,
+        *,
+        run: AIAgentRun,
+        error: AutoExecutionBlockRequired,
+    ) -> str | None:
+        """Ask the model to explain a durable block without exposing tools.
+
+        This phase is informational only.  The blocked result has already
+        been committed, and the provider receives no tool handler, so it cannot
+        retry or decide whether the write should be considered successful.
+        """
+        provider = self.provider
+        if provider is None or not run.conversation_id:
+            return None
+        conversation = self.db.get(AIConversation, run.conversation_id)
+        payload = {
+            "currentRequest": str(conversation.prompt or "") if conversation is not None else "",
+            "operationResult": {
+                "status": "failed",
+                "errorCode": error.error_code,
+                "message": error.message,
+                "recoveryHint": error.recovery_hint,
+                "requiresUserReview": True,
+                "retryAllowed": False,
+            },
+        }
+        kwargs: dict[str, Any] = {
+            "system": (
+                "你是 Culina 的厨房助手。当前自动执行已经被服务端安全阻断，"
+                "结果是否写入无法确认。"
+                "你只能根据输入向用户解释现状并建议核对或稍后手动重试。"
+                "不要调用工具，不要声称操作成功，不要自行重试、修改或做出提交决定。"
+                "只输出简短自然语言，不要输出 JSON。"
+            ),
+            "user": json.dumps(payload, ensure_ascii=False),
+        }
+        try:
+            parameters = inspect.signature(provider.generate).parameters
+        except (TypeError, ValueError):
+            # Some test doubles/proxies do not expose an inspectable
+            # signature.  Usage attribution is optional for this
+            # read-only explanation call, so proceed without it.
+            parameters = {}
+        if "usage_attribution" in parameters and run.created_by:
+            kwargs["usage_attribution"] = UsageAttribution(
+                family_id=run.family_id,
+                attribution_kind=ModelUsageAttributionKind.USER,
+                actor_user_id=str(run.created_by),
+                operation_source=ModelUsageOperationSource.INTERACTIVE,
+                logical_operation_id=f"{run.id}:auto-execution-blocked-explanation",
+            )
+        try:
+            result = provider.generate(**kwargs)
+        except Exception:
+            logger.exception(
+                "AI blocked-result explanation provider failed run_id=%s conversation_id=%s",
+                run.id,
+                run.conversation_id,
+            )
+            return None
+        if str(getattr(result, "status", "")).lower() in {"failed", "fallback"}:
+            return None
+        text = str(getattr(result, "text", "") or "").strip()
+        return text or None
 
     def _get_canonical_assistant_message(
         self,

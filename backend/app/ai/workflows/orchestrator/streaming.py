@@ -6,7 +6,9 @@ from app.ai.workflows.orchestrator.state import OrchestratorRunState
 
 def emit_visible_delta(context: SkillContext, state: OrchestratorRunState, delta: str) -> None:
     context.ensure_active()
-    if context.stream_writer is None or not delta or state.draft_created_this_call:
+    if context.stream_writer is None or not delta or (
+        state.draft_created_this_call and not state.draft_routed_this_call
+    ):
         return
     context.stream_writer(
         {

@@ -31,7 +31,15 @@ export function AiHistoryStatusIcon(props: { status: 'running' | 'waiting' }) {
   return <i className="ai-history-spinner" aria-label="正在输出" title="正在输出" />;
 }
 
-function groupConversationsByDate(conversations: AiConversation[]) {
+function conversationActivityTime(conversation: AiConversation) {
+  const lastMessageTime = Date.parse(conversation.last_message_at || '');
+  if (Number.isFinite(lastMessageTime)) return lastMessageTime;
+  const createdTime = Date.parse(conversation.created_at || '');
+  return Number.isFinite(createdTime) ? createdTime : Number.NEGATIVE_INFINITY;
+}
+
+/** Groups history while keeping the newest activity first within every group. */
+export function groupConversationsByDate(conversations: AiConversation[]) {
   const today: AiConversation[] = [];
   const yesterday: AiConversation[] = [];
   const previous7Days: AiConversation[] = [];
@@ -43,9 +51,8 @@ function groupConversationsByDate(conversations: AiConversation[]) {
   const startOf7DaysAgo = startOfToday - 7 * 24 * 60 * 60 * 1000;
 
   for (const conversation of conversations) {
-    const dateStr = conversation.last_message_at || conversation.created_at;
-    const time = new Date(dateStr).getTime();
-    if (Number.isNaN(time)) {
+    const time = conversationActivityTime(conversation);
+    if (!Number.isFinite(time)) {
       older.push(conversation);
     } else if (time >= startOfToday) {
       today.push(conversation);
@@ -58,11 +65,20 @@ function groupConversationsByDate(conversations: AiConversation[]) {
     }
   }
 
+  // The API normally returns this order, but history can also contain locally
+  // pending conversations and optimistic/polling results. Sort here so both
+  // desktop and mobile always present the most recently active conversation at
+  // the top, without mutating the caller's array.
+  const sortNewestFirst = (items: AiConversation[]) => items
+    .map((conversation, index) => ({ conversation, index }))
+    .sort((a, b) => conversationActivityTime(b.conversation) - conversationActivityTime(a.conversation) || a.index - b.index)
+    .map(({ conversation }) => conversation);
+
   return [
-    { title: '今天', items: today },
-    { title: '昨天', items: yesterday },
-    { title: '前 7 天', items: previous7Days },
-    { title: '更早', items: older },
+    { title: '今天', items: sortNewestFirst(today) },
+    { title: '昨天', items: sortNewestFirst(yesterday) },
+    { title: '前 7 天', items: sortNewestFirst(previous7Days) },
+    { title: '更早', items: sortNewestFirst(older) },
   ].filter((group) => group.items.length > 0);
 }
 

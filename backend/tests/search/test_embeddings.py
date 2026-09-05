@@ -119,13 +119,15 @@ class RecordingEmbeddingUsageAdapter:
         return object()
 
 
-def _family_search_binding() -> ResolvedSearchProfile:
+def _family_search_binding(
+    *, adapter_kind: str = "openai_compatible_http", dimensions: int = 1024
+) -> ResolvedSearchProfile:
     return ResolvedSearchProfile(
         family_id="family-search",
         search_profile_id="search-profile-a",
         provider_profile_id="provider-profile-a",
         provider_profile_version_id="provider-profile-version-a",
-        adapter_kind="openai_compatible_http",
+        adapter_kind=adapter_kind,  # type: ignore[arg-type]
         auth_mode="api_key",
         endpoint=ResolvedProviderEndpoint(
             normalized_url="https://embedding.example/v1",
@@ -137,7 +139,7 @@ def _family_search_binding() -> ResolvedSearchProfile:
             private_target=False,
         ),
         embedding_model="embedding-model",
-        dimensions=1024,
+        dimensions=dimensions,
         distance="Cosine",
         document_builder_version="v1",
         qdrant_collection="culina_fsp_private_collection",
@@ -229,6 +231,55 @@ def _family_embedding_client(
         usage_adapter=adapter,  # type: ignore[arg-type]
     )
     return client, adapter
+
+
+def test_family_dashscope_embedding_client_uses_native_wire_contract() -> None:
+    binding = _family_search_binding(adapter_kind="dashscope", dimensions=2)
+    response = ProviderResponse(
+        status_code=200,
+        headers={"x-dashscope-request-id": "dashscope-request"},
+        content=json.dumps(
+            {
+                "output": {
+                    "embeddings": [
+                        {"text_index": 0, "embedding": [0.1, 0.2]},
+                    ]
+                },
+                "usage": {"total_tokens": 2},
+                "request_id": "dashscope-request",
+            }
+        ).encode("utf-8"),
+    )
+    adapter = RecordingFamilyUsageAdapter(binding)
+    transport = RecordingFamilyTransport(response)
+    client = FamilyOpenAICompatibleEmbeddingClient(
+        binding=binding,
+        transport=transport,  # type: ignore[arg-type]
+        resolve_dispatch_credential=lambda resolved, secret_id: DispatchCredential(
+            family_id=resolved.family_id,
+            provider_profile_id=resolved.provider_profile_id,
+            secret_version_id=secret_id,
+            api_key="dashscope-secret",
+        ),
+        usage_adapter=adapter,  # type: ignore[arg-type]
+    )
+
+    result = client.embed_text(
+        "番茄",
+        attribution=ATTRIBUTION,
+        attempt_key="search-request:family:dashscope",
+        usage_snapshot=_candidate_usage_snapshot(),
+    )
+
+    assert result.vectors == [[0.1, 0.2]]
+    assert transport.calls[0][1] == (
+        "https://embedding.example/v1/services/embeddings/text-embedding/text-embedding"
+    )
+    assert transport.calls[0][3] == {
+        "model": "embedding-model",
+        "input": {"texts": ["番茄"]},
+        "parameters": {"text_type": "document"},
+    }
 
 
 def _candidate_usage_snapshot() -> EmbeddingUsageSnapshot:

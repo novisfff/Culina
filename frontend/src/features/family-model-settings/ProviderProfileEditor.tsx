@@ -6,8 +6,9 @@ import type {
   FamilyModelProviderProfile,
   FamilyModelProviderProfileCreate,
   FamilyModelProviderProfilePatch,
+  FamilyModelProviderProfileDeletionCheck,
 } from '../../api/types/modelUsage';
-import { DropdownSelect, StateBlock } from '../../components/ui-kit';
+import { ConfirmDialog, DropdownSelect, StateBlock } from '../../components/ui-kit';
 import type { FamilyModelProfileRebindOptions } from './familyModelSettingsViewTypes';
 import {
   FAMILY_MODEL_ADAPTER_OPTIONS,
@@ -22,6 +23,12 @@ type PendingRebind = {
   toProfileId: string;
 };
 
+type DeleteDialogState =
+  | { kind: 'checking'; profile: FamilyModelProviderProfile }
+  | { kind: 'confirm'; profile: FamilyModelProviderProfile }
+  | { kind: 'blocked'; profile: FamilyModelProviderProfile; check: FamilyModelProviderProfileDeletionCheck }
+  | { kind: 'error'; profile: FamilyModelProviderProfile; phase: 'check' | 'delete' };
+
 export type ProviderProfileEditorProps = {
   profiles: FamilyModelProviderProfile[];
   settingsVersionNumber: number;
@@ -33,6 +40,11 @@ export type ProviderProfileEditorProps = {
   onRotate: (profileId: string, input: {
     new_api_key: string;
     base_settings_version_number: number;
+  }) => Promise<unknown>;
+  onCheckDelete?: (profileId: string) => Promise<FamilyModelProviderProfileDeletionCheck>;
+  onDelete?: (profileId: string, input: {
+    base_profile_version_number: number;
+    confirmation_name: string;
   }) => Promise<unknown>;
   onRebindCreatedProfile?: (
     fromProfileId: string,
@@ -61,7 +73,6 @@ const INITIAL_CREATE_FORM: CreateForm = {
 const PROVIDER_STATUS_OPTIONS = [
   { value: 'active', label: '启用', description: '可继续用于功能设置和模型处理。' },
   { value: 'disabled', label: '停用', description: '暂时停止使用，保留服务配置。' },
-  { value: 'archived', label: '归档', description: '从日常配置中隐藏，仅保留历史记录。' },
 ] as const;
 
 const AUTH_MODE_OPTIONS = [
@@ -114,6 +125,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
   const [pendingRebind, setPendingRebind] = useState<PendingRebind | null>(null);
   const [retryingRebind, setRetryingRebind] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
 
   useEffect(() => {
     setDisplayName(selectedProfile?.display_name ?? '');
@@ -121,6 +133,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     setShowRotation(false);
     setRotationKey('');
     setConnectionMessage(null);
+    setDeleteDialog(null);
     if (selectedProfile?.id) setCreateForm(INITIAL_CREATE_FORM);
   }, [selectedProfile?.id]);
 
@@ -249,6 +262,59 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
     }
   }
 
+  async function beginDelete(profile?: FamilyModelProviderProfile) {
+    const target = profile ?? selectedProfile;
+    if (!target || !props.onCheckDelete) return;
+    setDeleteDialog({ kind: 'checking', profile: target });
+    try {
+      const check = await props.onCheckDelete(target.id);
+      setDeleteDialog(check.can_delete
+        ? { kind: 'confirm', profile: target }
+        : { kind: 'blocked', profile: target, check });
+    } catch {
+      setDeleteDialog({ kind: 'error', profile: target, phase: 'check' });
+    }
+  }
+
+  async function confirmDelete(profile?: FamilyModelProviderProfile) {
+    const target = profile ?? (deleteDialog?.kind === 'confirm' ? deleteDialog.profile : null);
+    if (!target || !props.onDelete) return;
+    try {
+      await props.onDelete(target.id, {
+        base_profile_version_number: target.profile_version_number,
+        confirmation_name: target.display_name,
+      });
+      setDeleteDialog(null);
+      props.onSelectProfile(null);
+    } catch {
+      setDeleteDialog({ kind: 'error', profile: target, phase: 'delete' });
+    }
+  }
+
+  function deleteBlockedDescription(check: FamilyModelProviderProfileDeletionCheck) {
+    return (
+      <div className="family-model-settings-delete-blocked">
+        <div className="family-model-settings-delete-callout is-warning">
+          <span className="family-model-settings-delete-callout-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3 2.8 20h18.4L12 3Z" />
+              <path d="M12 9v5m0 3h.01" />
+            </svg>
+          </span>
+          <p>该服务仍被以下配置使用，请先解除绑定后再删除。</p>
+        </div>
+        <ul>
+          {check.blocking_references.map((reference) => (
+            <li key={`${reference.type}:${reference.resource_id}:${reference.description}`}>
+              <strong>{reference.name}</strong>
+              <span>{reference.description}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
   return (
     <section className="family-model-settings-editor family-model-settings-provider-editor" aria-labelledby="family-model-provider-editor-title">
       <div className="family-model-settings-section-head">
@@ -295,7 +361,7 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                   <small>{FAMILY_MODEL_ADAPTER_OPTIONS.find((option) => option.value === profile.adapter_kind)?.label ?? profile.adapter_kind}</small>
                 </span>
                 <span className={`family-model-settings-provider-status is-${profile.status}`}>
-                  {profile.status === 'active' ? '启用' : profile.status === 'disabled' ? '停用' : '归档'}
+                  {profile.status === 'active' ? '启用' : '停用'}
                 </span>
               </button>
             ))}
@@ -387,6 +453,16 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
                 </svg>
                 {props.busy ? '正在保存' : '保存服务'}
               </button>
+              {props.onCheckDelete && props.onDelete ? (
+                <button
+                  className="ghost-button family-model-settings-danger-button"
+                  type="button"
+                  disabled={props.busy}
+                  onClick={() => { void beginDelete(); }}
+                >
+                  删除服务
+                </button>
+              ) : null}
             </div>
             {connectionMessage ? <p className="family-model-settings-inline-status" role="status">{connectionMessage}</p> : null}
           </form>
@@ -460,48 +536,50 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
             </div>
           </div>
 
-          <div className="family-model-settings-form-section">
-          <h3 className="family-model-settings-form-section-title">连接与验证</h3>
-            <div className="family-model-settings-form-grid">
-              {isDashScope ? (
-                <div className="family-model-settings-field">
-                  <span>服务地址</span>
-                  <p>将自动使用千问官方服务地址，无需手动配置。</p>
-                </div>
-              ) : (
+          {isDashScope ? (
+            <div className="family-model-settings-form-section family-model-settings-provider-key-only">
+              <label className="family-model-settings-field">
+                <span>API 密钥</span>
+                <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API 密钥" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
+              </label>
+            </div>
+          ) : (
+            <div className="family-model-settings-form-section">
+              <h3 className="family-model-settings-form-section-title">连接与验证</h3>
+              <div className="family-model-settings-form-grid">
                 <label className="family-model-settings-field">
                   <span>{isRealtime ? '实时地址' : 'API 地址'}</span>
                   <input type="url" value={createForm.apiBaseUrl} disabled={props.busy} placeholder={isRealtime ? 'wss://provider.example/realtime' : 'https://provider.example/v1'} onChange={(event) => setCreateForm((current) => ({ ...current, apiBaseUrl: event.target.value }))} required />
                 </label>
-              )}
-              <div className="family-model-settings-field">
-                <span>验证方式</span>
-                <DropdownSelect
-                  ariaLabel="验证方式选项"
-                  triggerAriaLabel="验证方式"
-                  placeholder="选择验证方式"
-                  value={createForm.authMode}
-                  options={isRealtime ? AUTH_MODE_OPTIONS.slice(0, 1) : AUTH_MODE_OPTIONS}
-                  disabled={props.busy || isRealtime}
-                  className="family-model-settings-dropdown"
-                  onChange={(authMode) => {
-                    if (!authMode) return;
-                    setCreateForm((current) => ({
-                      ...current,
-                      authMode,
-                      apiKey: authMode === 'no_auth' ? '' : current.apiKey,
-                    }));
-                  }}
-                />
+                <div className="family-model-settings-field">
+                  <span>验证方式</span>
+                  <DropdownSelect
+                    ariaLabel="验证方式选项"
+                    triggerAriaLabel="验证方式"
+                    placeholder="选择验证方式"
+                    value={createForm.authMode}
+                    options={isRealtime ? AUTH_MODE_OPTIONS.slice(0, 1) : AUTH_MODE_OPTIONS}
+                    disabled={props.busy || isRealtime}
+                    className="family-model-settings-dropdown"
+                    onChange={(authMode) => {
+                      if (!authMode) return;
+                      setCreateForm((current) => ({
+                        ...current,
+                        authMode,
+                        apiKey: authMode === 'no_auth' ? '' : current.apiKey,
+                      }));
+                    }}
+                  />
+                </div>
+                {createForm.authMode === 'api_key' ? (
+                  <label className="family-model-settings-field">
+                    <span>API 密钥</span>
+                    <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API 密钥" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
+                  </label>
+                ) : null}
               </div>
-              {createForm.authMode === 'api_key' ? (
-                <label className="family-model-settings-field">
-                  <span>API 密钥</span>
-                  <input type="password" autoComplete="new-password" value={createForm.apiKey} disabled={props.busy} placeholder="输入 API 密钥" onChange={(event) => setCreateForm((current) => ({ ...current, apiKey: event.target.value }))} required />
-                </label>
-              ) : null}
             </div>
-          </div>
+          )}
 
           <p className="family-model-settings-write-only-note">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14, marginRight: 6, verticalAlign: -2 }} aria-hidden="true">
@@ -515,6 +593,83 @@ export function ProviderProfileEditor(props: ProviderProfileEditorProps) {
           </div>
         </form>
       )}
+      {deleteDialog?.kind === 'checking' ? (
+        <ConfirmDialog
+          open
+          title={`正在检查“${deleteDialog.profile.display_name}”`}
+          description="正在检查该服务是否仍被配置使用，请稍候。"
+          confirmLabel="检查中…"
+          cancelLabel="关闭"
+          modalClassName="family-model-settings-delete-modal"
+          isSubmitting
+          onConfirm={() => undefined}
+          onCancel={() => undefined}
+        />
+      ) : deleteDialog?.kind === 'error' ? (
+        <ConfirmDialog
+          open
+          title={deleteDialog.phase === 'delete' ? `删除“${deleteDialog.profile.display_name}”失败` : '无法检查删除条件'}
+          description={(
+            <div className="family-model-settings-delete-blocked">
+              <div className="family-model-settings-delete-callout is-danger">
+                <span className="family-model-settings-delete-callout-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 8v5m0 3h.01" />
+                  </svg>
+                </span>
+                <p>{deleteDialog.phase === 'delete'
+                  ? '删除没有完成，服务仍然保留。请重试删除。'
+                  : '删除检查没有完成，服务尚未删除。请重试删除检查。'}</p>
+              </div>
+            </div>
+          )}
+          confirmLabel={deleteDialog.phase === 'delete' ? '重试删除' : '重试检查'}
+          cancelLabel="关闭"
+          modalClassName="family-model-settings-delete-modal"
+          isSubmitting={props.busy}
+          onConfirm={() => {
+            if (deleteDialog.phase === 'delete') void confirmDelete(deleteDialog.profile);
+            else void beginDelete(deleteDialog.profile);
+          }}
+          onCancel={() => setDeleteDialog(null)}
+        />
+      ) : deleteDialog?.kind === 'confirm' ? (
+        <ConfirmDialog
+          open
+          title={`删除“${deleteDialog.profile.display_name}”？`}
+          description={(
+            <div className="family-model-settings-delete-blocked">
+              <div className="family-model-settings-delete-callout is-danger">
+                <span className="family-model-settings-delete-callout-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 7h16m-10 4v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                  </svg>
+                </span>
+                <p>删除后，连接配置和密钥将无法恢复；历史用量记录仍会保留。</p>
+              </div>
+            </div>
+          )}
+          confirmLabel="确认删除"
+          tone="danger"
+          modalClassName="family-model-settings-delete-modal"
+          isSubmitting={props.busy}
+          onConfirm={() => { void confirmDelete(); }}
+          onCancel={() => setDeleteDialog(null)}
+        />
+      ) : deleteDialog?.kind === 'blocked' ? (
+        <ConfirmDialog
+          open
+          title={`无法删除“${deleteDialog.profile.display_name}”`}
+          description={deleteBlockedDescription(deleteDialog.check)}
+          confirmLabel="重新检查"
+          cancelLabel="关闭"
+          modalClassName="family-model-settings-delete-modal"
+          isSubmitting={props.busy}
+          onConfirm={() => { void beginDelete(deleteDialog.profile); }}
+          onCancel={() => setDeleteDialog(null)}
+        />
+      ) : null}
     </section>
   );
 }

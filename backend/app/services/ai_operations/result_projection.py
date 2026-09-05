@@ -44,7 +44,6 @@ PUBLIC_RESULT_ENTITY_FIELDS = (
 
 EXECUTION_EXPLANATIONS = {
     "manual_approval": "已按你的确认执行。",
-    "policy_auto": "你明确要求执行此操作，且它符合服务端开放的低风险规则。",
     "policy_no_change": "相关内容已经是你要求的状态。",
     "pending": "操作正在处理中。",
     "reverted": "已撤销该操作。",
@@ -146,9 +145,16 @@ def _project_persisted_operation(
     elif raw_status == "completed":
         result_status = "completed"
         operation_status = "completed"
-        explanation = EXECUTION_EXPLANATIONS.get(
-            execution_mode,
-            EXECUTION_EXPLANATIONS["manual_approval"],
+        # Policy-auto results are returned to the model as tool data.  Keep
+        # this projection field empty so a server-owned canned explanation
+        # cannot leak into the user-facing assistant response or result card.
+        explanation = (
+            ""
+            if execution_mode == "policy_auto"
+            else EXECUTION_EXPLANATIONS.get(
+                execution_mode,
+                EXECUTION_EXPLANATIONS["manual_approval"],
+            )
         )
         availability = _completed_revert_availability(operation, server_now=now)
     else:
@@ -218,7 +224,7 @@ def build_operation_result_card(
         count_label = f"{count} 项"
     data: dict[str, Any] = {
         **serialize_ai_operation_result_projection(projection),
-        "actionSummary": projection.execution_explanation,
+        "actionSummary": projection.execution_explanation or title,
         "entityCount": count,
         "entityCountLabel": count_label,
         "workspaceLabel": workspace_label,

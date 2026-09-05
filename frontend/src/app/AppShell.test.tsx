@@ -166,8 +166,16 @@ describe('AppNotificationCenter', () => {
     click(view.querySelector('.app-notification-trigger'));
 
     expect(view.textContent).toContain('板栗烧鸡的菜谱图片生成');
-    expect(view.textContent).toContain('失败，可重试');
-    const retryButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('重试'));
+    expect(view.textContent).toContain('失败');
+    expect(view.textContent).not.toContain('失败，可重试');
+    const retryButton = view.querySelector<HTMLButtonElement>('.app-notification-retry');
+    expect(retryButton?.textContent).toBe('');
+    expect(retryButton?.getAttribute('aria-label')).toBe('重试板栗烧鸡的菜谱图片生成');
+    expect(retryButton?.getAttribute('title')).toBe('重试');
+    const clearButton = view.querySelector<HTMLButtonElement>('.app-notification-clear');
+    expect(clearButton?.textContent).toBe('');
+    expect(clearButton?.getAttribute('aria-label')).toBe('清除板栗烧鸡的菜谱图片生成通知');
+    expect(clearButton?.getAttribute('title')).toBe('清除');
     click(retryButton ?? null);
 
     expect(onRetryBackgroundTask).toHaveBeenCalledWith('image:image-job-failed');
@@ -191,10 +199,24 @@ describe('AppNotificationCenter', () => {
 
     expect(view.textContent).toContain('通知');
     expect(view.textContent).toContain('酱油的食材索引更新');
-    const retryButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('重试'));
+    const retryButton = view.querySelector<HTMLButtonElement>('.app-notification-retry');
     click(retryButton ?? null);
 
     expect(onRetryBackgroundTask).toHaveBeenCalledWith('search-index:job-1');
+  });
+
+  it('stacks mobile notification actions so failed titles keep a readable line', () => {
+    const view = renderNotificationCenter({
+      items: [failedImageJob({ title: '白切鸡的食物搜索更新' })],
+      variant: 'mobileIcon',
+      onRetryBackgroundTask: vi.fn(),
+    });
+
+    click(view.querySelector('.app-notification-trigger'));
+
+    const row = document.body.querySelector('.mobile-notification-popover .app-notification-row');
+    expect(row).not.toBeNull();
+    expect(row).toHaveClass('is-mobile-stacked');
   });
 
   it('uses separate native controls to open and dismiss an owner usage alert', () => {

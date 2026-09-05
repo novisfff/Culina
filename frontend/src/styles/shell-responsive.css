@@ -566,6 +566,50 @@
     padding: 0;
   }
 
+  /* Action-bearing notifications need the full card width for their title. Keep
+   * retry/clear controls in a second row instead of squeezing the copy into
+   * a narrow column that wraps Chinese titles character by character. */
+  .mobile-notification-center .app-notification-row.is-mobile-stacked,
+  .mobile-notification-popover .app-notification-row.is-mobile-stacked {
+    grid-template-columns: var(--space-8) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    row-gap: 0;
+    padding: var(--space-5);
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable.is-mobile-stacked,
+  .mobile-notification-popover .app-notification-row.is-actionable.is-mobile-stacked {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable.is-mobile-stacked .app-notification-open,
+  .mobile-notification-popover .app-notification-row.is-actionable.is-mobile-stacked .app-notification-open {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 0;
+  }
+
+  .mobile-notification-center .app-notification-row.is-mobile-stacked .app-notification-row-actions,
+  .mobile-notification-popover .app-notification-row.is-mobile-stacked .app-notification-row-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-end;
+    padding: var(--space-3) 0 0;
+  }
+
+  .mobile-notification-center .app-notification-row.is-mobile-stacked .app-notification-row-title,
+  .mobile-notification-popover .app-notification-row.is-mobile-stacked .app-notification-row-title {
+    flex-wrap: nowrap;
+  }
+
+  .mobile-notification-center .app-notification-row.is-mobile-stacked .app-notification-row-copy strong,
+  .mobile-notification-popover .app-notification-row.is-mobile-stacked .app-notification-row-copy strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
   .mobile-notification-center .app-notification-open,
   .mobile-notification-popover .app-notification-open {
     grid-template-columns: var(--space-8) minmax(0, 1fr);
@@ -589,6 +633,14 @@
     grid-column: 2;
     grid-row: 1;
     padding: var(--space-5) var(--space-5) var(--space-5) 0;
+  }
+
+  .mobile-notification-center .app-notification-row.is-actionable.is-mobile-stacked .app-notification-row-actions,
+  .mobile-notification-popover .app-notification-row.is-actionable.is-mobile-stacked .app-notification-row-actions {
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: flex-end;
+    padding: var(--space-3) 0 0;
   }
 
   .mobile-notification-center .app-notification-row-icon,
@@ -634,18 +686,24 @@
   .mobile-notification-center .app-notification-retry,
   .mobile-notification-popover .app-notification-retry {
     flex: 0 0 auto;
+    width: var(--tap-min);
     min-width: var(--tap-min);
+    height: var(--tap-min);
     min-height: var(--tap-min);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-pill);
-    font-size: var(--text-xs);
-    gap: var(--space-2);
+    padding: 0;
+    border-radius: var(--radius-xs);
   }
 
   .mobile-notification-center .app-notification-retry span,
   .mobile-notification-popover .app-notification-retry span {
-    width: var(--space-4);
-    height: var(--space-4);
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-notification-center .app-notification-retry svg,
+  .mobile-notification-popover .app-notification-retry svg {
+    width: 18px;
+    height: 18px;
   }
 
   .mobile-notification-center .app-notification-clear,
@@ -655,8 +713,5 @@
     min-width: var(--tap-min);
     height: var(--tap-min);
     min-height: var(--tap-min);
-    border-color: transparent;
-    background: transparent;
-    box-shadow: none;
   }
 }

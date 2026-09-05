@@ -862,6 +862,7 @@ def validate_family_model_capability(
     draft_version_number: int = 0,
     validate_fallback_graph: bool = False,
     ignore_disabled_rates: bool = False,
+    enforce_search_identity: bool = True,
 ) -> DraftValidationResult:
     """Validate one capability group independently from its siblings.
 
@@ -891,9 +892,15 @@ def validate_family_model_capability(
         payload=scoped_payload,
         network_policy=network_policy,
         draft_version_number=draft_version_number,
-        validate_search_transition=capability_value == ModelUsageCapability.EMBEDDING.value,
+        validate_search_transition=(
+            capability_value == ModelUsageCapability.EMBEDDING.value
+            and enforce_search_identity
+        ),
         validate_fallback_graph=validate_fallback_graph,
-        resolve_search_profile=capability_value == ModelUsageCapability.EMBEDDING.value,
+        resolve_search_profile=(
+            capability_value == ModelUsageCapability.EMBEDDING.value
+            and enforce_search_identity
+        ),
         ignore_disabled_rates=ignore_disabled_rates,
     )
 

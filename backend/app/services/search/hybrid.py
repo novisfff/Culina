@@ -163,16 +163,25 @@ def resolve_family_search_runtime(
 
     try:
         active = lock_active_model_price_snapshot(db, family_id=family_id)
-    except ModelUsageError:
+    except ModelUsageError as exc:
         # A family that has not published all seven capability prices must
         # retain reliable local search rather than falling back to legacy env.
+        degradation_code = (
+            "search_configuration_corrupt"
+            if exc.code in {
+                "family_model_config_pointer_invalid",
+                "family_model_price_pointer_invalid",
+                "family_model_search_profile_pointer_invalid",
+            }
+            else "search_embedding_not_configured"
+        )
         return FamilySearchRuntime(
             family_managed=True,
             embedding=None,
             embedding_usage_snapshot=None,
             rerank=None,
             rerank_price_version_id=None,
-            embedding_degradation_code="search_embedding_not_configured",
+            embedding_degradation_code=degradation_code,
         )
 
     resolved = resolver or FamilyModelConfigurationResolver(db)

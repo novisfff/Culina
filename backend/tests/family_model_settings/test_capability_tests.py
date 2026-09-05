@@ -315,6 +315,23 @@ def test_owner_can_test_a_complete_saved_configuration_without_a_publish_step(
     assert len(family_model_api.transport.calls) == 1
     assert family_model_api.transport.calls[0][3]["model"] == "draft-only-model"
 
+    tested_override = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/llm/test",
+        json={
+            "variant_key": "primary",
+            "confirm_billable": True,
+            "base_draft_version_number": draft_version,
+            "provider_profile_id": profile["id"],
+            "requested_model": "replacement-candidate-model",
+            "idempotency_key": "capability-test-saved-draft-override-1",
+        },
+    )
+
+    assert tested_override.status_code == 200, tested_override.text
+    assert tested_override.json()["status"] == "succeeded"
+    assert len(family_model_api.transport.calls) == 2
+    assert family_model_api.transport.calls[1][3]["model"] == "replacement-candidate-model"
+
 
 def test_owner_capability_test_ignores_an_unrelated_invalid_draft_binding(
     family_model_api: FamilyModelApiContext,
@@ -374,6 +391,38 @@ def test_owner_capability_test_ignores_an_unrelated_invalid_draft_binding(
     assert tested.status_code == 200, tested.text
     assert tested.json()["status"] == "succeeded"
     assert family_model_api.transport.calls[0][3]["model"] == "independent-llm-model"
+
+
+def test_owner_can_probe_an_unsaved_embedding_replacement_candidate(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    _save_all_active_capabilities(family_model_api)
+    settings = family_model_api.client.get("/api/family/model-settings").json()
+    profile_id = next(
+        profile["id"]
+        for profile in settings["provider_profiles"]
+        if profile["display_name"] == "能力测试 HTTP 服务"
+    )
+    draft_version = family_model_api.client.get("/api/family/model-settings/draft").json()[
+        "draft_version_number"
+    ]
+
+    response = family_model_api.client.post(
+        "/api/family/model-settings/capabilities/embedding/test",
+        json={
+            "variant_key": "search",
+            "confirm_billable": True,
+            "base_draft_version_number": draft_version,
+            "provider_profile_id": profile_id,
+            "requested_model": "replacement-embedding-model",
+            "dimensions": 3,
+            "idempotency_key": "capability-test-embedding-replacement-1",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "succeeded"
+    assert family_model_api.transport.calls[0][3]["model"] == "replacement-embedding-model"
 
 
 def test_owner_capability_test_ignores_structurally_corrupt_unrelated_draft_rows(

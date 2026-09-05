@@ -165,6 +165,8 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
           onCreate={(input) => props.actions.createProviderProfile({ ...input, idempotency_key: '' })}
           onPatch={(profileId, input) => props.actions.patchProviderProfile(profileId, { ...input, idempotency_key: '' })}
           onRotate={props.actions.rotateProviderProfileKey}
+          onCheckDelete={props.actions.checkProviderProfileDeletion}
+          onDelete={props.actions.deleteProviderProfile}
           onCheck={(profileId) => props.actions.checkProviderConnection(profileId)}
         />
       );
@@ -248,7 +250,7 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
               : props.state.dirty
                 ? '修改将在稍后自动保存'
                 : props.serverDraft.validation_status === 'invalid'
-                  ? '已保存，配置仍可继续完善'
+                  ? '部分修改已生效，未通过校验的功能继续使用原配置'
                   : '修改会自动保存并生效'}
           </p>
         ) : null}

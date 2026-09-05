@@ -68,7 +68,15 @@ def _reported_embedding_tokens(raw_usage: object) -> object | None:
     prompt_tokens = _value(raw_usage, "prompt_tokens", default=None)
     if prompt_tokens is not None:
         return prompt_tokens
-    return _value(raw_usage, "input_tokens", default=None)
+    input_tokens = _value(raw_usage, "input_tokens", default=None)
+    if input_tokens is not None:
+        return input_tokens
+    # Native DashScope embedding responses report only ``total_tokens``.
+    # For a single embedding request this is the provider's billable input
+    # token count, so it can be settled exactly instead of falling back to an
+    # estimate (the OpenAI-compatible fields above remain authoritative when
+    # present).
+    return _value(raw_usage, "total_tokens", default=None)
 
 
 def _stable_digest(*parts: str) -> str:
@@ -124,7 +132,7 @@ class EmbeddingUsageAdapter(MeteredProviderAdapter):
     def __post_init__(self) -> None:
         if self.binding is None:
             return
-        if self.binding.adapter_kind != "openai_compatible_http":
+        if self.binding.adapter_kind not in {"openai_compatible_http", "dashscope"}:
             raise ModelUsageContractError("embedding_binding_adapter_unsupported")
         self.provider = self.binding.provider_profile_id
         self.model = self.binding.embedding_model

@@ -3,13 +3,16 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from app.api import family_model_settings as family_model_settings_api
+from app.core.enums import FamilyModelSearchProfileStatus
 from app.main import app
 from app.models.family_model_settings import (
     FamilyModelCapabilityBinding,
     FamilyModelConfigRevision,
     FamilyModelProviderProfile,
+    FamilyModelProviderProfileVersion,
     FamilyModelSecretVersion,
     FamilyModelSettings,
+    FamilySearchProfile,
 )
 from app.services.family_model_settings.errors import FamilyModelCredentialConfigurationError
 
@@ -309,6 +312,239 @@ def test_profile_archive_rejects_active_binding_reference(
         },
     )
     assert response.status_code == 409
+
+
+def test_profile_delete_removes_unbound_profile_and_secret_versions(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-delete-unused-1")
+
+    response = family_model_api.client.request(
+        "DELETE",
+        f"/api/family/model-settings/provider-profiles/{profile['id']}",
+        json={
+            "base_profile_version_number": profile["version_number"],
+            "confirmation_name": profile["display_name"],
+            "idempotency_key": "profile-delete-unused-1",
+        },
+    )
+
+    assert response.status_code == 204, response.text
+    with family_model_api.session_factory() as db:
+        assert db.scalar(
+            select(FamilyModelProviderProfile).where(
+                FamilyModelProviderProfile.id == profile["id"]
+            )
+        ) is None
+        assert db.scalar(select(FamilyModelSecretVersion)) is None
+
+
+def test_profile_delete_returns_actionable_draft_binding_references(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-delete-draft-1")
+    draft_response = family_model_api.client.put(
+        "/api/family/model-settings/draft",
+        json={
+            "bindings": [
+                {
+                    "capability": "llm",
+                    "variant_key": "primary",
+                    "enabled": True,
+                    "provider_profile_id": profile["id"],
+                    "requested_model": "chat-model",
+                    "max_output_tokens": 512,
+                }
+            ],
+            "base_draft_version_number": 0,
+            "idempotency_key": "draft-for-delete-api-1",
+        },
+    )
+    assert draft_response.status_code == 200, draft_response.text
+
+    response = family_model_api.client.request(
+        "DELETE",
+        f"/api/family/model-settings/provider-profiles/{profile['id']}",
+        json={
+            "base_profile_version_number": profile["version_number"],
+            "confirmation_name": profile["display_name"],
+            "idempotency_key": "profile-delete-draft-2",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "family_model_provider_profile_in_use"
+    assert {
+        reference["type"] for reference in detail["blocking_references"]
+    } == {"config_draft", "active_config"}
+    draft_reference = next(
+        reference for reference in detail["blocking_references"]
+        if reference["type"] == "config_draft"
+    )
+    assert draft_reference == {
+        "type": "config_draft",
+        "name": "当前编辑中的配置",
+        "description": "功能设置草稿中的对话与生成 · 主要模型",
+        "resource_id": "family-a",
+        "can_unbind": True,
+    }
+
+
+def test_profile_deletion_check_returns_search_profile_reference(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-delete-search-1")
+    with family_model_api.session_factory() as db:
+        provider = db.scalar(
+            select(FamilyModelProviderProfile).where(
+                FamilyModelProviderProfile.id == profile["id"]
+            )
+        )
+        assert provider is not None and provider.current_profile_version_id is not None
+        db.add(
+            FamilySearchProfile(
+                id="search-profile-delete-check",
+                family_id="family-a",
+                provider_profile_id=provider.id,
+                provider_profile_version_id=provider.current_profile_version_id,
+                adapter_kind="openai_compatible_http",
+                embedding_model="text-embedding-3-small",
+                dimensions=1536,
+                distance="Cosine",
+                document_builder_version="v1",
+                index_identity_checksum="d" * 64,
+                qdrant_collection="culina_delete_check",
+                status=FamilyModelSearchProfileStatus.ACTIVE,
+                created_by="owner-a",
+            )
+        )
+        db.commit()
+
+    response = family_model_api.client.get(
+        f"/api/family/model-settings/provider-profiles/{profile['id']}/deletion-check"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "can_delete": False,
+        "blocking_references": [
+            {
+                "type": "search_profile",
+                "name": "智能搜索",
+                "description": "向量索引使用模型：text-embedding-3-small",
+                "resource_id": "search-profile-delete-check",
+                "can_unbind": True,
+            }
+        ],
+    }
+
+
+def test_profile_delete_detaches_historical_capability_binding_before_removing_profile(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-delete-history-1")
+    with family_model_api.session_factory() as db:
+        profile_row = db.scalar(
+            select(FamilyModelProviderProfile).where(
+                FamilyModelProviderProfile.id == profile["id"]
+            )
+        )
+        assert profile_row is not None and profile_row.current_profile_version_id is not None
+        revision = FamilyModelConfigRevision(
+            id="revision-delete-history",
+            family_id="family-a",
+            version_number=91,
+            config_checksum="c" * 64,
+            change_note="",
+            published_by="owner-a",
+        )
+        db.add(revision)
+        db.flush()
+        db.add(
+            FamilyModelCapabilityBinding(
+                id="binding-delete-history",
+                family_id="family-a",
+                config_revision_id=revision.id,
+                capability="llm",
+                variant_key="primary",
+                enabled=True,
+                provider_profile_id=profile["id"],
+                provider_profile_version_id=profile_row.current_profile_version_id,
+                requested_model="history-model",
+                options_json={},
+                billing_scheme_key="llm-split-v1",
+                identity_checksum="d" * 64,
+            )
+        )
+        db.commit()
+
+    response = family_model_api.client.request(
+        "DELETE",
+        f"/api/family/model-settings/provider-profiles/{profile['id']}",
+        json={
+            "base_profile_version_number": profile["version_number"],
+            "confirmation_name": profile["display_name"],
+            "idempotency_key": "profile-delete-history-2",
+        },
+    )
+
+    assert response.status_code == 204, response.text
+
+
+def test_profile_delete_detaches_disabled_binding_in_active_revision(
+    family_model_api: FamilyModelApiContext,
+) -> None:
+    profile = family_model_api.create_profile(idempotency_key="profile-delete-disabled-1")
+    with family_model_api.session_factory() as db:
+        profile_row = db.scalar(
+            select(FamilyModelProviderProfile).where(
+                FamilyModelProviderProfile.id == profile["id"]
+            )
+        )
+        assert profile_row is not None and profile_row.current_profile_version_id is not None
+        revision = FamilyModelConfigRevision(
+            id="revision-delete-disabled",
+            family_id="family-a",
+            version_number=92,
+            config_checksum="e" * 64,
+            change_note="",
+            published_by="owner-a",
+        )
+        db.add(revision)
+        db.flush()
+        db.add(
+            FamilyModelCapabilityBinding(
+                id="binding-delete-disabled",
+                family_id="family-a",
+                config_revision_id=revision.id,
+                capability="llm",
+                variant_key="fallback",
+                enabled=False,
+                provider_profile_id=profile["id"],
+                provider_profile_version_id=profile_row.current_profile_version_id,
+                requested_model="disabled-model",
+                options_json={},
+                billing_scheme_key="llm-split-v1",
+                identity_checksum="f" * 64,
+            )
+        )
+        settings = db.get(FamilyModelSettings, "family-a")
+        assert settings is not None
+        settings.active_config_revision_id = revision.id
+        db.commit()
+
+    response = family_model_api.client.request(
+        "DELETE",
+        f"/api/family/model-settings/provider-profiles/{profile['id']}",
+        json={
+            "base_profile_version_number": profile["version_number"],
+            "confirmation_name": profile["display_name"],
+            "idempotency_key": "profile-delete-disabled-2",
+        },
+    )
+
+    assert response.status_code == 204, response.text
 
 
 def test_update_key_does_not_require_account_password_or_echo_secret(

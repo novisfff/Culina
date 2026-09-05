@@ -7,21 +7,27 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from app.core.utils import utcnow
+from app.core.enums import FamilyModelSearchProfileStatus
 from app.models.domain import SearchDocument, SearchIndexJob
+from app.models.family_model_settings import FamilySearchProfile, FamilySearchProfileDocument
 from app.services.model_usage.periods import shanghai_billing_period
 from app.services.model_usage.policies import ensure_family_model_usage_defaults
 from app.services.model_usage.subjects import ensure_user_subject
 from app.services.search.documents import SearchDocumentPayload
 from app.services.search.indexing import upsert_search_document
+from app.services.search.indexing import delete_search_document
 from app.services.search.jobs import (
     JOB_LOCK_STALE_AFTER,
     MAX_ATTEMPTS,
     SEARCH_INDEX_ENTITY_TYPES,
     can_requeue_budget_blocked,
     claim_pending_search_index_jobs,
+    enqueue_search_index_job,
+    enqueue_search_document_deletion_job,
     process_search_index_job,
     recover_interrupted_search_index_jobs,
 )
+from app.schemas.search import SearchIndexJobResponse
 from tests.recipes._support import RecipeApiTestCase
 
 
@@ -106,6 +112,134 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
                 self.assertIsNotNone(jobs[job_id].started_at)
             self.assertEqual(jobs["job-failed-max"].status, "failed")
             self.assertEqual(jobs["job-running-fresh"].status, "running")
+
+    def test_search_job_response_accepts_cancelled_and_deletion_statuses(self) -> None:
+        now = utcnow()
+        response = SearchIndexJobResponse(
+            job_id="job-delete-contract",
+            status="cancelled",
+            entity_type="recipe",
+            entity_id="recipe-delete-contract",
+            target_name="测试菜谱",
+            vector_status="delete_pending",
+            created_at=now,
+        )
+
+        self.assertEqual(response.status, "cancelled")
+        self.assertEqual(response.vector_status, "delete_pending")
+
+    def test_delete_search_document_schedules_durable_vector_cleanup(self) -> None:
+        with self.SessionLocal() as db:
+            profile = FamilySearchProfile(
+                id="profile-delete-contract",
+                family_id=self.family.id,
+                provider_profile_id="provider-delete-contract",
+                provider_profile_version_id="provider-version-delete-contract",
+                adapter_kind="openai_compatible_http",
+                embedding_model="embedding-delete-contract",
+                dimensions=2,
+                distance="Cosine",
+                document_builder_version="v1",
+                index_identity_checksum="delete-contract-checksum",
+                qdrant_collection="culina_delete_contract",
+                status=FamilyModelSearchProfileStatus.ACTIVE,
+            )
+            db.add(profile)
+            upsert_search_document(
+                db,
+                SearchDocumentPayload(
+                    family_id=self.family.id,
+                    entity_type="recipe",
+                    entity_id="recipe-delete-contract",
+                    title_text="待删除菜谱",
+                    keyword_text="待删除菜谱",
+                    detail_text="",
+                    semantic_text="菜谱：待删除菜谱",
+                    metadata_json={},
+                    content_hash="hash-delete-contract",
+                ),
+            )
+            db.flush()
+            document = db.scalar(
+                select(SearchDocument).where(
+                    SearchDocument.family_id == self.family.id,
+                    SearchDocument.entity_type == "recipe",
+                    SearchDocument.entity_id == "recipe-delete-contract",
+                )
+            )
+            assert document is not None
+            db.add(
+                FamilySearchProfileDocument(
+                    family_id=self.family.id,
+                    search_profile_id=profile.id,
+                    search_document_id=document.id,
+                    content_hash=document.content_hash,
+                    status="indexed",
+                )
+            )
+            db.flush()
+            delete_search_document(
+                db,
+                family_id=self.family.id,
+                entity_type="recipe",
+                entity_id="recipe-delete-contract",
+                delete_vector=True,
+            )
+            db.commit()
+
+        with self.SessionLocal() as db:
+            document = db.scalar(
+                select(SearchDocument).where(
+                    SearchDocument.family_id == self.family.id,
+                    SearchDocument.entity_type == "recipe",
+                    SearchDocument.entity_id == "recipe-delete-contract",
+                )
+            )
+            self.assertIsNotNone(document)
+            jobs = list(
+                db.scalars(
+                    select(SearchIndexJob).where(
+                        SearchIndexJob.family_id == self.family.id,
+                        SearchIndexJob.entity_type == "recipe",
+                        SearchIndexJob.entity_id == "recipe-delete-contract",
+                        SearchIndexJob.vector_status == "delete_pending",
+                    )
+                )
+            )
+            self.assertEqual(len(jobs), 1)
+
+    def test_document_deletion_job_supports_all_search_entity_types(self) -> None:
+        with self.SessionLocal() as db:
+            for index, entity_type in enumerate(sorted(SEARCH_INDEX_ENTITY_TYPES)):
+                job = enqueue_search_document_deletion_job(
+                    db,
+                    family_id=self.family.id,
+                    user_id=self.user.id,
+                    entity_type=entity_type,
+                    entity_id=f"{entity_type}-delete-{index}",
+                )
+                self.assertEqual(job.vector_status, "delete_pending")
+            db.commit()
+
+    def test_enqueue_canonical_job_coalesces_pending_entity_work(self) -> None:
+        with self.SessionLocal() as db:
+            first = enqueue_search_index_job(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                entity_type="recipe",
+                entity_id="recipe-coalesce",
+            )
+            second = enqueue_search_index_job(
+                db,
+                family_id=self.family.id,
+                user_id=self.user.id,
+                entity_type="recipe",
+                entity_id="recipe-coalesce",
+            )
+            db.commit()
+
+        self.assertEqual(first.id, second.id)
 
     def test_recovery_requeues_stale_canonical_jobs_without_provider_state(self) -> None:
         stale_delta = -(JOB_LOCK_STALE_AFTER + timedelta(minutes=1))
@@ -222,6 +356,16 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
                 )
             )
             self.assertIsNone(document)
+            self.assertIsNone(
+                db.scalar(
+                    select(SearchIndexJob).where(
+                        SearchIndexJob.family_id == self.family.id,
+                        SearchIndexJob.entity_type == "food",
+                        SearchIndexJob.entity_id == "food-missing",
+                        SearchIndexJob.vector_status == "delete_pending",
+                    )
+                )
+            )
 
     def test_missing_meal_plan_refresh_job_fails_without_deletion_marker(self) -> None:
         self._create_job(
@@ -356,3 +500,16 @@ class SearchIndexJobsTestCase(RecipeApiTestCase):
             assert job is not None
             self._assert_timestamp_fields(retry_payload, created_at=job.created_at, completed_at=job.completed_at)
             self.assertIsNone(job.completed_at)
+
+    def test_active_get_excludes_cancelled_jobs_from_recent_completed_notifications(self) -> None:
+        self._create_job(
+            job_id="job-cancelled-recent",
+            status="cancelled",
+            completed_at=utcnow() - timedelta(minutes=1),
+            error="候选搜索索引建立失败，等待重试",
+        )
+
+        active_response = self.client.get("/api/search/index-jobs/active")
+
+        self.assertEqual(active_response.status_code, 200)
+        self.assertNotIn("job-cancelled-recent", {item["job_id"] for item in active_response.json()})

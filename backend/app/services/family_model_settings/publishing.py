@@ -49,6 +49,7 @@ from app.services.family_model_settings.errors import (
     FamilyModelConfigurationAlreadyPublished,
     FamilyModelDraftInvalid,
     FamilyModelOperationInProgress,
+    FamilyModelSearchProfileIdentityConflict,
     FamilyModelSettingsVersionConflict,
 )
 from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
@@ -208,6 +209,15 @@ def _create_initial_search_profile_if_required(
         index_identity_checksum=identity_checksum,
     )
     if existing is not None:
+        if existing.status not in {
+            FamilyModelSearchProfileStatus.PROVISIONING,
+            FamilyModelSearchProfileStatus.ACTIVE,
+        }:
+            # An immutable identity that already reached a terminal state
+            # must not be silently reattached to a new revision. Reuse is an
+            # explicit retry operation, otherwise the new save would appear
+            # successful while no collection/jobs are scheduled.
+            raise FamilyModelSearchProfileIdentityConflict()
         return existing
     profile_id = create_id("family-search-profile")
     profile = FamilySearchProfile(

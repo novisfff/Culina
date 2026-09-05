@@ -66,9 +66,17 @@ class FamilyModelProviderProfileVersionConflict(FamilyModelSettingsError):
 class FamilyModelProviderProfileInUse(FamilyModelSettingsError):
     default_code = "family_model_provider_profile_in_use"
 
+    def __init__(self, references: tuple[dict[str, object], ...] = ()) -> None:
+        super().__init__()
+        self.references = references
+
 
 class FamilyModelDraftInvalid(FamilyModelSettingsError):
     default_code = "family_model_draft_invalid"
+
+
+class FamilyModelSearchProfileIdentityConflict(FamilyModelSettingsError):
+    default_code = "family_search_profile_identity_conflict"
 
 
 class FamilyModelConfigurationAlreadyPublished(FamilyModelSettingsError):

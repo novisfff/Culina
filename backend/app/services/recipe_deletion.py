@@ -153,6 +153,7 @@ def delete_recipe_with_guard(
         entity_type="recipe",
         entity_id=recipe_id,
         delete_vector=True,
+        user_id=actor_id,
     )
     for food_id in food_ids:
         delete_search_document(
@@ -161,6 +162,7 @@ def delete_recipe_with_guard(
             entity_type="food",
             entity_id=food_id,
             delete_vector=True,
+            user_id=actor_id,
         )
 
     return locked

@@ -396,6 +396,7 @@ class FamilySearchProfileDocument(Base):
         ForeignKey("search_documents.id", ondelete="CASCADE"), nullable=False
     )
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     vector_json: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     vector_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True)

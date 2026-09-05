@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { AiConversation, AiConversationVisibility } from '../../api/types';
 import { EmptyState } from '../ui-kit';
 import { AiConversationActions, AiConversationSharingMeta } from './AiConversationActions';
-import { AiHistoryStatusIcon } from './AiConversationHistory';
+import { AiHistoryStatusIcon, groupConversationsByDate } from './AiConversationHistory';
 
 export function AiMobileChrome(props: {
   conversations: AiConversation[];
@@ -20,43 +20,7 @@ export function AiMobileChrome(props: {
   onChangeVisibility: (conversation: AiConversation, visibility: AiConversationVisibility) => void;
   onDeleteConversation: (conversation: AiConversation) => void;
 }) {
-  const groupedConversations = useMemo(() => {
-    const today: AiConversation[] = [];
-    const yesterday: AiConversation[] = [];
-    const previous7Days: AiConversation[] = [];
-    const older: AiConversation[] = [];
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
-    const startOf7DaysAgo = startOfToday - 7 * 24 * 60 * 60 * 1000;
-
-    for (const c of props.conversations) {
-      const dateStr = c.last_message_at || c.created_at;
-      const time = new Date(dateStr).getTime();
-      if (Number.isNaN(time)) {
-        older.push(c);
-        continue;
-      }
-
-      if (time >= startOfToday) {
-        today.push(c);
-      } else if (time >= startOfYesterday) {
-        yesterday.push(c);
-      } else if (time >= startOf7DaysAgo) {
-        previous7Days.push(c);
-      } else {
-        older.push(c);
-      }
-    }
-
-    return [
-      { title: '今天', items: today },
-      { title: '昨天', items: yesterday },
-      { title: '前 7 天', items: previous7Days },
-      { title: '更早', items: older },
-    ].filter(group => group.items.length > 0);
-  }, [props.conversations]);
+  const groupedConversations = useMemo(() => groupConversationsByDate(props.conversations), [props.conversations]);
 
   return (
     <>

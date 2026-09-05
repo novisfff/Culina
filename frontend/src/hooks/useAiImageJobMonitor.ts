@@ -37,7 +37,10 @@ function isTerminalImageJob(job: AiRenderResponse) {
 }
 
 function isTerminalSearchIndexJob(job: SearchIndexJobResponse) {
-  return job.status === 'succeeded' || job.status === 'failed' || job.status === 'budget_blocked';
+  return job.status === 'succeeded'
+    || job.status === 'failed'
+    || job.status === 'budget_blocked'
+    || job.status === 'cancelled';
 }
 
 function isModelUsageLimitCode(errorCode: string | null | undefined) {
@@ -153,6 +156,8 @@ export function searchJobNotification(job: SearchIndexJobResponse): BackgroundTa
     description = '额度或策略变化后，系统会自动继续处理。';
   } else if (job.status === 'failed') {
     description = job.error?.trim() || '搜索更新失败，可以直接重试';
+  } else if (job.status === 'cancelled') {
+    description = '搜索更新已取消，当前搜索保持不变。';
   }
   return {
     notification_id: searchIndexNotificationId(job.job_id),
