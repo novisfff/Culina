@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  ModelUsageFamilyRequestLogPage,
   ModelUsagePersonalBreakdownItem,
   ModelUsagePersonalRequestLogPage,
 } from '../../api/types';
@@ -73,6 +75,46 @@ describe('ModelUsage privacy boundaries', () => {
     modelUsageApi.getFamilyModelUsageRequests.mockReset();
     modelUsageApi.getFamilyModelUsageRequests.mockResolvedValue({ ...personalPage, scope: 'family', items: [] });
     modelUsageApi.getMyModelUsageRequests.mockResolvedValue(personalPage);
+  });
+
+  it('keeps a return path and filters when request loading fails', async () => {
+    modelUsageApi.getMyModelUsageRequests.mockRejectedValue(new Error('offline'));
+    const onBack = vi.fn();
+    const user = userEvent.setup();
+    render(<ModelUsageRequestLogsPage familyId="family-a" role="Member" initialPeriod="2026-08"
+      isPhoneViewport={false} onBack={onBack} />, { wrapper: wrapper() });
+    await screen.findByText('请求记录加载失败');
+    expect(screen.getByRole('region', { name: '请求记录筛选' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '返回模型用量' }));
+    expect(onBack).toHaveBeenCalledWith({ period: '2026-08', scope: 'me' });
+  });
+
+  it('shows every meter directly while retaining the personal projection', () => {
+    render(<ModelUsageRequestLogs page={{ ...personalPage, items: [{ ...personalPage.items[0], meters: [
+      { meter: 'input_tokens', quantity: '10' }, { meter: 'output_tokens', quantity: '20' },
+      { meter: 'cached_input_tokens', quantity: '30' }, { meter: 'total_tokens', quantity: '60' },
+    ] }] }} />);
+    expect(screen.queryByText('查看用量明细')).not.toBeInTheDocument();
+    expect(screen.getByText('总文本用量')).toBeVisible();
+    expect(screen.getByText('60')).toBeVisible();
+  });
+
+  it('shows readable usage without internal identifiers in family records', () => {
+    const page: ModelUsageFamilyRequestLogPage = {
+      ...personalPage, scope: 'family', items: [{
+        ...personalPage.items[0], capability: 'image_generation',
+        provider: 'family-model-profile-secret', requested_model: 'gpt-image-2', billing_model: 'gpt-image-2',
+        subject_label: 'mus_private-id', provider_request_id: 'private-request-id', cost_cny: null,
+        measurement_status: 'estimated', meters: [{ meter: 'generated_images', quantity: '1' }],
+      }],
+    };
+    const { container } = render(<ModelUsageRequestLogs page={page} />);
+    expect(screen.queryByText('查看用量明细')).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/family-model-profile|mus_private|private-request|gpt-image/);
+    expect(screen.getByText('费用待确认')).toBeVisible();
+    expect(screen.getByText('1 张')).toBeVisible();
+    expect(screen.getByText('估算用量')).toBeVisible();
+    expect(screen.queryByText('已定价')).not.toBeInTheDocument();
   });
 
   it('removes diagnostic filters and request parameters in personal scope', async () => {

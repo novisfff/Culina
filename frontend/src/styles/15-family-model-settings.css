@@ -3643,3 +3643,250 @@ input:checked + .family-model-settings-switch-track::after,
     padding-bottom: var(--space-7);
   }
 }
+
+/* Capability configuration: readable summaries with progressive disclosure. */
+.family-model-settings-binding-card {
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
+.family-model-settings-binding-card.is-expanded {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.family-model-settings-binding-head {
+  padding: var(--space-5);
+  border-radius: var(--radius-md);
+}
+
+.family-model-settings-binding-head > button {
+  min-height: var(--control-height);
+  gap: var(--space-5);
+}
+
+.family-model-settings-binding-head-info {
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.family-model-settings-binding-head-info > div {
+  gap: var(--space-2);
+}
+
+.family-model-settings-binding-head p {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.family-model-settings-binding-icon.tone-llm {
+  color: var(--plan);
+  background: var(--plan-soft);
+}
+
+.family-model-settings-binding-icon.tone-image_generation {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.family-model-settings-binding-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.family-model-settings-binding-summary strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.family-model-settings-binding-panel {
+  padding: var(--space-6);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--surface-warm);
+  gap: var(--space-6);
+}
+
+.family-model-settings-binding-panel-heading,
+.family-model-settings-binding-test-copy {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.family-model-settings-binding-panel-heading strong,
+.family-model-settings-binding-test-copy strong {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.family-model-settings-binding-panel-heading > span,
+.family-model-settings-binding-test-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.family-model-settings-binding-panel .family-model-settings-form-grid {
+  align-items: start;
+  gap: var(--space-5);
+}
+
+.family-model-settings-binding-panel .family-model-settings-field {
+  align-content: start;
+  gap: var(--space-3);
+}
+
+.family-model-settings-binding-panel .ui-dropdown-select-trigger,
+.family-model-settings-binding-panel .ui-combobox-field input {
+  border-radius: var(--radius-sm);
+  border-color: var(--line-soft);
+  font-size: var(--text-body);
+  font-weight: 400;
+  box-shadow: none;
+}
+
+.family-model-settings-binding-panel .family-model-settings-model-discovery.is-error {
+  color: var(--text-soft);
+}
+
+.family-model-settings-binding-notice {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.family-model-settings-image-options {
+  grid-column: 1 / -1;
+}
+
+.family-model-settings-image-sizes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.family-model-settings-image-sizes .ui-option-chip {
+  min-width: 0;
+  min-height: var(--control-height-touch);
+  display: grid;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body);
+}
+
+.family-model-settings-image-sizes .ui-option-chip small {
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.family-model-settings-binding-advanced {
+  min-width: 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.family-model-settings-binding-advanced summary {
+  min-height: var(--control-height);
+  padding: var(--space-4) 0;
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.family-model-settings-binding-advanced summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.family-model-settings-binding-advanced .family-model-settings-field {
+  max-width: var(--modal-width-sm);
+}
+
+.family-model-settings-binding-test {
+  justify-content: space-between;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line-soft);
+  gap: var(--space-5);
+}
+
+.family-model-settings-binding-test .family-model-settings-test-detail {
+  text-align: left;
+  font-weight: 400;
+}
+
+.family-model-settings-test-detail.is-succeeded {
+  color: var(--success);
+}
+
+.family-model-settings-test-detail.is-blocked {
+  color: var(--warning);
+}
+
+.family-model-settings-binding-head .family-model-settings-switch {
+  min-height: var(--control-height);
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .family-model-settings-binding-head {
+    flex-wrap: nowrap;
+    gap: var(--space-4);
+    padding: var(--space-5);
+  }
+
+  .family-model-settings-binding-head > button {
+    flex: 1 1 auto;
+    gap: var(--space-2);
+  }
+
+  .family-model-settings-binding-head-info .family-model-settings-binding-icon,
+  .family-model-settings-binding-head p {
+    display: none;
+  }
+
+  .family-model-settings-binding-head .family-model-settings-switch {
+    min-width: var(--tap-min);
+    min-height: var(--control-height-touch);
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-1);
+  }
+
+  .family-model-settings-binding-panel {
+    padding: var(--space-5);
+  }
+
+  .family-model-settings-binding-panel .family-model-settings-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .family-model-settings-binding-test {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .family-model-settings-binding-test .family-model-settings-test-button {
+    width: 100%;
+    min-height: var(--control-height-touch);
+  }
+
+  .family-model-settings-binding-panel .family-model-settings-model-discovery {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

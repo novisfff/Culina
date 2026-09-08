@@ -1,4 +1,5 @@
-import { lazy, Suspense, type ComponentProps } from 'react';
+import type { ModelUsageNavigationContext } from '../features/model-usage/modelUsageWorkspaceViewModel';
+import { lazy, Suspense, useState, type ComponentProps } from 'react';
 import type { AppNavigationState } from './appNavigationModel';
 import { canRenderFamilyAiServices } from './appNavigationModel';
 import type { FamilyDetail, Member, MembershipSummary, UserSummary } from '../api/types/shell';
@@ -59,6 +60,12 @@ export type AppFamilyWorkspaceProps = {
 
 export function AppFamilyWorkspace(props: AppFamilyWorkspaceProps) {
   const familyView = props.state.family.view;
+  const [usageContext, setUsageContext] = useState<(ModelUsageNavigationContext & { familyId: string }) | null>(null);
+  const activeUsageContext = usageContext?.familyId === props.family?.id ? usageContext : null;
+  const navigateUsage = (view: 'modelUsage' | 'modelUsageRequests', context: ModelUsageNavigationContext) => {
+    setUsageContext({ ...context, familyId: props.family?.id ?? '' });
+    props.onNavigate({ workspace: 'family', view, period: context.period });
+  };
   if (canRenderFamilyAiServices(familyView, props.isOwner)) {
     return (
       <Suspense fallback={null}>
@@ -78,8 +85,9 @@ export function AppFamilyWorkspace(props: AppFamilyWorkspaceProps) {
           familyId={props.family?.id ?? ''}
           role={props.membership?.role ?? 'Member'}
           initialPeriod={props.state.family.period}
+          initialScope={activeUsageContext?.scope}
           isPhoneViewport={props.isPhoneViewport}
-          onBack={() => props.onNavigate({ workspace: 'family', view: 'modelUsage' })}
+          onBack={(context) => navigateUsage('modelUsage', context)}
         />
       </Suspense>
     );
@@ -91,9 +99,10 @@ export function AppFamilyWorkspace(props: AppFamilyWorkspaceProps) {
           familyId={props.family?.id ?? ''}
           role={props.membership?.role ?? 'Member'}
           initialPeriod={props.state.family.period}
+          initialScope={activeUsageContext?.scope}
           isPhoneViewport={props.isPhoneViewport}
           onBack={() => props.onNavigate({ workspace: 'family', view: 'profile' })}
-          onOpenRequestLogs={() => props.onNavigate({ workspace: 'family', view: 'modelUsageRequests' })}
+          onOpenRequestLogs={(context) => navigateUsage('modelUsageRequests', context)}
         />
       </Suspense>
     );

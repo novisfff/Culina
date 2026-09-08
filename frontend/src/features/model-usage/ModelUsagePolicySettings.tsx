@@ -6,8 +6,9 @@ import type {
   ModelUsageMeter,
   ModelUsagePolicy,
 } from '../../api/types/modelUsage';
-import { ActionButton, FormActions, StateBlock } from '../../components/ui-kit';
+import { ActionButton, FormActions, StateBlock, StatusBadge } from '../../components/ui-kit';
 import {
+  createModelUsagePolicyDraft,
   formatModelUsageCny,
   isModelUsageMissingPriceConfirmationRequired,
   normalizeModelUsageDecimalDraft,
@@ -63,12 +64,14 @@ function CapabilityGuardrail(props: {
   option: typeof MODEL_USAGE_CAPABILITY_OPTIONS.llm;
   limit: ModelUsageCapabilityLimit | undefined;
   isSaving: boolean;
+  revealErrors: boolean;
   onEnabledChange: (enabled: boolean) => void;
   onPatch: (patch: Partial<ModelUsageCapabilityLimit>) => void;
 }) {
   const panelId = useId();
   const isEnabled = Boolean(props.limit?.enabled);
-  const [isExpanded, setIsExpanded] = useState(isEnabled);
+  const [expanded, setIsExpanded] = useState(false);
+  const isExpanded = expanded || (props.revealErrors && isEnabled);
   const meters = MODEL_USAGE_CAPABILITY_METERS[props.capability];
   const activeKind = props.limit?.limit_kind ?? 'cost';
   const activeMeter = props.limit?.meter ?? meters[0] ?? null;
@@ -177,6 +180,9 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
     return <StateBlock status="error" title="模型预算设置暂时不可用" description="请稍后重新加载当前设置。" actionLabel="重新加载" onAction={props.onRetry} />;
   }
   const draft = props.draft;
+  const savedDraft = props.policy ? createModelUsagePolicyDraft(props.policy) : null;
+  const hasChanges = !savedDraft || JSON.stringify({ ...draft, base_version_number: savedDraft.base_version_number,
+    confirm_missing_price_impact: false }) !== JSON.stringify(savedDraft);
   const validation = validateModelUsagePolicyDraft(draft);
   const validationIssue = hasAttemptedSave && !validation.valid ? validation : null;
   const validationMessage = validationIssue?.message ?? null;
@@ -250,14 +256,16 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
       ) : null}
       <section className="model-usage-policy-summary" role="region" aria-label="当前预算策略">
         <div className="model-usage-policy-summary-head">
-          <p>当前设置</p>
+          <p>本月预算</p>
+          <StatusBadge tone={hasChanges ? 'warning' : 'neutral'}>{hasChanges ? '有未保存修改' : '与已保存设置一致'}</StatusBadge>
           <strong>{draft.monthly_budget_cny ? formatModelUsageCny(draft.monthly_budget_cny) : '未设置预算'}</strong>
         </div>
         <div className="model-usage-policy-summary-facts">
           <span className={draft.alerts_enabled ? 'is-on' : ''}>预算提醒{draft.alerts_enabled ? '已开启' : '未开启'}</span>
           <span className={draft.hard_limit_enabled ? 'is-warning' : ''}>超额停止{draft.hard_limit_enabled ? '已开启' : '未开启'}</span>
-          <span>{draft.capability_limits.length} 项功能限额</span>
+          <span>{draft.capability_limits.filter((limit) => limit.enabled).length} 项功能限额</span>
         </div>
+        <p className="model-usage-policy-summary-note">修改后需点击“保存设置”才会生效。</p>
       </section>
 
       <section className="model-usage-policy-section model-usage-policy-budget-section" aria-labelledby="model-usage-policy-budget-heading">
@@ -351,7 +359,7 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
         <div className="model-usage-policy-section-head">
           <div className="model-usage-policy-section-title-row">
             <h2 id="model-usage-policy-guardrails-heading">功能限额</h2>
-            <span>{draft.capability_limits.length} 项已启用</span>
+            <span>{draft.capability_limits.filter((limit) => limit.enabled).length} 项已启用</span>
           </div>
           <p>按功能设置费用或使用量上限，未启用的功能不受单项限制。</p>
         </div>
@@ -365,6 +373,7 @@ export function ModelUsagePolicySettings(props: ModelUsagePolicySettingsProps) {
                 option={option}
                 limit={limit}
                 isSaving={props.isSaving}
+                revealErrors={validationField === 'capability_limits'}
                 onEnabledChange={(enabled) => setCapabilityLimitEnabled(capability, enabled)}
                 onPatch={(patch) => updateCapabilityLimit(capability, patch)}
               />

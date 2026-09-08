@@ -246,6 +246,29 @@ describe('ModelUsageWorkspace', () => {
     expect(screen.queryByText('家庭额度')).not.toBeInTheDocument();
   });
 
+  it('opens request records with the currently selected month and personal scope', async () => {
+    resolveOwner();
+    const user = userEvent.setup();
+    const onOpenRequestLogs = vi.fn();
+    renderWorkspace({ onOpenRequestLogs });
+    await screen.findByRole('heading', { name: '家庭模型用量' });
+    await user.click(screen.getByRole('button', { name: '我的' }));
+    fireEvent.change(screen.getByLabelText('选择统计周期'), { target: { value: '2026-06' } });
+    await user.click(await screen.findByRole('button', { name: '请求记录' }));
+    expect(onOpenRequestLogs).toHaveBeenCalledWith({ period: '2026-06', scope: 'me' });
+  });
+
+  it('shows the actual budget overrun instead of capping the percentage at 100', async () => {
+    resolveOwner();
+    modelUsageApi.getFamilyModelUsageOverview.mockResolvedValue(familyOverview({
+      monthly_budget_cny: '80', effective_spend_cny: '100',
+    }));
+    renderWorkspace();
+    expect(await screen.findByText('已用 125.0%')).toBeVisible();
+    expect(screen.getByText('超出预算')).toBeVisible();
+    expect(screen.getByText('¥20.00')).toBeVisible();
+  });
+
   it('loads the daily trend alongside the default capability breakdown', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-07-30T03:00:00.000Z'));
@@ -278,7 +301,7 @@ describe('ModelUsageWorkspace', () => {
     expect(screen.queryByText('统计维度')).not.toBeInTheDocument();
   });
 
-  it('puts chart insights directly after the period overview and keeps review details before the ledger', async () => {
+  it('puts actionable notices before charts and the ledger', async () => {
     resolveOwner();
     modelUsageApi.getModelUsageAlerts.mockResolvedValue([usageAlert()]);
     renderWorkspace();
@@ -288,7 +311,7 @@ describe('ModelUsageWorkspace', () => {
     const insights = screen.getByRole('heading', { name: '费用趋势与用量构成' }).closest('section');
     const details = screen.getByRole('heading', { name: '费用明细' }).closest('section');
 
-    const sections = [summary, insights, attention, details];
+    const sections = [summary, attention, insights, details];
     expect(sections.every(Boolean)).toBe(true);
     sections.slice(1).forEach((section, index) => {
       const previous = sections[index];
@@ -444,7 +467,9 @@ describe('ModelUsageWorkspace', () => {
     renderWorkspace();
 
     await screen.findByRole('heading', { name: '家庭模型用量' });
-    fireEvent.change(screen.getByLabelText('查看方式'), { target: { value: 'provider_model' } });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: '查看方式' }));
+    await user.click(screen.getByRole('option', { name: '按模型服务 / 模型' }));
 
     const table = await screen.findByRole('table', { name: '费用明细' });
     expect(within(table).getByRole('columnheader', { name: '模型服务' })).toBeVisible();
