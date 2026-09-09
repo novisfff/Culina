@@ -239,19 +239,6 @@
   display: inline-block;
 }
 
-.model-usage-test-select-fallback {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .model-usage-period-input-wrapper {
   display: flex;
   align-items: center;
@@ -4028,5 +4015,388 @@
 
   .model-usage-meter-group {
     padding: var(--space-3) var(--space-4);
+  }
+}
+
+/* Usage pages share a quiet ledger hierarchy and explicit task actions. */
+.model-usage-header,
+.model-usage-mobile-header {
+  padding: var(--space-6) var(--space-7);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.model-usage-header-top-bar {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.model-usage-header-controls {
+  padding: 0;
+  border: 0;
+  gap: var(--space-5);
+}
+
+.model-usage-page-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.model-usage-page-actions > button {
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.model-usage-page-actions > button:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-line);
+  background: var(--surface-warm);
+}
+
+.model-usage-eyebrow {
+  color: var(--text-soft);
+}
+
+.model-usage-summary-primary > strong {
+  font-size: var(--text-2xl);
+}
+
+.model-usage-budget-balance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+}
+
+.model-usage-budget-balance strong {
+  color: var(--text);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-usage-budget-balance.is-exceeded strong {
+  color: var(--danger);
+}
+
+.model-usage-summary-budget .model-usage-summary-metric {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.model-usage-budget-explainer,
+.model-usage-policy-summary-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.model-usage-summary-state {
+  background: var(--surface-warm);
+}
+
+.model-usage-insights-head {
+  align-items: baseline;
+}
+
+.model-usage-insight-card,
+.model-usage-breakdown-ledger {
+  padding: var(--space-6);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.model-usage-meter-group {
+  background: var(--surface-warm);
+  box-shadow: none;
+}
+
+.model-usage-request-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.model-usage-request-filter-summary > span {
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.model-usage-request-filter-summary button {
+  flex-shrink: 0;
+}
+
+.model-usage-request-filters form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.model-usage-request-advanced-fields:not([hidden]) {
+  display: contents;
+}
+
+.model-usage-request-filters:not(.is-expanded) .model-usage-request-date-range {
+  grid-column: 1 / -1;
+}
+
+.model-usage-request-filter-actions > span {
+  margin-right: auto;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+
+.model-usage-request-filter-actions button:disabled,
+.model-usage-request-pagination button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.model-usage-request-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--line-soft);
+  min-width: 0;
+}
+
+.model-usage-request-record:last-child {
+  border-bottom: 0;
+}
+
+.model-usage-request-record-identity,
+.model-usage-request-record-statuses,
+.model-usage-request-record-meters {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+
+.model-usage-request-record-identity strong,
+.model-usage-request-record-cost {
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.model-usage-request-record-identity time,
+.model-usage-request-record-empty,
+.model-usage-request-record-meters dt {
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.model-usage-request-record-identity time {
+  white-space: nowrap;
+}
+
+.model-usage-request-record-statuses {
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.model-usage-request-record-cost {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-right: var(--space-2);
+}
+
+.model-usage-request-record-meters {
+  margin: 0;
+}
+
+.model-usage-request-record-meters > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.model-usage-request-record-meters dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.model-usage-policy-summary {
+  grid-template-columns: minmax(0, 1fr);
+  border-color: var(--line-soft);
+  background: var(--surface-warm);
+  box-shadow: none;
+}
+
+.model-usage-policy-summary-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: transparent;
+  padding: var(--space-5);
+}
+
+.model-usage-policy-summary-head p {
+  color: var(--text-soft);
+  font-size: var(--text-meta);
+}
+
+.model-usage-policy-summary-head .ui-status-badge {
+  order: 1;
+}
+
+.model-usage-policy-summary-facts {
+  padding: 0 var(--space-5);
+}
+
+.model-usage-policy-summary-note {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.model-usage-policy-section {
+  box-shadow: none;
+}
+
+.model-usage-policy-guardrail {
+  box-shadow: none;
+}
+
+.model-usage-policy-guardrail-head {
+  background: var(--surface);
+}
+
+.model-usage-policy-guardrail-copy small {
+  color: var(--text-soft);
+}
+
+@media (max-width: 767px) {
+  .model-usage-mobile-header {
+    padding: var(--space-5);
+    gap: var(--space-4);
+  }
+
+  .model-usage-mobile-title-row {
+    grid-template-columns: var(--tap-min) minmax(0, 1fr);
+  }
+
+  .model-usage-mobile-title-row h1 {
+    font-size: var(--text-xl);
+  }
+
+  .model-usage-page-actions > button {
+    flex: 1;
+    min-height: var(--control-height-touch);
+  }
+
+  .model-usage-mobile-controls {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .model-usage-summary-budget dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .model-usage-insights-head {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .model-usage-breakdown-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .model-usage-breakdown-head .model-usage-group-field,
+  .model-usage-breakdown-head .model-usage-group-select-wrapper {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .model-usage-request-filters,
+  .model-usage-request-results,
+  .model-usage-breakdown-ledger {
+    padding: var(--space-5);
+  }
+
+  .model-usage-request-filters-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+
+  .model-usage-request-filters-grid > .model-usage-request-date-range,
+  .model-usage-request-provider-filter,
+  .model-usage-request-model-filter {
+    grid-column: 1;
+  }
+
+  .model-usage-request-filter-actions {
+    flex-wrap: wrap;
+  }
+
+  .model-usage-request-filter-actions > span {
+    flex-basis: 100%;
+  }
+
+  .model-usage-request-filter-actions > span:empty {
+    display: none;
+  }
+
+  .model-usage-request-record {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3);
+  }
+
+  .model-usage-request-record-statuses {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: 130px;
+  }
+
+  .model-usage-request-record-meters,
+  .model-usage-request-record-empty {
+    grid-column: 1 / -1;
+  }
+
+  .model-usage-policy-summary-head {
+    align-items: baseline;
+  }
+
+  .model-usage-policy-summary-head .ui-status-badge {
+    flex-basis: 100%;
+    width: fit-content;
+    justify-self: start;
   }
 }

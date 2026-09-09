@@ -1,20 +1,15 @@
-import type {
-  ModelUsageBreakdownItem,
-  ModelUsageGroupBy,
-} from '../../api/types/modelUsage';
-import { DropdownSelect, PageLoadingState, StateBlock } from '../../components/ui-kit';
+import { PageLoadingState, StateBlock } from '../../components/ui-kit';
 import { DashboardIcon } from '../../app/shellIcons';
-import { modelUsageGroupOptions } from './modelUsageOptions';
 import {
   ModelUsageAttention,
   ModelUsageEmptyState,
   ModelUsageSummary,
 } from './ModelUsageOverviewSections';
-import { ModelUsageBreakdownTable } from './ModelUsageBreakdownTable';
+import { ModelUsageBreakdown } from './ModelUsageBreakdown';
 import { ModelUsageInsights } from './ModelUsageInsights';
 import type { ModelUsageWorkspaceViewProps } from './modelUsageWorkspaceViewModel';
 
-function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scope' | 'period' | 'actions' | 'onOpenPolicySettings' | 'onBack'>) {
+function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scope' | 'period' | 'actions' | 'onOpenPolicySettings' | 'onBack' | 'onOpenRequestLogs'>) {
   const title = props.scope === 'family' ? '家庭模型用量' : '我的模型用量';
   return (
     <header className="model-usage-header">
@@ -23,18 +18,21 @@ function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scop
           <DashboardIcon name="arrow-left" />
           <span>返回家庭</span>
         </button>
+        <div className="model-usage-page-actions">
+          <button type="button" className="secondary-button" onClick={props.onOpenRequestLogs}>请求记录</button>
         {props.isOwner && props.onOpenPolicySettings ? (
           <button className="model-usage-policy-entry" type="button" onClick={props.onOpenPolicySettings}>
             <DashboardIcon name="edit" />
             <span>预算设置</span>
           </button>
         ) : null}
+        </div>
       </div>
       <div className="model-usage-header-main-row">
         <div className="model-usage-header-copy">
           <p className="model-usage-eyebrow">家庭工作区</p>
           <h1>{title}</h1>
-          <p className="model-usage-subhead">查看与管理本统计周期的家庭模型费用、额度和使用趋势。</p>
+          <p className="model-usage-subhead">{props.scope === 'family' ? '查看家庭费用、预算余量与使用明细。' : '查看自己的模型费用与使用明细。'}</p>
         </div>
         <div className="model-usage-header-controls">
           {props.isOwner ? (
@@ -63,67 +61,6 @@ function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scop
   );
 }
 
-function Breakdown(props: Pick<ModelUsageWorkspaceViewProps, 'groupBy' | 'scope' | 'isOwner' | 'actions' | 'isBreakdownLoading'> & {
-  items: ModelUsageBreakdownItem[] | null;
-}) {
-  const options = modelUsageGroupOptions(props.scope);
-  return (
-    <section className="model-usage-breakdown model-usage-breakdown-ledger" aria-labelledby="model-usage-breakdown-heading">
-        <div className="model-usage-section-head model-usage-breakdown-head">
-          <div>
-            <h2 id="model-usage-breakdown-heading">费用明细</h2>
-            <p>选择一种方式查看本统计周期的费用和用量明细。</p>
-          </div>
-          <div className="model-usage-group-field">
-            <span className="model-usage-group-label">查看方式</span>
-            <div className="model-usage-group-select-wrapper">
-              <DropdownSelect
-                ariaLabel="查看方式"
-                placeholder="选择查看方式"
-                value={props.groupBy}
-                options={options}
-                onChange={(value) => {
-                  if (value) props.actions.setGroupBy(value as ModelUsageGroupBy);
-                }}
-              />
-              <select
-                aria-label="查看方式"
-                tabIndex={-1}
-                className="model-usage-test-select-fallback"
-                value={props.groupBy}
-                onChange={(event) => props.actions.setGroupBy(event.target.value as ModelUsageGroupBy)}
-              >
-                {options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      {props.isBreakdownLoading && !props.items ? (
-        <div className="model-usage-breakdown-loading" role="status">正在加载费用明细。</div>
-      ) : props.items?.length ? (
-        props.scope === 'family' ? (
-          <ModelUsageBreakdownTable
-            scope="family"
-            items={props.items as import('../../api/types').ModelUsageFamilyBreakdownItem[]}
-            groupBy={props.groupBy as import('../../api/types').ModelUsageFamilyGroupBy}
-          />
-        ) : (
-          <ModelUsageBreakdownTable
-            scope="me"
-            items={props.items as import('../../api/types').ModelUsagePersonalBreakdownItem[]}
-            groupBy={props.groupBy as import('../../api/types').ModelUsagePersonalGroupBy}
-          />
-        )
-      ) : (
-        <p className="model-usage-breakdown-empty">这个统计周期还没有可展示的费用明细。</p>
-      )}
-    </section>
-  );
-}
 
 export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
   if (props.model.state === 'loading') {
@@ -148,9 +85,9 @@ export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
         </p>
       ) : null}
       <ModelUsageSummary overview={overview} />
+      <ModelUsageAttention alerts={props.alerts} overview={overview} />
       {props.model.state === 'empty' ? (
         <>
-          <ModelUsageAttention alerts={props.alerts} overview={overview} />
           <ModelUsageEmptyState />
         </>
       ) : (
@@ -163,8 +100,7 @@ export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
             isDailyTrendLoading={props.model.isDailyTrendLoading}
             isCapabilityBreakdownLoading={props.model.isCapabilityBreakdownLoading}
           />
-          <ModelUsageAttention alerts={props.alerts} overview={overview} />
-          <Breakdown
+          <ModelUsageBreakdown
             groupBy={props.groupBy}
             scope={props.scope}
             isOwner={props.isOwner}
@@ -172,10 +108,7 @@ export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
             isBreakdownLoading={props.isBreakdownLoading}
             items={breakdown?.items ?? null}
           />
-          <button className="model-usage-request-logs-entry" type="button" onClick={props.onOpenRequestLogs}>
-            <span><strong>请求记录</strong><small>按日期、模型和状态查看每次请求</small></span>
-            <DashboardIcon name="arrow-right" />
-          </button>
+
         </>
       )}
     </main>

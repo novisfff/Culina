@@ -147,7 +147,7 @@ export function ModelUsageInsights(props: {
           <p className="model-usage-eyebrow">用量洞察</p>
           <h2 id="model-usage-insights-heading">费用趋势与用量构成</h2>
         </div>
-        <p>趋势显示截至所选统计周期的最近 30 天；功能费用和用量明细仍按所选统计周期统计。</p>
+        <p>功能费用与用量按 {props.overview.period} 统计。</p>
       </div>
 
       <div className="model-usage-insights-grid">
@@ -155,7 +155,7 @@ export function ModelUsageInsights(props: {
           <div className="model-usage-insight-card-head">
             <div>
               <h3 id="model-usage-trend-heading">每日费用趋势</h3>
-              <p>最近 30 天每日费用，包含零值日期</p>
+              <p>{props.trendWindow.startDate} 至 {props.trendWindow.endDate}</p>
             </div>
             <span>近 30 天</span>
           </div>

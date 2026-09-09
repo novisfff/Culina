@@ -447,11 +447,60 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: '对话与生成' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: '对话与图片理解' })).toBeVisible();
     expect(screen.getByRole('heading', { name: '语音' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: '搜索' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '智能搜索 · 默认' })).not.toBeInTheDocument();
     expect(screen.getAllByLabelText('模型名称')).toHaveLength(1);
+  });
+
+  it('keeps the configured model visible when its editor is collapsed', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = { ...draft.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'kitchen-chat' };
+    render(<CapabilityBindingEditor draft={draft} profiles={[profile]} busy={false}
+      onDraftChange={vi.fn()} onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })}
+      onTestCapability={vi.fn()} />);
+    const summary = screen.getByRole('button', { name: /对话与图片理解 · 主用/ });
+    await user.click(summary);
+    expect(summary).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('模型名称')).not.toBeInTheDocument();
+    expect(within(summary).getByText('kitchen-chat')).toBeVisible();
+    expect(within(summary).getByText('家庭主服务')).toBeVisible();
+    await user.click(summary);
+    expect(screen.getByLabelText('模型名称')).toHaveValue('kitchen-chat');
+  });
+
+  it('does not restore an obsolete success when the model changes during a test', async () => {
+    const user = userEvent.setup();
+    let resolveTest!: (result: { status: string }) => void;
+    const onTestCapability = vi.fn(() => new Promise<{ status: string }>((resolve) => { resolveTest = resolve; }));
+    function Harness() {
+      const [draft, setDraft] = useState(() => {
+        const value = createEmptyFamilyModelDraft();
+        value.bindings[0] = { ...value.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'old-model' };
+        return value;
+      });
+      return <CapabilityBindingEditor draft={draft} profiles={[profile]} busy={false} onDraftChange={setDraft}
+        onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })} onTestCapability={onTestCapability} />;
+    }
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: '测试功能' }));
+    await user.clear(screen.getByLabelText('模型名称'));
+    await user.type(screen.getByLabelText('模型名称'), 'new-model');
+    await act(async () => { resolveTest({ status: 'succeeded' }); });
+    expect(screen.queryByRole('button', { name: '测试成功' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '测试功能' })).toBeEnabled();
+  });
+
+  it('explains an unavailable service and prevents testing it', () => {
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = { ...draft.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'chat' };
+    render(<CapabilityBindingEditor draft={draft} profiles={[{ ...profile, status: 'disabled' }]} busy={false}
+      onDraftChange={vi.fn()} onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })} onTestCapability={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '测试功能' })).toBeDisabled();
+    expect(screen.getByText('当前服务不可用，请重新选择模型服务。')).toBeVisible();
+    expect(screen.queryByText('正在自动读取模型列表…')).not.toBeInTheDocument();
   });
 
   it('moves Embedding and rerank configuration into the search index surface', () => {
@@ -519,7 +568,7 @@ describe('Family model settings editors', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /智能搜索 · 默认/ }));
+    expect(screen.getByRole('button', { name: /智能搜索 · 默认/ })).toHaveAttribute('aria-expanded', 'true');
     const embeddingCard = screen.getByRole('heading', { name: '智能搜索 · 默认' }).closest('article');
     if (!embeddingCard) throw new Error('Expected the Embedding editor card.');
     await user.click(within(embeddingCard).getByRole('checkbox', { name: '未启用' }));
@@ -837,7 +886,7 @@ describe('Family model settings editors', () => {
     expect(screen.queryByRole('heading', { name: '智能搜索更新进度' })).not.toBeInTheDocument();
   });
 
-  it('keeps capability test progress and success feedback inside the button', async () => {
+  it('shows capability test progress and completion feedback', async () => {
     const user = userEvent.setup();
     const draft = createEmptyFamilyModelDraft();
     draft.bindings[0] = {
@@ -1044,7 +1093,7 @@ describe('Family model settings editors', () => {
     }));
   });
 
-  it('uses shared dropdowns for image size and response format', async () => {
+  it('uses shared size choices and advanced response format settings', async () => {
     const user = userEvent.setup();
     const onDraftChange = vi.fn();
     render(
@@ -1059,7 +1108,8 @@ describe('Family model settings editors', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /图片生成 · 文字生成/ }));
-    await chooseDropdown(user, '图片尺寸', /^1024 × 1536/);
+    await user.click(screen.getByRole('radio', { name: /竖版/ }));
+    await user.click(screen.getByText('高级设置'));
     await chooseDropdown(user, '返回格式', /^图片链接/);
 
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({

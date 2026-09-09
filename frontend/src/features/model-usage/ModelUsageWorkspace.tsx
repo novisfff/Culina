@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { UserRole } from '../../api/types/modelUsage';
+import type { ModelUsageScope, UserRole } from '../../api/types/modelUsage';
 import { StateBlock } from '../../components/ui-kit';
 import { ModelUsageDesktopView } from './ModelUsageDesktopView';
 import { ModelUsageMobileView } from './ModelUsageMobileView';
@@ -7,15 +7,16 @@ import { ModelUsagePolicyDesktopDrawer } from './ModelUsagePolicyDesktopDrawer';
 import { ModelUsagePolicyMobilePage } from './ModelUsagePolicyMobilePage';
 import { useModelUsagePolicy } from './useModelUsagePolicy';
 import { useModelUsageQueries } from './useModelUsageQueries';
-import type { ModelUsageWorkspaceActions } from './modelUsageWorkspaceViewModel';
+import type { ModelUsageNavigationContext, ModelUsageWorkspaceActions } from './modelUsageWorkspaceViewModel';
 
 export interface ModelUsageWorkspaceProps {
   familyId: string;
   role: UserRole;
   initialPeriod?: string | null;
+  initialScope?: ModelUsageScope;
   isPhoneViewport: boolean;
   onBack: () => void;
-  onOpenRequestLogs?: () => void;
+  onOpenRequestLogs?: (context: ModelUsageNavigationContext) => void;
 }
 
 export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
@@ -24,6 +25,7 @@ export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
     familyId: props.familyId,
     role: props.role,
     initialPeriod: props.initialPeriod,
+    initialScope: props.initialScope,
   });
   const policy = useModelUsagePolicy({ familyId: props.familyId, role: props.role });
   const retry = useCallback(() => {
@@ -93,7 +95,7 @@ export function ModelUsageWorkspace(props: ModelUsageWorkspaceProps) {
         actions={actions}
         onOpenPolicySettings={openPolicySettings}
         onBack={props.onBack}
-        onOpenRequestLogs={props.onOpenRequestLogs ?? (() => undefined)}
+        onOpenRequestLogs={() => props.onOpenRequestLogs?.({ period: queries.period, scope: queries.scope })}
       />
       {isPolicySettingsOpen && queries.isOwner && !props.isPhoneViewport ? (
         <ModelUsagePolicyDesktopDrawer onClose={closePolicySettings} settings={policySettings} />

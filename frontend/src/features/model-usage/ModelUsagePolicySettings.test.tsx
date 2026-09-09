@@ -163,6 +163,19 @@ describe('ModelUsagePolicySettings', () => {
     view.unmount();
   });
 
+  it('marks edits as unsaved while leaving the saved policy unchanged', async () => {
+    resolveOwner();
+    const user = userEvent.setup();
+    renderPolicySettings();
+    await screen.findByRole('heading', { name: '家庭模型用量' });
+    await user.click(screen.getByRole('button', { name: '预算设置' }));
+    expect(screen.getByText('与已保存设置一致')).toBeVisible();
+    await user.clear(screen.getByLabelText('家庭月预算（元）'));
+    await user.type(screen.getByLabelText('家庭月预算（元）'), '120');
+    expect(screen.getByText('有未保存修改')).toBeVisible();
+    expect(modelUsageApi.updateFamilyModelUsagePolicy).not.toHaveBeenCalled();
+  });
+
   it('shows a concise policy summary and hides storage precision from the editable budget', async () => {
     resolveOwner();
     const user = userEvent.setup();

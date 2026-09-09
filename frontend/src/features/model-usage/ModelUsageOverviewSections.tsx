@@ -13,6 +13,7 @@ import {
   formatModelUsageCny,
   formatModelUsageTrackingStartedAt,
 } from './modelUsageModel';
+import { modelUsageBudgetBalance } from './modelUsagePresentationModel';
 import { ModelUsageHealth } from './ModelUsageHealth';
 
 type ModelUsageOverview = ModelUsagePersonalOverview | ModelUsageFamilyOverview;
@@ -63,9 +64,7 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
     );
   }
 
-  const budgetNum = props.overview.monthly_budget_cny ? Number(props.overview.monthly_budget_cny) : null;
-  const effectiveNum = Number(props.overview.effective_spend_cny || '0');
-  const usageRatio = budgetNum && budgetNum > 0 ? Math.min(Math.max((effectiveNum / budgetNum) * 100, 0), 100) : null;
+  const balance = modelUsageBudgetBalance(props.overview.monthly_budget_cny, props.overview.effective_spend_cny);
 
   return (
     <section className="model-usage-summary model-usage-summary-family" aria-labelledby="model-usage-summary-heading">
@@ -73,29 +72,34 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
         <p id="model-usage-summary-heading">{month}已计入费用</p>
         <strong className="model-usage-number">{recordedCost}</strong>
         {startedAt ? <small>{startedAt}</small> : null}
+        <small>{props.overview.pricing_complete ? '已记录的模型费用' : `另有 ${props.overview.unpriced_event_count} 次请求尚未定价`}</small>
       </div>
       <div className="model-usage-summary-budget">
         <div className="model-usage-summary-budget-head">
           <div className="model-usage-summary-budget-title">
             <span>家庭额度</span>
-            {usageRatio !== null ? (
+            {balance !== null ? (
               <small className="model-usage-budget-percent">
-                已用 {usageRatio < 0.1 && usageRatio > 0 ? '<0.1' : usageRatio.toFixed(1)}%
+                已用 {balance.percentage}%
               </small>
             ) : null}
           </div>
           <StatusBadge tone={props.overview.hard_limit_enabled ? 'info' : 'neutral'}>
-            {props.overview.hard_limit_enabled ? '已开启超额停止' : '仅提醒'}
+            {props.overview.hard_limit_enabled ? '已开启超额停止' : '未开启超额停止'}
           </StatusBadge>
         </div>
-        {usageRatio !== null ? (
+        {balance !== null ? (
           <div className="model-usage-budget-progress" aria-hidden="true">
             <div
-              className={`model-usage-budget-progress-fill ${usageRatio >= 100 ? 'is-danger' : usageRatio >= 80 ? 'is-warning' : ''}`}
-              style={{ width: `${Math.max(usageRatio, usageRatio > 0 ? 2 : 0)}%` }}
+              className={`model-usage-budget-progress-fill ${balance.progress >= 100 ? 'is-danger' : balance.progress >= 80 ? 'is-warning' : ''}`}
+              style={{ width: `${balance.progress}%` }}
             />
           </div>
         ) : null}
+        <div className={`model-usage-budget-balance ${balance?.exceeded ? 'is-exceeded' : ''}`}>
+          <span>{balance ? balance.exceeded ? '超出预算' : '剩余额度' : props.overview.monthly_budget_cny === null ? '月预算未设置' : '暂无预算余额'}</span>
+          <strong>{balance ? formatModelUsageCny(balance.amount) : '按实际使用记录'}</strong>
+        </div>
         <dl className="model-usage-summary-metrics">
           <div className="model-usage-summary-metric">
             <dt>月预算</dt>
@@ -112,6 +116,7 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
             <dd className="model-usage-number">{formatModelUsageCny(props.overview.effective_spend_cny)}</dd>
           </div>
         </dl>
+        <p className="model-usage-budget-explainer">预留费用用于进行中的请求；计入额度包含预留费用，用于检查预算上限。</p>
       </div>
     </section>
   );

@@ -366,25 +366,16 @@ export function DashboardIcon(props: { name: DashboardIconName }) {
     case 'model-usage':
       return (
         <IconBase>
-          <path d="M5 18.5V5.5" />
-          <path d="M5 18.5h14" />
-          <path d="m8 14 3-3 2.5 2 4.5-5" />
-          <path d="M16 8h2v2" />
+          <path d="M4 4v16h16" />
+          <path d="M8 15v-4M13 15V6M18 15V9" />
         </IconBase>
       );
     case 'ai-service':
       return (
         <IconBase>
-          <rect x="5.5" y="5.5" width="13" height="13" rx="3" />
-          <path d="M9 3v2.5" />
-          <path d="M15 3v2.5" />
-          <path d="M9 18.5V21" />
-          <path d="M15 18.5V21" />
-          <path d="M3 9h2.5" />
-          <path d="M18.5 9H21" />
-          <path d="M3 15h2.5" />
-          <path d="M18.5 15H21" />
-          <path d="m12 8.5.8 2.2 2.2.8-2.2.8L12 14.5l-.8-2.2L9 11.5l2.2-.8L12 8.5Z" />
+          <path d="M4 7h3m4 0h9M4 17h9m4 0h3" />
+          <circle cx="9" cy="7" r="2" />
+          <circle cx="15" cy="17" r="2" />
         </IconBase>
       );
     case 'link':

@@ -6,6 +6,8 @@ import type {
 import type { ModelUsageWorkspaceViewModel } from './modelUsageModel';
 import type { ModelUsageTrendWindow } from './modelUsageChartModel';
 
+export type ModelUsageNavigationContext = { period: string; scope: ModelUsageScope };
+
 export type ModelUsageWorkspaceActions = {
   setScope: (scope: ModelUsageScope) => void;
   setPeriod: (period: string) => void;
