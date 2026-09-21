@@ -41,43 +41,29 @@ export function ModelUsageRequestLogsPage(props: Props) {
   const { draftFilters, filters, requestQuery } = logs;
   const isFamilyScope = logs.scope === 'family';
 
-  const [showAdvanced, setShowAdvanced] = useState(!props.isPhoneViewport);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const filtersDirty = ['dateFrom', 'dateTo', 'capability', 'status', 'provider', 'model'].some(
     (key) => draftFilters[key as keyof ModelUsageRequestLogFilters] !== filters[key as keyof ModelUsageRequestLogFilters],
   );
 
   return (
-    <main className={`model-usage-workspace model-usage-request-logs-page ${props.isPhoneViewport ? 'is-mobile' : ''}`}>
+    <main className={`model-usage-workspace model-usage-request-logs-page model-usage-request-ledger ${props.isPhoneViewport ? 'is-mobile' : ''}`}>
       <header className="model-usage-request-page-header">
         <button type="button" className="model-usage-request-page-back" aria-label="返回模型用量" onClick={() => props.onBack({ period: props.initialPeriod ?? currentModelUsagePeriod(), scope: logs.scope })}>
           <DashboardIcon name="arrow-left" />
         </button>
         <div className="model-usage-request-page-copy">
-          <p>模型用量明细</p>
           <h1>请求记录</h1>
-          <small>{isFamilyScope ? '按日期、模型和核对状态查看家庭请求。' : '按日期、功能和核对状态查看我的请求。'}</small>
+          <small>{isFamilyScope ? '查看家庭的每次模型用量与费用' : '查看我的每次模型用量'}</small>
         </div>
-      </header>
-      <section className={`model-usage-request-filters ${showAdvanced ? 'is-expanded' : ''}`} aria-label="请求记录筛选">
-        <div className="model-usage-request-filters-head">
-          <div>
-            <h2>筛选请求</h2>
-            <p>{isFamilyScope ? '按时间和模型条件定位记录' : '按时间和功能条件定位记录'}</p>
-          </div>
           {logs.isOwner ? (
             <div className="model-usage-scope-toggle" aria-label="记录范围">
               <button type="button" aria-pressed={logs.scope === 'family'} onClick={() => logs.actions.setScope('family')}>家庭</button>
               <button type="button" aria-pressed={logs.scope === 'me'} onClick={() => logs.actions.setScope('me')}>我的</button>
             </div>
           ) : null}
-        </div>
-        <div className="model-usage-request-filter-summary">
-          <span>已应用：{filters.dateFrom} 至 {filters.dateTo} · {capabilityOptions.find((option) => option.value === filters.capability)?.label} · {statusOptions.find((option) => option.value === filters.status)?.label}
-            {filters.provider ? ` · 服务：${filters.provider}` : ''}{filters.model ? ` · 模型：${filters.model}` : ''}
-          </span>
-          <button type="button" className="tertiary-button" aria-expanded={showAdvanced} aria-controls="model-usage-advanced-filters"
-            onClick={() => setShowAdvanced((current) => !current)}>{showAdvanced ? '收起筛选' : '更多筛选'}</button>
-        </div>
+      </header>
+      <section className={`model-usage-request-filters ${showAdvanced ? 'is-expanded' : ''}`} aria-label="请求记录筛选">
         <form onSubmit={(event) => { event.preventDefault(); logs.actions.applyFilters(); }}>
         <div className="model-usage-request-filters-grid">
           <div className="model-usage-request-filter-field model-usage-request-date-range">
@@ -90,11 +76,11 @@ export function ModelUsageRequestLogsPage(props: Props) {
               onChange={(value) => logs.actions.patchDraftFilters({ dateFrom: value.start, dateTo: value.end })}
             />
           </div>
-          <div id="model-usage-advanced-filters" className="model-usage-request-advanced-fields" hidden={!showAdvanced}>
           <div className="model-usage-request-filter-field model-usage-request-filter-dropdown model-usage-request-capability-filter">
             <span>模型功能</span>
             <DropdownSelect
               ariaLabel="模型功能"
+              triggerAriaLabel="模型功能"
               value={draftFilters.capability}
               options={capabilityOptions}
               placeholder="全部功能"
@@ -107,6 +93,7 @@ export function ModelUsageRequestLogsPage(props: Props) {
             <span>核对状态</span>
             <DropdownSelect
               ariaLabel="核对状态"
+              triggerAriaLabel="核对状态"
               value={draftFilters.status}
               options={statusOptions}
               placeholder="全部状态"
@@ -116,7 +103,7 @@ export function ModelUsageRequestLogsPage(props: Props) {
             />
           </div>
           {isFamilyScope ? (
-            <>
+            <div id="model-usage-advanced-filters" className="model-usage-request-advanced-fields" hidden={!showAdvanced}>
               <label className="model-usage-request-provider-filter">
                 <span>模型服务</span>
                 <input
@@ -133,17 +120,26 @@ export function ModelUsageRequestLogsPage(props: Props) {
                   onChange={(event) => logs.actions.patchDraftFilters({ model: event.target.value })}
                 />
               </label>
-            </>
+            </div>
           ) : null}
         </div>
-        </div>
         <div className="model-usage-request-filter-actions">
+          {isFamilyScope ? (
+          <button type="button" className="tertiary-button" aria-expanded={showAdvanced} aria-controls="model-usage-advanced-filters"
+            onClick={() => setShowAdvanced((current) => !current)}>{showAdvanced ? '收起筛选' : '更多筛选'}</button>
+          ) : null}
           <span role="status">{filtersDirty ? '筛选已修改，点击“查看记录”应用。' : requestQuery.isFetching ? '正在更新记录…' : ''}</span>
           <button type="button" onClick={logs.actions.resetFilters}>清除筛选</button>
           <button type="submit" disabled={requestQuery.isFetching && !filtersDirty}>查看记录</button>
         </div>
         </form>
       </section>
+        <div className="model-usage-request-filter-summary">
+          <span>已应用：{filters.dateFrom} 至 {filters.dateTo} · {capabilityOptions.find((option) => option.value === filters.capability)?.label} · {statusOptions.find((option) => option.value === filters.status)?.label}
+            {filters.provider ? ` · 服务：${filters.provider}` : ''}{filters.model ? ` · 模型：${filters.model}` : ''}
+          </span>
+
+        </div>
       {requestQuery.isError ? <StateBlock status="error" title={logs.page ? '请求记录刷新失败' : '请求记录加载失败'}
         description={logs.page ? '保留上次加载的结果，可重新加载。' : '筛选条件已保留，请重新加载或返回用量总览。'}
         actionLabel="重新加载" onAction={() => { void requestQuery.refetch(); }} /> : null}

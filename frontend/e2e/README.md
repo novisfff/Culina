@@ -2,6 +2,8 @@
 
 这里保存阻断式 P0 浏览器测试。当前仅保留核心主页面和关键家庭流程，测试使用标准 Playwright Test runner 和独立的 `e2e/fixtures/apiMocks.mjs`，不依赖预览脚本或外部后端。
 
+唯一测试入口是 `p0-critical-journeys.spec.mjs`。Playwright 配置、P0 命令、截图更新命令和 smoke 命令均固定到该文件；不再保留模型用量、模型配置或布局专项 E2E 文件。共享 API mock 和主流程视觉基线继续由该入口使用。
+
 ## 本地运行
 
 先构建前端，再运行 P0：

@@ -77,6 +77,26 @@ describe('ModelUsage privacy boundaries', () => {
     modelUsageApi.getMyModelUsageRequests.mockResolvedValue(personalPage);
   });
 
+  it.each([false, true])('keeps common filters visible and model filters opt-in (phone=%s)', async (isPhoneViewport) => {
+    const user = userEvent.setup();
+    render(<ModelUsageRequestLogsPage familyId="family-a" role="Owner" initialPeriod="2026-08"
+      isPhoneViewport={isPhoneViewport} onBack={() => undefined} />, { wrapper: wrapper() });
+    await waitFor(() => expect(modelUsageApi.getFamilyModelUsageRequests).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: '模型功能' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '核对状态' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '更多筛选' })).toHaveAttribute('aria-expanded', 'false');
+    await user.click(screen.getByRole('button', { name: '更多筛选' }));
+    await user.type(screen.getByLabelText('模型'), 'test-model');
+    expect(modelUsageApi.getFamilyModelUsageRequests).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/已应用：/)).not.toHaveTextContent('test-model');
+    await user.click(screen.getByRole('button', { name: '查看记录' }));
+    await waitFor(() => expect(modelUsageApi.getFamilyModelUsageRequests).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'test-model' })));
+    expect(screen.getByText(/已应用：/)).toHaveTextContent('test-model');
+    await user.click(screen.getByRole('button', { name: '清除筛选' }));
+    expect(screen.getByLabelText('模型')).toHaveValue('');
+    expect(screen.getByText(/已应用：/)).not.toHaveTextContent('test-model');
+  });
+
   it('keeps a return path and filters when request loading fails', async () => {
     modelUsageApi.getMyModelUsageRequests.mockRejectedValue(new Error('offline'));
     const onBack = vi.fn();
@@ -97,6 +117,18 @@ describe('ModelUsage privacy boundaries', () => {
     expect(screen.queryByText('查看用量明细')).not.toBeInTheDocument();
     expect(screen.getByText('总文本用量')).toBeVisible();
     expect(screen.getByText('60')).toBeVisible();
+  });
+
+  it.each([
+    ['0', 'priced', '¥0.00'],
+    [null, 'priced', '费用待确认'],
+    [null, 'unpriced', '未定价'],
+  ])('distinguishes fee %s with pricing %s', (cost, pricing, label) => {
+    render(<ModelUsageRequestLogs page={{ ...personalPage, scope: 'family', items: [{
+      ...personalPage.items[0], provider: 'private', requested_model: 'private', billing_model: 'private',
+      cost_cny: cost, pricing_status: pricing!,
+    }] }} />);
+    expect(screen.getByText(label!)).toBeVisible();
   });
 
   it('shows readable usage without internal identifiers in family records', () => {

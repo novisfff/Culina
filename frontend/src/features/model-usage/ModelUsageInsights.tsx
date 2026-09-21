@@ -1,4 +1,5 @@
-import { useId, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
+import { DashboardIcon } from '../../app/shellIcons';
 import type {
   ModelUsageBreakdownItem,
   ModelUsageFamilyOverview,
@@ -18,87 +19,54 @@ function CapabilityDistribution(props: {
   items: ModelUsageBreakdownItem[];
   isLoading: boolean;
 }) {
-  const chartId = useId();
   const distribution = buildCapabilityCostDistribution(props.items);
-  const pricedEntries = distribution.entries.filter((entry) => entry.sharePercent > 0);
-  let segmentOffset = 0;
 
   if (props.isLoading && props.items.length === 0) {
     return <div className="model-usage-insight-empty" role="status">正在加载功能费用分布。</div>;
   }
 
+  if (distribution.entries.length === 0) {
+    return (
+      <div className="model-usage-distribution-empty">
+        <DashboardIcon name="bar-chart" />
+        <strong>{props.items.length ? '暂无可分配的费用' : '暂无功能费用记录'}</strong>
+        <p>有已计入的功能费用后，会在这里显示占比。用量记录仍可在下方查看。</p>
+      </div>
+    );
+  }
+
   return (
     <div className="model-usage-capability-distribution">
-      <div className="model-usage-donut-wrap">
-        <svg
-          className="model-usage-donut"
-          viewBox="0 0 120 120"
-          role="img"
-          aria-labelledby={`${chartId}-title`}
-          aria-describedby={`${chartId}-desc`}
-        >
-          <title id={`${chartId}-title`}>功能费用分布图</title>
-          <desc id={`${chartId}-desc`}>
-            本统计周期已计入费用合计 {formatModelUsageCny(distribution.totalCostCny)}，按模型功能展示费用占比。
-          </desc>
-          <circle className="model-usage-donut-track" cx="60" cy="60" r="45" pathLength="100" />
-          {pricedEntries.map((entry) => {
-            const offset = segmentOffset;
-            segmentOffset += entry.sharePercent;
-            return (
-              <circle
-                key={entry.capability}
-                className={`model-usage-donut-segment capability-tone-${entry.capability}`}
-                cx="60"
-                cy="60"
-                r="45"
-                pathLength="100"
-                strokeDasharray={`${Math.max(0, entry.sharePercent - 0.8)} ${100 - Math.max(0, entry.sharePercent - 0.8)}`}
-                strokeDashoffset={-offset}
-              />
-            );
-          })}
-        </svg>
-        <span className="model-usage-donut-center" aria-hidden="true">
-          <small>已计入</small>
-          <strong>{formatModelUsageCny(distribution.totalCostCny)}</strong>
-        </span>
-      </div>
-
-      {distribution.entries.length ? (
-        <ol className="model-usage-capability-ranking">
-          {distribution.entries.map((entry) => {
-            const value = entry.sharePercent > 0
-              ? formatModelUsageCny(entry.costCny)
-              : entry.pricingComplete ? formatModelUsageCny(entry.costCny) : '未定价';
-            return (
-              <li key={entry.capability}>
-                <span className={`model-usage-capability-dot capability-tone-${entry.capability}`} aria-hidden="true" />
-                <div className="model-usage-capability-rank-body">
-                  <span className="model-usage-capability-rank-head">
-                    <strong>{entry.label}</strong>
-                    <strong>{value}</strong>
-                  </span>
-                  <span className="model-usage-capability-share-track" aria-hidden="true">
-                    <span
-                      className={`capability-tone-${entry.capability}`}
-                      style={{ '--model-usage-share': `${entry.sharePercent}%` } as CSSProperties}
-                    />
-                  </span>
-                  <small className="model-usage-capability-rank-meta">
-                    {entry.sharePercent > 0 ? `${entry.sharePercent}%` : '暂不计入占比'}
-                    {!entry.pricingComplete && entry.unpricedEventCount > 0
-                      ? ` · 另有 ${entry.unpricedEventCount} 次未定价`
-                      : ''}
-                  </small>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      ) : (
-        <div className="model-usage-insight-empty">本统计周期还没有可绘制的已定价功能费用。</div>
-      )}
+      <ol className="model-usage-capability-ranking">
+        {distribution.entries.map((entry) => {
+          const value = entry.sharePercent > 0
+            ? formatModelUsageCny(entry.costCny)
+            : entry.pricingComplete ? formatModelUsageCny(entry.costCny) : '未定价';
+          return (
+            <li key={entry.capability}>
+              <span className={`model-usage-capability-dot capability-tone-${entry.capability}`} aria-hidden="true" />
+              <div className="model-usage-capability-rank-body">
+                <span className="model-usage-capability-rank-head">
+                  <strong>{entry.label}</strong>
+                  <strong>{value}</strong>
+                </span>
+                <span className="model-usage-capability-share-track" aria-hidden="true">
+                  <span
+                    className={`capability-tone-${entry.capability}`}
+                    style={{ '--model-usage-share': `${entry.sharePercent}%` } as CSSProperties}
+                  />
+                </span>
+                <small className="model-usage-capability-rank-meta">
+                  {entry.sharePercent > 0 ? `${entry.sharePercent}%` : '暂不计入占比'}
+                  {!entry.pricingComplete && entry.unpricedEventCount > 0
+                    ? ` · 另有 ${entry.unpricedEventCount} 次未定价`
+                    : ''}
+                </small>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -111,14 +79,11 @@ function MeterOverview(props: { overview: ModelUsageOverview }) {
         <section
           key={group.unit}
           className={`model-usage-meter-group is-${group.unit}`}
-          style={{
-            '--model-usage-meter-weight': Math.min(group.items.length, 5),
-          } as CSSProperties}
         >
           <h4>{group.label}</h4>
           <dl>
             {group.items.map((item) => (
-              <div key={item.meter}>
+              <div key={item.meter} className={item.meter === 'total_tokens' ? 'is-total' : undefined}>
                 <dt>{item.label}</dt>
                 <dd className="model-usage-number">{item.quantityText}</dd>
               </div>
@@ -144,10 +109,9 @@ export function ModelUsageInsights(props: {
     <section className="model-usage-insights" aria-labelledby="model-usage-insights-heading">
       <div className="model-usage-insights-head">
         <div>
-          <p className="model-usage-eyebrow">用量洞察</p>
           <h2 id="model-usage-insights-heading">费用趋势与用量构成</h2>
         </div>
-        <p>功能费用与用量按 {props.overview.period} 统计。</p>
+        <p>功能费用与用量 · {props.overview.period}</p>
       </div>
 
       <div className="model-usage-insights-grid">
@@ -172,7 +136,6 @@ export function ModelUsageInsights(props: {
               <h3 id="model-usage-capability-heading">功能费用分布</h3>
               <p>看清费用主要来自哪些功能</p>
             </div>
-            <span>按费用</span>
           </div>
           <CapabilityDistribution
             items={props.capabilityItems}
@@ -184,9 +147,8 @@ export function ModelUsageInsights(props: {
           <div className="model-usage-insight-card-head">
             <div>
               <h3 id="model-usage-meter-heading">用量明细</h3>
-              <p>核对本统计周期实际记录的模型用量</p>
+              <p>按原始单位记录，缓存用量是输入的一部分，不重复相加</p>
             </div>
-            <span>按用量单位</span>
           </div>
           <MeterOverview overview={props.overview} />
         </article>

@@ -430,6 +430,8 @@ jobs:
         working-directory: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -439,6 +441,43 @@ jobs:
         run: npm ci --prefix frontend
       - name: Prepare frontend governance artifacts
         run: mkdir -p .artifacts
+      - name: Resolve bundle comparison commit
+        id: bundle-base
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          bundle_base="${PR_BASE:-${MERGE_BASE:-$PUSH_BASE}}"
+          if [ -z "$bundle_base" ] || [ "$bundle_base" = "0000000000000000000000000000000000000000" ]; then
+            bundle_base="$(git rev-parse HEAD^)"
+          fi
+          [[ "$bundle_base" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          echo "sha=$bundle_base" >> "$GITHUB_OUTPUT"
+          echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
+      - name: Restore target-branch bundle manifest
+        id: bundle-base-cache
+        uses: actions/cache@v4
+        with:
+          path: .artifacts/bundle-base/frontend-health-manifest.json
+          key: bundle-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.bundle-base.outputs.node }}-${{ steps.bundle-base.outputs.sha }}
+      - name: Checkout comparison source
+        if: steps.bundle-base-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.bundle-base.outputs.sha }}
+          path: .bundle-base
+          sparse-checkout: frontend
+          persist-credentials: false
+      - name: Build comparison manifest with the same Node environment
+        if: steps.bundle-base-cache.outputs.cache-hit != 'true'
+        run: |
+          npm ci --prefix .bundle-base/frontend
+          npm --prefix .bundle-base/frontend run build:manifest
+          mkdir -p .artifacts/bundle-base
+          cp .bundle-base/frontend/dist/.vite/frontend-health-manifest.json .artifacts/bundle-base/frontend-health-manifest.json
+      - name: Remove comparison checkout
+        run: rm -rf .bundle-base
       - name: Generate frontend coverage topology report
         run: npm --prefix frontend run coverage:report
       - name: Generate frontend health report
@@ -449,8 +488,8 @@ jobs:
         run: |
           test -s frontend/dist/.vite/frontend-health-manifest.json
           cp frontend/dist/.vite/frontend-health-manifest.json .artifacts/frontend-health-manifest.json
-      - name: Enforce frontend governance ratchet
-        run: npm --prefix frontend run check:governance -- --mode=ratchet --health="$GITHUB_WORKSPACE/.artifacts/frontend-health.json" --manifest="$GITHUB_WORKSPACE/.artifacts/frontend-health-manifest.json" --coverage="$GITHUB_WORKSPACE/.artifacts/frontend-coverage-topology.json" --result="$GITHUB_WORKSPACE/.artifacts/frontend-governance-result.json"
+      - name: Enforce frontend health and bundle budgets
+        run: npm --prefix frontend run check:governance -- --mode=ratchet --require-base --base-commit="${{ steps.bundle-base.outputs.sha }}" --base-manifest="$GITHUB_WORKSPACE/.artifacts/bundle-base/frontend-health-manifest.json" --health="$GITHUB_WORKSPACE/.artifacts/frontend-health.json" --manifest="$GITHUB_WORKSPACE/.artifacts/frontend-health-manifest.json" --coverage="$GITHUB_WORKSPACE/.artifacts/frontend-coverage-topology.json" --result="$GITHUB_WORKSPACE/.artifacts/frontend-governance-result.json"
       - name: Upload frontend governance artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -460,6 +499,7 @@ jobs:
             .artifacts/frontend-health.json
             .artifacts/frontend-health-manifest.json
             .artifacts/frontend-governance-result.json
+            .artifacts/bundle-base/frontend-health-manifest.json
             .artifacts/frontend-coverage-topology.json
             frontend/coverage/coverage-summary.json
             frontend/coverage/vitest-results.json

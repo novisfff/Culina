@@ -37,6 +37,7 @@ export interface ModelUsageHealthProps {
   health: ModelUsageMeasurementHealth;
   compact?: boolean;
   hideHeading?: boolean;
+  collapsible?: boolean;
 }
 
 export function ModelUsageHealth(props: ModelUsageHealthProps) {
@@ -63,6 +64,28 @@ export function ModelUsageHealth(props: ModelUsageHealthProps) {
       <div className={['model-usage-health', 'is-embedded', props.compact ? 'is-compact' : ''].filter(Boolean).join(' ')}>
         {list}
       </div>
+    );
+  }
+
+  if (props.collapsible) {
+    const counts: Record<string, number> = {
+      estimated: props.health.estimated_event_count,
+      unpriced: props.health.unpriced_event_count,
+      uncertain: props.health.uncertain_attempt_count,
+      pending: props.health.pending_attempt_count,
+      conservative_unknown_execution: props.health.unresolved_unknown_execution_attempt_count,
+      known_unmeasured: props.health.known_unmeasured_attempt_count,
+    };
+    return (
+      <details className="model-usage-health-disclosure model-usage-disclosure" open={props.health.measurement_gap || undefined}>
+        <summary>
+          <span className="model-usage-health-label">需要核对的用量</span>
+          <span className="model-usage-health-counts">{notices.map((notice) => (
+            <span key={notice.kind}>{notice.title}{counts[notice.kind] ? ` · ${counts[notice.kind]}` : ''}</span>
+          ))}</span>
+        </summary>
+        {list}
+      </details>
     );
   }
 

@@ -1,173 +1,230 @@
 {
-  "version": 1,
+  "version": 2,
+  "profiles": {
+    "startup": {
+      "kind": "startup",
+      "js": {
+        "warn": 163840,
+        "fail": 196608
+      },
+      "css": {
+        "warn": 73728,
+        "fail": 98304
+      }
+    },
+    "small": {
+      "kind": "route",
+      "js": {
+        "warn": 32768,
+        "fail": 49152
+      },
+      "css": {
+        "warn": 24576,
+        "fail": 40960
+      }
+    },
+    "standard": {
+      "kind": "route",
+      "js": {
+        "warn": 65536,
+        "fail": 98304
+      },
+      "css": {
+        "warn": 49152,
+        "fail": 65536
+      }
+    },
+    "complex": {
+      "kind": "route",
+      "js": {
+        "warn": 131072,
+        "fail": 196608
+      },
+      "css": {
+        "warn": 65536,
+        "fail": 98304
+      }
+    },
+    "rich": {
+      "kind": "route",
+      "js": {
+        "warn": 196608,
+        "fail": 262144
+      },
+      "css": {
+        "warn": 65536,
+        "fail": 98304
+      }
+    },
+    "composition": {
+      "kind": "aggregate",
+      "js": {
+        "warn": 655360,
+        "fail": 819200
+      },
+      "css": {
+        "warn": 196608,
+        "fail": 262144
+      }
+    }
+  },
+  "total": {
+    "js": {
+      "warn": 786432,
+      "fail": 1048576
+    },
+    "css": {
+      "warn": 262144,
+      "fail": 327680
+    }
+  },
+  "growth": {
+    "startupJs": {
+      "warn": {
+        "bytes": 5120,
+        "ratio": 0.03
+      },
+      "fail": {
+        "bytes": 20480,
+        "ratio": 0.1
+      }
+    },
+    "routeJs": {
+      "warn": {
+        "bytes": 10240,
+        "ratio": 0.05
+      },
+      "fail": {
+        "bytes": 40960,
+        "ratio": 0.15
+      }
+    },
+    "css": {
+      "warn": {
+        "bytes": 3072,
+        "ratio": 0.05
+      },
+      "fail": {
+        "bytes": 10240,
+        "ratio": 0.15
+      }
+    },
+    "aggregateJs": {
+      "warn": {
+        "bytes": 32768,
+        "ratio": 0.05
+      },
+      "fail": {
+        "bytes": 131072,
+        "ratio": 0.2
+      }
+    },
+    "aggregateCss": {
+      "warn": {
+        "bytes": 16384,
+        "ratio": 0.05
+      },
+      "fail": {
+        "bytes": 65536,
+        "ratio": 0.2
+      }
+    }
+  },
   "entries": {
     "main": {
-      "criticalGzipBudget": 112640,
-      "routeTotalGzipBudget": 803230,
-      "cssBudget": 102400,
-      "phase": 5,
+      "profile": "startup",
       "owner": "frontend-platform"
     },
     "app-workspace-composition": {
-      "criticalGzipBudget": 8192,
-      "routeTotalGzipBudget": 724193,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "composition",
       "owner": "frontend-platform"
     },
     "app-overlay-host": {
-      "criticalGzipBudget": 4096,
-      "routeTotalGzipBudget": 219890,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "complex",
       "owner": "frontend-platform"
     },
     "home": {
-      "criticalGzipBudget": 24576,
-      "routeTotalGzipBudget": 186951,
-      "cssBudget": 24576,
-      "phase": 5,
+      "profile": "standard",
       "owner": "home"
     },
     "eat": {
-      "criticalGzipBudget": 49152,
-      "routeTotalGzipBudget": 279299,
-      "cssBudget": 32768,
-      "phase": 5,
+      "profile": "complex",
       "owner": "eat"
     },
     "meal-log": {
-      "criticalGzipBudget": 49152,
-      "routeTotalGzipBudget": 178888,
-      "cssBudget": 32768,
-      "phase": 5,
+      "profile": "standard",
       "owner": "meal"
     },
     "ingredients": {
-      "criticalGzipBudget": 37888,
-      "routeTotalGzipBudget": 254956,
-      "cssBudget": 32768,
-      "phase": 5,
+      "profile": "complex",
       "owner": "ingredients"
     },
     "food": {
-      "criticalGzipBudget": 26624,
-      "routeTotalGzipBudget": 256813,
-      "cssBudget": 24576,
-      "phase": 5,
+      "profile": "complex",
       "owner": "food"
     },
     "ai": {
-      "criticalGzipBudget": 10752,
-      "routeTotalGzipBudget": 180224,
-      "routeMetric": "routeTransferGzipBytes",
-      "cssBudget": 32768,
-      "phase": 5,
+      "profile": "rich",
       "owner": "ai"
     },
     "family-profile": {
-      "criticalGzipBudget": 7168,
-      "routeTotalGzipBudget": 160027,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "small",
       "owner": "family"
     },
     "family-model-settings": {
-      "criticalGzipBudget": 20480,
-      "routeTotalGzipBudget": 158779,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "standard",
       "owner": "family-model-settings"
     },
     "family-model-settings-desktop": {
-      "criticalGzipBudget": 8192,
-      "routeTotalGzipBudget": 158779,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "standard",
       "owner": "family-model-settings"
     },
     "family-model-settings-mobile": {
-      "criticalGzipBudget": 8192,
-      "routeTotalGzipBudget": 158779,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "standard",
       "owner": "family-model-settings"
     },
     "model-usage": {
-      "criticalGzipBudget": 16384,
-      "routeTotalGzipBudget": 214645,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "complex",
       "owner": "model-usage"
     },
     "model-usage-requests": {
-      "criticalGzipBudget": 8192,
-      "routeTotalGzipBudget": 136207,
-      "cssBudget": 8192,
-      "phase": 5,
+      "profile": "small",
       "owner": "model-usage"
     },
     "markdown": {
-      "criticalGzipBudget": 32768,
-      "routeTotalGzipBudget": 32768,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "small",
       "owner": "ai"
     },
     "ai-approval": {
-      "criticalGzipBudget": 24576,
-      "routeTotalGzipBudget": 294758,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "rich",
       "owner": "ai"
     },
     "ai-human-input": {
-      "criticalGzipBudget": 24576,
-      "routeTotalGzipBudget": 294758,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "rich",
       "owner": "ai"
     },
     "ai-debug": {
-      "criticalGzipBudget": 24576,
-      "routeTotalGzipBudget": 133136,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "small",
       "owner": "ai"
     },
     "inventory-operation": {
-      "criticalGzipBudget": 24576,
-      "routeTotalGzipBudget": 171616,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "standard",
       "owner": "inventory"
     },
     "home-dialogs": {
-      "criticalGzipBudget": 16384,
-      "routeTotalGzipBudget": 167470,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "standard",
       "owner": "home"
     },
     "search": {
-      "criticalGzipBudget": 16384,
-      "routeTotalGzipBudget": 130073,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "small",
       "owner": "search"
     },
     "shopping-dialog": {
-      "criticalGzipBudget": 16384,
-      "routeTotalGzipBudget": 138108,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "small",
       "owner": "ingredients"
     },
     "route-overlays": {
-      "criticalGzipBudget": 1024,
-      "routeTotalGzipBudget": 16384,
-      "cssBudget": 16384,
-      "phase": 5,
+      "profile": "small",
       "owner": "frontend-platform"
     }
   }

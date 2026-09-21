@@ -88,6 +88,10 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
             {props.overview.hard_limit_enabled ? '已开启超额停止' : '未开启超额停止'}
           </StatusBadge>
         </div>
+        <div className={`model-usage-budget-balance ${balance?.exceeded ? 'is-exceeded' : ''}`}>
+          <span>{balance ? balance.exceeded ? '超出预算' : '剩余额度' : props.overview.monthly_budget_cny === null ? '月预算未设置' : '暂无预算余额'}</span>
+          <strong>{balance ? formatModelUsageCny(balance.amount) : '按实际使用记录'}</strong>
+        </div>
         {balance !== null ? (
           <div className="model-usage-budget-progress" aria-hidden="true">
             <div
@@ -96,10 +100,10 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
             />
           </div>
         ) : null}
-        <div className={`model-usage-budget-balance ${balance?.exceeded ? 'is-exceeded' : ''}`}>
-          <span>{balance ? balance.exceeded ? '超出预算' : '剩余额度' : props.overview.monthly_budget_cny === null ? '月预算未设置' : '暂无预算余额'}</span>
-          <strong>{balance ? formatModelUsageCny(balance.amount) : '按实际使用记录'}</strong>
-        </div>
+        <div className="model-usage-budget-caption"><span>月预算</span><strong>{props.overview.monthly_budget_cny === null ? '未设置' : formatModelUsageCny(props.overview.monthly_budget_cny)}</strong></div>
+      </div>
+      <details className="model-usage-disclosure model-usage-budget-details">
+        <summary>额度计算说明</summary>
         <dl className="model-usage-summary-metrics">
           <div className="model-usage-summary-metric">
             <dt>月预算</dt>
@@ -117,7 +121,7 @@ export function ModelUsageSummary(props: { overview: ModelUsageOverview }) {
           </div>
         </dl>
         <p className="model-usage-budget-explainer">预留费用用于进行中的请求；计入额度包含预留费用，用于检查预算上限。</p>
-      </div>
+      </details>
     </section>
   );
 }
@@ -142,7 +146,7 @@ export function ModelUsageAttention(props: { overview: ModelUsageOverview; alert
   const hasHealthNotices = actionableModelUsageHealthNotices(props.overview.measurement_health).length > 0;
 
   if (!alert) {
-    return hasHealthNotices ? <ModelUsageHealth health={props.overview.measurement_health} /> : null;
+    return hasHealthNotices ? <ModelUsageHealth health={props.overview.measurement_health} collapsible /> : null;
   }
 
   const title = alert

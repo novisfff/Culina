@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { ModelUsageMeasurementHealth } from '../../api/types';
 import { ModelUsageHealth } from './ModelUsageHealth';
@@ -23,6 +23,19 @@ function health(overrides: Partial<ModelUsageMeasurementHealth> = {}): ModelUsag
 }
 
 describe('ModelUsageHealth', () => {
+  it('offers a compact summary without hiding the estimation count', () => {
+    render(<ModelUsageHealth collapsible health={health({ estimated_event_count: 62 })} />);
+    expect(screen.getByText('含估算用量 · 62')).toBeVisible();
+    expect(screen.getByText('62 次请求使用估算用量，费用可能随后调整。')).not.toBeVisible();
+    fireEvent.click(screen.getByText('需要核对的用量'));
+    expect(screen.getByText('62 次请求使用估算用量，费用可能随后调整。')).toBeVisible();
+  });
+
+  it('keeps a measurement gap expanded even in compact presentation', () => {
+    render(<ModelUsageHealth collapsible health={health({ measurement_gap: true })} />);
+    expect(screen.getByText('该时间段的模型用量明细可能不完整。')).toBeVisible();
+  });
+
   it('renders nothing when every recorded event is exact', () => {
     const { container } = render(<ModelUsageHealth health={health()} />);
 

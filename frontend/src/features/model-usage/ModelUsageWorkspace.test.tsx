@@ -400,6 +400,17 @@ describe('ModelUsageWorkspace', () => {
     expect(screen.queryByText(/暂无需要额外说明的计量状态/)).not.toBeInTheDocument();
   });
 
+  it('keeps budget and remaining balance visible while accounting details can be expanded', async () => {
+    resolveOwner();
+    renderWorkspace();
+    const summary = await screen.findByRole('region', { name: '7 月已计入费用' });
+    expect(within(summary).getByText('剩余额度')).toBeVisible();
+    expect(within(summary).getByText('已预留费用')).not.toBeVisible();
+    fireEvent.click(within(summary).getByText('额度计算说明'));
+    expect(within(summary).getByText('已预留费用')).toBeVisible();
+    expect(within(summary).getByText('计入额度')).toBeVisible();
+  });
+
   it('shows the actual threshold and amounts for a family budget alert', async () => {
     resolveOwner();
     modelUsageApi.getModelUsageAlerts.mockResolvedValue([usageAlert()]);
@@ -426,6 +437,8 @@ describe('ModelUsageWorkspace', () => {
     const summary = await screen.findByRole('region', { name: '7 月已计入费用' });
     expect(within(summary).getByText('¥12.35')).toBeVisible();
     expect(within(summary).queryByText(/另有未定价用量/)).not.toBeInTheDocument();
+    expect(screen.getByText('存在未定价用量 · 1')).toBeVisible();
+    fireEvent.click(screen.getByText('需要核对的用量'));
     expect(screen.getByText('1 次请求还没有定价，暂不计入上方费用。')).toBeVisible();
   });
 

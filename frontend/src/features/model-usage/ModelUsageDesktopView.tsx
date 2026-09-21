@@ -30,7 +30,6 @@ function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scop
       </div>
       <div className="model-usage-header-main-row">
         <div className="model-usage-header-copy">
-          <p className="model-usage-eyebrow">家庭工作区</p>
           <h1>{title}</h1>
           <p className="model-usage-subhead">{props.scope === 'family' ? '查看家庭费用、预算余量与使用明细。' : '查看自己的模型费用与使用明细。'}</p>
         </div>
@@ -44,7 +43,6 @@ function UsageHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'scop
           <label className="model-usage-period-field">
             <span>统计周期</span>
             <div className="model-usage-period-input-wrapper">
-              <DashboardIcon name="calendar" />
               <input
                 aria-label="选择统计周期"
                 type="month"
@@ -68,7 +66,7 @@ export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
   }
   if (props.model.state === 'error') {
     return (
-      <main className="model-usage-workspace model-usage-desktop">
+      <main className="model-usage-workspace model-usage-ledger model-usage-desktop">
         <StateBlock status="error" title="模型用量加载失败" description={props.model.errorMessage} actionLabel="重新加载" onAction={props.actions.retry} />
       </main>
     );
@@ -76,7 +74,7 @@ export function ModelUsageDesktopView(props: ModelUsageWorkspaceViewProps) {
 
   const { overview, breakdown } = props.model;
   return (
-    <main className="model-usage-workspace model-usage-desktop" aria-busy={props.model.isRefreshing || undefined}>
+    <main className="model-usage-workspace model-usage-ledger model-usage-desktop" aria-busy={props.model.isRefreshing || undefined}>
       <UsageHeader {...props} />
       {props.model.isRefreshing ? <p className="model-usage-refresh-status" role="status">正在刷新当前统计周期的数据。</p> : null}
       {props.isOffline || props.model.refreshError ? (
