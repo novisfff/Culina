@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import type { ModelUsageBreakdownItem, ModelUsageMeasurementHealth } from '../../api/types';
 import { ModelUsageTrend } from './ModelUsageTrend';
 
@@ -61,31 +61,34 @@ describe('ModelUsageTrend', () => {
     expect(container.querySelector('.model-usage-trend-area')).toBeInTheDocument();
   });
 
-  it('renders every day including zero values in a horizontally scrollable 30-day track', () => {
+  it('keeps all 30 days available without a horizontal scroll track', () => {
     const { container } = render(
       <ModelUsageTrend
         window={{ startDate: '2026-07-25', endDate: '2026-08-23', periods: ['2026-07', '2026-08'] }}
-        items={[dailyItem('2026-07-25', '1.000000000000'), dailyItem('2026-08-23', '0.000000000000')]}
+        items={[dailyItem('2026-07-25', '1.000000000000')]}
       />,
     );
-
-    expect(container.querySelectorAll('.model-usage-trend-val-badge')).toHaveLength(30);
-    expect(container.querySelectorAll('.model-usage-trend-label')).toHaveLength(30);
-    expect(container.querySelectorAll('.model-usage-trend-val-badge')[1]).toHaveTextContent('¥0.00');
-    expect(screen.getByRole('region', { name: '最近 30 天每日费用，可横向滚动' })).toBeVisible();
-    expect(screen.getByText('左右滑动查看全部 30 天')).toBeVisible();
+    expect(screen.queryByText('左右滑动查看全部 30 天')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.model-usage-trend-val-badge')).toHaveLength(1);
+    fireEvent.click(screen.getByText('查看每日费用'));
+    const table = screen.getByRole('table', { name: '每日费用明细' });
+    expect(table).toBeVisible();
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(30);
+    expect(screen.getByText('7 月 25 日')).toBeVisible();
+    expect(screen.getByText('8 月 23 日')).toBeVisible();
   });
 
-  it('positions the rolling chart at the latest dates after loading completes', () => {
-    const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(1200);
-    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(320);
-    const window = { startDate: '2026-07-25', endDate: '2026-08-23', periods: ['2026-07', '2026-08'] };
-    const { rerender } = render(<ModelUsageTrend window={window} items={[]} isLoading />);
+  it.each([
+    { items: [], message: '这 30 天还没有已计入费用的记录' },
+    { items: [dailyItem('2026-08-23', '0')], message: '这 30 天已计入费用为 ¥0.00' },
+  ])('distinguishes zero-priced records from no records: $message', ({ items, message }) => {
+    render(<ModelUsageTrend window={{ startDate: '2026-07-25', endDate: '2026-08-23', periods: ['2026-07', '2026-08'] }} items={items} />);
+    expect(screen.getByText(message)).toBeVisible();
+    expect(screen.queryByText(/1 天产生了费用/)).not.toBeInTheDocument();
+  });
 
-    rerender(<ModelUsageTrend window={window} items={[]} isLoading={false} />);
-
-    expect(screen.getByRole('region', { name: '最近 30 天每日费用，可横向滚动' }).scrollLeft).toBe(880);
-    scrollWidth.mockRestore();
-    clientWidth.mockRestore();
+  it('does not round a positive sub-cent peak down to a zero-cost label', () => {
+    render(<ModelUsageTrend window={{ startDate: '2026-08-01', endDate: '2026-08-30', periods: ['2026-08'] }} items={[dailyItem('2026-08-23', '0.00001')]} />);
+    expect(screen.getByRole('img', { name: '最近 30 天每日模型费用趋势' })).toHaveAccessibleDescription(/小于 ¥0.01/);
   });
 });

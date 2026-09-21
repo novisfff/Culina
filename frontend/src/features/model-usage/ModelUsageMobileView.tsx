@@ -17,7 +17,6 @@ function CompactHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'sc
           <DashboardIcon name="arrow-left" />
         </button>
         <div>
-          <p>家庭工作区</p>
           <h1>{props.scope === 'family' ? '家庭模型用量' : '我的模型用量'}</h1>
         </div>
 
@@ -38,7 +37,6 @@ function CompactHeader(props: Pick<ModelUsageWorkspaceViewProps, 'isOwner' | 'sc
         <label>
           <span>统计周期</span>
           <div className="model-usage-period-input-wrapper">
-            <DashboardIcon name="calendar" />
             <input
               aria-label="选择统计周期"
               type="month"
@@ -60,13 +58,14 @@ export function ModelUsageMobileView(props: ModelUsageWorkspaceViewProps) {
     return <PageLoadingState title="模型用量" eyebrow={props.scope === 'family' ? '正在加载家庭' : '正在加载我的'} description="正在核对本统计周期的费用和用量明细。" className="model-usage-page-loading" />;
   }
   if (props.model.state === 'error') {
-    return <main className="model-usage-workspace model-usage-mobile model-usage-mobile-state"><StateBlock status="error" title="模型用量加载失败" description={props.model.errorMessage} actionLabel="重新加载" onAction={props.actions.retry} /></main>;
+    return <main className="model-usage-workspace model-usage-ledger model-usage-mobile model-usage-mobile-state"><StateBlock status="error" title="模型用量加载失败" description={props.model.errorMessage} actionLabel="重新加载" onAction={props.actions.retry} /></main>;
   }
 
   const { overview, breakdown } = props.model;
   return (
-    <main className="model-usage-workspace model-usage-mobile" aria-busy={props.model.isRefreshing || undefined}>
+    <main className="model-usage-workspace model-usage-ledger model-usage-mobile" aria-busy={props.model.isRefreshing || undefined}>
       <CompactHeader {...props} />
+      {props.model.isRefreshing ? <p className="model-usage-refresh-status" role="status">正在刷新当前统计周期的数据。</p> : null}
       {props.isOffline || props.model.refreshError ? (
         <p className="model-usage-refresh-error" role="status">
           {props.isOffline ? '当前离线，以下显示已缓存的数据。' : `暂时无法刷新，以下显示最近一次成功加载的数据：${props.model.refreshError}`}

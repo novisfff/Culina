@@ -206,6 +206,13 @@ const METER_GROUPS: ReadonlyArray<{ unit: ModelUsageMeterUnit; label: string }> 
   { unit: 'counts', label: '次数与产出' },
 ];
 
+const METER_DISPLAY_ORDER: readonly ModelUsageMeter[] = [
+  'total_tokens', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'uncached_input_tokens',
+  'embedding_tokens', 'audio_input_tokens', 'audio_output_tokens', 'tts_tokens',
+  'audio_input_seconds', 'audio_output_seconds', 'tts_characters', 'generated_images',
+  'request_units', 'rerank_requests', 'rerank_documents',
+];
+
 export function buildModelUsageMeterGroups(totals: ModelUsageMeterTotal[]): ModelUsageMeterGroup[] {
   const quantities = new Map<ModelUsageMeter, bigint>();
   for (const total of totals) {
@@ -219,9 +226,11 @@ export function buildModelUsageMeterGroups(totals: ModelUsageMeterTotal[]): Mode
     label,
     items: [...quantities.entries()]
       .filter(([meter, quantity]) => METER_UNIT[meter] === unit && quantity > 0n)
+      .sort(([left], [right]) => METER_DISPLAY_ORDER.indexOf(left) - METER_DISPLAY_ORDER.indexOf(right))
       .map(([meter, quantity]) => ({
         meter,
-        label: MODEL_USAGE_METER_OPTIONS[meter].label,
+        // The group heading supplies Token once; avoid repeating units in every cell.
+        label: unit === 'tokens' ? MODEL_USAGE_METER_OPTIONS[meter].label.replace(/\s*（?Token）?$/, '') : MODEL_USAGE_METER_OPTIONS[meter].label,
         quantity: modelUsageScaledIntegerToDecimal(quantity),
         quantityText: formatScaledQuantity(quantity),
       })),

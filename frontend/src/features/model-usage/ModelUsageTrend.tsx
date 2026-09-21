@@ -1,17 +1,15 @@
-import { useEffect, useId, useRef, type CSSProperties } from 'react';
+import { useId } from 'react';
 import type { ModelUsageBreakdownItem } from '../../api/types/modelUsage';
 import { formatModelUsageCny } from './modelUsageModel';
 import {
   buildModelUsageTrendPoints,
-  MODEL_USAGE_TREND_VISIBLE_DAY_COUNT,
   modelUsageScaledIntegerToDecimal,
   type ModelUsageTrendWindow,
 } from './modelUsageChartModel';
 
 function monthDayLabel(date: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) return date;
-  return `${Number(match[2])} 月 ${Number(match[3])} 日`;
+  return match ? `${Number(match[2])} 月 ${Number(match[3])} 日` : date;
 }
 
 export interface ModelUsageTrendProps {
@@ -22,178 +20,77 @@ export interface ModelUsageTrendProps {
 
 export function ModelUsageTrend(props: ModelUsageTrendProps) {
   const chartId = useId();
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const points = buildModelUsageTrendPoints(props.items, props.window);
-  const isScrollable = points.length > MODEL_USAGE_TREND_VISIBLE_DAY_COUNT;
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container || !isScrollable || props.isLoading) return;
-    container.scrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
-  }, [isScrollable, props.isLoading, props.window.endDate, props.window.startDate]);
-
   if (props.isLoading) {
-    return (
-      <div className="model-usage-trend-empty" role="status">
-        正在加载每日趋势。
-      </div>
-    );
+    return <div className="model-usage-trend-empty" role="status">正在加载每日趋势。</div>;
   }
 
-  const highest = points.reduce((current, point) => point.amount > current.amount ? point : current, points[0]!);
-  const maximum = highest.amount > 0n ? highest.amount : 1n;
-  const highestAmountDec = formatModelUsageCny(modelUsageScaledIntegerToDecimal(highest.amount));
+  const highest = points.reduce<(typeof points)[number] | undefined>(
+    (current, point) => !current || point.amount > current.amount ? point : current, undefined,
+  );
+  const maximum = highest && highest.amount > 0n ? highest.amount : 1n;
+  const hasCost = Boolean(highest && highest.amount > 0n);
   const recordedDayCount = points.filter((point) => point.hasRecord).length;
-  const summary = highest.amount > 0n
-    ? `最近 30 天中有 ${recordedDayCount} 天产生了费用。最高单日费用出现在 ${monthDayLabel(highest.date)}，为 ${highestAmountDec}。`
-    : `最近 30 天中有 ${recordedDayCount} 天产生了费用，最高单日为 ${highestAmountDec}。未产生费用的日期也已显示。`;
-
-  const chartWidth = isScrollable
-    ? Math.round(640 * points.length / MODEL_USAGE_TREND_VISIBLE_DAY_COUNT)
-    : 640;
+  const paidDayCount = points.filter((point) => point.amount > 0n).length;
+  const highestCost = formatModelUsageCny(modelUsageScaledIntegerToDecimal(highest?.amount ?? 0n));
+  const summary = hasCost && highest
+    ? `最近 30 天中有 ${paidDayCount} 天产生了费用。最高单日费用出现在 ${monthDayLabel(highest.date)}，为 ${highestCost}。`
+    : recordedDayCount ? '有用量记录不代表产生费用，实际用量可在下方查看。' : '有已计入费用的记录后，将在这里显示每日变化。';
+  const chartWidth = 640;
   const chartHeight = 200;
-  const chartPadding = { top: 32, right: 24, bottom: 36, left: 54 };
-  const plotWidth = chartWidth - chartPadding.left - chartPadding.right;
-  const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom;
-  const step = plotWidth / Math.max(1, points.length);
-
-  // If points are few, keep barWidth controlled and neat
-  const barWidth = points.length === 1 ? 32 : Math.max(12, Math.min(36, step * 0.5));
-  const plottedPoints = points.map((point, index) => {
-    const height = point.amount === 0n
-      ? 0
-      : Math.max(6, Number((point.amount * BigInt(Math.round(plotHeight * 1000))) / maximum) / 1000);
-    return {
-      ...point,
-      height,
-      x: chartPadding.left + step * index + step / 2,
-      y: chartPadding.top + plotHeight - height,
-    };
-  });
-  const linePoints = plottedPoints.map((point) => `${point.x},${point.y}`).join(' ');
-  const areaPath = plottedPoints.length
-    ? `M ${plottedPoints[0]!.x} ${chartPadding.top + plotHeight} L ${linePoints.replace(/,/g, ' ')} L ${plottedPoints.at(-1)!.x} ${chartPadding.top + plotHeight} Z`
+  const padding = { top: 32, right: 28, bottom: 32, left: 60 };
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const step = (chartWidth - padding.left - padding.right) / Math.max(1, points.length - 1);
+  const plotted = points.map((point, index) => ({
+    ...point,
+    x: padding.left + step * index,
+    y: padding.top + plotHeight - Number(point.amount * BigInt(plotHeight * 1000) / maximum) / 1000,
+  }));
+  const line = plotted.map((point) => `${point.x},${point.y}`).join(' ');
+  const area = plotted.length
+    ? `M ${plotted[0]!.x} ${padding.top + plotHeight} L ${line.replace(/,/g, ' ')} L ${plotted.at(-1)!.x} ${padding.top + plotHeight} Z`
     : '';
 
   return (
     <div className="model-usage-trend">
-      {isScrollable ? <p className="model-usage-trend-scroll-hint">左右滑动查看全部 30 天</p> : null}
-      <div
-        ref={scrollContainerRef}
-        className={`model-usage-trend-chart-wrapper ${isScrollable ? 'is-scrollable' : ''}`}
-        role={isScrollable ? 'region' : undefined}
-        aria-label={isScrollable ? '最近 30 天每日费用，可横向滚动' : undefined}
-        tabIndex={isScrollable ? 0 : undefined}
-      >
-        <div
-          className="model-usage-trend-chart-track"
-          style={{
-            '--model-usage-trend-track-width': `${Math.max(100, points.length / MODEL_USAGE_TREND_VISIBLE_DAY_COUNT * 100)}%`,
-          } as CSSProperties}
-        >
-          <svg
-            className="model-usage-trend-chart"
-            role="img"
-            aria-labelledby={`${chartId}-title`}
-            aria-describedby={`${chartId}-desc`}
-            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          >
-          <defs>
-            <linearGradient id={`${chartId}-barGrad`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.95" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.65" />
-            </linearGradient>
-            <linearGradient id={`${chartId}-peakGrad`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent-strong)" stopOpacity="1" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.8" />
-            </linearGradient>
-          </defs>
-            <title id={`${chartId}-title`}>最近 30 天每日模型费用趋势</title>
-            <desc id={`${chartId}-desc`}>{summary}</desc>
-
-          {/* Y-axis gridlines & labels */}
-          <line
-            className="model-usage-trend-gridline"
-            x1={chartPadding.left}
-            x2={chartWidth - chartPadding.right}
-            y1={chartPadding.top}
-            y2={chartPadding.top}
-          />
-          <text className="model-usage-trend-axis-label" x={chartPadding.left - 8} y={chartPadding.top + 4} textAnchor="end">
-            {highestAmountDec}
-          </text>
-
-          <line
-            className="model-usage-trend-gridline"
-            x1={chartPadding.left}
-            x2={chartWidth - chartPadding.right}
-            y1={chartPadding.top + plotHeight / 2}
-            y2={chartPadding.top + plotHeight / 2}
-          />
-          <text className="model-usage-trend-axis-label" x={chartPadding.left - 8} y={chartPadding.top + plotHeight / 2 + 4} textAnchor="end">
-            {formatModelUsageCny(modelUsageScaledIntegerToDecimal(highest.amount / 2n))}
-          </text>
-
-          <line
-            className="model-usage-trend-baseline"
-            x1={chartPadding.left}
-            x2={chartWidth - chartPadding.right}
-            y1={chartPadding.top + plotHeight}
-            y2={chartPadding.top + plotHeight}
-          />
-          <text className="model-usage-trend-axis-label" x={chartPadding.left - 8} y={chartPadding.top + plotHeight + 4} textAnchor="end">
-            ¥0.00
-          </text>
-
-          <path className="model-usage-trend-area" d={areaPath} />
-
-          {/* Bar elements */}
-          {plottedPoints.map((point, index) => {
-            const height = point.height;
-            const x = chartPadding.left + step * index + (step - barWidth) / 2;
-            const y = point.y;
-            const isPeak = point.date === highest.date && highest.amount > 0n;
-            const pointCostStr = formatModelUsageCny(modelUsageScaledIntegerToDecimal(point.amount));
-
+      <div className="model-usage-trend-chart-wrapper">
+        <svg className="model-usage-trend-chart" role="img" aria-labelledby={`${chartId}-title`} aria-describedby={`${chartId}-desc`} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+          <title id={`${chartId}-title`}>最近 30 天每日模型费用趋势</title>
+          <desc id={`${chartId}-desc`}>{summary}</desc>
+          {[0, 0.5, 1].map((fraction) => {
+            const y = padding.top + plotHeight * fraction;
             return (
-              <g key={point.date} className="model-usage-trend-group">
-                <rect
-                  className={`model-usage-trend-bar ${isPeak ? 'is-peak' : ''}`}
-                  x={x}
-                  y={y}
-                  width={barWidth}
-                  height={height}
-                  rx="6"
-                  fill={`url(#${chartId}-${isPeak ? 'peakGrad' : 'barGrad'})`}
-                />
-                {/* Value badge over top of bar */}
-                <text
-                  className="model-usage-trend-val-badge"
-                  x={x + barWidth / 2}
-                  y={Math.max(14, y - 8)}
-                  textAnchor="middle"
-                >
-                  {pointCostStr}
-                </text>
-                <text
-                  className={`model-usage-trend-label ${isPeak ? 'is-peak-label' : ''}`}
-                  x={x + barWidth / 2}
-                  y={chartHeight - 12}
-                  textAnchor="middle"
-                >
-                  {monthDayLabel(point.date).replace(' 月 ', '/').replace(' 日', '')}
-                </text>
+              <g key={fraction}>
+                <line className="model-usage-trend-gridline" x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} />
+                {hasCost && fraction === 1 ? <text className="model-usage-trend-axis-label" x={padding.left - 8} y={y + 4} textAnchor="end">¥0</text> : null}
               </g>
             );
           })}
-          <polyline className="model-usage-trend-line" points={linePoints} />
-          {plottedPoints.map((point) => (
-            <circle key={`${point.date}-point`} className="model-usage-trend-point" cx={point.x} cy={point.y} r="3" />
-          ))}
-          </svg>
-        </div>
+          {hasCost ? <><path className="model-usage-trend-area" d={area} /><polyline className="model-usage-trend-line" points={line} /></> : null}
+          {plotted.map((point, index) => {
+            const isPeak = hasCost && point.date === highest?.date;
+            const showDate = index === 0 || index === plotted.length - 1 || (index % 6 === 0 && index < plotted.length - 3);
+            return (
+              <g key={point.date}>
+                <title>{monthDayLabel(point.date)}：{formatModelUsageCny(modelUsageScaledIntegerToDecimal(point.amount))}</title>
+                {isPeak ? <><circle className="model-usage-trend-point" cx={point.x} cy={point.y} r="4" /><text className="model-usage-trend-val-badge" x={point.x} y={point.y - 12} textAnchor={index > plotted.length - 5 ? 'end' : index < 4 ? 'start' : 'middle'}>{highestCost}</text></> : null}
+                {showDate ? <text className="model-usage-trend-label" x={point.x} y={chartHeight - 8} textAnchor="middle">{monthDayLabel(point.date).replace(' 月 ', '/').replace(' 日', '')}</text> : null}
+              </g>
+            );
+          })}
+        </svg>
+        {!hasCost ? <div className="model-usage-trend-zero"><strong>{recordedDayCount ? '这 30 天已计入费用为 ¥0.00' : '这 30 天还没有已计入费用的记录'}</strong></div> : null}
       </div>
       <p className="model-usage-trend-summary">{summary}</p>
+      <details className="model-usage-disclosure model-usage-daily-details">
+        <summary>查看每日费用</summary>
+        <div className="model-usage-daily-scroll" tabIndex={0} role="region" aria-label="每日费用明细，可纵向滚动">
+          <table aria-label="每日费用明细">
+            <thead><tr><th scope="col">日期</th><th scope="col">已计入费用</th></tr></thead>
+            <tbody>{points.map((point) => <tr key={point.date}><th scope="row">{monthDayLabel(point.date)}</th><td>{formatModelUsageCny(modelUsageScaledIntegerToDecimal(point.amount))}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </details>
     </div>
   );
 }

@@ -84,6 +84,20 @@ describe('buildCapabilityCostDistribution', () => {
 });
 
 describe('buildModelUsageMeterGroups', () => {
+  it('presents token totals before their input/output and cache breakdown, regardless of response order', () => {
+    const groups = buildModelUsageMeterGroups([
+      { meter: 'cached_input_tokens', quantity: '400' },
+      { meter: 'embedding_tokens', quantity: '20' },
+      { meter: 'output_tokens', quantity: '300' },
+      { meter: 'total_tokens', quantity: '1300' },
+      { meter: 'uncached_input_tokens', quantity: '600' },
+      { meter: 'input_tokens', quantity: '1000' },
+    ]);
+    expect(groups[0]?.items.map((item) => item.meter)).toEqual([
+      'total_tokens', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'uncached_input_tokens', 'embedding_tokens',
+    ]);
+  });
+
   it('groups comparable units without calculating a cross-unit percentage', () => {
     const totals: ModelUsageMeterTotal[] = [
       { meter: 'input_tokens', quantity: '3200.000000000000' },
