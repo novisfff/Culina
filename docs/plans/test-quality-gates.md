@@ -45,7 +45,7 @@ npm run frontend:e2e:p0
 - `backend:test:search` 单独覆盖 search provider、keyword/vector/rerank 和索引任务。
 - `frontend:test` 是前端 Vitest 单元/组件测试。
 - `frontend:build` 是 TypeScript、Vite build 和 bundle budget 检查。
-- `frontend:e2e:p0` 是 Playwright 端到端关键路径检查，应作为独立的阻断式 check 展示，不和 Vitest 单元测试合并。
+- `frontend:e2e:p0` 只运行 `frontend/e2e/p0-critical-journeys.spec.mjs` 的主要页面关键流程，应作为独立的阻断式 check 展示，不和 Vitest 单元测试合并。
 
 当前 GitHub Actions workflow 位于 `.github/workflows/quality-gates.yml`。`Frontend E2E P0` 不使用 `continue-on-error`，失败会阻止回归合并；其 HTML 报告通过受信任的发布工作流提供 PR 固定入口。
 

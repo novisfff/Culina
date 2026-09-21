@@ -8,6 +8,8 @@ const reportDir = process.env.PLAYWRIGHT_HTML_OUTPUT_DIR || 'playwright-report';
 const retainFailureEvidence = process.env.PLAYWRIGHT_DISABLE_FAILURE_EVIDENCE !== '1';
 export default defineConfig({
   testDir: './e2e',
+  // P0 intentionally covers only the main-page critical journeys.
+  testMatch: 'p0-critical-journeys.spec.mjs',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
