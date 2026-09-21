@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -121,6 +121,9 @@ function parseArguments(argv) {
     if (argument.startsWith('--mode=')) options.mode = argument.slice('--mode='.length);
     else if (argument.startsWith('--health=')) options.healthPath = argument.slice('--health='.length);
     else if (argument.startsWith('--manifest=')) options.manifestPath = argument.slice('--manifest='.length);
+    else if (argument.startsWith('--base-manifest=')) options.baseManifestPath = argument.slice('--base-manifest='.length);
+    else if (argument.startsWith('--base-commit=')) options.expectedBaseCommit = argument.slice('--base-commit='.length);
+    else if (argument === '--require-base') options.requireBase = true;
     else if (argument.startsWith('--baseline=')) options.baselinePath = argument.slice('--baseline='.length);
     else if (argument.startsWith('--config=')) options.configPath = argument.slice('--config='.length);
     else if (argument.startsWith('--rollout=')) options.rolloutPath = argument.slice('--rollout='.length);
@@ -167,6 +170,9 @@ async function runCli() {
     bundle = await runBundleBudgetCheck({
       mode: options.mode,
       manifestPath: options.manifestPath,
+      baseManifestPath: options.baseManifestPath,
+      expectedBaseCommit: options.expectedBaseCommit,
+      requireBase: options.requireBase,
       baselinePath: options.baselinePath,
       configPath: options.configPath,
       rolloutPath: options.rolloutPath,
@@ -178,6 +184,13 @@ async function runCli() {
       violations: [{ reason: error instanceof Error ? error.message : String(error) }],
       manifestErrors: [],
     };
+  }
+  if (bundle.summary) {
+    process.stdout.write(bundle.summary);
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, bundle.summary);
+  }
+  for (const item of bundle.violations ?? []) {
+    process.stderr.write(`[bundle] ${item.entry ?? ''} ${item.metric ?? ''}: ${item.reason ?? item.type ?? 'budget violation'} current=${item.current ?? 'n/a'} allowed=${item.allowed ?? 'n/a'} delta=${item.delta ?? 'n/a'}\n`);
   }
   const result = await runFrontendGovernance({
     healthPath: options.healthPath,

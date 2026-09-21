@@ -70,3 +70,7 @@ PR 可以添加 `full-gates` 标签强制执行全量相关门禁。分类器会
 - Media/MinIO：单测通过本地 fake、内存对象或测试 fixture 覆盖，只有部署/集成环境连接真实服务。
 
 当前后端测试已通过 `backend/tests/conftest.py` 统一隔离 search provider 默认值；新增测试如需启用 provider，必须在用例内显式 patch settings，并使用 fake transport 或 monkeypatch。
+
+### Bundle 预算 v2
+
+Frontend Governance 保留结构健康与覆盖率检查；bundle 检查改为目标分支增量 + 分档绝对预算，不再使用历史 bundle 快照的固定 16 KiB 容差。详细口径、页面校准表和本地复现方式见 [前端体积预算 v2](frontend-bundle-budgets.md)。

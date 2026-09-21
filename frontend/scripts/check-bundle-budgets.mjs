@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { evaluateBundlePolicy } from './bundle-policy.mjs';
 import { readHealthBaseline } from './frontend-health-baseline.mjs';
 import { resolveEntryMode, validateBudgetRolloutState } from './budget-rollout-state.mjs';
 
@@ -219,6 +220,9 @@ export async function runBundleBudgetCheck({
   mode = 'report',
   manifestPath = DEFAULT_MANIFEST_PATH,
   baselinePath = DEFAULT_BASELINE_PATH,
+  baseManifestPath,
+  requireBase = false,
+  expectedBaseCommit,
   configPath = DEFAULT_CONFIG_PATH,
   completedPhase = 0,
   rolloutPath,
@@ -230,6 +234,16 @@ export async function runBundleBudgetCheck({
   if (!MODES.has(mode)) throw new Error(`unknown mode: ${mode}`);
   assertNonNegativeInteger(completedPhase, 'completedPhase');
   const manifest = validateManifest(readJson(manifestPath));
+  const policy = readJson(configPath);
+  if (policy.version === 2) {
+    const result = evaluateBundlePolicy({ manifest, policy,
+      baseManifest: baseManifestPath ? readJson(baseManifestPath) : undefined,
+      requireBase, expectedBaseCommit });
+    result.violations.push(...publicAssetViolations(publicAssetDirs));
+    // "report" is explicitly informational; regular build and governance enforce v2.
+    result.exitCode = mode === 'report' ? 0 : result.violations.length ? 1 : 0;
+    return result;
+  }
   const baseline = await readHealthBaseline(baselinePath);
   const config = validateBudgetConfig(readJson(configPath));
   const rollout = rolloutPath ? validateBudgetRolloutState(readJson(rolloutPath), config) : null;
@@ -277,6 +291,7 @@ function formatDiagnostic(item) {
     item.source ? `source=${item.source}` : null,
     item.targetGap ? 'targetGap=true' : null,
     item.type ? `type=${item.type}` : null,
+    item.reason ? `reason=${item.reason}` : null,
   ].filter(Boolean);
   return values.join(' ');
 }
@@ -287,6 +302,9 @@ function parseArguments(argv) {
   for (const argument of argv) {
     if (argument.startsWith('--mode=')) options.mode = argument.slice('--mode='.length);
     else if (argument.startsWith('--manifest=')) options.manifestPath = argument.slice('--manifest='.length);
+    else if (argument.startsWith('--base-manifest=')) options.baseManifestPath = argument.slice('--base-manifest='.length);
+    else if (argument.startsWith('--base-commit=')) options.expectedBaseCommit = argument.slice('--base-commit='.length);
+    else if (argument === '--require-base') options.requireBase = true;
     else if (argument.startsWith('--baseline=')) options.baselinePath = argument.slice('--baseline='.length);
     else if (argument.startsWith('--config=')) options.configPath = argument.slice('--config='.length);
     else if (argument.startsWith('--rollout=')) options.rolloutPath = argument.slice('--rollout='.length);
@@ -302,6 +320,7 @@ function parseArguments(argv) {
 async function runCli() {
   const options = parseArguments(process.argv.slice(2));
   const result = await runBundleBudgetCheck(options);
+  if (result.summary) process.stdout.write(result.summary);
   for (const warning of result.warnings) process.stdout.write(`[warning] ${formatDiagnostic(warning)}\n`);
   for (const manifestError of result.manifestErrors) {
     const output = options.mode === 'report' ? process.stdout : process.stderr;
