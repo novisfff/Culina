@@ -100,3 +100,38 @@ npm run backend:migrate-media
 ```
 
 脚本会读取 `media_assets.file_path` 中仍指向本地文件的记录，把文件上传到 MinIO，并把 `file_path` 更新为 MinIO object key、把 `url` 更新为 `/media/...`。迁移成功后，前端图片访问会统一经过 nginx 的 `/media/...` 代理。
+
+
+## AI Run 租约版本的首次升级
+
+`c5d6e7f8a9b0` 新增 `ai_run_execution_leases`。首次发布这项变更时：
+
+1. 停止接收新的聊天/恢复请求，尽量让正在执行的业务提交结束。
+2. **停止全部旧版后端执行进程**，不要与没有 fence 的旧版本滚动混跑。旧线程可能已经向外部模型发出请求，停止进程不代表请求未计费。
+3. 执行 Alembic migration（Compose 后端入口会执行），再启动全部新版本实例。
+4. 验证后台 `ai-run-recovery` 扫描正常，关注 `Recovered abandoned AI run` 和 `AI Run recovery scan failed` 日志。回收器不会自动调用模型或重跑业务。
+
+默认 `AI_RUN_LEASE_SECONDS=90`、`AI_RUN_HEARTBEAT_SECONDS=15`、`AI_RUN_RECOVERY_INTERVAL_SECONDS=10`。租约至少覆盖三个心跳周期；心跳和扫描间隔必须为正值。修改时需显式传入后端容器环境。数据库正常且无持续锁冲突时，失联记录通常在最后一次成功心跳后约 90～100 秒收口；未领取记录与恢复 claim 也有宽限期。普通待审批/待输入无需持续心跳。
+
+结果未知会进入 failed 并告知未自动重发、手动重试可能再次计费。待确认项、已提交业务和已有结果卡保留；取消中的孤儿任务会完成取消。不要直接批量重置状态或重放旧 prompt。
+
+回滚同样先停止所有新版本执行进程；旧版本运行时不再提供上述恢复与 fence 保证。不要让新版本进程在租约表被降级删除后继续运行。
+
+真实锁验证需要专用 MySQL 测试库（库名以 `_test` 结尾）：
+
+```bash
+cd backend
+# CULINA_TEST_MYSQL_URL 通过受控环境注入，不写入仓库。
+.venv/bin/python -m pytest -q tests/ai_infra/test_run_execution_mysql.py tests/ai_infra/test_human_input_resume_mysql_concurrency.py
+```
+
+这些测试不调用真实模型。内存 SQLite 测试不能证明 InnoDB 锁、跨实例时钟或真实并发行为；共享单连接的 SQLite fixture 不启动后台心跳，以免提交其他 Session 的事务。
+
+## Provider 上游实时流式版本
+
+本项不增加数据库迁移；更新后端依赖并重启后端。`httpcore==1.0.9` 是原 httpx 底层依赖的显式版本约束，流式出口代理通过其公开 NetworkBackend 保留 CONNECT 后的目标域名证书验证。升级 httpcore 时需同时跑 `test_provider_stream_tls.py`。
+
+- 配置 `FAMILY_MODEL_EGRESS_PROXY_URL` 时，代理必须支持指向**已授权 IP:port** 的 CONNECT（HTTPS 目标）和 absolute-form 请求（HTTP 目标）；不能依赖目标域名重新做 DNS。原始域名仍用于 Host/SNI 和证书校验。如果代理 ACL 只接受域名 CONNECT，发布前需调整受控出口规则，不得通过关闭证书校验或恢复未固定 DNS 绕过。
+- 上游需支持 identity 编码和标准 SSE 结束标记；非合规压缩响应、超限、截断或非法 SSE 会失败关闭，不自动重发。计费记录保持 uncertain，正常结束且缺少 usage 才沿用 estimated 结算。
+- 沿用现有连接/读取超时配置。响应头返回前的取消仍受连接/请求超时约束；进入响应体后，取消轮询在调用线程运行，空闲读取也能主动中断。浏览器断线仍不取消持久 Run。
+- 本地回归覆盖直连、HTTP 出口代理和 HTTPS 出口代理的真实 socket/TLS 行为，不能代替实际部署代理/CDN 是否额外缓冲的验收。发布后可用无副作用短提示词检查首字到达时间；未知结果不要自动重试探测。

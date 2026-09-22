@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.ai.runtime.execution_guard import check_dispatch_guard
+
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -15,7 +17,7 @@ from app.ai.errors import (
     ToolBudgetHardStop,
 )
 from app.ai.runtime.messages import field_value, openai_chat_content, openai_chat_messages
-from app.ai.runtime.family_transport import DeferredBindingTransport
+from app.ai.runtime.family_transport import DeferredBindingTransport, closing_provider_stream
 from app.ai.runtime.prompt_cache import (
     UnsupportedOptionalProviderParameter,
     canonical_json,
@@ -153,6 +155,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         *,
         permit: DispatchPermit | None,
     ) -> Any:
+        check_dispatch_guard()
         deferred_transport = getattr(self, "_deferred_transport", None)
         if deferred_transport is not None:
             return deferred_transport.request_json(
@@ -776,6 +779,7 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                         exchange.fail(error_code="provider_stream_failed", error_message=str(exc), response_message={})
                     retrying = (
                         metered_attempt is None
+                        and getattr(self, "_deferred_transport", None) is None
                         and attempt < STREAM_TOOL_CALL_RETRY_COUNT
                         and not streamed_text_this_attempt
                     )
@@ -820,7 +824,10 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     )
                 if response.text.strip() or response.tool_calls:
                     break
-                retrying = attempt < STREAM_TOOL_CALL_RETRY_COUNT
+                retrying = (
+                    getattr(self, "_deferred_transport", None) is None
+                    and attempt < STREAM_TOOL_CALL_RETRY_COUNT
+                )
                 logger.warning(
                     "AI provider streaming tool-call returned empty response model=%s round=%s attempt=%s/%s retrying=%s tool_count=%s requested_calls=%s",
                     self.model_name,
@@ -998,37 +1005,38 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
         chunks = streamed_text_parts if streamed_text_parts is not None else []
         tool_chunks: dict[str, dict[str, str]] = {}
         token_usage: dict[str, Any] | None = None
-        for raw_chunk in stream:
-            chunk = raw_chunk.model_dump() if hasattr(raw_chunk, "model_dump") else raw_chunk
-            if not isinstance(chunk, dict):
-                continue
-            usage = chunk.get("usage")
-            if isinstance(usage, dict):
-                token_usage = usage
-            choices = chunk.get("choices") if isinstance(chunk.get("choices"), list) else []
-            for choice in choices:
-                if not isinstance(choice, dict):
+        with closing_provider_stream(stream):
+            for raw_chunk in stream:
+                chunk = raw_chunk.model_dump() if hasattr(raw_chunk, "model_dump") else raw_chunk
+                if not isinstance(chunk, dict):
                     continue
-                delta = choice.get("delta")
-                if not isinstance(delta, dict):
-                    continue
-                content = delta.get("content")
-                if isinstance(content, str) and content:
-                    chunks.append(content)
-                    if message_handler is not None:
-                        message_handler(content)
-                for item in delta.get("tool_calls") if isinstance(delta.get("tool_calls"), list) else []:
-                    if not isinstance(item, dict):
+                usage = chunk.get("usage")
+                if isinstance(usage, dict):
+                    token_usage = usage
+                choices = chunk.get("choices") if isinstance(chunk.get("choices"), list) else []
+                for choice in choices:
+                    if not isinstance(choice, dict):
                         continue
-                    index = str(item.get("index") if item.get("index") is not None else len(tool_chunks))
-                    current = tool_chunks.setdefault(index, {"id": "", "name": "", "args": ""})
-                    if item.get("id"):
-                        current["id"] += str(item["id"])
-                    function = item.get("function") if isinstance(item.get("function"), dict) else {}
-                    if function.get("name"):
-                        current["name"] += str(function["name"])
-                    if function.get("arguments"):
-                        current["args"] += str(function["arguments"])
+                    delta = choice.get("delta")
+                    if not isinstance(delta, dict):
+                        continue
+                    content = delta.get("content")
+                    if isinstance(content, str) and content:
+                        chunks.append(content)
+                        if message_handler is not None:
+                            message_handler(content)
+                    for item in delta.get("tool_calls") if isinstance(delta.get("tool_calls"), list) else []:
+                        if not isinstance(item, dict):
+                            continue
+                        index = str(item.get("index") if item.get("index") is not None else len(tool_chunks))
+                        current = tool_chunks.setdefault(index, {"id": "", "name": "", "args": ""})
+                        if item.get("id"):
+                            current["id"] += str(item["id"])
+                        function = item.get("function") if isinstance(item.get("function"), dict) else {}
+                        if function.get("name"):
+                            current["name"] += str(function["name"])
+                        if function.get("arguments"):
+                            current["args"] += str(function["arguments"])
         return _ChatStreamResult(
             text="".join(chunks),
             chunks=list(chunks),
@@ -1152,26 +1160,27 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                 mode="stream_generate",
                 ambiguous_error_code="provider_stream_transport_ambiguous",
             )
-            for raw_chunk in stream:
-                chunk = raw_chunk.model_dump() if hasattr(raw_chunk, "model_dump") else raw_chunk
-                if not isinstance(chunk, dict):
-                    continue
-                usage = chunk.get("usage")
-                if isinstance(usage, dict):
-                    provider_stream_usage = usage
-                    stream_token_usage = self._latest_token_usage(trace_recorder, usage, stream_token_usage)
-                choices = chunk.get("choices") if isinstance(chunk.get("choices"), list) else []
-                for choice in choices:
-                    if not isinstance(choice, dict):
+            with closing_provider_stream(stream):
+                for raw_chunk in stream:
+                    chunk = raw_chunk.model_dump() if hasattr(raw_chunk, "model_dump") else raw_chunk
+                    if not isinstance(chunk, dict):
                         continue
-                    delta = choice.get("delta")
-                    if not isinstance(delta, dict):
-                        continue
-                    content = delta.get("content")
-                    if isinstance(content, str) and content:
-                        chunks.append(content)
-                        yield content
-        except AIExecutionCancelled:
+                    usage = chunk.get("usage")
+                    if isinstance(usage, dict):
+                        provider_stream_usage = usage
+                        stream_token_usage = self._latest_token_usage(trace_recorder, usage, stream_token_usage)
+                    choices = chunk.get("choices") if isinstance(chunk.get("choices"), list) else []
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            continue
+                        delta = choice.get("delta")
+                        if not isinstance(delta, dict):
+                            continue
+                        content = delta.get("content")
+                        if isinstance(content, str) and content:
+                            chunks.append(content)
+                            yield content
+        except (AIExecutionCancelled, GeneratorExit):
             if metered_attempt is not None:
                 try:
                     metered_attempt.mark_uncertain("provider_stream_cancelled")
@@ -1186,6 +1195,8 @@ class OpenAICompatibleChatProvider(BaseChatProvider):
                     logger.exception("failed to mark ambiguous chat provider stream")
             if exchange is not None:
                 exchange.fail(error_code="provider_stream_failed", error_message=str(exc), response_message={})
+            if getattr(self, "_deferred_transport", None) is not None:
+                raise
             return
         try:
             self._settle_chat_response(

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.ai.errors import ApprovalRequired
+from app.ai.workflows.checkpoint import _SQLITE_CHECKPOINT_LOCK
 from app.ai.workflows.runner import WorkspaceGraphRunner
 from app.ai.workflows.runner_support.stream_bridge import consume_stream_graph_worker
 from app.models.domain import AIConversationEvent
@@ -824,7 +825,10 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
             scrubbed = False
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                with self.SessionLocal() as db:
+                # StaticPool shares the worker's physical connection. Observe
+                # only committed state; closing an unlocked reader Session can
+                # otherwise roll back the worker or see half of its flush.
+                with _SQLITE_CHECKPOINT_LOCK, self.SessionLocal() as db:
                     run = db.get(AIAgentRun, "agent_run-transient-stream-disconnect")
                     if run is not None and run.conversation_id is None:
                         scrubbed = True

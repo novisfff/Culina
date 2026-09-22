@@ -285,3 +285,80 @@ def test_responses_provider_constructor_does_not_construct_an_sdk_client() -> No
 def test_runtime_factory_requires_a_family_binding_instead_of_settings() -> None:
     with pytest.raises(RuntimeError, match="family_chat_provider_factory_required"):
         runtime_factory.build_chat_provider(SimpleNamespace(ai_provider="openai"))
+
+
+@pytest.mark.parametrize("protocol", ["chat", "responses"])
+def test_callback_cancellation_closes_the_upstream_stream(protocol) -> None:
+    adapter = _Adapter()
+    provider, client = _chat_provider(adapter) if protocol == "chat" else _responses_provider(adapter)
+    closed = []
+
+    def events():
+        try:
+            if protocol == "chat":
+                yield {"choices": [{"delta": {"content": "partial"}}]}
+            else:
+                yield {"type": "response.output_text.delta", "delta": "partial"}
+            raise AssertionError("cancelled consumer must not read another event")
+        finally:
+            closed.append(True)
+
+    stream = events()
+    client.create = lambda **kwargs: stream
+
+    def cancel(_delta):
+        raise AIExecutionCancelled("cancelled")
+
+    with pytest.raises(AIExecutionCancelled):
+        provider.generate_with_tools(system="test", user="test", tools=lambda: [],
+            tool_handler=lambda *_: {}, message_handler=cancel, usage_attribution=ATTRIBUTION)
+
+    assert closed == [True]
+    assert sum(item.startswith("uncertain:") for item in adapter.timeline) == 1
+    assert "settle" not in adapter.timeline
+
+
+def test_closing_chat_text_generator_marks_dispatched_attempt_uncertain_and_closes() -> None:
+    adapter = _Adapter()
+    provider, client = _chat_provider(adapter)
+    closed = []
+
+    def events():
+        try:
+            yield {"choices": [{"delta": {"content": "partial"}}]}
+            raise AssertionError("closed consumer must not read another event")
+        finally:
+            closed.append(True)
+
+    upstream = events()
+    client.create = lambda **kwargs: upstream
+    stream = provider.stream_generate(system="test", user="test", usage_attribution=ATTRIBUTION)
+    assert next(stream) == "partial"
+    stream.close()
+    assert closed == [True]
+    assert adapter.timeline == ["reserve", "dispatch", "uncertain:provider_stream_cancelled"]
+
+
+def test_responses_text_generator_yields_before_consuming_terminal_usage() -> None:
+    adapter = _Adapter()
+    provider, client = _responses_provider(adapter)
+    closed = []
+
+    def events():
+        try:
+            yield {"type": "response.output_text.delta", "delta": "first"}
+            adapter.timeline.append("read_terminal")
+            yield {"type": "response.completed", "response": {
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2}, "output": [],
+            }}
+        finally:
+            closed.append(True)
+
+    upstream = events()
+    client.create = lambda **kwargs: upstream
+    stream = provider.stream_generate(system="test", user="test", usage_attribution=ATTRIBUTION)
+    assert next(stream) == "first"
+    assert "read_terminal" not in adapter.timeline
+    stream.close()
+    assert closed == [True]
+    assert adapter.timeline == ["reserve", "dispatch", "uncertain:provider_responses_stream_cancelled"]

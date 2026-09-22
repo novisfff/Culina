@@ -36,6 +36,7 @@ class SQLAlchemyCheckpointSaver(BaseCheckpointSaver[int]):
     def __init__(self, db: Session) -> None:
         super().__init__()
         self.db = db
+        self.execution_lease = None
         bind = db.get_bind()
         self._is_sqlite = bind.dialect.name == "sqlite"
         self._use_shared_session = False
@@ -242,9 +243,17 @@ class SQLAlchemyCheckpointSaver(BaseCheckpointSaver[int]):
             return
         try:
             with self._session_factory() as db:
-                yield db
-                if write:
-                    db.commit()
+                from app.services.ai_operations.execution_lease import ExecutionFence
+                fence = ExecutionFence(db, self.execution_lease) if write and self.execution_lease is not None else None
+                if fence is not None:
+                    fence.install()
+                try:
+                    yield db
+                    if write:
+                        db.commit()
+                finally:
+                    if fence is not None:
+                        fence.remove()
         finally:
             if lock is not None:
                 lock.release()
