@@ -235,6 +235,24 @@ provider tool call
 
 Runtime 不再解析 `<visible_text>` 或 `<structured_result>`。普通 assistant 文本直接进入 `message_delta`，工具调用结果由程序状态和 message part 持久化。
 
+### 运行所有权与进程失联
+
+- 普通聊天、审批恢复和补充信息恢复，均先领取 `ai_run_execution_leases` 中的数据库租约。默认租约 90 秒、心跳 15 秒、回收扫描 10 秒；MySQL 使用数据库 UTC 时间。
+- `worker_id + fencing_token` 是执行权限，不是 SSE 连接身份。断开订阅不取消仍在执行的任务；失效拥有者不得写业务、Timeline、checkpoint 或错误收口记录。
+- Worker Session 的行锁、DML、flush 和 commit 边界校验 fence；独立 checkpoint/错误收口 Session 继承相同身份。图节点完成事务后再写 checkpoint，领域提交仍保持原事务原子性。Provider 请求前提交前一阶段并记录发送边界，不在长网络等待期间持有租约行锁。
+- 失联回收只投影持久化事实，不调用模型、不执行领域写入、不撤销已成功的业务。不按进程启动时间清空所有 running；健康租约与普通待审批/待输入状态保持不变。
+- 取消中的失联任务进入 cancelled；尚未消费的恢复 claim 清除并回到等待；已完成 Operation 保留，不能把部分完成误报成整个任务完成；发送过但结果未确认的请求显示安全说明，不断言未计费。
+- 无法继续的任务进入 failed，释放会话。只有用户明确重试才可再次调用模型，且重试入口仍优先走 `recover_or_replay_draft_run`，重放已有业务结果而不是重复提交。
+- 首次升级必须停掉不支持 fence 的旧版本执行进程，再迁移并启动新版本。旧代码不会被新协议自动隔离。部署顺序见 `deploy/README.md`。
+
+### Provider 上游流式传输
+
+- OpenAI-compatible Chat/Responses 使用独立 `ProviderTransport.stream_request`；普通 JSON、媒体和 WebSocket 维持各自接口。收到完整 SSE 事件即向 Provider/Runner 交付，不能先读取完整 HTTP body，也不能在纯文本 Provider 入口重新缓冲整轮。
+- 每次发送重新执行 DNS/IP 授权，直连与代理目标均固定到本次授权 IP；保留原始 Host、SNI 和 TLS 证书验证。HTTP(S) 出口代理的 CONNECT 和目标 TLS 身份分开处理，不使用环境代理、自动重定向或网络重试。
+- 响应头与累计字节都受大小上限约束；请求 identity 编码，不合规的压缩流失败关闭。SSE 支持 UTF-8、跨分块行、CR/LF/CRLF、注释与多行 data；没有 `[DONE]`/Responses 终结事件的 EOF 不能当成功。
+- 连接及等待响应头由已有 connect/request timeout 限制；响应体使用有界网络预取，在原调用线程轮询 Run 取消，不能在读取线程使用 SQLAlchemy Session。取消、异常、超限和提前 close 必须中断并关闭上游连接；浏览器断开不取消持久 Run。
+- 最终 usage 经既有 ledger 结算；正常结束但缺少 usage 沿用估算标记，截断/取消/关闭保持 uncertain。家庭 Provider 的未知调用和空响应不自动重发；已提交业务不随流式失败回滚或重做。
+
 ## 7. Tool、Script 与权限
 
 Tool 注册在 `backend/app/ai/tools/catalog/`。

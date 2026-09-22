@@ -119,18 +119,17 @@ class HumanInputResumePreparer:
             user_id=user_id,
             family_id=family_id,
         )
-        if stream:
-            claim = claim_stream_human_input_resume(
-                self.db,
-                run=run,
-                request_id=request_id,
-                user_id=user_id,
-                payload_hash=human_input_resume_payload_hash(selected_option_ids, text),
-            )
-            resume_payload = {
-                **resume_payload,
-                STREAM_RESUME_CLAIM_TOKEN_KEY: claim.token,
-            }
+        claim = claim_stream_human_input_resume(
+            self.db,
+            run=run,
+            request_id=request_id,
+            user_id=user_id,
+            payload_hash=human_input_resume_payload_hash(selected_option_ids, text),
+        )
+        resume_payload = {
+            **resume_payload,
+            STREAM_RESUME_CLAIM_TOKEN_KEY: claim.token,
+        }
         return PreparedHumanInputResume(
             config=config,
             snapshot=locked_snapshot,

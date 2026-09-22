@@ -79,6 +79,8 @@ def claim_stream_resume(
 
     if current_stream_resume_claim(run) is not None:
         raise AIConflictError("这次恢复任务正在处理中，请稍后刷新")
+    from app.services.ai_operations.execution_lease import require_execution_idle
+    require_execution_idle(db, run)
 
     token = secrets.token_urlsafe(32)
     claimed_at = utcnow().isoformat()

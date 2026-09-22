@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.utils import utcnow
 from app.models.domain import AIAgentRun, AIConversation, AIMessage
 from app.services.ai_timeline import AITimelineService
+from app.services.ai_operations.execution_lease import inherited_execution_fence
 
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,7 @@ def persist_run_auto_execution_blocked_after_rollback(
     if not run_id:
         return False
     try:
-        with Session(bind=bind, expire_on_commit=False, future=True) as recovery_db:
+        with Session(bind=bind, expire_on_commit=False, future=True) as recovery_db, inherited_execution_fence(db, recovery_db):
             run = mark_run_auto_execution_blocked(
                 recovery_db,
                 family_id=family_id,

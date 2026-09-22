@@ -40,6 +40,7 @@ from app.services.family_model_settings.errors import (
     FamilyModelCredentialConfigurationError,
 )
 from app.services.search.jobs import SearchIndexWorker
+from app.services.ai_operations.execution_worker import RunRecoveryWorker
 from app.services.bootstrap import initialize_configured_admin
 
 configure_logging()
@@ -144,6 +145,8 @@ async def lifespan(app: FastAPI):
     search_index_worker = SearchIndexWorker()
     model_usage_worker = ModelUsageMaintenanceWorker()
     family_model_settings_worker = FamilyModelSettingsMaintenanceWorker()
+    run_recovery_worker = RunRecoveryWorker()
+    run_recovery_worker.start()
     image_worker.start()
     search_index_worker.start()
     if settings.model_usage_maintenance_enabled:
@@ -157,6 +160,7 @@ async def lifespan(app: FastAPI):
     if settings.family_model_maintenance_enabled:
         logger.info("Family model settings maintenance worker started")
     yield
+    run_recovery_worker.stop()
     if settings.family_model_maintenance_enabled:
         family_model_settings_worker.stop()
         logger.info("Family model settings maintenance worker stopped")

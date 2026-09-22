@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from app.ai.runtime.execution_guard import check_dispatch_guard
+
 import hashlib
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from typing import Any, Callable
 
 from app.ai.errors import (
@@ -14,7 +16,7 @@ from app.ai.errors import (
     ToolBudgetHardStop,
 )
 from app.ai.runtime.messages import dump_value, field_value, responses_input, responses_system_message, responses_text_message
-from app.ai.runtime.family_transport import DeferredBindingTransport
+from app.ai.runtime.family_transport import DeferredBindingTransport, closing_provider_stream
 from app.ai.runtime.prompt_cache import (
     UnsupportedOptionalProviderParameter,
     canonical_json,
@@ -140,6 +142,7 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         *,
         permit: DispatchPermit | None,
     ) -> Any:
+        check_dispatch_guard()
         deferred_transport = getattr(self, "_deferred_transport", None)
         if deferred_transport is not None:
             return deferred_transport.request_json(
@@ -188,6 +191,33 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         trace_request_options: dict[str, Any] | None = None,
         usage_attribution: UsageAttribution | None = None,
     ) -> ChatProviderResult:
+        events = self._generate_with_tools_events(
+            system=system, user=user, tools=tools, tool_handler=tool_handler,
+            message_handler=message_handler, tool_preview_handler=tool_preview_handler,
+            max_rounds=max_rounds, trace_recorder=trace_recorder,
+            trace_request_options=trace_request_options, usage_attribution=usage_attribution,
+        )
+        with closing_provider_stream(events):
+            while True:
+                try:
+                    next(events)
+                except StopIteration as completed:
+                    return completed.value
+
+    def _generate_with_tools_events(
+        self,
+        *,
+        system: str,
+        user: ProviderUserContent,
+        tools: ToolProvider,
+        tool_handler: ToolCallHandler,
+        message_handler: AssistantMessageHandler | None = None,
+        tool_preview_handler: ToolPreviewHandler | None = None,
+        max_rounds: int = 8,
+        trace_recorder: Any | None = None,
+        trace_request_options: dict[str, Any] | None = None,
+        usage_attribution: UsageAttribution | None = None,
+    ) -> Generator[str, None, ChatProviderResult]:
         input_items = self._responses_input(user)
         requested_calls: list[dict[str, Any]] = []
         text_parts: list[str] = []
@@ -271,32 +301,35 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
                 if round_fallback_used:
                     fallback_used = True
                     fallback_reason_code = round_fallback_reason_code
-                for event in stream:
-                    event_type = self._event_type(event)
-                    if event_type == "response.output_text.delta":
-                        delta = str(self._field_value(event, "delta") or "")
-                        if delta:
-                            streamed_text_this_round.append(delta)
-                            text_parts.append(delta)
-                            if message_handler is not None:
-                                message_handler(delta)
-                    elif event_type == "response.output_item.done":
-                        call = self._responses_function_call_from_item(self._field_value(event, "item"))
-                        if call is not None:
-                            response_tool_calls.append(call)
-                    elif event_type == "response.function_call_arguments.done":
-                        call = self._responses_function_call_from_item(event)
-                        if call is not None:
-                            response_tool_calls.append(call)
-                    elif event_type == "response.completed":
-                        completed_response = self._field_value(event, "response") or event
-                    elif event_type in {"response.failed", "response.incomplete"}:
-                        raise RuntimeError(self._responses_event_error(event))
+                with closing_provider_stream(stream):
+                    for event in stream:
+                        event_type = self._event_type(event)
+                        if event_type == "response.output_text.delta":
+                            delta = str(self._field_value(event, "delta") or "")
+                            if delta:
+                                streamed_text_this_round.append(delta)
+                                text_parts.append(delta)
+                                if message_handler is not None:
+                                    message_handler(delta)
+                                yield delta
+                        elif event_type == "response.output_item.done":
+                            call = self._responses_function_call_from_item(self._field_value(event, "item"))
+                            if call is not None:
+                                response_tool_calls.append(call)
+                        elif event_type == "response.function_call_arguments.done":
+                            call = self._responses_function_call_from_item(event)
+                            if call is not None:
+                                response_tool_calls.append(call)
+                        elif event_type == "response.completed":
+                            completed_response = self._field_value(event, "response") or event
+                        elif event_type in {"response.failed", "response.incomplete"}:
+                            raise RuntimeError(self._responses_event_error(event))
                 if completed_response is None:
                     # A stream ending without the provider's terminal event
                     # is not evidence that the remote execution completed.
                     raise RuntimeError("provider_responses_completion_missing")
             except (
+                GeneratorExit,
                 AIExecutionCancelled,
                 ApprovalRequired,
                 HumanInputRequired,
@@ -499,26 +532,25 @@ class OpenAIResponsesChatProvider(BaseChatProvider):
         trace_recorder: Any | None = None,
         usage_attribution: UsageAttribution | None = None,
     ) -> Iterator[str]:
-        chunks: list[str] = []
-
-        def collect(delta: str) -> None:
-            chunks.append(delta)
-
-        result = self.generate_with_tools(
-            system=system,
-            user=user,
-            tools=lambda: [],
+        emitted = False
+        events = self._generate_with_tools_events(
+            system=system, user=user, tools=lambda: [],
             tool_handler=lambda _name, _payload, _event_id=None: {},
-            message_handler=collect,
-            trace_recorder=trace_recorder,
-            max_rounds=1,
-            usage_attribution=usage_attribution,
+            trace_recorder=trace_recorder, max_rounds=1, usage_attribution=usage_attribution,
         )
-        if chunks:
-            yield from chunks
-        elif result.text:
+        with closing_provider_stream(events):
+            while True:
+                try:
+                    delta = next(events)
+                except StopIteration as completed:
+                    result = completed.value
+                    break
+                emitted = True
+                yield delta
+        if result.status == "failed" and getattr(self, "_deferred_transport", None) is not None:
+            raise RuntimeError(result.error or "provider_stream_failed")
+        if not emitted and result.text:
             yield result.text
-
 
     def _prompt_cache_request_options(
         self,

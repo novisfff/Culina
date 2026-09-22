@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import wraps
 import logging
 from queue import Queue
 from threading import Thread
@@ -8,12 +10,17 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from fastapi.encoders import jsonable_encoder
+from langgraph.errors import GraphInterrupt
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.errors import AIExecutionCancelled
+from app.ai.runtime.execution_guard import GuardedChatProvider
+from app.services.ai_operations.execution_scope import RunExecutionScope
+from app.services.ai_operations.execution_lease import ExecutionLeaseLost
 from app.ai.observability.tracer import AIRunTracer
 from app.ai.skills import SkillResult, build_workspace_skill_registry
 from app.ai.workflows.checkpoint import SQLAlchemyCheckpointSaver
@@ -104,15 +111,9 @@ logger = logging.getLogger(__name__)
 MAX_AGENT_ROUNDS = 30
 _STREAM_DONE = object()
 
-# Transaction boundary:
-# - Request-owned synchronous graph work keeps node helpers at flush-only; the
-#   graph.invoke call returns after LangGraph/checkpointer and the request
-#   session can commit together.
-# - Stream graph work runs in a background worker with its own Session, so the
-#   worker commits after graph completion and after final response assembly.
-# - Preparation and runtime-exception recovery are durable boundary operations:
-#   the prepared running run must exist before graph execution, and a failed
-#   recovery must clear activeRunId even when the graph raised.
+# Each graph node finishes its database transaction before LangGraph writes its
+# independent checkpoint. Domain commits remain atomic; network dispatch finishes
+# the preceding phase so heartbeat/checkpoint sessions never wait on our own fence.
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -122,6 +123,7 @@ class WorkspaceGraphRunner:
     def __init__(self, service: AIApplicationService) -> None:
         self.service = service
         self.db = service.db
+        self._execution = None
         self.provider = service.provider
         self.timeline_service = AITimelineService(self.db)
         self.skill_registry = build_workspace_skill_registry()
@@ -251,72 +253,73 @@ class WorkspaceGraphRunner:
         )
         if prepared["existing"]:
             return self._chat_response(prepared["conversation_id"], prepared["run_id"])
-        self._bind_provider_for_run(family_id=family_id, run_id=str(prepared["run_id"]))
-        conversation_id = prepared["conversation_id"]
-        config = self._config(conversation_id)
-        orchestrator_profile, initial_skill_keys = self._orchestrator_profile_for_run(
-            quick_task=quick_task,
-            subject=prepared["subject"],
-        )
-        logger.info(
-            "AI graph invoke started family_id=%s user_id=%s conversation_id=%s client_run_id=%s quick_task=%s message_length=%s",
-            family_id,
-            user_id,
-            conversation_id,
-            client_run_id,
-            quick_task,
-            len(prompt),
-        )
-        try:
-            output = self.graph.invoke(
-                self.graph_state_builder.build_initial_state(
-                    family_id=family_id,
-                    user_id=user_id,
-                    conversation_id=conversation_id,
-                    prompt=prompt,
-                    attachments=prepared["attachments"],
-                    client_message_id=client_message_id,
-                    client_run_id=client_run_id,
-                    quick_task=quick_task,
-                    subject=prepared["subject"],
-                    orchestrator_profile=orchestrator_profile,
-                    initial_skill_keys=initial_skill_keys,
-                    run_id=prepared["run_id"],
-                    user_message_id=prepared["user_message_id"],
-                    assistant_message_id=prepared["assistant_message_id"],
-                    generation_contracts=contracts,
-                ),
-                config=config,
-                durability="sync",
+        with self._execution_scope(family_id=family_id, run_id=str(prepared["run_id"])):
+            self._bind_provider_for_run(family_id=family_id, run_id=str(prepared["run_id"]))
+            conversation_id = prepared["conversation_id"]
+            config = self._config(conversation_id)
+            orchestrator_profile, initial_skill_keys = self._orchestrator_profile_for_run(
+                quick_task=quick_task,
+                subject=prepared["subject"],
             )
-        except Exception as exc:
-            logger.exception(
-                "AI graph invoke failed family_id=%s user_id=%s conversation_id=%s run_id=%s",
+            logger.info(
+                "AI graph invoke started family_id=%s user_id=%s conversation_id=%s client_run_id=%s quick_task=%s message_length=%s",
                 family_id,
                 user_id,
                 conversation_id,
-                prepared["run_id"],
+                client_run_id,
+                quick_task,
+                len(prompt),
             )
-            self.runtime_failure_persister.mark_failed(
-                run_id=prepared["run_id"],
-                conversation_id=conversation_id,
-                family_id=family_id,
-                user_id=user_id,
-                error=exc,
+            try:
+                output = self.graph.invoke(
+                    self.graph_state_builder.build_initial_state(
+                        family_id=family_id,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        prompt=prompt,
+                        attachments=prepared["attachments"],
+                        client_message_id=client_message_id,
+                        client_run_id=client_run_id,
+                        quick_task=quick_task,
+                        subject=prepared["subject"],
+                        orchestrator_profile=orchestrator_profile,
+                        initial_skill_keys=initial_skill_keys,
+                        run_id=prepared["run_id"],
+                        user_message_id=prepared["user_message_id"],
+                        assistant_message_id=prepared["assistant_message_id"],
+                        generation_contracts=contracts,
+                    ),
+                    config=config,
+                    durability="sync",
+                )
+            except Exception as exc:
+                logger.exception(
+                    "AI graph invoke failed family_id=%s user_id=%s conversation_id=%s run_id=%s",
+                    family_id,
+                    user_id,
+                    conversation_id,
+                    prepared["run_id"],
+                )
+                self.runtime_failure_persister.mark_failed(
+                    run_id=prepared["run_id"],
+                    conversation_id=conversation_id,
+                    family_id=family_id,
+                    user_id=user_id,
+                    error=exc,
+                )
+                return self._chat_response(conversation_id, prepared["run_id"])
+            run_id = str(output.get("run_id") or "")
+            if not run_id:
+                state = self.graph.get_state(config)
+                run_id = str(state.values.get("run_id") or "")
+            logger.info(
+                "AI graph invoke completed family_id=%s user_id=%s conversation_id=%s run_id=%s",
+                family_id,
+                user_id,
+                conversation_id,
+                run_id,
             )
-            return self._chat_response(conversation_id, prepared["run_id"])
-        run_id = str(output.get("run_id") or "")
-        if not run_id:
-            state = self.graph.get_state(config)
-            run_id = str(state.values.get("run_id") or "")
-        logger.info(
-            "AI graph invoke completed family_id=%s user_id=%s conversation_id=%s run_id=%s",
-            family_id,
-            user_id,
-            conversation_id,
-            run_id,
-        )
-        return self._chat_response(conversation_id, run_id)
+            return self._chat_response(conversation_id, run_id)
 
     def stream_user_message(
         self,
@@ -525,6 +528,7 @@ class WorkspaceGraphRunner:
         require_run_id: bool = False,
         on_completed: Callable[[str], None] | None = None,
         discard_history_on_terminal: bool = False,
+        resume_token: str | None = None,
     ) -> Iterator[tuple[str, dict[str, Any]]]:
         current_run_id = run_id
 
@@ -559,6 +563,10 @@ class WorkspaceGraphRunner:
             yield ("response", response)
 
         def on_worker_exception(runner: WorkspaceGraphRunner, exc: BaseException) -> bool:
+            if isinstance(exc, ExecutionLeaseLost):
+                return False
+            if runner._execution is not None:
+                runner._execution.fence.check()
             handled = False
             if current_run_id:
                 handled = runner.runtime_failure_persister.mark_failed(
@@ -593,6 +601,7 @@ class WorkspaceGraphRunner:
             on_worker_exception=on_worker_exception,
             perf_context={
                 "flow": flow,
+                "resume_token": resume_token,
                 "family_id": family_id,
                 "user_id": user_id,
                 "conversation_id": conversation_id,
@@ -646,6 +655,7 @@ class WorkspaceGraphRunner:
             config=config,
             run_id=run_id,
             flow=flow,
+            resume_token=resume_payload.get("_resumeClaimToken"),
             seen_event_ids=seen_event_ids,
             before_graph=before_graph,
             handle_update_extra=handle_update_extra,
@@ -680,6 +690,40 @@ class WorkspaceGraphRunner:
             attachments=attachments,
         ).to_dict()
 
+    @contextmanager
+    def _execution_scope(self, *, family_id: str, run_id: str, resume_token: str | None = None):
+        scope = RunExecutionScope(self.db, family_id=family_id, run_id=run_id, resume_token=resume_token)
+        scope.start()
+        self._execution = scope
+        self.checkpointer.execution_lease = scope.lease
+        failed = True
+        try:
+            yield scope
+            failed = False
+        finally:
+            try:
+                scope.close(failed=failed)
+            finally:
+                self._execution = None
+
+    def _transactional_node(self, node):
+        @wraps(node)
+        def execute(state):
+            if self._execution is None:
+                return node(state)
+            try:
+                self._execution.fence.check()
+                result = node(state)
+                self.db.commit()
+                return result
+            except GraphInterrupt:
+                self.db.commit()
+                raise
+            except BaseException:
+                self.db.rollback()
+                raise
+        return execute
+
     def _bind_provider_for_run(self, *, family_id: str, run_id: str) -> None:
         """Resolve the provider from the run's durable family revision."""
 
@@ -710,8 +754,25 @@ class WorkspaceGraphRunner:
                 and selection.config_revision_id != run.config_revision_id
             ):
                 raise FamilyModelSettingsError("family_model_run_revision_mismatch")
-        self.provider = selection.primary
+        # Poll only user cancellation here. The dispatch guard mutates the
+        # lease/commits a transaction and must never run on every network chunk.
+        last_cancel_check = 0.0
+
+        def check_stream_cancelled() -> None:
+            nonlocal last_cancel_check
+            now = perf_counter()
+            if now - last_cancel_check >= 0.25:
+                last_cancel_check = now
+                if self._cancel_requested(run_id):
+                    raise AIExecutionCancelled("AI run was cancelled")
+
+        self.provider = (
+            GuardedChatProvider(selection.primary, self._execution.before_dispatch,
+                                cancel_check=check_stream_cancelled)
+            if self._execution is not None else selection.primary
+        )
         self.approval_followup_streamer.provider = self.provider
+        self.runtime_failure_persister.provider = self.provider
 
     def _cancel_requested(self, run_id: str) -> bool:
         bind = self.db.get_bind()
@@ -768,50 +829,51 @@ class WorkspaceGraphRunner:
             comment=comment,
             stream=False,
         )
-        self._bind_provider_for_run(family_id=family_id, run_id=prepared.run_id)
-        logger.info(
-            "AI graph approval resume started family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s draft_version=%s has_snapshot=%s next=%s",
-            family_id,
-            user_id,
-            conversation_id,
-            approval_id,
-            decision,
-            draft_version,
-            bool(prepared.snapshot.values),
-            list(prepared.snapshot.next or []),
-        )
-
-        output = self.graph.invoke(
-            self._resume_command(
-                resume_payload=prepared.resume_payload,
-                generation_contracts=frozenset(generation_contracts or ()),
-            ),
-            config=prepared.config,
-            durability="sync",
-        )
-        result = output.get("last_decision")
-        if not isinstance(result, dict):
-            state = self.graph.get_state(prepared.config)
-            result = state.values.get("last_decision")
-        if not isinstance(result, dict):
-            logger.error(
-                "AI graph approval resume missing result family_id=%s user_id=%s conversation_id=%s approval_id=%s",
+        with self._execution_scope(family_id=family_id, run_id=prepared.run_id, resume_token=prepared.resume_payload.get("_resumeClaimToken")):
+            self._bind_provider_for_run(family_id=family_id, run_id=prepared.run_id)
+            logger.info(
+                "AI graph approval resume started family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s draft_version=%s has_snapshot=%s next=%s",
                 family_id,
                 user_id,
                 conversation_id,
                 approval_id,
+                decision,
+                draft_version,
+                bool(prepared.snapshot.values),
+                list(prepared.snapshot.next or []),
             )
-            raise RuntimeError("LangGraph 恢复后没有生成确认结果")
-        logger.info(
-            "AI graph approval resume completed family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s operation_status=%s",
-            family_id,
-            user_id,
-            conversation_id,
-            approval_id,
-            decision,
-            (result.get("operation") or {}).get("status") if isinstance(result.get("operation"), dict) else None,
-        )
-        return result
+
+            output = self.graph.invoke(
+                self._resume_command(
+                    resume_payload=prepared.resume_payload,
+                    generation_contracts=frozenset(generation_contracts or ()),
+                ),
+                config=prepared.config,
+                durability="sync",
+            )
+            result = output.get("last_decision")
+            if not isinstance(result, dict):
+                state = self.graph.get_state(prepared.config)
+                result = state.values.get("last_decision")
+            if not isinstance(result, dict):
+                logger.error(
+                    "AI graph approval resume missing result family_id=%s user_id=%s conversation_id=%s approval_id=%s",
+                    family_id,
+                    user_id,
+                    conversation_id,
+                    approval_id,
+                )
+                raise RuntimeError("LangGraph 恢复后没有生成确认结果")
+            logger.info(
+                "AI graph approval resume completed family_id=%s user_id=%s conversation_id=%s approval_id=%s decision=%s operation_status=%s",
+                family_id,
+                user_id,
+                conversation_id,
+                approval_id,
+                decision,
+                (result.get("operation") or {}).get("status") if isinstance(result.get("operation"), dict) else None,
+            )
+            return result
 
     def apply_approval_decision_fast(
         self,
@@ -933,22 +995,23 @@ class WorkspaceGraphRunner:
             text=text,
             stream=False,
         )
-        self._bind_provider_for_run(family_id=family_id, run_id=prepared.run_id)
-        output = self.graph.invoke(
-            self._resume_command(
-                resume_payload=prepared.resume_payload,
-                generation_contracts=frozenset(generation_contracts or ()),
-            ),
-            config=prepared.config,
-            durability="sync",
-        )
-        run_id = str(output.get("run_id") or "")
-        if not run_id:
-            state = self.graph.get_state(prepared.config)
-            run_id = str(state.values.get("run_id") or "")
-        if not run_id:
-            raise RuntimeError("LangGraph 恢复后没有运行记录")
-        return self._chat_response(conversation_id, run_id)
+        with self._execution_scope(family_id=family_id, run_id=prepared.run_id, resume_token=prepared.resume_payload.get("_resumeClaimToken")):
+            self._bind_provider_for_run(family_id=family_id, run_id=prepared.run_id)
+            output = self.graph.invoke(
+                self._resume_command(
+                    resume_payload=prepared.resume_payload,
+                    generation_contracts=frozenset(generation_contracts or ()),
+                ),
+                config=prepared.config,
+                durability="sync",
+            )
+            run_id = str(output.get("run_id") or "")
+            if not run_id:
+                state = self.graph.get_state(prepared.config)
+                run_id = str(state.values.get("run_id") or "")
+            if not run_id:
+                raise RuntimeError("LangGraph 恢复后没有运行记录")
+            return self._chat_response(conversation_id, run_id)
 
 
     def stream_resume_human_input(
@@ -1228,11 +1291,11 @@ class WorkspaceGraphRunner:
 
     def _build_graph(self):
         graph = StateGraph(WorkspaceGraphState)
-        graph.add_node("initialize", self._initialize)
-        graph.add_node("orchestrator", self._orchestrator_step)
-        graph.add_node("approval_interrupt", self._approval_interrupt_step)
-        graph.add_node("human_input_interrupt", self._human_input_interrupt_step)
-        graph.add_node("finalize", self._finalize)
+        graph.add_node("initialize", self._transactional_node(self._initialize))
+        graph.add_node("orchestrator", self._transactional_node(self._orchestrator_step))
+        graph.add_node("approval_interrupt", self._transactional_node(self._approval_interrupt_step))
+        graph.add_node("human_input_interrupt", self._transactional_node(self._human_input_interrupt_step))
+        graph.add_node("finalize", self._transactional_node(self._finalize))
         graph.add_edge(START, "initialize")
         graph.add_edge("initialize", "orchestrator")
         graph.add_conditional_edges(
