@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.ai.runtime.execution_guard import check_dispatch_guard
+
 from collections.abc import Iterator
 from typing import Any, Callable
 
@@ -85,6 +87,7 @@ class DashScopeChatProvider(OpenAICompatibleChatProvider):
             return client.chat.completions.create(**request)
 
     def _dispatch_chat_request(self, request: dict[str, Any], *, permit: DispatchPermit | None) -> Any:
+        check_dispatch_guard()
         api_key = self._credential(permit)
         return self._dispatch_openai_request(request, api_key=api_key)
 

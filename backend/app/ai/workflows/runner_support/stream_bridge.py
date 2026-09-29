@@ -194,6 +194,7 @@ def consume_stream_graph_worker(
     previous_sink: Any = None
     sink_bound = False
     worker_failure: BaseException | None = None
+    execution = None
     try:
         worker_runner, close_worker_runner = make_stream_worker_runner(
             db_bind=db_bind,
@@ -203,6 +204,9 @@ def consume_stream_graph_worker(
         if isinstance(family_id, str) and family_id and isinstance(run_id, str) and run_id:
             # Never carry a request-thread provider into a worker. The worker has
             # its own Session and reconstructs from the immutable run snapshot.
+            scope = worker_runner._execution_scope(family_id=family_id, run_id=run_id, resume_token=context.get("resume_token"))
+            scope.__enter__()
+            execution = scope
             worker_runner._bind_provider_for_run(family_id=family_id, run_id=run_id)
         previous_sink = worker_runner._direct_stream_sink
         worker_runner._direct_stream_sink = enqueue
@@ -219,7 +223,8 @@ def consume_stream_graph_worker(
     except BaseException as exc:
         worker_failure = exc
         try:
-            if worker_runner is None:
+            if worker_runner is None or (family_id and run_id and execution is None):
+                # No ownership was acquired: never mark another worker failed.
                 if not is_disconnected():
                     event_queue.put(exc)
             else:
@@ -237,6 +242,12 @@ def consume_stream_graph_worker(
                 event_queue.put(handler_exc)
     finally:
         if worker_runner is not None:
+            if execution is not None:
+                try:
+                    execution.__exit__(type(worker_failure) if worker_failure else None, worker_failure, worker_failure.__traceback__ if worker_failure else None)
+                except BaseException as scope_exc:
+                    if worker_failure is None and not is_disconnected():
+                        event_queue.put(scope_exc)
             if sink_bound:
                 try:
                     worker_runner._direct_stream_sink = previous_sink

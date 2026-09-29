@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     minio_secret_key: str = "culina_local_minio_secret"
     minio_bucket: str = "culina-media"
     minio_secure: bool = False
+    ai_run_lease_seconds: int = 90
+    ai_run_heartbeat_seconds: int = 15
+    ai_run_recovery_interval_seconds: int = 10
     ai_trace_enabled: bool = True
     ai_trace_capture_llm_exchanges: bool = False
     ai_trace_capture_message_content: bool = False
@@ -245,6 +248,14 @@ class Settings(BaseSettings):
         if missing:
             unique_missing = ", ".join(dict.fromkeys(missing))
             raise ValueError(f"Unsafe production settings: set {unique_missing}")
+        return self
+
+    @model_validator(mode="after")
+    def validate_run_lease_timing(self) -> "Settings":
+        if self.ai_run_heartbeat_seconds <= 0 or self.ai_run_recovery_interval_seconds <= 0:
+            raise ValueError("AI Run heartbeat/recovery intervals must be positive")
+        if self.ai_run_lease_seconds < 3 * self.ai_run_heartbeat_seconds:
+            raise ValueError("AI Run lease must allow at least three heartbeats")
         return self
 
     @computed_field  # type: ignore[misc]

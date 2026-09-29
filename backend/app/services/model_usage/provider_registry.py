@@ -62,6 +62,7 @@ class ProviderUsageRegistryError(ModelUsageContractError):
 _LLM_SEND_POINTS = frozenset(
     {
         "app/ai/runtime/family_transport.py:request_json:self.transport.request",
+        "app/ai/runtime/family_transport.py:_stream_json:self.transport.stream_request",
         "app/ai/runtime/dashscope_chat.py:_dispatch_openai_request:client.chat.completions.create",
         "app/ai/runtime/dashscope_chat.py:iterate:client.chat.completions.create",
     }
@@ -257,6 +258,7 @@ class _RemoteSendPointVisitor(ast.NodeVisitor):
         elif rendered.endswith(
             (
                 ".transport.request",
+                ".transport.stream_request",
                 ".transport.download_media",
                 ".transport.connect_websocket",
             )

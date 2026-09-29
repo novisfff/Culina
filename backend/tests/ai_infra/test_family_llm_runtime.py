@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from threading import Lock
@@ -15,6 +16,7 @@ from app.ai.runtime.family_transport import DeferredBindingTransport
 from app.ai.runtime.factory import FamilyChatProviderSelection
 from app.ai.runtime.openai_chat import OpenAICompatibleChatProvider
 from app.ai.workflows.runner import WorkspaceGraphRunner
+from app.ai.workspace_service import AIApplicationService
 from app.ai.workflows.runner_support.stream_bridge import make_stream_worker_runner
 from app.ai.workflows.runner_support.user_message_preparer import UserMessagePreparer
 from app.core.enums import ModelUsageAttributionKind, ModelUsageOperationSource
@@ -22,6 +24,7 @@ from app.models.domain import AIAgentRun, AIRunLLMExchange
 from app.models.family_model_settings import FamilyModelSettings
 from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
 from app.services.family_model_settings.transport import ProviderResponse
+from app.services.family_model_settings.streaming import ProviderStreamResponse
 from app.services.family_model_settings.types import (
     DispatchCredential,
     ResolvedCapabilityBinding,
@@ -219,6 +222,12 @@ class _ThreadSafeTransport:
             )
         return self.response
 
+    @contextmanager
+    def stream_request(self, method, url, *, headers, json=None):
+        response = self.request(method, url, headers=headers, json=json)
+        yield ProviderStreamResponse(response.status_code, response.headers,
+                                     iter([response.content]), 4096, lambda: None)
+
 
 def test_run_snapshot_keeps_its_revision_for_worker_reconstruction(
     family_model_api: FamilyModelApiContext,
@@ -249,10 +258,7 @@ def test_run_snapshot_keeps_its_revision_for_worker_reconstruction(
     factory.models[("family-a", new_revision)] = "family-new-model"
 
     with family_model_api.session_factory() as db:
-        runner = WorkspaceGraphRunner.__new__(WorkspaceGraphRunner)
-        runner.db = db
-        runner.service = SimpleNamespace(provider_factory=factory)
-        runner.approval_followup_streamer = SimpleNamespace(provider=None)
+        runner = WorkspaceGraphRunner(AIApplicationService(db, provider_factory=factory))
         runner._bind_provider_for_run(family_id="family-a", run_id=run_id)
         assert runner.provider.model_name == "family-old-model"
 

@@ -909,6 +909,19 @@ class AIAgentRun(Base):
     family: Mapped["Family"] = relationship(back_populates="ai_agent_runs")
 
 
+class AIRunExecutionLease(Base):
+    __tablename__ = "ai_run_execution_leases"
+    __table_args__ = (Index("ix_ai_run_execution_leases_expiry", "lease_until"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("ai_agent_runs.id", ondelete="CASCADE"), primary_key=True)
+    family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fencing_token: Mapped[int] = mapped_column(sa.BigInteger(), default=0, server_default="0", nullable=False)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_started: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa.false(), nullable=False)
+
+
 class AIRunCancelRequest(Base):
     __tablename__ = "ai_run_cancel_requests"
     __table_args__ = (

@@ -138,24 +138,23 @@ class ApprovalResumePreparer:
             user_id=user_id,
             family_id=family_id,
         )
-        if stream:
-            claim = claim_stream_resume(
-                self.db,
-                run=run,
-                kind=STREAM_APPROVAL_RESUME_CLAIM_KIND,
-                request_id=approval_id,
-                user_id=user_id,
-                payload_hash=approval_resume_payload_hash(
-                    decision=decision,
-                    draft_version=draft_version,
-                    values=values,
-                    comment=comment,
-                ),
-            )
-            resume_payload = {
-                **resume_payload,
-                STREAM_RESUME_CLAIM_TOKEN_KEY: claim.token,
-            }
+        claim = claim_stream_resume(
+            self.db,
+            run=run,
+            kind=STREAM_APPROVAL_RESUME_CLAIM_KIND,
+            request_id=approval_id,
+            user_id=user_id,
+            payload_hash=approval_resume_payload_hash(
+                decision=decision,
+                draft_version=draft_version,
+                values=values,
+                comment=comment,
+            ),
+        )
+        resume_payload = {
+            **resume_payload,
+            STREAM_RESUME_CLAIM_TOKEN_KEY: claim.token,
+        }
         return PreparedApprovalResume(
             config=config,
             snapshot=snapshot,

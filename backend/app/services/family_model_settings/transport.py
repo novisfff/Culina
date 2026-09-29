@@ -5,7 +5,8 @@ import http.client
 import json
 import socket
 import ssl
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -13,6 +14,7 @@ from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit
 
 import certifi
+import httpcore
 import httpx
 from websockets.exceptions import WebSocketException
 from websockets.sync.client import connect as connect_websocket
@@ -25,6 +27,8 @@ from app.services.family_model_settings.errors import (
 )
 from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
 from app.services.family_model_settings.types import ResolvedProviderEndpoint
+from app.services.family_model_settings.streaming import ProviderStreamResponse
+from app.services.family_model_settings.proxy_stream import PinnedProxyBackend
 
 
 ALLOWED_PROVIDER_MEDIA_TYPES = frozenset(
@@ -105,6 +109,17 @@ class ProviderMedia:
 
 
 class ProviderHttpDialer(Protocol):
+    def stream_request(
+        self,
+        *,
+        endpoint: ResolvedProviderEndpoint,
+        method: str,
+        headers: Mapping[str, str],
+        json: object | None,
+        body: bytes | None,
+        max_response_bytes: int,
+    ) -> AbstractContextManager[ProviderStreamResponse]: ...
+
     def request(
         self,
         *,
@@ -180,6 +195,35 @@ def _bounded_read(response: http.client.HTTPResponse, *, max_bytes: int) -> byte
     return b"".join(chunks)
 
 
+def _shutdown_socket(sock: socket.socket | None) -> None:
+    if sock is not None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+
+def _identity_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    return {key: value for key, value in headers.items() if key.lower() != "accept-encoding"} | {
+        "Accept-Encoding": "identity",
+    }
+
+
+def _read_stream_chunks(response: http.client.HTTPResponse) -> Iterator[bytes]:
+    try:
+        while chunk := response.read1(64 * 1024):
+            yield chunk
+    except (OSError, http.client.HTTPException) as exc:
+        raise FamilyModelProviderTransportError() from exc
+
+
+def _proxy_stream_chunks(response: httpcore.Response) -> Iterator[bytes]:
+    try:
+        yield from response.iter_stream()
+    except (httpcore.NetworkError, httpcore.TimeoutException, httpcore.ProtocolError) as exc:
+        raise FamilyModelProviderTransportError() from exc
+
+
 class _PinnedHTTPConnection(http.client.HTTPConnection):
     def __init__(
         self,
@@ -223,8 +267,12 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             (self._resolved_address, self.port),
             self._connect_timeout,
         )
-        self.sock = self._context.wrap_socket(raw_socket, server_hostname=self._server_hostname)
-        self.sock.settimeout(self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(raw_socket, server_hostname=self._server_hostname)
+            self.sock.settimeout(self.timeout)
+        except BaseException:
+            raw_socket.close()
+            raise
 
 
 class PinnedHttpDialer:
@@ -285,6 +333,47 @@ class PinnedHttpDialer:
         except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
             raise FamilyModelProviderTransportError() from exc
         finally:
+            connection.close()
+
+    @contextmanager
+    def stream_request(
+        self, *, endpoint: ResolvedProviderEndpoint, method: str,
+        headers: Mapping[str, str], json: object | None, body: bytes | None,
+        max_response_bytes: int,
+    ) -> Iterator[ProviderStreamResponse]:
+        if json is not None and body is not None:
+            raise FamilyModelProviderTransportError("family_model_provider_request_invalid")
+        request_headers = _identity_headers(headers)
+        try:
+            request_body = json_module_bytes(json) if json is not None else body
+        except (TypeError, ValueError) as exc:
+            raise FamilyModelProviderTransportError("family_model_provider_request_invalid") from exc
+        if json is not None:
+            request_headers.setdefault("Content-Type", "application/json")
+        request_headers["Host"] = _host_header(endpoint)
+        connection = self._connection(endpoint)
+        response = None
+        stream = None
+        wire_socket = None
+        try:
+            connection.request(method.upper(), endpoint.base_path, body=request_body, headers=request_headers)
+            wire_socket = connection.sock
+            response = connection.getresponse()
+            stream = ProviderStreamResponse(
+                status_code=response.status, headers=dict(response.getheaders()),
+                chunks=_read_stream_chunks(response), max_bytes=max_response_bytes,
+                abort=lambda: _shutdown_socket(wire_socket),
+            )
+            stream.validate_headers()
+            yield stream
+        except (OSError, http.client.HTTPException) as exc:
+            raise FamilyModelProviderTransportError() from exc
+        finally:
+            if stream is not None:
+                stream.close()
+            _shutdown_socket(wire_socket)
+            if response is not None:
+                response.close()
             connection.close()
 
     def download(
@@ -362,6 +451,65 @@ class EgressProxyHttpDialer:
             headers=dict(response.headers),
             content=content,
         )
+
+    @contextmanager
+    def stream_request(
+        self, *, endpoint: ResolvedProviderEndpoint, method: str,
+        headers: Mapping[str, str], json: object | None, body: bytes | None,
+        max_response_bytes: int,
+    ) -> Iterator[ProviderStreamResponse]:
+        if json is not None and body is not None:
+            raise FamilyModelProviderTransportError("family_model_provider_request_invalid")
+        # A trusted proxy must not perform a second DNS lookup for the target.
+        # CONNECT/absolute-form URL uses the authorized IP; origin Host and TLS
+        # verification/SNI still use the original hostname.
+        address = endpoint.resolved_addresses[0]
+        authority = f"[{address}]" if ":" in address else address
+        # httpcore 1.0 serializes proxy authority from URL.host verbatim.
+        # Preserve IPv6 brackets for both CONNECT and absolute-form HTTP.
+        url = httpcore.URL(scheme=endpoint.scheme, host=authority,
+                           port=endpoint.port, target=endpoint.base_path)
+        request_headers = _identity_headers(headers) | {"Host": _host_header(endpoint)}
+        try:
+            content = json_module_bytes(json) if json is not None else body
+        except (TypeError, ValueError) as exc:
+            raise FamilyModelProviderTransportError("family_model_provider_request_invalid") from exc
+        if json is not None:
+            request_headers.setdefault("Content-Type", "application/json")
+        try:
+            with httpcore.HTTPProxy(
+                proxy_url=self._proxy_url,
+                ssl_context=ssl.create_default_context(cafile=certifi.where()),
+                proxy_ssl_context=(ssl.create_default_context(cafile=certifi.where())
+                                   if urlsplit(self._proxy_url).scheme == "https" else None),
+                retries=0,
+                network_backend=PinnedProxyBackend(
+                    hostname=endpoint.host, proxy_tls=urlsplit(self._proxy_url).scheme == "https",
+                ),
+            ) as client, client.stream(
+                method, url, headers=request_headers, content=content,
+                extensions={"timeout": {
+                    "connect": self._settings.connect_timeout_seconds,
+                    "read": self._settings.request_timeout_seconds,
+                    "write": self._settings.request_timeout_seconds,
+                    "pool": self._settings.connect_timeout_seconds,
+                }},
+            ) as response:
+                network = response.extensions.get("network_stream")
+                wire_socket = network.get_extra_info("socket") if network is not None else None
+                stream = ProviderStreamResponse(
+                    status_code=response.status,
+                    headers={key.decode("ascii"): value.decode("latin-1") for key, value in response.headers},
+                    chunks=_proxy_stream_chunks(response), max_bytes=max_response_bytes,
+                    abort=lambda: _shutdown_socket(wire_socket),
+                )
+                try:
+                    stream.validate_headers()
+                    yield stream
+                finally:
+                    stream.close()
+        except (httpcore.NetworkError, httpcore.TimeoutException, httpcore.ProtocolError, httpcore.ProxyError) as exc:
+            raise FamilyModelProviderTransportError() from exc
 
     def download(
         self,
@@ -510,6 +658,24 @@ class ProviderTransport:
             raise FamilyModelEndpointBlocked()
         return response
 
+    @contextmanager
+    def stream_request(
+        self, method: str, url: str, *, headers: Mapping[str, str],
+        json: object | None = None, body: bytes | None = None,
+    ) -> Iterator[ProviderStreamResponse]:
+        if json is not None and body is not None:
+            raise FamilyModelProviderTransportError("family_model_provider_request_invalid")
+        endpoint = self.policy.authorize(url, protocol="http")
+        with self.http_dialer.stream_request(
+            endpoint=endpoint, method=method, headers=safe_headers(headers),
+            json=json, body=body, max_response_bytes=self.settings.response_max_bytes,
+        ) as response:
+            if 300 <= response.status_code < 400 and response.header("location"):
+                self.policy.authorize(urljoin(endpoint.normalized_url, response.header("location") or ""), protocol="http")
+                raise FamilyModelEndpointBlocked()
+            response.validate_headers()
+            yield response
+
     def connect_websocket(
         self,
         url: str,
@@ -574,6 +740,8 @@ def provider_network_constructor_inventory(root: Path | None = None) -> list[str
             if rendered in {
                 "httpx.Client",
                 "httpx.AsyncClient",
+                "httpcore.HTTPProxy",
+                "httpcore.ConnectionPool",
                 "websockets.connect",
                 "requests.get",
                 "requests.post",
