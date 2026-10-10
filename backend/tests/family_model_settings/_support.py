@@ -64,9 +64,23 @@ class FakeTransport:
     ) -> ProviderResponse:
         if json is not None and body is not None:
             raise AssertionError("fake transport received both json and body")
-        self.calls.append((method, url, dict(headers), json))
+        self.calls.append((method, url, dict(headers), json if body is None else body))
         if self.responses:
             return self.responses.pop(0)
+        import json as json_module
+        from tests.family_model_settings.fake_provider import _success_response
+        if method == "POST" and url.endswith("/embeddings"):
+            dimensions = json.get("dimensions", 2)
+            return ProviderResponse(200, {}, json_module.dumps({"data": [{"index": 0, "embedding": [0.1] * dimensions}]}).encode())
+        if method == "POST" and url.endswith(("/chat/completions", "/responses")):
+            call = {"name": "capability_check", "arguments": '{"ok":true}'}
+            payload = {"output": [{"type": "function_call", **call}]} if url.endswith("/responses") else {"choices": [{"message": {"tool_calls": [{"type": "function", "function": call}]}}]}
+            return ProviderResponse(200, {}, json_module.dumps(payload).encode())
+        if method == "POST" and url.endswith(("/images/generations", "/images/edits")):
+            from app.services.family_model_settings.probe_contracts import REFERENCE_IMAGE
+            return ProviderResponse(200, {}, json_module.dumps({"data": [{"b64_json": REFERENCE_IMAGE.split(",")[1]}]}).encode())
+        if method == "POST":
+            return _success_response(url, json.get("model") if isinstance(json, dict) else None)
         return ProviderResponse(status_code=200, headers={}, content=b'{"data": []}')
 
     def connect_websocket(self, url: str, *, headers: dict[str, str]):
@@ -75,10 +89,24 @@ class FakeTransport:
         class _Socket:
             def __init__(self) -> None:
                 self.messages: list[str] = []
+                self.events: list[dict[str, object]] = []
                 self.closed = False
 
             def send(self, payload: str) -> None:
                 self.messages.append(payload)
+                event = json.loads(payload)
+                if event['type'] == 'session.update':
+                    self.events.append({'type': 'session.updated'})
+                elif event['type'] == 'input_audio_buffer.commit':
+                    self.events.append({'type': 'conversation.item.input_audio_transcription.completed', 'transcript': ''})
+                elif event['type'] == 'response.create':
+                    self.events.extend([
+                        {'type': 'response.output_audio.delta', 'delta': base64.b64encode(b'\x00\x00' * 2400).decode()},
+                        {'type': 'response.done', 'response': {'status': 'completed'}},
+                    ])
+
+            def recv(self, timeout: float = 10) -> str:
+                return json.dumps(self.events.pop(0))
 
             def close(self) -> None:
                 self.closed = True

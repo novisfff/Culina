@@ -645,3 +645,22 @@ def test_rerank_client_does_not_post_when_admission_is_blocked(reservation_conte
         )
 
     assert provider_calls == 0
+
+
+def test_family_dashscope_rerank_uses_native_envelope_and_nested_results():
+    from dataclasses import replace
+    from app.services.search.rerank import _parse_rerank_response
+    binding = replace(_family_rerank_binding(), adapter_kind='dashscope')
+    calls = []
+    response = ProviderResponse(200, {}, b'{"output":{"results":[{"index":0,"relevance_score":0.9}]},"usage":{"total_tokens":12}}')
+    transport = SimpleNamespace(request=lambda *args, **kwargs: calls.append((args, kwargs)) or response)
+    client = OpenAICompatibleRerankClient(binding=binding, transport=transport,
+        usage_adapter=SimpleNamespace(binding=binding),
+        resolve_dispatch_credential=lambda *args: SimpleNamespace(api_key='fake'))
+    received = client._post_rerank(query='query', documents=['doc'], top_n=1,
+        permit=SimpleNamespace(credential_secret_version_id='secret-version', provider_idempotency_key=None))
+    assert calls[0][0][1].endswith('/services/rerank/text-rerank/text-rerank')
+    assert calls[0][1]['json'] == {'model': binding.requested_model, 'input': {'query': 'query', 'documents': ['doc']},
+                                  'parameters': {'top_n': 1, 'return_documents': False}}
+    assert _parse_rerank_response(received, document_count=1)[0].relevance_score == 0.9
+    assert client.candidate_limit == 20

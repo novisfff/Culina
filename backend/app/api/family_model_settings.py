@@ -829,6 +829,7 @@ def capability_test_view(
             dependencies=dependencies,
         )
         return CapabilityTestOut(
+            audio_preview_data_url=result.audio_preview_data_url,
             capability=result.capability,
             variant_key=result.variant_key,
             status=result.status,

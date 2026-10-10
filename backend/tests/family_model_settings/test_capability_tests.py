@@ -574,6 +574,46 @@ def test_owner_capability_test_uses_one_ledger_event_and_replays_safe_result(
     assert "capability-test-model" not in first.text
 
 
+@pytest.mark.parametrize("media_outcome", ["valid", "invalid", "blocked"])
+def test_image_test_requires_download_and_replay_never_resends_or_redownloads(
+    family_model_api: FamilyModelApiContext,
+    monkeypatch: pytest.MonkeyPatch,
+    media_outcome: str,
+) -> None:
+    import base64
+    import json
+    from app.services.family_model_settings.errors import FamilyModelEndpointBlocked
+    from app.services.family_model_settings.probe_contracts import REFERENCE_IMAGE
+    from app.services.family_model_settings.transport import ProviderMedia
+
+    _save_all_active_capabilities(family_model_api)
+    url = "https://provider.example/image.png?Signature=synthetic-signature"
+    family_model_api.transport.responses.append(ProviderResponse(
+        200, {}, json.dumps({"data": [{"url": url}]}).encode(),
+    ))
+    downloads = []
+
+    def download(_transport, actual, *, source, adapter_kind):
+        downloads.append(actual)
+        assert actual == url and adapter_kind == "openai_compatible_http"
+        if media_outcome == "blocked":
+            raise FamilyModelEndpointBlocked()
+        content = base64.b64decode(REFERENCE_IMAGE.split(",", 1)[1]) if media_outcome == "valid" else b"invalid-image"
+        return ProviderMedia(content, "image/png", source)
+
+    monkeypatch.setattr(type(family_model_api.transport), "download_media", download, raising=False)
+    payload = {"variant_key": "text", "confirm_billable": True, "idempotency_key": "image-download-test"}
+    first = family_model_api.client.post("/api/family/model-settings/capabilities/image_generation/test", json=payload)
+    second = family_model_api.client.post("/api/family/model-settings/capabilities/image_generation/test", json=payload)
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert first.json()["status"] == ("succeeded" if media_outcome == "valid" else "failed")
+    assert len(family_model_api.transport.calls) == 1
+    assert downloads == [url]
+    assert _usage_event_count_for_capability(family_model_api, "image_generation") == 1
+    assert "synthetic-signature" not in first.text
+
+
 def test_owner_capability_test_returns_provider_failure_reason(
     family_model_api: FamilyModelApiContext,
 ) -> None:
@@ -636,7 +676,7 @@ def test_owner_real_capability_test_uses_normal_ledger_for_every_capability(
     assert response.json()["status"] == "succeeded"
     assert _usage_event_count_for_capability(family_model_api, capability) == 1
     if capability == "realtime_audio":
-        assert len(family_model_api.transport.websocket_calls) == 1
+        assert len(family_model_api.transport.websocket_calls) == 2
         assert expected_path in family_model_api.transport.websocket_calls[0][0]
     else:
         assert len(family_model_api.transport.calls) == 1
@@ -648,7 +688,7 @@ def test_owner_real_capability_test_uses_normal_ledger_for_every_capability(
 
 @pytest.mark.parametrize(
     ("capability", "model"),
-    (("stt", "qwen3-asr-flash"), ("tts", "cosyvoice-v3-plus")),
+    (("stt", "qwen3-asr-flash"), ("tts", "qwen3-tts-flash")),
 )
 def test_dashscope_audio_capability_probe_uses_the_native_audio_contract(
     capability: Literal["stt", "tts"],
@@ -697,7 +737,7 @@ def test_dashscope_audio_capability_probe_uses_the_native_audio_contract(
             "voice": "Cherry",
             "language_type": "Chinese",
         }
-        assert payload["parameters"] == {"format": "mp3", "sample_rate": 24000}
+        assert payload["parameters"] == {"format": "wav", "sample_rate": 24000}
 
 
 def test_member_cannot_run_owner_capability_tests(
@@ -715,3 +755,38 @@ def test_member_cannot_run_owner_capability_tests(
     )
 
     assert response.status_code == 403
+
+
+def test_http_success_with_invalid_content_is_failed_and_replayed_without_resend(family_model_api):
+    _save_active_llm(family_model_api)
+    family_model_api.transport.responses.append(ProviderResponse(200, {}, b'{"choices": []}'))
+    payload = {"variant_key": "primary", "confirm_billable": True, "idempotency_key": "invalid-content-replay"}
+    first = family_model_api.client.post('/api/family/model-settings/capabilities/llm/test', json=payload)
+    second = family_model_api.client.post('/api/family/model-settings/capabilities/llm/test', json=payload)
+    assert first.status_code == second.status_code == 200
+    assert first.json()['status'] == 'failed'
+    assert '计费' in first.json()['detail']
+    assert second.json() == first.json()
+    assert len(family_model_api.transport.calls) == 1
+    assert _usage_event_count(family_model_api) == 1
+
+
+def test_openai_stt_probe_uploads_multipart_audio(family_model_api):
+    _save_all_active_capabilities(family_model_api)
+    result = family_model_api.client.post('/api/family/model-settings/capabilities/stt/test', json={
+        'variant_key': 'default', 'confirm_billable': True, 'idempotency_key': 'multipart-stt-probe'})
+    assert result.json()['status'] == 'succeeded'
+    _, _, headers, body = family_model_api.transport.calls[0]
+    assert headers['Content-Type'].startswith('multipart/form-data; boundary=')
+    assert b'RIFF' in body and b'name="file"' in body
+
+
+def test_tts_preview_is_ephemeral_and_replay_does_not_regenerate(family_model_api):
+    _save_all_active_capabilities(family_model_api)
+    payload = {'variant_key': 'default', 'confirm_billable': True, 'idempotency_key': 'ephemeral-tts-probe'}
+    first = family_model_api.client.post('/api/family/model-settings/capabilities/tts/test', json=payload).json()
+    second = family_model_api.client.post('/api/family/model-settings/capabilities/tts/test', json=payload).json()
+    assert first['status'] == second['status'] == 'succeeded'
+    assert first['audio_preview_data_url'].startswith('data:audio/mpeg;base64,')
+    assert second.get('audio_preview_data_url') is None
+    assert len(family_model_api.transport.calls) == 1

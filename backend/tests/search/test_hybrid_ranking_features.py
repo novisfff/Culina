@@ -173,3 +173,15 @@ def test_sort_with_rerank_uses_original_local_position_as_final_success_tiebreak
 
     assert [item.entity_id for item in ranked] == ["z-local-first", "a-local-second"]
     assert (degraded, degradation_code, rerank_used) == (False, None, True)
+
+
+def test_family_candidate_limit_caps_entities_without_truncating_their_document_pairs():
+    client = FakeRerankClient([RerankResult(index=0, relevance_score=0.9)])
+    client.candidate_limit = 1
+    rows = [HybridSearchResult(entity_type='ingredient', entity_id=str(i), score=0, local_score=0.8) for i in range(3)]
+    _sort_with_rerank(query='番茄', results=rows,
+        documents_by_key={('ingredient', str(i)): _document(entity_id=str(i), title_text=f'候选{i}') for i in range(3)},
+        rerank_client=client, rerank_min_score=0.58, literal_fallback_min_score=0.7,
+        rerank_candidate_limit=50, rerank_attribution=_attribution(), rerank_attempt_key='candidate-limit-test')
+    assert len(client.documents) == 2
+    assert all('候选0' in document for document in client.documents)

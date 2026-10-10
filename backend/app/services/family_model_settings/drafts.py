@@ -37,6 +37,8 @@ from app.repos.family_model_settings.profiles import (
     lock_family_model_settings,
 )
 from app.schemas.family_model_settings import (
+    DEFAULT_LLM_OUTPUT_TOKENS,
+    DEFAULT_RERANK_CANDIDATES,
     FamilyModelConfigDraftPayload,
     FamilyModelPriceRateRequest,
 )
@@ -61,6 +63,7 @@ from app.services.family_model_settings.validation import (
     config_checksum,
     price_checksum,
     required_meters_for_capability,
+    _validate_fallback_graph,
     validate_family_model_capability_rates,
     validate_family_model_capability,
 )
@@ -80,7 +83,7 @@ _WRITE_ONLY_DRAFT_KEYS = frozenset(
 
 _ACTIVE_BINDING_OPTION_FIELDS: Mapping[ModelUsageCapability, frozenset[str]] = {
     ModelUsageCapability.LLM: frozenset(
-        {"max_output_tokens", "supports_vision", "prompt_cache_enabled"}
+        {"max_output_tokens", "supports_vision", "prompt_cache_enabled", "runtime_protocol"}
     ),
     ModelUsageCapability.IMAGE_GENERATION: frozenset({"image_size", "response_format"}),
     ModelUsageCapability.STT: frozenset({"language_hint", "hotwords"}),
@@ -436,9 +439,10 @@ def _default_binding_record(
     if capability is ModelUsageCapability.LLM:
         record.update(
             {
-                "max_output_tokens": 4096 if variant_key == "primary" else 2048,
+                "max_output_tokens": DEFAULT_LLM_OUTPUT_TOKENS,
                 "supports_vision": False,
                 "prompt_cache_enabled": True,
+                "runtime_protocol": "chat_completions",
             }
         )
     elif capability is ModelUsageCapability.IMAGE_GENERATION:
@@ -452,7 +456,7 @@ def _default_binding_record(
     elif capability is ModelUsageCapability.EMBEDDING:
         record.update({"dimensions": 1536})
     elif capability is ModelUsageCapability.RERANK:
-        record.update({"top_n": 20, "instruction": None})
+        record.update({"top_n": DEFAULT_RERANK_CANDIDATES, "instruction": None})
     return record
 
 
@@ -2176,6 +2180,31 @@ def _independent_validation(
             else:
                 effective_rate_objects.pop(primary_identity, None)
         meaningful_successful.discard(primary_identity)
+
+    # Primary and fallback form one runtime protocol boundary. Keep the last
+    # working pair if either edit would publish an incompatible combination.
+    llm_version_ids = [binding.provider_profile_version_id for binding in effective_bindings.values()
+                       if binding.enabled and binding.capability == ModelUsageCapability.LLM]
+    adapter_kinds = dict(db.execute(select(
+        FamilyModelProviderProfileVersion.id, FamilyModelProviderProfileVersion.adapter_kind,
+    ).where(FamilyModelProviderProfileVersion.family_id == family_id,
+            FamilyModelProviderProfileVersion.id.in_(llm_version_ids))).all()) if llm_version_ids else {}
+    graph_errors = _validate_fallback_graph(tuple(effective_bindings.values()), adapter_kinds=adapter_kinds)
+    if graph_errors:
+        for issue in graph_errors:
+            _append_unique_issue(issues, issue)
+        for identity in (primary_identity, fallback_identity):
+            for effective, baseline in (
+                (effective_bindings, baseline_validated_bindings),
+                (effective_binding_objects, baseline_bindings),
+                (effective_rates, baseline_effective_rates),
+                (effective_rate_objects, baseline_rates),
+            ):
+                if identity in baseline:
+                    effective[identity] = baseline[identity]
+                else:
+                    effective.pop(identity, None)
+            meaningful_successful.discard(identity)
 
     if not meaningful_successful:
         if len(target_identities) == 1:

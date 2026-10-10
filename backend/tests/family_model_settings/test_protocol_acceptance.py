@@ -477,7 +477,7 @@ def test_published_family_dispatches_each_capability_through_its_snapshot(
         handshakes = [request for request in requests if request.protocol == "websocket"]
         frames = [request for request in requests if request.protocol == "websocket_frame"]
         assert len(handshakes) == 1
-        assert len(frames) == 4
+        assert len(frames) == 2
         assert handshakes[0].path == path
         assert handshakes[0].model == model
         assert [
@@ -486,9 +486,7 @@ def test_published_family_dispatches_each_capability_through_its_snapshot(
             if isinstance(frame.body, dict)
         ] == [
             "session.update",
-            "input_text_buffer.append",
-            "input_text_buffer.commit",
-            "session.finish",
+            "response.create",
         ]
     else:
         assert len(requests) == 1

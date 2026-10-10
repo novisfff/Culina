@@ -16,6 +16,7 @@ export type FamilyModelSettingsOverlay =
 
 export type FamilyModelSettingsBusyAction =
   | 'save'
+  | 'autosave'
   | 'validate'
   | 'rotate'
   | 'test'
@@ -53,7 +54,7 @@ export type FamilyModelSettingsStateAction =
   | { type: 'reset'; section?: FamilyModelSettingsSection };
 
 function isBlocked(state: FamilyModelSettingsState): boolean {
-  return state.busyAction !== null;
+  return state.busyAction !== null && state.busyAction !== 'autosave';
 }
 
 export function reduceFamilyModelSettingsState(
@@ -76,7 +77,7 @@ export function reduceFamilyModelSettingsState(
     case 'mark-dirty':
       return { ...state, dirty: action.dirty ?? true };
     case 'busy':
-      return isBlocked(state) ? state : { ...state, busyAction: action.action };
+      return state.busyAction !== null ? state : { ...state, busyAction: action.action };
     case 'settled':
       return state.busyAction === null ? state : { ...state, busyAction: null };
     case 'push-mobile-task':

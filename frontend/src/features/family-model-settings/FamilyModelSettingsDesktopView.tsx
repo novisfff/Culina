@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { SettingsSaveStatus } from './SettingsSaveStatus';
 import type { FamilyModelSettingsSection } from './useFamilyModelSettingsState';
 import type { FamilyModelSettingsSurfaceProps } from './familyModelSettingsViewTypes';
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
@@ -10,8 +11,8 @@ import { SearchProfilePanel } from './SearchProfilePanel';
 const SECTIONS: ReadonlyArray<{ id: FamilyModelSettingsSection; label: string; description: string }> = [
   { id: 'overview', label: '服务概览', description: '查看当前配置状态' },
   { id: 'providers', label: '模型服务', description: '管理连接地址与密钥' },
-  { id: 'capabilities', label: '功能设置', description: '选择七类 AI 功能' },
-  { id: 'prices', label: '模型价格', description: '可选，未填写的价格按 0 元计入费用' },
+  { id: 'capabilities', label: '功能设置', description: '配置对话、图片与语音' },
+  { id: 'prices', label: '模型价格', description: '设置用量估算价格' },
   { id: 'search', label: '智能搜索', description: '管理家庭内容的搜索方式' },
   { id: 'review', label: '配置检查', description: '查看配置是否完整' },
 ];
@@ -206,7 +207,7 @@ function Overview(props: Pick<FamilyModelSettingsSurfaceProps, 'overview' | 'onS
 }
 
 export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurfaceProps) {
-  const busy = props.busyAction !== null;
+  const busy = props.busyAction !== null && props.busyAction !== 'autosave';
   const selectedProfileId = props.state.selectedProfileId;
 
   return (
@@ -239,7 +240,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
         </div>
       </nav>
       <section className="family-model-settings-main-panel" aria-labelledby="family-model-settings-title">
-        <header className="family-model-settings-page-head">
+        <header className={`family-model-settings-page-head ${props.state.section !== 'overview' ? 'is-compact' : ''}`}>
           <div className="family-model-settings-page-head-top">
             <button className="family-model-settings-back" type="button" disabled={busy} onClick={props.onBack}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -247,7 +248,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
               </svg>
               <span>返回家庭</span>
             </button>
-            <span className="family-model-settings-page-head-tag">家庭工作区</span>
+            {props.state.section === 'overview' ? <span className="family-model-settings-page-head-tag">家庭工作区</span> : null}
           </div>
           <div className="family-model-settings-page-head-main">
             <div className="family-model-settings-page-head-title-wrap">
@@ -262,27 +263,12 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
               </div>
               <div>
                 <h1 id="family-model-settings-title">家庭 AI 服务</h1>
-                <p className="family-model-settings-page-head-desc">由家庭主理人统一管理服务、密钥、模型和价格。</p>
+                {props.state.section === 'overview' ? <p className="family-model-settings-page-head-desc">由家庭主理人统一管理服务、密钥、模型和价格。</p> : null}
               </div>
             </div>
           </div>
           {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
-          {props.errorMessage ? (
-            <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
-          ) : (
-            <p className={`family-model-settings-auto-save-status ${props.serverDraft.validation_status === 'invalid' ? 'is-warning' : 'is-ready'}`} role="status">
-              <span className="family-model-settings-status-dot" aria-hidden="true" />
-              {props.busyAction === 'save'
-                ? '正在自动保存…'
-                : props.state.dirty
-                  ? '修改将在稍后自动保存'
-                  : props.serverDraft.validation_status === 'invalid'
-                    ? '部分修改已生效；未通过校验的功能继续使用原配置'
-                    : props.settings.active_config_revision_id
-                      ? '配置已自动保存并生效'
-                      : '修改会自动保存，信息完整后立即生效'}
-            </p>
-          )}
+          <SettingsSaveStatus {...props} />
         </header>
 
         {props.state.section === 'overview' ? <Overview overview={props.overview} onSelectSection={props.onSelectSection} /> : null}
@@ -291,7 +277,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
             profiles={props.settings.provider_profiles}
             settingsVersionNumber={props.settings.version_number}
             selectedProfileId={selectedProfileId}
-            busy={busy}
+            busy={props.busyAction !== null}
             onSelectProfile={props.onSelectProfile}
             onRebindCreatedProfile={props.onRebindCreatedProfile}
             onCreate={(input) => props.actions.createProviderProfile({ ...input, idempotency_key: '' })}
@@ -307,6 +293,7 @@ export function FamilyModelSettingsDesktopView(props: FamilyModelSettingsSurface
             draft={props.draft}
             profiles={props.settings.provider_profiles}
             busy={busy}
+            testBusy={props.busyAction !== null}
             onDraftChange={props.onDraftChange}
             onDiscoverModels={props.onDiscoverModels}
             onTestCapability={props.onTestCapability}

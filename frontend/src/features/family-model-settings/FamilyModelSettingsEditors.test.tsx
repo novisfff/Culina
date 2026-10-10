@@ -471,6 +471,24 @@ describe('Family model settings editors', () => {
     expect(screen.getByLabelText('模型名称')).toHaveValue('kitchen-chat');
   });
 
+  it('invalidates the visible test result when the service key changes', async () => {
+    const user = userEvent.setup();
+    const draft = createEmptyFamilyModelDraft();
+    draft.bindings[0] = { ...draft.bindings[0], enabled: true, provider_profile_id: profile.id, requested_model: 'kitchen-chat' };
+    const props = { draft, profiles: [profile], busy: false, onDraftChange: vi.fn(),
+      onDiscoverModels: vi.fn().mockResolvedValue({ status: 'not_supported', models: [] }),
+      onTestCapability: vi.fn().mockResolvedValue({ status: 'succeeded', checked_at: '2026-10-08T10:00:00Z' }),
+    };
+    const { rerender } = render(<CapabilityBindingEditor {...props} />);
+    await user.click(screen.getByRole('button', { name: '测试功能' }));
+    expect(await screen.findByText('测试通过')).toBeVisible();
+    expect(screen.getByText(/最近测试：/)).toBeVisible();
+    rerender(<CapabilityBindingEditor {...props} profiles={[{ ...profile, credential: { ...profile.credential, version_number: 4 } }]} />);
+    expect(screen.queryByText('测试通过')).not.toBeInTheDocument();
+    expect(screen.getByText('需重新测试')).toBeVisible();
+    expect(screen.getByRole('button', { name: '测试功能' })).toBeEnabled();
+  });
+
   it('does not restore an obsolete success when the model changes during a test', async () => {
     const user = userEvent.setup();
     let resolveTest!: (result: { status: string }) => void;
@@ -1053,7 +1071,7 @@ describe('Family model settings editors', () => {
     );
 
     await waitFor(() => expect(onDiscoverModels).toHaveBeenCalledWith(profile.id));
-    expect(await screen.findByText('已自动读取 2 个模型，也可以直接输入其他模型名称。')).toBeVisible();
+    expect(await screen.findByText('已读取 2 个模型，也可手动输入。')).toBeVisible();
 
     const modelField = screen.getByRole('combobox', { name: '模型名称' });
     await user.click(modelField);
@@ -1093,7 +1111,7 @@ describe('Family model settings editors', () => {
     }));
   });
 
-  it('uses shared size choices and advanced response format settings', async () => {
+  it('explains purpose-driven image sizing without ineffective overrides', async () => {
     const user = userEvent.setup();
     const onDraftChange = vi.fn();
     render(
@@ -1108,20 +1126,10 @@ describe('Family model settings editors', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /图片生成 · 文字生成/ }));
-    await user.click(screen.getByRole('radio', { name: /竖版/ }));
-    await user.click(screen.getByText('高级设置'));
-    await chooseDropdown(user, '返回格式', /^图片链接/);
-
-    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
-      bindings: expect.arrayContaining([
-        expect.objectContaining({ capability: 'image_generation', image_size: '1024x1536' }),
-      ]),
-    }));
-    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
-      bindings: expect.arrayContaining([
-        expect.objectContaining({ capability: 'image_generation', response_format: 'url' }),
-      ]),
-    }));
+    expect(screen.getByText('图片尺寸跟随用途自动选择，生成结果由系统统一保存。')).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /竖版/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '返回格式' })).not.toBeInTheDocument();
+    expect(onDraftChange).not.toHaveBeenCalled();
   });
 
   it('keeps manual model input available when discovery returns no models', async () => {
@@ -1318,4 +1326,39 @@ describe('Family model settings editors', () => {
     expect(screen.getByRole('heading', { name: '还有 2 项需要完善' })).toBeVisible();
     expect(screen.getByText('检查只做提醒，当前可用配置不会被覆盖。')).toBeVisible();
   });
+});
+
+it('offers a bounded audio preview from the completed speech test', async () => {
+  const user = userEvent.setup();
+  const draft = createEmptyFamilyModelDraft();
+  draft.bindings = draft.bindings.map((binding) => binding.capability === 'tts'
+    ? { ...binding, enabled: true, provider_profile_id: profile.id, requested_model: 'speech-model' } : binding);
+  const testCapability = vi.fn().mockResolvedValue({ status: 'succeeded', audio_preview_data_url: 'data:audio/mpeg;base64,SUQz' });
+  render(<CapabilityBindingEditor draft={draft} profiles={[profile]} busy={false} onDraftChange={vi.fn()}
+    onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })} onTestCapability={testCapability} />);
+  await user.click(screen.getByRole('button', { name: '测试功能' }));
+  expect(await screen.findByLabelText('测试音色试听')).toHaveAttribute('src', 'data:audio/mpeg;base64,SUQz');
+  expect(testCapability).toHaveBeenCalledWith('tts', 'default', true);
+});
+
+it('exposes named keyboard-operable vision and cache switches with descriptions', async () => {
+  const user = userEvent.setup();
+  function Editor() {
+    const [draft, setDraft] = useState(createEmptyFamilyModelDraft());
+    return <CapabilityBindingEditor draft={draft} profiles={[profile]} busy={false} onDraftChange={setDraft}
+      onDiscoverModels={vi.fn().mockResolvedValue({ status: 'not_supported', models: [] })} onTestCapability={vi.fn()} />;
+  }
+  render(<Editor />);
+  const vision = screen.getByRole('checkbox', { name: '图片理解' });
+  expect(vision).not.toBeChecked();
+  vision.focus();
+  await user.keyboard(' ');
+  expect(vision).toBeChecked();
+  await user.click(screen.getByText('高级设置', { exact: true }));
+  const cache = screen.getByRole('checkbox', { name: '提示词缓存' });
+  expect(cache).toBeChecked();
+  expect(cache).toHaveAccessibleDescription('发送缓存标识，是否命中由服务决定。');
+  cache.focus();
+  await user.keyboard(' ');
+  expect(cache).not.toBeChecked();
 });

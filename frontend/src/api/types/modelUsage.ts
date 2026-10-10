@@ -225,6 +225,7 @@ export interface FamilyModelLlmBindingDraft
   max_output_tokens: number;
   supports_vision: boolean;
   prompt_cache_enabled: boolean;
+  runtime_protocol?: 'chat_completions' | 'responses';
 }
 
 export interface FamilyModelImageGenerationBindingDraft
@@ -391,6 +392,7 @@ export interface FamilyModelCapabilityTestOverride {
 }
 
 export interface FamilyModelCapabilityTestResult {
+  audio_preview_data_url?: string | null;
   capability: FamilyModelCapability;
   variant_key: string;
   status: 'succeeded' | 'failed' | 'blocked';

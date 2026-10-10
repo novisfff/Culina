@@ -130,7 +130,9 @@ def _authority(host: str, port: int, scheme: str) -> str:
     return f"{rendered_host}:{port}"
 
 
-def parse_and_normalize_provider_url(raw_url: str) -> _ParsedProviderUrl:
+def parse_and_normalize_provider_url(
+    raw_url: str, *, allow_query: bool = False,
+) -> _ParsedProviderUrl:
     if not isinstance(raw_url, str) or not raw_url or any(
         character.isspace() or ord(character) < 32 for character in raw_url
     ):
@@ -145,7 +147,7 @@ def parse_and_normalize_provider_url(raw_url: str) -> _ParsedProviderUrl:
         raise _blocked("family_model_endpoint_url_invalid")
     if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
         raise _blocked("family_model_endpoint_url_invalid")
-    if parsed.query or parsed.fragment or parsed.hostname is None:
+    if (parsed.query and not allow_query) or parsed.fragment or parsed.hostname is None:
         raise _blocked("family_model_endpoint_url_invalid")
     host = _normalize_host(parsed.hostname)
     normalized_port = port if port is not None else _DEFAULT_PORTS[scheme]
@@ -154,6 +156,8 @@ def parse_and_normalize_provider_url(raw_url: str) -> _ParsedProviderUrl:
     base_path = parsed.path or "/"
     if not base_path.startswith("/") or "\\" in base_path:
         raise _blocked("family_model_endpoint_url_invalid")
+    if parsed.query:
+        base_path += f"?{parsed.query}"
     normalized_url = f"{scheme}://{_authority(host, normalized_port, scheme)}{base_path}"
     return _ParsedProviderUrl(
         scheme=scheme,  # type: ignore[arg-type]
@@ -261,8 +265,9 @@ class ProviderNetworkPolicy:
         raw_url: str,
         *,
         protocol: NetworkProtocol,
+        allow_query: bool = False,
     ) -> ResolvedProviderEndpoint:
-        parsed = parse_and_normalize_provider_url(raw_url)
+        parsed = parse_and_normalize_provider_url(raw_url, allow_query=allow_query)
         if protocol == "http" and parsed.scheme not in {"http", "https"}:
             raise _blocked("family_model_endpoint_protocol_mismatch")
         if protocol == "websocket" and parsed.scheme not in {"ws", "wss"}:
@@ -315,7 +320,20 @@ class ProviderNetworkPolicy:
         definition = adapter_definition(adapter_kind)
         if definition.media_host_policy == "inline_only":
             raise _blocked()
-        endpoint = self.authorize(raw_url, protocol="http")
+        # Official DashScope TTS responses can contain signed HTTP OSS URLs.
+        # Fetch those exact declared hosts over HTTPS, preserving the signed
+        # path/query and still applying all DNS/IP authorization below.
+        if definition.media_host_policy == "dashscope_declared_hosts":
+            parsed = parse_and_normalize_provider_url(raw_url, allow_query=True)
+            if (
+                parsed.scheme == "http"
+                and parsed.host in definition.declared_media_hosts
+                and parsed.port == 80
+            ):
+                raw_url = f"https://{parsed.host}{parsed.base_path}"
+        # Media URLs are provider responses, not configured base endpoints.
+        # Retain their signed query after the same authority/DNS/IP checks.
+        endpoint = self.authorize(raw_url, protocol="http", allow_query=True)
         same_origin = (
             endpoint.scheme == source.scheme
             and endpoint.host == source.host

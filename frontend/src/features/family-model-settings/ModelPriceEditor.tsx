@@ -124,7 +124,7 @@ export function ModelPriceEditor(props: ModelPriceEditorProps) {
       <div className="family-model-settings-section-head">
         <div>
           <h2 id="family-model-price-editor-title">模型价格</h2>
-          <p>价格为可选项。系统会按功能列出常见计费项，未填写的价格按 0 元计入费用。</p>
+          <p>价格为可选项，未填写的价格按 0 元估算。仅用于本应用费用估算，实际费用以服务商账单为准。</p>
         </div>
       </div>
       {enabledBindings.length === 0 ? (

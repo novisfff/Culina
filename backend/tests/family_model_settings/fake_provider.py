@@ -55,7 +55,7 @@ class _FakeWebSocket:
         self._authorization = authorization
         self._model = model
         self.closed = False
-        self._receive_index = 0
+        self._events: list[dict[str, object]] = []
 
     def send(self, payload: str | bytes) -> None:
         if self.closed:
@@ -77,25 +77,29 @@ class _FakeWebSocket:
                 body=body,
             )
         )
+        if not isinstance(body, dict):
+            raise AssertionError("realtime event must be JSON")
+        if body.get("type") == "session.update":
+            from openai.types.realtime.session_update_event import SessionUpdateEvent
+            SessionUpdateEvent.model_validate(body)
+            self._events.append({"type": "session.updated"})
+        elif body.get("type") == "response.create":
+            from openai.types.realtime.response_create_event import ResponseCreateEvent
+            ResponseCreateEvent.model_validate(body)
+            self._events.extend([
+                {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x00\x00" * 2400).decode()},
+                {"type": "response.done", "response": {"status": "completed"}},
+            ])
+        elif body.get("type") == "input_audio_buffer.commit":
+            self._events.append({"type": "conversation.item.input_audio_transcription.completed", "transcript": "测试"})
+        elif body.get("type") != "input_audio_buffer.append":
+            raise AssertionError("unsupported OpenAI GA event")
 
     def recv(self, timeout: float | None = None) -> str:
         del timeout
         if self.closed:
             raise RuntimeError("fake_provider_websocket_closed")
-        events = (
-            {
-                "type": "session.created",
-                "session": {"model": self._model or "fake-realtime-model"},
-            },
-            {
-                "type": "response.audio.delta",
-                "delta": base64.b64encode(b"\x00\x00" * 2400).decode("ascii"),
-            },
-            {"type": "session.finished"},
-        )
-        event = events[min(self._receive_index, len(events) - 1)]
-        self._receive_index += 1
-        return json.dumps(event, ensure_ascii=False)
+        return json.dumps(self._events.pop(0), ensure_ascii=False)
 
     def close(self) -> None:
         self.closed = True
@@ -210,7 +214,8 @@ class FakeFamilyModelProvider:
                 body=b"",
             )
         )
-        return ProviderMedia(content=b"fake-provider-media", content_type="image/png", endpoint=source)
+        from app.services.family_model_settings.probe_contracts import REFERENCE_IMAGE
+        return ProviderMedia(content=base64.b64decode(REFERENCE_IMAGE.split(",", 1)[1]), content_type="image/png", endpoint=source)
 
     def _next_outcome(self) -> _QueuedHttpOutcome | None:
         with self._lock:
@@ -265,8 +270,9 @@ def _success_response(path: str, model: str | None) -> ProviderResponse:
             "output": [{"type": "message", "content": [{"type": "output_text", "text": "已完成能力测试。"}]}],
             "usage": {"input_tokens": 8, "output_tokens": 1, "total_tokens": 9},
         }
-    elif path.endswith("/images/generations") or path.endswith("/image-synthesis"):
-        payload = {"created": 0, "data": [{"b64_json": "ZmFrZS1pbWFnZQ=="}]}
+    elif path.endswith(("/images/generations", "/images/edits", "/image-synthesis")):
+        from app.services.family_model_settings.probe_contracts import REFERENCE_IMAGE
+        payload = {"created": 0, "data": [{"b64_json": REFERENCE_IMAGE.split(",", 1)[1]}]}
     elif path.endswith("/audio/transcriptions"):
         payload = {"text": "能力测试。", "model": model}
     elif path.endswith("/embeddings") or path.endswith("/text-embedding"):

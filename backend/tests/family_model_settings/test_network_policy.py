@@ -74,6 +74,73 @@ def test_endpoint_policy_blocks_unsafe_targets(policy: ProviderNetworkPolicy, ur
         policy.authorize(url, protocol="http")
 
 
+@pytest.mark.parametrize("region", ["bj", "sh", "wlcb", "sz"])
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_dashscope_signed_media_uses_exact_official_host_over_https(
+    policy: ProviderNetworkPolicy, region: str, scheme: str,
+) -> None:
+    regions = {"bj": "beijing", "sh": "shanghai", "wlcb": "wulanchabu", "sz": "shenzhen"}
+    host = f"dashscope-result-{region}.oss-cn-{regions[region]}.aliyuncs.com"
+    source = policy.authorize("https://dashscope.aliyuncs.com/api/v1", protocol="http")
+    query = "Expires=123&OSSAccessKeyId=fake&Signature=A%2B%2F%3D"
+    endpoint = policy.authorize_media(
+        f"{scheme}://{host}/result/file.png?{query}", source=source, adapter_kind="dashscope",
+    )
+    assert endpoint.normalized_url == f"https://{host}/result/file.png?{query}"
+    assert endpoint.base_path == f"/result/file.png?{query}"
+    assert endpoint.resolved_addresses == ("93.184.216.34",)
+
+
+@pytest.mark.parametrize('scheme', ['http', 'https'])
+def test_dashscope_accelerated_media_preserves_signed_query_over_https(policy, scheme):
+    source = policy.authorize('https://dashscope.aliyuncs.com/api/v1', protocol='http')
+    query = 'Expires=123&Signature=A%2B%2F%3D'
+    endpoint = policy.authorize_media(f'{scheme}://dashscope-0484.oss-accelerate.aliyuncs.com/result.png?{query}',
+        source=source, adapter_kind='dashscope')
+    assert endpoint.normalized_url == f'https://dashscope-0484.oss-accelerate.aliyuncs.com/result.png?{query}'
+    assert endpoint.base_path == f'/result.png?{query}'
+    assert endpoint.resolved_addresses == ('93.184.216.34',)
+
+
+@pytest.mark.parametrize("url", [
+    "https://dashscope-0484.oss-accelerate.aliyuncs.com.evil.example/a.png",
+    "https://dashscope-9999.oss-accelerate.aliyuncs.com/a.png",
+    "https://other-bucket.oss-accelerate.aliyuncs.com/a.png",
+    "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com.evil.example/a.png?Signature=fake",
+    "https://other-bucket.oss-cn-beijing.aliyuncs.com/a.png?Signature=fake",
+    "http://user@dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.png",
+    "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com:8080/a.png",
+    "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.png#fragment",
+    "http://[invalid",
+    "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a\n.png?Signature=fake",
+])
+def test_media_host_allowlist_does_not_accept_spoofs_or_invalid_urls(
+    policy: ProviderNetworkPolicy, url: str,
+) -> None:
+    source = policy.authorize("https://dashscope.aliyuncs.com/api/v1", protocol="http")
+    with pytest.raises(FamilyModelEndpointBlocked):
+        policy.authorize_media(url, source=source, adapter_kind="dashscope")
+
+
+@pytest.mark.parametrize('host', ['dashscope-result-bj.oss-cn-beijing.aliyuncs.com', 'dashscope-0484.oss-accelerate.aliyuncs.com'])
+@pytest.mark.parametrize("addresses", [("127.0.0.1",), ("93.184.216.34", "169.254.169.254"), ("10.20.0.4",)])
+def test_declared_media_host_still_requires_safe_dns_answers(
+    policy: ProviderNetworkPolicy, resolver: FakeResolver, addresses: tuple[str, ...], host: str,
+) -> None:
+    source = policy.authorize("https://dashscope.aliyuncs.com/api/v1", protocol="http")
+    resolver.answers = addresses
+    with pytest.raises(FamilyModelEndpointBlocked):
+        policy.authorize_media(
+            f"http://{host}/a.wav?Signature=fake",
+            source=source, adapter_kind="dashscope",
+        )
+
+
+def test_configured_base_urls_still_reject_query_parameters(policy: ProviderNetworkPolicy) -> None:
+    with pytest.raises(FamilyModelEndpointBlocked):
+        policy.authorize("https://provider.example/v1?key=fake", protocol="http")
+
+
 @pytest.mark.parametrize(
     ("url", "protocol", "resolved_addresses", "expected_code"),
     [

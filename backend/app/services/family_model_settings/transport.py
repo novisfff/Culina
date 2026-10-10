@@ -49,6 +49,12 @@ _FORBIDDEN_HEADER_NAMES = frozenset(
 )
 
 
+def _media_content_type(value: str) -> str:
+    content_type = value.split(";", 1)[0].strip().lower()
+    # Official DashScope OSS uses this MIME alias for WAV containers.
+    return "audio/wav" if content_type == "audio/x-wav" else content_type
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderTransportSettings:
     connect_timeout_seconds: float
@@ -391,7 +397,7 @@ class PinnedHttpDialer:
             body=None,
             max_response_bytes=max_bytes,
         )
-        content_type = (response.header("content-type") or "").split(";", 1)[0].strip().lower()
+        content_type = _media_content_type(response.header("content-type") or "")
         if content_type not in allowed_content_types:
             raise FamilyModelProviderMediaTypeBlocked()
         return ProviderMedia(content=response.content, content_type=content_type, endpoint=endpoint)
@@ -526,7 +532,7 @@ class EgressProxyHttpDialer:
             body=None,
             max_response_bytes=max_bytes,
         )
-        content_type = (response.header("content-type") or "").split(";", 1)[0].strip().lower()
+        content_type = _media_content_type(response.header("content-type") or "")
         if content_type not in allowed_content_types:
             raise FamilyModelProviderMediaTypeBlocked()
         return ProviderMedia(content=response.content, content_type=content_type, endpoint=endpoint)
@@ -682,7 +688,8 @@ class ProviderTransport:
         *,
         headers: Mapping[str, str],
     ) -> object:
-        endpoint = self.policy.authorize(url, protocol="websocket")
+        # Runtime adds the model query to a separately validated base URL.
+        endpoint = self.policy.authorize(url, protocol="websocket", allow_query=True)
         return self.websocket_dialer.connect(
             endpoint=endpoint,
             headers=safe_headers(headers),
@@ -708,10 +715,10 @@ class ProviderTransport:
         )
         if len(media.content) > self.settings.media_max_bytes:
             raise FamilyModelProviderResponseTooLarge()
-        content_type = media.content_type.split(";", 1)[0].strip().lower()
+        content_type = _media_content_type(media.content_type)
         if content_type not in ALLOWED_PROVIDER_MEDIA_TYPES:
             raise FamilyModelProviderMediaTypeBlocked()
-        return media
+        return ProviderMedia(media.content, content_type, media.endpoint)
 
 
 def provider_network_constructor_inventory(root: Path | None = None) -> list[str]:

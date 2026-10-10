@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FamilyModelBindingDraft, FamilyModelConfigDraftPayload, FamilyModelPriceRate } from '../../api/types';
 import {
   createEmptyFamilyModelDraft,
+  createFamilyModelSettingsDraft,
   normalizeFamilyModelPriceRates,
   rebindDraftProviderProfile,
   safeFamilyModelSettingsError,
@@ -199,7 +200,25 @@ describe('familyModelSettingsModel', () => {
       'family_model_provider_protocol_unsupported',
       '当前模型服务不支持这种地址或验证方式。请检查服务类型、地址和验证方式。',
     ],
+    [
+      'family_model_realtime_model_unsupported',
+      'DashScope 实时语音需要支持识别和播报的 Qwen-Omni 模型，请更换模型名称。',
+    ],
+    [
+      'family_model_audio_output_format_unsupported',
+      '当前 CosyVoice 播报支持 MP3 和 WAV，请更换音频格式。',
+    ],
   ])('maps %s to an actionable safe message', (code, expectedMessage) => {
     expect(safeFamilyModelSettingsError({ payload: { detail: { code } } })).toBe(expectedMessage);
   });
+});
+
+it('uses equal output budgets for new primary and fallback models without replacing saved values', () => {
+  const draft = createEmptyFamilyModelDraft();
+  expect(draft.bindings.filter((binding) => binding.capability === 'llm').map((binding) => binding.max_output_tokens))
+    .toEqual([32768, 32768]);
+  expect(draft.bindings.find((binding) => binding.capability === 'rerank')).toMatchObject({ top_n: 50 });
+  const saved = { ...draft, bindings: draft.bindings.map((binding) => binding.capability === 'llm'
+    ? { ...binding, max_output_tokens: 40960 } : binding) };
+  expect(createFamilyModelSettingsDraft(saved).bindings[0]).toMatchObject({ max_output_tokens: 40960 });
 });

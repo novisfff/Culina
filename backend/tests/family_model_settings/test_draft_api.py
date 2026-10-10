@@ -201,3 +201,20 @@ def test_initial_embedding_requires_explicit_confirmation_and_returns_profile_id
 
     assert changed.status_code == 422
     assert changed.json()["detail"]["code"] == "family_search_profile_locked"
+
+
+def test_new_binding_defaults_and_saved_output_budget_are_distinct(family_model_api):
+    from app.core.enums import ModelUsageCapability
+    from app.services.family_model_settings.drafts import _default_binding_record
+
+    for variant in ('primary', 'fallback'):
+        assert _default_binding_record(ModelUsageCapability.LLM, variant)['max_output_tokens'] == 32768
+    assert _default_binding_record(ModelUsageCapability.RERANK, 'search')['top_n'] == 50
+    payload = _draft_payload()
+    payload['bindings'][0]['max_output_tokens'] = 40960
+    response = family_model_api.client.put('/api/family/model-settings/draft', json={
+        **payload, 'base_draft_version_number': 0, 'idempotency_key': 'preserve-custom-output-budget',
+    })
+    assert response.status_code == 200
+    restored = family_model_api.client.get('/api/family/model-settings/draft').json()
+    assert restored['payload']['bindings'][0]['max_output_tokens'] == 40960

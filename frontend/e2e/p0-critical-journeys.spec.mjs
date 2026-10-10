@@ -687,3 +687,97 @@ test.describe('P0 authenticated Member AI policy', () => {
     expect(aiMocks.unexpectedRequests).toEqual([]);
   });
 });
+
+test.describe('native Qwen speech settings', () => {
+  test.use({ familyModelScenario: 'qwen-tts' });
+  test('@p0 native Qwen HTTP TTS shows the actual fixed WAV format', async ({ app }, testInfo) => {
+    const { page } = app;
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: '家庭', exact: true }).first().click();
+    await page.getByRole('button', { name: /AI 服务.*管理家庭/ }).click();
+    await page.getByRole('button', { name: /^功能设置/ }).click();
+    await page.getByRole('button', { name: '对话与图片理解 · 主用', exact: true }).click();
+    await page.getByRole('button', { name: '语音播报 · 默认', exact: true }).click();
+    const sizes = testInfo.project.name.startsWith('phone') ? [[375, 812], [390, 844], [430, 932]]
+      : testInfo.project.name.startsWith('tablet') ? [[768, 1024], [1024, 768]] : [[1440, 900]];
+    for (const [width, height] of sizes) {
+      await page.setViewportSize({ width, height });
+      const format = page.getByRole('button', { name: '音频格式', exact: true });
+      await format.scrollIntoViewIfNeeded();
+      await expect(format).toBeDisabled();
+      await expect(format).toHaveText('WAV');
+      await expect(page.getByText('当前 Qwen 播报模型固定返回 WAV。')).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await attachCheckpointScreenshot(page, testInfo, `qwen-fixed-wav-${width}x${height}`);
+    }
+  });
+});
+
+test('@p0 family model settings retain test results and close model lists locally', async ({ app }, testInfo) => {
+  const { page, familyModelRequests } = app;
+  const isPhone = testInfo.project.name.startsWith('phone');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: '家庭', exact: true }).first().click();
+  await page.getByRole('button', { name: /AI 服务.*管理家庭/ }).click();
+  await page.getByRole('button', { name: /^功能设置/ }).click();
+
+  const modelInput = page.getByRole('combobox', { name: '模型名称', exact: true });
+  await modelInput.click();
+  await expect(page.getByRole('listbox', { name: '模型名称选项' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox', { name: '模型名称选项' })).toHaveCount(0);
+  await expect(modelInput).toBeVisible();
+
+  await page.getByRole('button', { name: '测试功能', exact: true }).click();
+  await expect(page.getByText('测试通过', { exact: true })).toBeVisible();
+  await expect(page.getByText('修改已保存', { exact: true })).toBeVisible();
+  if (isPhone) await page.getByRole('button', { name: '返回服务概览' }).click();
+  await page.getByRole('button', { name: /^模型价格/ }).click();
+  await expect(page.getByText(/实际费用以服务商账单为准/)).toBeVisible();
+  if (isPhone) await page.getByRole('button', { name: '返回服务概览' }).click();
+  await page.getByRole('button', { name: /^功能设置/ }).click();
+  await expect(page.getByText('测试通过', { exact: true })).toBeVisible();
+  await expect(page.getByText(/刷新失败，正在显示上次成功/)).toHaveCount(0);
+  expect(familyModelRequests.filter((request) => request.pathname.endsWith('/capabilities/llm/test'))).toHaveLength(1);
+
+  const tokens = page.getByLabel('最大回复长度（Token）', { exact: true });
+  await tokens.fill('');
+  await tokens.blur();
+  await expect(tokens).toHaveValue('');
+  await expect(tokens).toHaveAttribute('aria-invalid', 'true');
+  await tokens.fill('131072');
+  await expect(tokens).toHaveAttribute('aria-invalid', 'false');
+  await tokens.blur();
+  await expect(page.getByText('修改已保存', { exact: true })).toBeVisible();
+  await expect(page.getByText('需重新测试', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '测试功能', exact: true }).click();
+  await expect(page.getByText('测试通过', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '对话与图片理解 · 主用', exact: true }).click();
+  const sizes = isPhone ? [[375, 812], [390, 844], [430, 932]]
+    : testInfo.project.name.startsWith('tablet') ? [[768, 1024], [1024, 768]] : [[1440, 900]];
+  for (const [width, height] of sizes) {
+    await page.setViewportSize({ width, height });
+    await expect(page.getByText('测试通过', { exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await attachCheckpointScreenshot(page, testInfo, `model-settings-${width}x${height}`);
+    await page.getByRole('button', { name: '对话与图片理解 · 主用', exact: true }).click();
+    await page.getByLabel('最大回复长度（Token）', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByText(/默认 32768，部分模型包含思考 Token/)).toBeVisible();
+    const advanced = page.locator('.family-model-settings-binding-advanced');
+    if (!(await advanced.evaluate((element) => element.open))) await advanced.locator('summary').click();
+    const cacheSwitch = page.getByRole('checkbox', { name: '提示词缓存', exact: true });
+    await expect(cacheSwitch).toBeChecked();
+    await expect(cacheSwitch.locator('..').locator('.family-model-settings-switch-track')).toBeVisible();
+    await cacheSwitch.locator('..').scrollIntoViewIfNeeded();
+    await expectNoHorizontalOverflow(page);
+    await attachCheckpointScreenshot(page, testInfo, `model-output-budget-${width}x${height}`);
+    await page.getByRole('button', { name: '对话与图片理解 · 主用', exact: true }).click();
+    await page.getByRole('button', { name: '语音播报 · 默认', exact: true }).click();
+    await page.getByLabel('音色', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByLabel('音色', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '音频格式', exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await attachCheckpointScreenshot(page, testInfo, `model-audio-options-${width}x${height}`);
+    await page.getByRole('button', { name: '语音播报 · 默认', exact: true }).click();
+  }
+});

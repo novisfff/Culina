@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from app.services.family_model_settings.errors import (
     FamilyModelEndpointBlocked,
+    FamilyModelProviderMediaTypeBlocked,
     FamilyModelProviderResponseTooLarge,
 )
 from app.services.family_model_settings.network_policy import (
@@ -17,12 +18,15 @@ from app.services.family_model_settings.network_policy import (
 )
 from app.services.family_model_settings.transport import (
     _PinnedHTTPSConnection,
+    EgressProxyHttpDialer,
+    PinnedHttpDialer,
     ProviderMedia,
     ProviderResponse,
     ProviderTransport,
     ProviderTransportSettings,
     provider_network_constructor_inventory,
 )
+from app.services.family_model_settings.probe_contracts import silence_wav
 from app.services.family_model_settings.types import ResolvedProviderEndpoint
 
 
@@ -162,6 +166,60 @@ def test_websocket_uses_the_same_fresh_authorization_boundary(
 
     assert connection == {"connected": "wss://provider.example/realtime"}
     assert websocket_dialer.connected_ips == ["93.184.216.34"]
+
+
+def test_websocket_model_query_survives_authorization_and_dns_is_rechecked(
+    transport: ProviderTransport, resolver: FakeResolver,
+) -> None:
+    url = "wss://provider.example/realtime?model=gpt-realtime"
+    assert transport.connect_websocket(url, headers={}) == {"connected": url}
+    resolver.answers = ("127.0.0.1",)
+    with pytest.raises(FamilyModelEndpointBlocked):
+        transport.connect_websocket(url, headers={})
+    assert transport.websocket_dialer.connected_ips == ["93.184.216.34"]
+
+
+def test_signed_media_query_is_sent_to_dialer_without_reencoding(transport: ProviderTransport) -> None:
+    source = transport.policy.authorize("https://dashscope.aliyuncs.com/api/v1", protocol="http")
+    url = "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.png?Signature=A%2B%2F%3D&Expires=123"
+    media = transport.download_media(url, source=source, adapter_kind="dashscope")
+    assert media.endpoint.normalized_url == url.replace("http://", "https://", 1)
+    assert media.endpoint.base_path == "/a.png?Signature=A%2B%2F%3D&Expires=123"
+
+
+@pytest.mark.parametrize('dialer_type', [PinnedHttpDialer, EgressProxyHttpDialer])
+@pytest.mark.parametrize('mime', ['audio/x-wav', ' Audio/X-WAV ; charset=binary'])
+def test_official_wav_alias_survives_dialer_and_transport_checks(dialer_type, mime, monkeypatch):
+    settings = ProviderTransportSettings(1, 2, 65536, 65536, 0, 'http://egress.example:8080')
+    dialer = dialer_type(settings)
+    sample = silence_wav()
+    requests = []
+
+    def request(**kwargs):
+        requests.append(kwargs)
+        return ProviderResponse(200, {'content-type': mime}, sample)
+
+    monkeypatch.setattr(dialer, 'request', request)
+    transport = ProviderTransport(policy=ProviderNetworkPolicy(resolver=FakeResolver()), settings=settings, http_dialer=dialer)
+    source = transport.policy.authorize('https://dashscope.aliyuncs.com/api/v1', protocol='http')
+    media = transport.download_media('http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.wav?Signature=fake',
+        source=source, adapter_kind='dashscope')
+    assert media.content_type == 'audio/wav' and media.content == sample
+    assert len(requests) == 1 and requests[0]['headers'] == {}
+    assert requests[0]['max_response_bytes'] == settings.media_max_bytes
+    assert requests[0]['endpoint'].normalized_url.startswith('https://')
+
+
+@pytest.mark.parametrize('dialer_type', [PinnedHttpDialer, EgressProxyHttpDialer])
+@pytest.mark.parametrize('mime', ['application/octet-stream', 'text/html', 'audio/x-unknown'])
+def test_wav_alias_does_not_allow_unrecognized_media_types(dialer_type, mime, monkeypatch):
+    settings = ProviderTransportSettings(1, 2, 65536, 65536, 0, 'http://egress.example:8080')
+    dialer = dialer_type(settings)
+    monkeypatch.setattr(dialer, 'request', lambda **_: ProviderResponse(200, {'content-type': mime}, b'not media'))
+    transport = ProviderTransport(policy=ProviderNetworkPolicy(resolver=FakeResolver()), settings=settings, http_dialer=dialer)
+    source = transport.policy.authorize('https://dashscope.aliyuncs.com/api/v1', protocol='http')
+    with pytest.raises(FamilyModelProviderMediaTypeBlocked):
+        transport.download_media('https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.wav', source=source, adapter_kind='dashscope')
 
 
 def test_model_configuration_modules_cannot_bypass_the_shared_transport() -> None:

@@ -121,6 +121,7 @@ class OpenAICompatibleRerankClient:
         | None = None,
     ) -> None:
         self.binding = binding
+        self.candidate_limit = int(binding.options.get("top_n", 50)) if binding else 50
         self._family_transport: ProviderTransport | None = None
         self._httpx_transport: httpx.BaseTransport | None = None
         self.resolve_dispatch_credential = resolve_dispatch_credential
@@ -296,6 +297,12 @@ class OpenAICompatibleRerankClient:
         }
         if self.instruct:
             payload["instruct"] = self.instruct
+        if self._endpoint_name() == "services/rerank/text-rerank/text-rerank":
+            payload = {
+                "model": self.model,
+                "input": {"query": query, "documents": documents},
+                "parameters": {"top_n": min(top_n, len(documents)), "return_documents": False},
+            }
         if self.binding is not None:
             if self._family_transport is None or self.resolve_dispatch_credential is None or permit is None:
                 raise _KnownNoSendRerankFailure()
@@ -357,7 +364,7 @@ class OpenAICompatibleRerankClient:
 
     def _endpoint_name(self) -> str:
         if self.binding is not None and self.binding.adapter_kind == "dashscope":
-            return "reranks"
+            return "services/rerank/text-rerank/text-rerank"
         if self.provider == "dashscope":
             return "reranks"
         return "rerank"
@@ -380,7 +387,8 @@ def _parse_rerank_response(
         raise RerankUnavailableError("rerank response invalid", code="search_rerank_provider_response_invalid") from exc
     if not isinstance(body, dict):
         raise RerankUnavailableError("rerank response invalid", code="search_rerank_provider_response_invalid")
-    raw_results = body.get("results")
+    output = body.get("output")
+    raw_results = output.get("results") if isinstance(output, dict) else body.get("results")
     if not isinstance(raw_results, list):
         raise RerankUnavailableError("rerank response missing results", code="search_rerank_provider_response_invalid")
     results: list[RerankResult] = []

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { familyModelSettingsApi } from '../../api/familyModelSettingsApi';
 import type { FamilyModelConfigDraft, FamilyModelPrices, FamilyModelSettings } from '../../api/types';
 import { FamilyModelSettingsWorkspace } from './FamilyModelSettingsWorkspace';
+import { createEmptyFamilyModelDraft } from './familyModelSettingsModel';
 
 vi.mock('../../api/familyModelSettingsApi', () => ({
   familyModelSettingsApi: {
@@ -80,6 +81,96 @@ describe('FamilyModelSettingsWorkspace', () => {
     vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(draft);
     vi.mocked(familyModelSettingsApi.getPrices).mockResolvedValue(prices);
     vi.mocked(familyModelSettingsApi.getCurrentSearchReplacement).mockResolvedValue(null);
+  });
+
+  function setupConfiguredWorkspace() {
+    const local = createEmptyFamilyModelDraft();
+    const binding = local.bindings.find((item) => item.capability === 'llm' && item.variant_key === 'primary')!;
+    binding.enabled = true;
+    binding.provider_profile_id = 'profile-a';
+    binding.requested_model = 'model-v1';
+    const configured: FamilyModelConfigDraft = { ...draft, draft_version_number: 4, payload: local };
+    vi.mocked(familyModelSettingsApi.getDraft).mockResolvedValue(configured);
+    vi.mocked(familyModelSettingsApi.getSettings).mockResolvedValue({
+      ...settings,
+      provider_profiles: [{
+        id: 'profile-a', display_name: '家庭主服务', adapter_kind: 'openai_compatible_http',
+        auth_mode: 'api_key', api_base_url: 'https://provider.example/v1', websocket_base_url: null,
+        options: {}, status: 'active', archived: false, version_number: 1, profile_version_number: 1,
+        credential: { configured: true, version_number: 1, updated_at: null },
+        created_at: '', updated_at: '',
+      }],
+    });
+    vi.mocked(familyModelSettingsApi.discoverProviderModels).mockResolvedValue({
+      status: 'reachable', detail: null, checked_at: '', latency_ms: 1,
+      profile_version_number: 1, models: ['model-v1', 'model-v2'],
+    });
+    return configured;
+  }
+
+  it('preserves newer input during an autosave and saves it against the returned version', async () => {
+    const configured = setupConfiguredWorkspace();
+    let finishFirst!: (value: FamilyModelConfigDraft) => void;
+    vi.mocked(familyModelSettingsApi.saveDraft)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(async (payload) => ({ ...configured, draft_version_number: 6, payload }));
+    const user = userEvent.setup();
+    render(<FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />, { wrapper: wrapper() });
+    await user.click(await screen.findByRole('button', { name: /功能设置/ }));
+    const input = await screen.findByRole('combobox', { name: '模型名称' });
+    fireEvent.change(input, { target: { value: 'model-v2' } });
+    await waitFor(() => expect(familyModelSettingsApi.saveDraft).toHaveBeenCalledTimes(1));
+    expect(input).toBeEnabled();
+    expect(screen.getByRole('button', { name: /模型价格/ })).toBeEnabled();
+    fireEvent.change(input, { target: { value: 'model-v3' } });
+    await act(async () => finishFirst({ ...configured, draft_version_number: 5, payload: vi.mocked(familyModelSettingsApi.saveDraft).mock.calls[0][0] }));
+    expect(input).toHaveValue('model-v3');
+    await waitFor(() => expect(familyModelSettingsApi.saveDraft).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(familyModelSettingsApi.saveDraft).mock.calls[1][0]).toMatchObject({
+      base_draft_version_number: 5, bindings: expect.arrayContaining([expect.objectContaining({ requested_model: 'model-v3' })]),
+    });
+  });
+
+  it('retries a failed autosave without another edit', async () => {
+    const configured = setupConfiguredWorkspace();
+    vi.mocked(familyModelSettingsApi.saveDraft)
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockImplementationOnce(async (payload) => ({ ...configured, draft_version_number: 5, payload }));
+    const user = userEvent.setup();
+    render(<FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />, { wrapper: wrapper() });
+    await user.click(await screen.findByRole('button', { name: /功能设置/ }));
+    fireEvent.change(await screen.findByRole('combobox', { name: '模型名称' }), { target: { value: 'model-v2' } });
+    await user.click(await screen.findByRole('button', { name: '重试保存' }));
+    await waitFor(() => expect(familyModelSettingsApi.saveDraft).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: '重试保存' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a capability test result when leaving and reopening the section', async () => {
+    setupConfiguredWorkspace();
+    vi.mocked(familyModelSettingsApi.testCapability).mockResolvedValue({ status: 'succeeded' } as Awaited<ReturnType<typeof familyModelSettingsApi.testCapability>>);
+    const user = userEvent.setup();
+    render(<FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={() => undefined} />, { wrapper: wrapper() });
+    await user.click(await screen.findByRole('button', { name: /功能设置/ }));
+    await user.click(await screen.findByRole('button', { name: '测试功能' }));
+    await screen.findByRole('button', { name: '测试成功' });
+    await user.click(screen.getByRole('button', { name: /模型价格/ }));
+    await user.click(screen.getByRole('button', { name: /功能设置/ }));
+    expect(await screen.findByText('测试通过')).toBeVisible();
+    expect(familyModelSettingsApi.testCapability).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes an open model list with Escape without leaving the workspace', async () => {
+    setupConfiguredWorkspace();
+    const onBack = vi.fn();
+    const user = userEvent.setup();
+    render(<FamilyModelSettingsWorkspace familyId="family-a" role="Owner" isPhoneViewport={false} onBack={onBack} />, { wrapper: wrapper() });
+    await user.click(await screen.findByRole('button', { name: /功能设置/ }));
+    await user.click(await screen.findByRole('combobox', { name: '模型名称' }));
+    expect(screen.getByRole('listbox')).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(onBack).not.toHaveBeenCalled();
+    expect(window.history.state?.culinaWorkspaceGuard).toBe('family-model-settings:family-a');
   });
 
   it('automatically saves capability changes without a publish action', async () => {

@@ -1200,6 +1200,21 @@ function emptyFamilyModelState() {
 
 function createFamilyModelMockState(scenario) {
   const baseline = scenario === 'empty' ? emptyFamilyModelState() : configuredFamilyModelState();
+  if (scenario === 'qwen-tts') {
+    const profile = familyModelProfile({
+      id: 'family-model-profile-dashscope', displayName: '百炼语音服务', adapterKind: 'dashscope',
+      apiBaseUrl: 'https://dashscope.aliyuncs.com/api/v1', websocketBaseUrl: 'wss://dashscope.aliyuncs.com/api-ws/v1',
+    });
+    baseline.settings.provider_profiles.push(profile);
+    const binding = baseline.draft.payload.bindings.find((item) => item.capability === 'tts');
+    Object.assign(binding, { provider_profile_id: profile.id, requested_model: 'qwen3-tts-flash', output_format: 'mp3' });
+    for (const rate of baseline.prices.current_rates.filter((item) => item.capability === 'tts')) {
+      Object.assign(rate, { provider_profile_id: profile.id, billing_model: binding.requested_model, reported_model_aliases: [binding.requested_model] });
+    }
+    for (const rate of baseline.draft.payload.price_rates.filter((item) => item.capability === 'tts')) {
+      rate.reported_model_aliases = [binding.requested_model];
+    }
+  }
   return {
     ...baseline,
     conflictIssued: false,
@@ -1481,6 +1496,10 @@ async function fulfillFamilyModelSettingsMock({
   const replacementPath = new RegExp(`^${FAMILY_MODEL_SETTINGS_PREFIX}/search/replacements/([^/]+)(?:/(retry|cancel))?$`).exec(url.pathname);
   if (replacementPath) {
     const [, profileId, action] = replacementPath;
+    if (request.method() === 'GET' && !action && profileId === state.settings.active_search_profile_id) {
+      await fulfillJson(route, { ...familyModelReplacement('active'), profile_id: profileId });
+      return true;
+    }
     if (!state.replacement || state.replacement.profile_id !== profileId) {
       await fulfillJson(route, { detail: { code: 'family_search_replacement_not_found' } }, 404);
       return true;

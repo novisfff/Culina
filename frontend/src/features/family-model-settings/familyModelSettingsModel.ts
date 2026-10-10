@@ -27,6 +27,10 @@ export const FAMILY_MODEL_REQUIRED_METERS: Record<FamilyModelBindingDraft['capab
   rerank: ['input_tokens'],
 };
 
+export const DEFAULT_LLM_OUTPUT_TOKENS = 32768;
+export const MAX_LLM_OUTPUT_TOKENS = 131072;
+export const DEFAULT_RERANK_CANDIDATES = 50;
+
 const CANONICAL_MONEY = /^(?:0|[1-9]\d*)(?:\.\d{1,12})?$/;
 const CANONICAL_QUANTITY = /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/;
 
@@ -43,7 +47,7 @@ function emptyBindings(): FamilyModelBindingDraft[] {
       provider_profile_id: null,
       requested_model: '',
       billing_scheme_key: 'llm-split-v1',
-      max_output_tokens: 4096,
+      max_output_tokens: DEFAULT_LLM_OUTPUT_TOKENS,
       supports_vision: false,
       prompt_cache_enabled: true,
     },
@@ -54,7 +58,7 @@ function emptyBindings(): FamilyModelBindingDraft[] {
       provider_profile_id: null,
       requested_model: '',
       billing_scheme_key: 'llm-split-v1',
-      max_output_tokens: 2048,
+      max_output_tokens: DEFAULT_LLM_OUTPUT_TOKENS,
       supports_vision: false,
       prompt_cache_enabled: true,
     },
@@ -124,7 +128,7 @@ function emptyBindings(): FamilyModelBindingDraft[] {
       provider_profile_id: null,
       requested_model: '',
       billing_scheme_key: 'rerank-token-v1',
-      top_n: 20,
+      top_n: DEFAULT_RERANK_CANDIDATES,
       instruction: null,
     },
   ];
@@ -345,6 +349,7 @@ const SAFE_ERROR_MESSAGES: Record<string, string> = {
   family_model_config_pointer_invalid: '当前配置数据不一致，请刷新后重试；如果仍然失败，需要管理员修复配置。',
   family_model_price_pointer_invalid: '当前价格配置与模型配置不一致，请刷新后重试；如果仍然失败，需要管理员修复配置。',
   family_model_search_profile_pointer_invalid: '当前搜索配置数据不一致，请刷新后重试；如果仍然失败，需要管理员修复配置。',
+  family_model_llm_fallback_protocol_mismatch: '主用与备用模型需要使用相同的服务类型和请求协议，请调整后重试。',
   family_model_capability_disabled: '当前配置未启用此功能。请先在“功能设置”中启用并补全信息。',
   family_model_provider_disabled: '当前配置使用的服务已停用或已变更。请检查服务状态，修改会自动保存生效。',
   family_model_secret_unavailable: '当前服务的 API 密钥不可用。请修改密钥后重试。',
@@ -364,6 +369,8 @@ const SAFE_ERROR_MESSAGES: Record<string, string> = {
   family_model_endpoint_private_target_not_allowed: '服务地址指向未获许可的私网地址。请联系部署管理员加入私网白名单。',
   family_model_endpoint_insecure_transport_not_allowed: '当前部署不允许公网明文 HTTP/WS。请改用 HTTPS/WSS，或由部署管理员开启不安全传输开关。',
   family_model_provider_protocol_unsupported: '当前模型服务不支持这种地址或验证方式。请检查服务类型、地址和验证方式。',
+  family_model_realtime_model_unsupported: 'DashScope 实时语音需要支持识别和播报的 Qwen-Omni 模型，请更换模型名称。',
+  family_model_audio_output_format_unsupported: '当前 CosyVoice 播报支持 MP3 和 WAV，请更换音频格式。',
 };
 
 /** Never projects provider response bodies, endpoints, headers or stack details into the UI. */
