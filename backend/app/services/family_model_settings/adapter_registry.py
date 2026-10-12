@@ -113,7 +113,14 @@ _ADAPTERS: Mapping[FamilyModelAdapterKind, AdapterDefinition] = MappingProxyType
             },
             free_probe_path=None,
             media_host_policy="dashscope_declared_hosts",
-            declared_media_hosts=frozenset({"dashscope.aliyuncs.com"}),
+            declared_media_hosts=frozenset({
+                "dashscope.aliyuncs.com",
+                "dashscope-result-bj.oss-cn-beijing.aliyuncs.com",
+                "dashscope-result-sh.oss-cn-shanghai.aliyuncs.com",
+                "dashscope-result-wlcb.oss-cn-wulanchabu.aliyuncs.com",
+                "dashscope-result-sz.oss-cn-shenzhen.aliyuncs.com",
+                "dashscope-0484.oss-accelerate.aliyuncs.com",
+            }),
         ),
         "openai_realtime": _definition(
             kind="openai_realtime",

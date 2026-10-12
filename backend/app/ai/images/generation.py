@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core.enums import ImageGenerationMode, MealType, MediaEntityType
 from app.services.family_model_settings.errors import FamilyModelSettingsError
+from app.services.family_model_settings.multipart import provider_multipart_form
 from app.services.family_model_settings.transport import ProviderResponse, ProviderTransport
 from app.services.family_model_settings.types import (
     DispatchCredential,
@@ -594,6 +595,7 @@ class _BoundImageGenerationProvider(BaseImageGenerationProvider):
         suffix: str,
         payload: Mapping[str, Any],
         permit: DispatchPermit | None,
+        multipart: tuple[bytes, str] | None = None,
     ) -> ProviderResponse:
         if permit is None:
             # Family credentials are authorized only through the durable usage
@@ -616,12 +618,11 @@ class _BoundImageGenerationProvider(BaseImageGenerationProvider):
                 headers["Authorization"] = f"Bearer {credential.api_key}"
             if permit.provider_idempotency_key:
                 headers["Idempotency-Key"] = permit.provider_idempotency_key
-            return self.dependencies.transport.request(
-                "POST",
-                _binding_endpoint_url(self.binding, suffix),
-                headers=headers,
-                json=dict(payload),
-            )
+            url = _binding_endpoint_url(self.binding, suffix)
+            if multipart is not None:
+                headers["Content-Type"] = multipart[1]
+                return self.dependencies.transport.request("POST", url, headers=headers, body=multipart[0])
+            return self.dependencies.transport.request("POST", url, headers=headers, json=dict(payload))
         except ImageGenerationProviderError:
             raise
         except (FamilyModelSettingsError, ModelUsageContractError):
@@ -785,29 +786,27 @@ class OpenAIImageGenerationProvider(_BoundImageGenerationProvider):
             mime_type = _guess_reference_mime_type(normalized.reference_filename)
         except ValueError as exc:
             raise ImageGenerationProviderRejected("image_reference_invalid") from exc
-        # The family transport owns all outbound sends and intentionally
-        # accepts JSON only.  OpenAI-compatible adapters receive the reference
-        # as a bounded data URI; adapter validation has already constrained
-        # this endpoint shape and the image bytes never enter a durable job
-        # payload or trace.
         payload = {
             "model": self.binding.requested_model,
             "prompt": prompt,
             "size": _format_openai_size(normalized.size),
             "n": 1,
             "output_format": output_format,
-            "image": _encode_reference_data_uri(
-                normalized.reference_image_bytes,
-                normalized.reference_filename,
-            ),
-            "image_mime_type": mime_type,
         }
+        multipart = provider_multipart_form(
+            {key: str(value) for key, value in payload.items()},
+            filename=normalized.reference_filename or "reference.png",
+            payload=normalized.reference_image_bytes,
+            media_type=mime_type,
+            file_field="image[]",
+        )
         return self._post_json_image(
             endpoint=OPENAI_IMAGE_EDITS_ENDPOINT,
             payload=payload,
             prompt=prompt,
             output_format=output_format,
             permit=permit,
+            multipart=multipart,
         )
 
     def _post_json_image(
@@ -818,12 +817,14 @@ class OpenAIImageGenerationProvider(_BoundImageGenerationProvider):
         prompt: str,
         output_format: str,
         permit: DispatchPermit | None,
+        multipart: tuple[bytes, str] | None = None,
     ) -> ImageGenerationResult:
         try:
             response = self._post_json(
                 suffix=endpoint,
                 payload=payload,
                 permit=permit,
+                multipart=multipart,
             )
             if not 200 <= response.status_code < 300:
                 raise _classify_provider_request_status(response)

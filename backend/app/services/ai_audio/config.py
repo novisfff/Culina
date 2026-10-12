@@ -6,6 +6,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.family_model_settings.types import ResolvedCapabilityBinding
+from app.services.ai_audio.dashscope_protocols import tts_output_format
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,8 @@ def resolved_audio_provider_config(
         raise FamilyModelSettingsError("family_model_audio_options_invalid")
     if output_format is not None and output_format not in {"mp3", "wav", "ogg", "flac", "mp4"}:
         raise FamilyModelSettingsError("family_model_audio_options_invalid")
+    if binding.adapter_kind == 'dashscope' and binding.capability == 'tts':
+        output_format = tts_output_format(binding.requested_model, output_format)
     return ResolvedAudioProviderConfig(
         binding=binding,
         language_hint=language_hint,

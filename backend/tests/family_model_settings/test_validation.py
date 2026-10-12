@@ -1670,3 +1670,31 @@ def test_malformed_enabled_legacy_binding_is_inert_during_sibling_save(
             if binding.capability.value == "llm" and binding.variant_key == "primary"
         )
         assert primary.enabled is False
+
+
+@pytest.mark.parametrize('mixed_adapter', [True, False])
+def test_incompatible_fallback_keeps_active_primary(family_model_api, mixed_adapter):
+    primary = family_model_api.create_profile(idempotency_key='protocol-primary-profile')
+    fallback = family_model_api.create_profile(display_name='备用服务', adapter_kind='dashscope', idempotency_key='protocol-fallback-profile') if mixed_adapter else primary
+    initial_payload = _llm_payload(str(primary['id']))
+    initial = _save_draft(family_model_api, initial_payload, idempotency_key='protocol-initial-draft')
+    previous = family_model_api.client.get('/api/family/model-settings').json()['active_config_revision_id']
+    payload = deepcopy(initial_payload)
+    payload['bindings'].append({**payload['bindings'][0], 'variant_key': 'fallback',
+                                'provider_profile_id': fallback['id'],
+                                'runtime_protocol': 'chat_completions' if mixed_adapter else 'responses'})
+    payload['price_rates'] += [{**rate, 'variant_key': 'fallback'} for rate in initial_payload['price_rates']]
+    saved = _save_draft(family_model_api, payload, base_draft_version_number=initial['draft_version_number'], idempotency_key='protocol-invalid-draft')
+    assert 'family_model_llm_fallback_protocol_mismatch' in {issue['code'] for issue in saved['validation_errors']}
+    assert family_model_api.client.get('/api/family/model-settings').json()['active_config_revision_id'] == previous
+
+
+def test_responses_protocol_survives_save_and_draft_reload(family_model_api):
+    profile = family_model_api.create_profile(idempotency_key='responses-roundtrip-profile')
+    payload = _llm_payload(str(profile['id']))
+    payload['bindings'][0]['runtime_protocol'] = 'responses'
+    saved = _save_draft(family_model_api, payload, idempotency_key='responses-roundtrip-draft')
+    assert saved['validation_status'] == 'valid'
+    reloaded = family_model_api.client.get('/api/family/model-settings/draft').json()
+    # The sanitized read model must preserve the runtime option, including after reload.
+    assert reloaded['payload']['bindings'][0]['runtime_protocol'] == 'responses'

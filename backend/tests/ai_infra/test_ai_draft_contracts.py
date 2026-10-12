@@ -345,7 +345,10 @@ class AIDraftContractsTestCase(AIAgentInfraTestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.headers.get("Cache-Control"), "private, no-store")
-        self.assertEqual(response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+        self.assertIn(
+            AI_DRAFT_CONTRACTS_HEADER.lower(),
+            {field.strip().lower() for field in response.headers.get("Vary", "").split(",")},
+        )
         self.assertTrue(captured)
         self.assertIn(
             frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),

@@ -50,6 +50,7 @@ from app.services.family_model_settings.adapter_registry import (
     require_adapter_endpoint_contract,
     require_adapter_support,
 )
+from app.services.ai_audio.dashscope_protocols import audio_binding_issue
 from app.services.family_model_settings.errors import (
     FamilyModelDraftInvalid,
     FamilyModelEndpointBlocked,
@@ -425,6 +426,11 @@ def _validate_enabled_binding(
         return None, (
             DraftValidationIssue("family_model_provider_protocol_unsupported", field_prefix),
         )
+    if version.adapter_kind == 'dashscope':
+        issue = audio_binding_issue(capability.value, requested_model, options)
+        if issue:
+            field = 'output_format' if issue == 'family_model_audio_output_format_unsupported' else 'requested_model'
+            return None, (DraftValidationIssue(issue, f'{field_prefix}.{field}'),)
     if version.auth_mode == "api_key":
         secret = get_current_provider_secret_version(
             db,
@@ -488,6 +494,7 @@ def _validate_enabled_binding(
 
 def _validate_fallback_graph(
     bindings: Sequence[ValidatedCapabilityBinding],
+    *, adapter_kinds: Mapping[str, str] | None = None,
 ) -> tuple[DraftValidationIssue, ...]:
     enabled = {
         (binding.capability, binding.variant_key)
@@ -499,6 +506,17 @@ def _validate_fallback_graph(
         "primary",
     ) not in enabled:
         return (DraftValidationIssue("family_model_llm_fallback_requires_primary", "bindings"),)
+    llm = {binding.variant_key: binding for binding in bindings
+           if binding.enabled and binding.capability == ModelUsageCapability.LLM}
+    if "primary" in llm and "fallback" in llm:
+        def protocol(binding: ValidatedCapabilityBinding) -> str:
+            adapter = (binding.profile_version.adapter_kind if binding.profile_version is not None
+                       else (adapter_kinds or {}).get(binding.provider_profile_version_id))
+            if adapter == "dashscope":
+                return "dashscope"
+            return str(binding.options.get("runtime_protocol", "chat_completions"))
+        if protocol(llm["primary"]) != protocol(llm["fallback"]):
+            return (DraftValidationIssue("family_model_llm_fallback_protocol_mismatch", "bindings"),)
     return ()
 
 

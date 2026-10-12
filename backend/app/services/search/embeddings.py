@@ -754,14 +754,10 @@ def _embedding_payload(
     texts: list[str],
 ) -> dict[str, object]:
     if binding.adapter_kind == "dashscope":
-        # DashScope's native embedding endpoint uses a different envelope
-        # from its OpenAI-compatible endpoint.  Keep the profile dimensions
-        # as a local output invariant; the native API chooses the model's
-        # supported dimension and the parser rejects a mismatch safely.
         return {
             "model": binding.embedding_model,
             "input": {"texts": texts},
-            "parameters": {"text_type": "document"},
+            "parameters": {"text_type": "document", "dimension": binding.dimensions},
         }
     payload: dict[str, object] = {"model": binding.embedding_model, "input": texts}
     if binding.dimensions > 0:

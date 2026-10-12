@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { CapabilityTestProvider } from './CapabilityTestState';
 import { PageLoadingState, StateBlock } from '../../components/ui-kit';
 import type {
   FamilyModelConfigDraft,
@@ -86,6 +87,11 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const [serverDraft, setServerDraft] = useState<FamilyModelConfigDraft | null>(null);
   const [draft, setDraft] = useState<FamilyModelSettingsDraft>(() => createEmptyFamilyModelDraft());
   const [validation, setValidation] = useState<FamilyModelDraftValidation | null>(null);
+  const draftRef = useRef(draft);
+  const editVersionRef = useRef(0);
+  const dirtyRef = useRef(false);
+  const savingRef = useRef<Promise<FamilyModelConfigDraft> | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const failedAutoSaveDraftRef = useRef<FamilyModelSettingsDraft | null>(null);
   const refreshedSearchProfileRef = useRef<string | null>(null);
 
@@ -112,7 +118,8 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
 
   useEffect(() => {
     if (!serverDraft || state.state.dirty) return;
-    setDraft(localDraftFromServerDraft(serverDraft));
+    draftRef.current = localDraftFromServerDraft(serverDraft);
+    setDraft(draftRef.current);
   }, [serverDraft, state.state.dirty]);
 
   const mutationState = useFamilyModelSettingsActions({
@@ -126,29 +133,55 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   const busy = busyAction !== null;
 
   const setLocalDraft = useCallback((next: FamilyModelSettingsDraft) => {
-    setDraft({
+    draftRef.current = {
       ...next,
       price_rates: normalizeFamilyModelPriceRates(next.bindings, next.price_rates),
-    });
+    };
+    editVersionRef.current += 1;
+    dirtyRef.current = true;
+    setDraft(draftRef.current);
     setValidation(null);
     state.actions.markDirty(true);
   }, [state.actions]);
 
   const persistDraftValue = useCallback(async (
     nextDraft: FamilyModelSettingsDraft,
-    options: { confirmInitialSearchIndex?: boolean } = {},
+    options: { confirmInitialSearchIndex?: boolean; background?: boolean } = {},
   ): Promise<FamilyModelConfigDraft> => {
+    // The autosave effect and explicit actions share one in-flight receipt.
+    if (savingRef.current) return savingRef.current;
+    const editVersion = editVersionRef.current;
     const normalizedDraft = {
       ...nextDraft,
       price_rates: normalizeFamilyModelPriceRates(nextDraft.bindings, nextDraft.price_rates),
     };
-    const saved = await mutationState.actions.saveDraft(normalizedDraft, options);
-    setServerDraft(saved);
-    setDraft(localDraftFromServerDraft(saved));
-    setValidation(null);
-    failedAutoSaveDraftRef.current = null;
-    state.actions.markDirty(false);
-    return saved;
+    setSaveFailed(false);
+    const request = mutationState.actions.saveDraft(normalizedDraft, options).then((saved) => {
+      setServerDraft(saved);
+      if (editVersionRef.current === editVersion) {
+        draftRef.current = localDraftFromServerDraft(saved);
+        dirtyRef.current = false;
+        state.actions.markDirty(false);
+      } else {
+        // Keep edits made while the request was pending and rebase their next save.
+        draftRef.current = {
+          ...draftRef.current,
+          base_draft_version_number: saved.draft_version_number,
+          base_config_revision_id: saved.payload.base_config_revision_id,
+        };
+      }
+      setDraft(draftRef.current);
+      setValidation(null);
+      failedAutoSaveDraftRef.current = null;
+      return saved;
+    }).catch((reason: unknown) => {
+      setSaveFailed(true);
+      throw reason;
+    }).finally(() => {
+      savingRef.current = null;
+    });
+    savingRef.current = request;
+    return request;
   }, [mutationState.actions, state.actions]);
 
   const confirmInitialSearchIndex = useCallback(
@@ -196,16 +229,17 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     queries.settingsQuery.refetch,
   ]);
 
-  const persistDraft = useCallback(
-    () => persistDraftValue(draft),
-    [draft, persistDraftValue],
-  );
+  const persistDraft = useCallback(async () => {
+    let saved = savingRef.current ? await savingRef.current : null;
+    if (!saved || dirtyRef.current) saved = await persistDraftValue(draftRef.current);
+    return saved;
+  }, [persistDraftValue]);
 
   useEffect(() => {
     if (!state.state.dirty || busy || failedAutoSaveDraftRef.current === draft) return;
     const timer = window.setTimeout(() => {
       failedAutoSaveDraftRef.current = draft;
-      void persistDraftValue(draft).catch(() => {
+      void persistDraftValue(draft, { background: true }).catch(() => {
         // Keep the local value and wait for another edit or an explicit retry.
       });
     }, 650);
@@ -265,15 +299,15 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
   }, [historyMarker, props.onBack]);
 
   const requestBack = useCallback(() => {
-    if (busy) return;
-    if (state.state.dirty) {
+    if (busy && busyAction !== 'autosave') return;
+    if (dirtyRef.current || savingRef.current) {
       void persistDraft().then(exitWorkspace).catch(() => {
         // Stay on the page so the visible error can guide recovery.
       });
       return;
     }
     exitWorkspace();
-  }, [busy, exitWorkspace, persistDraft, state.state.dirty]);
+  }, [busy, busyAction, exitWorkspace, persistDraft]);
 
   useEffect(() => {
     const preserveWorkspaceHistory = () => {
@@ -294,15 +328,24 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
       requestBack();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // Let the active dropdown or overlay consume Escape first.
+      if (document.querySelector('[role="dialog"], [role="listbox"], [aria-haspopup][aria-expanded="true"]')) return;
       event.preventDefault();
       event.stopPropagation();
       requestBack();
     };
 
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current && !savingRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown, true);
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown, true);
     };
@@ -363,6 +406,8 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
     busyAction,
     errorMessage: mutationState.errorMessage,
     stale: queries.stale,
+    saveFailed,
+    onRetrySave: () => { void persistDraft().catch(() => undefined); },
     replacementProfileId,
     onBack: requestBack,
     onSelectSection: state.actions.selectSection,
@@ -400,5 +445,5 @@ function FamilyModelSettingsWorkspaceContent(props: FamilyModelSettingsWorkspace
  * from surviving long enough to combine with the next family's query data.
  */
 export function FamilyModelSettingsWorkspace(props: FamilyModelSettingsWorkspaceProps) {
-  return <FamilyModelSettingsWorkspaceContent key={props.familyId} {...props} />;
+  return <CapabilityTestProvider key={props.familyId}><FamilyModelSettingsWorkspaceContent {...props} /></CapabilityTestProvider>;
 }

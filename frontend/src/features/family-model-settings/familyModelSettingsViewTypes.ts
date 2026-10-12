@@ -35,6 +35,8 @@ export type FamilyModelSettingsSurfaceProps = {
   busyAction: FamilyModelSettingsBusyAction | null;
   errorMessage: string | null;
   stale: boolean;
+  saveFailed?: boolean;
+  onRetrySave?: () => void;
   replacementProfileId: string | null;
   onBack: () => void;
   onSelectSection: (section: FamilyModelSettingsSection) => void;

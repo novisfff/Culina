@@ -233,8 +233,10 @@ def _family_embedding_client(
     return client, adapter
 
 
-def test_family_dashscope_embedding_client_uses_native_wire_contract() -> None:
-    binding = _family_search_binding(adapter_kind="dashscope", dimensions=2)
+@pytest.mark.parametrize("dimensions", [2, 1536])
+def test_family_dashscope_embedding_client_uses_native_wire_contract(dimensions: int) -> None:
+    binding = _family_search_binding(adapter_kind="dashscope", dimensions=dimensions)
+    vector = [0.1, 0.2] if dimensions == 2 else [0.1] * dimensions
     response = ProviderResponse(
         status_code=200,
         headers={"x-dashscope-request-id": "dashscope-request"},
@@ -242,7 +244,7 @@ def test_family_dashscope_embedding_client_uses_native_wire_contract() -> None:
             {
                 "output": {
                     "embeddings": [
-                        {"text_index": 0, "embedding": [0.1, 0.2]},
+                        {"text_index": 0, "embedding": vector},
                     ]
                 },
                 "usage": {"total_tokens": 2},
@@ -271,14 +273,14 @@ def test_family_dashscope_embedding_client_uses_native_wire_contract() -> None:
         usage_snapshot=_candidate_usage_snapshot(),
     )
 
-    assert result.vectors == [[0.1, 0.2]]
+    assert result.vectors == [vector]
     assert transport.calls[0][1] == (
         "https://embedding.example/v1/services/embeddings/text-embedding/text-embedding"
     )
     assert transport.calls[0][3] == {
         "model": "embedding-model",
         "input": {"texts": ["番茄"]},
-        "parameters": {"text_type": "document"},
+        "parameters": {"text_type": "document", "dimension": dimensions},
     }
 
 

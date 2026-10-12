@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { SettingsSaveStatus } from './SettingsSaveStatus';
 import { CapabilityBindingEditor } from './CapabilityBindingEditor';
 import { ModelPriceEditor } from './ModelPriceEditor';
 import { ProviderProfileEditor } from './ProviderProfileEditor';
@@ -13,8 +14,8 @@ const MOBILE_TASKS: ReadonlyArray<{
   description: string;
 }> = [
   { id: 'providers', label: '模型服务', description: '管理连接方式、服务范围与密钥。' },
-  { id: 'capabilities', label: '功能设置', description: '选择需要启用的七类 AI 功能。' },
-  { id: 'prices', label: '模型价格', description: '可选设置；未填写的价格按 0 元计入费用。' },
+  { id: 'capabilities', label: '功能设置', description: '配置对话、图片与语音。' },
+  { id: 'prices', label: '模型价格', description: '可选，用于估算模型费用。' },
   { id: 'search', label: '智能搜索', description: '查看或安全地更换家庭搜索设置。' },
   { id: 'review', label: '配置检查', description: '查看服务、功能和价格是否完整。' },
 ];
@@ -125,7 +126,7 @@ function MobileOverview(props: FamilyModelSettingsSurfaceProps) {
               type="button"
               aria-label={task.label}
               className={`family-model-settings-mobile-task-item is-${statusKind}`}
-              disabled={props.busyAction !== null}
+              disabled={props.busyAction !== null && props.busyAction !== 'autosave'}
               onClick={() => props.onPushMobileTask(task.id)}
             >
               <span className={`family-model-settings-mobile-task-icon tone-${task.id}`} aria-hidden="true">
@@ -175,14 +176,15 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
         <CapabilityBindingEditor
           draft={props.draft}
           profiles={props.settings.provider_profiles}
-          busy={props.busyAction !== null}
+          busy={props.busyAction !== null && props.busyAction !== 'autosave'}
+          testBusy={props.busyAction !== null}
           onDraftChange={props.onDraftChange}
           onDiscoverModels={props.onDiscoverModels}
           onTestCapability={props.onTestCapability}
         />
       );
     case 'prices':
-      return <ModelPriceEditor draft={props.draft} busy={props.busyAction !== null} onDraftChange={props.onDraftChange} />;
+      return <ModelPriceEditor draft={props.draft} busy={props.busyAction !== null && props.busyAction !== 'autosave'} onDraftChange={props.onDraftChange} />;
     case 'search':
       return <SearchProfilePanel {...props} />;
     case 'review':
@@ -197,7 +199,7 @@ function MobileTaskBody(props: FamilyModelSettingsSurfaceProps) {
 }
 
 function MobileFooter(props: FamilyModelSettingsSurfaceProps) {
-  const busy = props.busyAction !== null;
+  const busy = props.busyAction !== null && props.busyAction !== 'autosave';
   if (props.state.section !== 'overview') return null;
 
   return (
@@ -217,7 +219,7 @@ function MobileFooter(props: FamilyModelSettingsSurfaceProps) {
 
 /** A phone-first task shell; it intentionally does not reuse desktop layout JSX. */
 export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceProps) {
-  const busy = props.busyAction !== null;
+  const busy = props.busyAction !== null && props.busyAction !== 'autosave';
   const isOverview = props.state.section === 'overview';
 
   return (
@@ -240,20 +242,7 @@ export function FamilyModelSettingsMobilePage(props: FamilyModelSettingsSurfaceP
       </header>
       <div className="family-model-settings-mobile-scroll">
         {props.stale ? <p className="family-model-settings-stale" role="status">刷新失败，正在显示上次成功的非敏感数据。</p> : null}
-        {props.errorMessage ? (
-          <p className="family-model-settings-field-error" role="alert">{props.errorMessage}</p>
-        ) : props.state.section !== 'overview' ? (
-          <p className={`family-model-settings-auto-save-status ${props.serverDraft.validation_status === 'invalid' ? 'is-warning' : 'is-ready'}`} role="status">
-            <span className="family-model-settings-status-dot" aria-hidden="true" />
-            {props.busyAction === 'save'
-              ? '正在自动保存…'
-              : props.state.dirty
-                ? '修改将在稍后自动保存'
-                : props.serverDraft.validation_status === 'invalid'
-                  ? '部分修改已生效，未通过校验的功能继续使用原配置'
-                  : '修改会自动保存并生效'}
-          </p>
-        ) : null}
+        <SettingsSaveStatus {...props} />
         <MobileTaskBody {...props} />
         <MobileFooter {...props} />
       </div>

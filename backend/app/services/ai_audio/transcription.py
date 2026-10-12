@@ -54,6 +54,27 @@ def normalize_transcript(text: str) -> str:
     return " ".join((text or "").strip().split())
 
 
+def pcm16_mono(payload: bytes, metadata: Mapping[str, object], *, target_rate: int) -> bytes:
+    """Convert validated browser PCM16 to a provider's required mono rate."""
+    import av
+
+    sample_rate = _validated_pcm_metadata(metadata, 'sample_rate', PCM_SAMPLE_RATES)
+    channels = _validated_pcm_metadata(metadata, 'channels', PCM_CHANNEL_COUNTS)
+    if _validated_pcm_metadata(metadata, 'sample_width_bytes', PCM_SAMPLE_WIDTH_BYTES) != 2:
+        raise ValueError('realtime_pcm16_required')
+    if not payload or len(payload) % (2 * channels):
+        raise ValueError('realtime_pcm16_required')
+    if sample_rate == target_rate and channels == 1:
+        return payload
+    frame = av.AudioFrame(format='s16', layout='mono' if channels == 1 else 'stereo',
+        samples=len(payload) // (2 * channels))
+    frame.sample_rate = sample_rate
+    frame.planes[0].update(payload)
+    resampler = av.AudioResampler(format='s16', layout='mono', rate=target_rate)
+    frames = resampler.resample(frame) + resampler.resample(None)
+    return b''.join(bytes(item.planes[0])[:item.samples * 2] for item in frames)
+
+
 def measure_audio_duration_seconds(
     payload: bytes,
     *,

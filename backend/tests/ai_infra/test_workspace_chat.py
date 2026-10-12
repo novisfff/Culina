@@ -768,4 +768,7 @@ class AIWorkspaceChatTestCase(AIAgentInfraTestCase):
                 captured,
             )
             self.assertEqual(response.headers.get("Cache-Control"), "private, no-store")
-            self.assertEqual(response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+            self.assertIn(
+                AI_DRAFT_CONTRACTS_HEADER.lower(),
+                {field.strip().lower() for field in response.headers.get("Vary", "").split(",")},
+            )

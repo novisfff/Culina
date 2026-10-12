@@ -502,14 +502,15 @@ export function SearchProfilePanel(props: SearchProfilePanelProps) {
                   </label>
                   <label className="family-model-settings-field">
                     <span>模型维度</span>
-                    <input type="number" min="1" value={dimensions} disabled={busy} onChange={(event) => { setDimensions(event.target.value); setPreview(null); setReplacementTest(null); }} />
+                    <input aria-label="模型维度" type="number" min="1" max="65536" step="1" value={dimensions} disabled={busy} onChange={(event) => { setDimensions(event.target.value); setPreview(null); setReplacementTest(null); }} />
+                    <small>按新模型支持的维度填写，测试通过后再重建搜索数据。</small>
                   </label>
                 </div>
                 <div className={`family-model-settings-replacement-test ${replacementTest ? `is-${replacementTest.status}` : ''}`}>
                   <button
                     className={`ghost-button family-model-settings-test-button ${replacementTest ? `is-${replacementTest.status}` : ''}`}
                     type="button"
-                    disabled={busy || !providerProfileId || !requestedModel.trim() || Number(dimensions) <= 0}
+                    disabled={busy || !providerProfileId || !requestedModel.trim() || !Number.isInteger(Number(dimensions)) || Number(dimensions) <= 0 || Number(dimensions) > 65536}
                     aria-busy={replacementTest?.status === 'running'}
                     onClick={() => { void testReplacementModel(); }}
                   >

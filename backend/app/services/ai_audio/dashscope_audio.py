@@ -7,6 +7,7 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from decimal import Decimal
+from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +22,8 @@ from app.services.ai_audio.providers import (
     AudioProviderDependencies,
     audio_provider_error,
 )
+from app.services.ai_audio import cosyvoice, dashscope_realtime, openai_realtime
+from app.services.ai_audio.dashscope_protocols import audio_binding_issue, is_cosyvoice_model, tts_default_voice
 from app.services.ai_audio.realtime import RealtimeProviderOperation, RealtimeProviderScope
 from app.services.ai_audio.schemas import (
     SpeechRequest,
@@ -33,6 +36,7 @@ from app.services.ai_audio.transcription import (
     AudioDurationError,
     measure_audio_duration_seconds,
     normalize_transcript,
+    pcm16_mono,
 )
 from app.services.family_model_settings.errors import FamilyModelSettingsError
 from app.services.family_model_settings.transport import ProviderResponse
@@ -49,7 +53,6 @@ _CONFIRMED_NOT_EXECUTED_STATUS_CODES = frozenset(
 )
 _DEFAULT_INPUT_SAMPLE_RATE = 16000
 _DEFAULT_OUTPUT_SAMPLE_RATE = 24000
-_REALTIME_AUDIO_FORMAT = "pcm"
 _REALTIME_LANGUAGE_TYPE = "Chinese"
 
 
@@ -72,7 +75,7 @@ class _KnownNoSendRealtimeFailure(RuntimeError):
 
 
 class DashScopeAudioProvider:
-    """DashScope HTTP STT/TTS backed exclusively by a resolved family binding."""
+    """Native DashScope audio backed exclusively by a resolved family binding."""
 
     def __init__(
         self,
@@ -89,6 +92,9 @@ class DashScopeAudioProvider:
             raise ModelUsageContractError("audio_binding_adapter_unsupported")
         if usage_adapter.binding is not binding and usage_adapter.binding != binding:
             raise ModelUsageContractError("audio_binding_required")
+        issue = audio_binding_issue(binding.capability, binding.requested_model, binding.options)
+        if issue:
+            raise FamilyModelSettingsError(issue)
         self.config = config
         self.dependencies = dependencies
         self.usage_adapter = usage_adapter
@@ -182,7 +188,7 @@ class DashScopeAudioProvider:
         if self.binding.capability != "tts":
             raise ModelUsageContractError("audio_tts_capability_mismatch")
         text = sanitize_speech_text(request.text)
-        voice = request.voice or self.config.voice or "Cherry"
+        voice = request.voice or self.config.voice or tts_default_voice(self.binding.requested_model)
         output_format = self.config.output_format or "mp3"
         payload = {
             "model": self.binding.requested_model,
@@ -239,6 +245,14 @@ class DashScopeAudioProvider:
             self._mark_uncertain(attempt)
             raise
         try:
+            if is_cosyvoice_model(self.binding.requested_model):
+                return SpeechResult(
+                    content_type=response.header('content-type') or _content_type_for_format(output_format),
+                    audio_bytes=response.content,
+                    audio_stream=None,
+                    external_url=None,
+                    external_url_expires_at=None,
+                )
             body = response.json()
             if not isinstance(body, dict):
                 raise ValueError("speech response must be an object")
@@ -306,12 +320,19 @@ class DashScopeAudioProvider:
             "services/aigc/multimodal-generation/generation",
         )
         try:
-            response = self.dependencies.transport.request(
-                "POST",
-                endpoint_url,
-                headers=headers,
-                json=payload,
-            )
+            if self.binding.capability == 'tts' and is_cosyvoice_model(self.binding.requested_model):
+                response = cosyvoice.synthesize(
+                    self.binding, transport=self.dependencies.transport, headers=headers,
+                    text=payload['input']['text'], voice=payload['input']['voice'],
+                    output_format=payload['parameters']['format'],
+                )
+            else:
+                response = self.dependencies.transport.request(
+                    "POST",
+                    endpoint_url,
+                    headers=headers,
+                    json=payload,
+                )
         except Exception as exc:
             # Any transport failure is potentially post-send, including
             # contract errors raised by policy enforcement after the dialer
@@ -360,9 +381,8 @@ class DashScopeAudioProvider:
 class RealtimeAudioProvider:
     """Realtime ASR/TTS over the shared family WebSocket transport.
 
-    Both registered realtime adapter kinds use the same bounded OpenAI-style
-    event protocol.  Provider-specific endpoint and credential details remain
-    in the immutable binding, never in a client request or Settings object.
+    The usage/credential boundary is shared. OpenAI GA and DashScope have
+    distinct session, speech and completion protocols.
     """
 
     def __init__(
@@ -376,12 +396,76 @@ class RealtimeAudioProvider:
             "openai_realtime",
         }:
             raise ModelUsageContractError("realtime_binding_adapter_unsupported")
+        if config.binding.adapter_kind == 'dashscope':
+            issue = audio_binding_issue(config.binding.capability, config.binding.requested_model, config.binding.options)
+            if issue:
+                raise FamilyModelSettingsError(issue)
         self.config = config
         self.dependencies = dependencies
 
     @property
     def binding(self):
         return self.config.binding
+
+    def _session_event(
+        self, *, voice: str | None, transcription: bool,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        if self.binding.adapter_kind == "openai_realtime":
+            return openai_realtime.session_update_event(
+                model=self.binding.requested_model, voice=voice,
+                transcription=transcription, language=language,
+            )
+        return dashscope_realtime.session_update_event(voice=voice, transcription=transcription, language=language)
+
+    def _voice(self, requested: str | None) -> str | None:
+        default = "alloy" if self.binding.adapter_kind == "openai_realtime" else None
+        return requested or self.config.voice or default
+
+    def _speech_events(self, text: str) -> tuple[dict[str, Any], ...]:
+        if self.binding.adapter_kind == "openai_realtime":
+            return (openai_realtime.speech_event(text),)
+        return dashscope_realtime.speech_events(text)
+
+    async def _configure_session(self, websocket: object, event: dict[str, Any]) -> None:
+        await _ws_send(websocket, event)
+        try:
+            async with asyncio.timeout(10):
+                for _ in range(32):
+                    response = await _next_event(websocket)
+                    if response is None:
+                        continue
+                    _raise_provider_event_error(response)
+                    if response.get("type") == "session.updated":
+                        return
+        except TimeoutError as exc:
+            raise audio_provider_error(code="realtime_session_timeout") from exc
+        raise audio_provider_error(code="realtime_session_not_confirmed")
+
+    async def _receive_audio(self, websocket: object) -> AsyncIterator[bytes]:
+        received = False
+        while True:
+            event = await _next_event(websocket)
+            if event is None:
+                continue
+            _raise_provider_event_error(event)
+            if self.binding.adapter_kind == "openai_realtime":
+                audio = openai_realtime.audio_delta(event)
+                finished = openai_realtime.response_done(event)
+            else:
+                audio = _event_audio(event)
+                try:
+                    finished = dashscope_realtime.response_done(event)
+                except ValueError as exc:
+                    raise audio_provider_error(code="audio_speech_invalid") from exc
+            if audio is not None:
+                _pcm16_duration_seconds(audio, sample_rate=_DEFAULT_OUTPUT_SAMPLE_RATE)
+                received = True
+                yield audio
+            if finished:
+                if not received:
+                    raise audio_provider_error(code="audio_speech_invalid")
+                return
 
     async def transcribe_realtime_audio(
         self,
@@ -418,6 +502,17 @@ class RealtimeAudioProvider:
                     "message": "单次实时语音片段不能超过 30 秒，请分段说话。",
                 },
             )
+        try:
+            target_rate = 24000 if self.binding.adapter_kind == 'openai_realtime' else 16000
+            request = replace(
+                request, audio_bytes=pcm16_mono(request.audio_bytes, request.metadata, target_rate=target_rate),
+                metadata={"sample_rate": target_rate, "sample_width_bytes": 2, "channels": 1},
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "realtime_pcm16_required", "message": "实时语音需要 PCM16 音频。"},
+            ) from exc
         async with realtime_usage_scope.provider_audio_operation(
             turn_id=realtime_turn_id,
             segment="duplex",
@@ -453,7 +548,7 @@ class RealtimeAudioProvider:
         realtime_turn_id: str,
     ) -> SpeechResult:
         text = sanitize_speech_text(request.text)
-        voice = request.voice or self.config.voice or "Cherry"
+        voice = self._voice(request.voice)
         async with realtime_usage_scope.provider_audio_operation(
             turn_id=realtime_turn_id,
             segment="duplex",
@@ -492,7 +587,7 @@ class RealtimeAudioProvider:
         realtime_usage_scope: RealtimeProviderScope,
         realtime_turn_id: str,
     ) -> AsyncIterator[dict[str, Any]]:
-        voice = request.voice or self.config.voice or "Cherry"
+        voice = self._voice(request.voice)
         yield {
             "type": "audio_start",
             "content_type": "audio/pcm",
@@ -510,13 +605,8 @@ class RealtimeAudioProvider:
             _require_realtime_operation(operation)
             try:
                 async with self._websocket(operation) as websocket:
-                    await _ws_send(
-                        websocket,
-                        _session_update_event(
-                            voice=voice,
-                            mode="commit",
-                            input_transcription=False,
-                        ),
+                    await self._configure_session(
+                        websocket, self._session_event(voice=voice, transcription=False),
                     )
                     segment_sequence = 0
                     async for raw_text in text_chunks:
@@ -530,21 +620,17 @@ class RealtimeAudioProvider:
                             _realtime_tts_characters(self.binding.adapter_kind, text)
                         )
                         segment_sequence += 1
-                        await _ws_send(websocket, _text_append_event(text))
-                        await _ws_send(websocket, _commit_event())
+                        for event in self._speech_events(text):
+                            await _ws_send(websocket, event)
                         yield {
                             "type": "audio_trace",
                             "stage": "tts_segment_commit",
                             "segment_sequence": segment_sequence,
                             "chars": len(text),
                         }
-                    await _ws_send(websocket, _finish_event())
-                    while True:
-                        event = await _next_event(websocket)
-                        if event is None:
-                            continue
-                        audio = _event_audio(event)
-                        if audio is not None:
+                        # Both GA and Omni finish a response before another
+                        # starts. Yield each segment's audio immediately.
+                        async for audio in self._receive_audio(websocket):
                             operation.add_output_seconds(
                                 _pcm16_duration_seconds(
                                     audio, sample_rate=_DEFAULT_OUTPUT_SAMPLE_RATE
@@ -556,10 +642,6 @@ class RealtimeAudioProvider:
                                 "audio": base64.b64encode(audio).decode("ascii"),
                                 "sequence": sequence,
                             }
-                            continue
-                        if event.get("type") == "session.finished":
-                            break
-                        _raise_provider_event_error(event)
             except _KnownNoSendRealtimeFailure as exc:
                 operation.abort_before_provider_send()
                 raise exc.cause from exc
@@ -573,16 +655,12 @@ class RealtimeAudioProvider:
         on_delta: Callable[[str], Awaitable[None]] | None,
     ) -> str:
         async with self._websocket(operation) as websocket:
-            await _ws_send(
+            await self._configure_session(
                 websocket,
-                _session_update_event(
+                self._session_event(
                     voice=None,
-                    mode=None,
-                    input_transcription=True,
+                    transcription=True,
                     language=request.language_hint or self.config.language_hint,
-                    sample_rate=_metadata_sample_rate(
-                        request.metadata, _DEFAULT_INPUT_SAMPLE_RATE
-                    ),
                 ),
             )
             for offset in range(0, len(request.audio_bytes), 3200):
@@ -591,7 +669,6 @@ class RealtimeAudioProvider:
                     _audio_append_event(request.audio_bytes[offset : offset + 3200]),
                 )
             await _ws_send(websocket, _audio_commit_event())
-            await _ws_send(websocket, _finish_event())
             while True:
                 event = await _next_event(websocket)
                 if event is None:
@@ -600,7 +677,7 @@ class RealtimeAudioProvider:
                 if delta and on_delta is not None:
                     await on_delta(delta)
                 text = _extract_qwen_asr_completed_text(event)
-                if text:
+                if event.get("type") == "conversation.item.input_audio_transcription.completed":
                     return text
                 if event.get("type") == "session.finished":
                     return ""
@@ -610,33 +687,22 @@ class RealtimeAudioProvider:
         self,
         *,
         text: str,
-        voice: str,
+        voice: str | None,
         operation: RealtimeProviderOperation,
     ) -> bytes:
         chunks: list[bytes] = []
         async with self._websocket(operation) as websocket:
-            await _ws_send(
+            await self._configure_session(
                 websocket,
-                _session_update_event(
+                self._session_event(
                     voice=voice,
-                    mode="commit",
-                    input_transcription=False,
+                    transcription=False,
                 ),
             )
-            await _ws_send(websocket, _text_append_event(text))
-            await _ws_send(websocket, _commit_event())
-            await _ws_send(websocket, _finish_event())
-            while True:
-                event = await _next_event(websocket)
-                if event is None:
-                    continue
-                audio = _event_audio(event)
-                if audio is not None:
-                    chunks.append(audio)
-                    continue
-                if event.get("type") == "session.finished":
-                    break
-                _raise_provider_event_error(event)
+            for event in self._speech_events(text):
+                await _ws_send(websocket, event)
+            async for audio in self._receive_audio(websocket):
+                chunks.append(audio)
         return b"".join(chunks)
 
     @asynccontextmanager
@@ -660,7 +726,7 @@ class RealtimeAudioProvider:
             raise _KnownNoSendRealtimeFailure(
                 ModelUsageContractError("audio_dispatch_credential_required")
             )
-        headers = {} if self.binding.adapter_kind == "dashscope" else {"OpenAI-Beta": "realtime=v1"}
+        headers: dict[str, str] = {}
         if credential.api_key:
             headers["Authorization"] = f"Bearer {credential.api_key}"
         endpoint_url = realtime_endpoint_url(self.binding)
@@ -750,39 +816,9 @@ def _event_audio(event: dict[str, Any]) -> bytes | None:
 
 
 def _raise_provider_event_error(event: dict[str, Any]) -> None:
-    if event.get("type") != "error":
+    if event.get("type") not in {"error", "conversation.item.input_audio_transcription.failed"}:
         return
     raise audio_provider_error(code="realtime_audio_rejected")
-
-
-def _session_update_event(
-    *,
-    voice: str | None,
-    mode: str | None,
-    input_transcription: bool,
-    language: str | None = None,
-    sample_rate: int = _DEFAULT_OUTPUT_SAMPLE_RATE,
-) -> dict[str, Any]:
-    session: dict[str, Any] = {
-        "input_audio_format": "pcm",
-        "sample_rate": sample_rate,
-        "turn_detection": None,
-    }
-    if input_transcription:
-        session["modalities"] = ["text"]
-        if language and language != "auto":
-            session["input_audio_transcription"] = {"language": language}
-    else:
-        session.update(
-            {
-                "mode": mode or "commit",
-                "voice": voice or "Cherry",
-                "language_type": _REALTIME_LANGUAGE_TYPE,
-                "response_format": _REALTIME_AUDIO_FORMAT,
-                "sample_rate": _DEFAULT_OUTPUT_SAMPLE_RATE,
-            }
-        )
-    return {"event_id": _event_id(), "type": "session.update", "session": session}
 
 
 def _audio_append_event(payload: bytes) -> dict[str, str]:
@@ -795,18 +831,6 @@ def _audio_append_event(payload: bytes) -> dict[str, str]:
 
 def _audio_commit_event() -> dict[str, str]:
     return {"event_id": _event_id(), "type": "input_audio_buffer.commit"}
-
-
-def _text_append_event(text: str) -> dict[str, str]:
-    return {"event_id": _event_id(), "type": "input_text_buffer.append", "text": text}
-
-
-def _commit_event() -> dict[str, str]:
-    return {"event_id": _event_id(), "type": "input_text_buffer.commit"}
-
-
-def _finish_event() -> dict[str, str]:
-    return {"event_id": _event_id(), "type": "session.finish"}
 
 
 def _event_id() -> str:

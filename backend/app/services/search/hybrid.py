@@ -992,6 +992,10 @@ def _sort_with_rerank(
     if rerank_client is None or not rerank_client.enabled or not local_sorted:
         return _local_rerank_fallback(local_sorted), False, None, False
 
+    configured_limit = getattr(rerank_client, "candidate_limit", rerank_candidate_limit)
+    if isinstance(configured_limit, int) and not isinstance(configured_limit, bool) and configured_limit > 0:
+        rerank_candidate_limit = min(configured_limit, 200)
+
     rerank_doc_keys: list[tuple[str, str]] = []
     rerank_documents: list[str] = []
     rerank_candidate_count = 0

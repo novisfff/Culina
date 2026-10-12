@@ -20,6 +20,12 @@ from app.services.family_model_settings.adapter_registry import (
 )
 
 
+# Application defaults and input guard, not a claim about every provider model.
+DEFAULT_LLM_OUTPUT_TOKENS = 32768
+MAX_LLM_OUTPUT_TOKENS = 131072
+DEFAULT_RERANK_CANDIDATES = 50
+
+
 FamilyModelCapability = Literal[
     "llm",
     "image_generation",
@@ -220,9 +226,10 @@ class LlmBindingDraft(_StrictModel):
     provider_profile_id: str | None = None
     requested_model: str = Field(default="", max_length=160)
     billing_scheme_key: Literal["llm-split-v1"] = "llm-split-v1"
-    max_output_tokens: int = Field(ge=1, le=65536)
+    max_output_tokens: int = Field(ge=1, le=MAX_LLM_OUTPUT_TOKENS)
     supports_vision: bool = False
     prompt_cache_enabled: bool = True
+    runtime_protocol: Literal["chat_completions", "responses"] = "chat_completions"
 
 
 class ImageGenerationBindingDraft(_StrictModel):
@@ -298,7 +305,7 @@ class RerankBindingDraft(_StrictModel):
     provider_profile_id: str | None = None
     requested_model: str = Field(default="", max_length=160)
     billing_scheme_key: Literal["rerank-token-v1"] = "rerank-token-v1"
-    top_n: int = Field(default=20, ge=1, le=200)
+    top_n: int = Field(default=DEFAULT_RERANK_CANDIDATES, ge=1, le=200)
     instruction: str | None = Field(default=None, max_length=500)
 
 
@@ -528,6 +535,7 @@ class CapabilityTestRequest(_StrictModel):
 
 
 class CapabilityTestOut(BaseModel):
+    audio_preview_data_url: str | None = None
     capability: FamilyModelCapability
     variant_key: str
     status: Literal["succeeded", "failed", "blocked"]

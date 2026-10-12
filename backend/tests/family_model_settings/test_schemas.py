@@ -149,3 +149,18 @@ def test_draft_rejects_duplicate_capability_variant_identities() -> None:
                 ]
             }
         )
+
+
+@pytest.mark.parametrize('budget', [32768, 40960, 65536, 131072])
+def test_llm_output_budget_supports_large_outputs(budget):
+    payload = FamilyModelConfigDraftPayload.model_validate({'bindings': [{
+        'capability': 'llm', 'variant_key': 'primary', 'enabled': False, 'max_output_tokens': budget,
+    }]})
+    assert payload.bindings[0].max_output_tokens == budget
+
+
+def test_llm_output_budget_rejects_values_beyond_application_limit():
+    with pytest.raises(ValidationError):
+        FamilyModelConfigDraftPayload.model_validate({'bindings': [{
+            'capability': 'llm', 'variant_key': 'primary', 'enabled': False, 'max_output_tokens': 131073,
+        }]})

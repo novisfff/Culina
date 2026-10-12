@@ -1,12 +1,17 @@
+import { ModelBooleanField } from './ModelBooleanField';
+import { ModelIntegerField } from './ModelIntegerField';
+import { ModelAudioOptions } from './ModelAudioOptions';
+import { capabilityTestFingerprint, useCapabilityTestState, type CapabilityTestState } from './CapabilityTestState';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ComboboxField, DropdownSelect, OptionChipGroup, StatusBadge } from '../../components/ui-kit';
+import { formatDateTime } from '../../lib/ui';
+import { ComboboxField, DropdownSelect, StatusBadge } from '../../components/ui-kit';
 import type {
   FamilyModelBindingDraft,
   FamilyModelCapability,
   FamilyModelProviderConnectionCheckResult,
   FamilyModelProviderProfile,
 } from '../../api/types/modelUsage';
-import { safeFamilyModelSettingsError, type FamilyModelSettingsDraft } from './familyModelSettingsModel';
+import { DEFAULT_LLM_OUTPUT_TOKENS, MAX_LLM_OUTPUT_TOKENS, DEFAULT_RERANK_CANDIDATES, safeFamilyModelSettingsError, type FamilyModelSettingsDraft } from './familyModelSettingsModel';
 import {
   FAMILY_MODEL_CAPABILITY_OPTIONS,
   FAMILY_MODEL_ADAPTER_OPTIONS,
@@ -17,6 +22,7 @@ export type CapabilityBindingEditorProps = {
   draft: FamilyModelSettingsDraft;
   profiles: FamilyModelProviderProfile[];
   busy: boolean;
+  testBusy?: boolean;
   onDraftChange: (draft: FamilyModelSettingsDraft) => void;
   onDiscoverModels: (profileId: string) => Promise<FamilyModelProviderConnectionCheckResult>;
   onTestCapability: (capability: FamilyModelCapability, variantKey: string, confirmBillable: boolean) => Promise<unknown>;
@@ -32,12 +38,6 @@ type ModelDiscoveryState =
   | { status: 'not_supported'; models: string[] }
   | { status: 'error'; models: string[] };
 
-type CapabilityTestState = {
-  fingerprint: string;
-  requestId: number;
-  status: 'running' | 'succeeded' | 'blocked' | 'failed' | 'request-error';
-  message: string;
-};
 
 const CAPABILITY_GROUPS: ReadonlyArray<{
   id: string;
@@ -50,17 +50,6 @@ const CAPABILITY_GROUPS: ReadonlyArray<{
   { id: 'voice', label: '语音', description: '语音识别、播报与实时语音。', capabilities: ['stt', 'tts', 'realtime_audio'] },
   { id: 'search', label: '搜索', description: '家庭内容的智能搜索与结果排序。', capabilities: ['embedding', 'rerank'] },
 ];
-
-const IMAGE_SIZE_OPTIONS = [
-  { value: '1024x1024', label: '方形', description: '1024 × 1024' },
-  { value: '1024x1536', label: '竖版', description: '1024 × 1536' },
-  { value: '1536x1024', label: '横版', description: '1536 × 1024' },
-] as const;
-
-const RESPONSE_FORMAT_OPTIONS = [
-  { value: 'b64_json', label: '内联图片', description: '直接返回图片内容，适合安全存储。' },
-  { value: 'url', label: '图片链接', description: '由模型服务返回图片链接。' },
-] as const;
 
 function bindingKey(binding: FamilyModelBindingDraft): string {
   return `${binding.capability}:${binding.variant_key}`;
@@ -81,7 +70,7 @@ function bindingTitle(binding: FamilyModelBindingDraft): string {
 
 function bindingDescription(binding: FamilyModelBindingDraft): string {
   if (binding.capability === 'llm') return binding.variant_key === 'fallback'
-    ? '供主用模型不可用时使用，可选择另一家服务。'
+    ? '供主用模型不可用时使用，需使用相同的服务类型和请求协议。'
     : '处理家庭助手对话、菜谱草稿和图片理解。';
   if (binding.capability === 'image_generation') return binding.variant_key === 'reference'
     ? '结合已有照片和文字要求生成图片。'
@@ -169,7 +158,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
   const visibleCapabilities = new Set(
     visibleGroups.flatMap((group) => group.capabilities).filter((capability) => !allowedCapabilities || allowedCapabilities.has(capability)),
   );
-  const [capabilityTests, setCapabilityTests] = useState<Record<string, CapabilityTestState>>({});
+  const [capabilityTests, setCapabilityTests] = useCapabilityTestState();
   const [selectedBindingKey, setSelectedBindingKey] = useState(() => {
     const visibleBindings = props.draft.bindings.filter((binding) => visibleCapabilities.has(binding.capability))
       .sort((a, b) => [...visibleCapabilities].indexOf(a.capability) - [...visibleCapabilities].indexOf(b.capability)
@@ -182,6 +171,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
   const [modelDiscovery, setModelDiscovery] = useState<Record<string, ModelDiscoveryState>>({});
   const modelDiscoveryInFlight = useRef(new Set<string>());
   const testSequence = useRef(0);
+  const [invalidFields, setInvalidFields] = useState<Record<string, boolean>>({});
 
   const discoverModels = useCallback(async (profileId: string) => {
     if (modelDiscoveryInFlight.current.has(profileId)) return;
@@ -220,16 +210,6 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
   }, [discoverModels, modelDiscovery, selectedProfileId]);
 
   function replaceBinding(index: number, next: FamilyModelBindingDraft) {
-    const previous = props.draft.bindings[index];
-    if (previous) {
-      const previousKey = bindingKey(previous);
-      setCapabilityTests((current) => {
-        if (!current[previousKey]) return current;
-        const updated = { ...current };
-        delete updated[previousKey];
-        return updated;
-      });
-    }
     const bindings = props.draft.bindings.map((binding, candidateIndex) => candidateIndex === index ? next : binding);
     props.onDraftChange({ ...props.draft, bindings });
   }
@@ -240,7 +220,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
 
   async function runCapabilityTest(binding: FamilyModelBindingDraft) {
     const key = bindingKey(binding);
-    const fingerprint = JSON.stringify(binding);
+    const fingerprint = capabilityTestFingerprint(binding, props.profiles.find((profile) => profile.id === binding.provider_profile_id));
     const requestId = ++testSequence.current;
     setCapabilityTests((current) => ({
       ...current,
@@ -255,6 +235,13 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
         && typeof result.detail === 'string'
         ? result.detail
         : null;
+      const checkedAt = result && typeof result === 'object' && 'checked_at' in result
+        && typeof result.checked_at === 'string' && Number.isFinite(Date.parse(result.checked_at))
+        ? result.checked_at : new Date().toISOString();
+      const audioPreview = result && typeof result === 'object' && 'audio_preview_data_url' in result
+        && typeof result.audio_preview_data_url === 'string' && result.audio_preview_data_url.length <= 710000
+        && /^data:audio\/(mpeg|wav|ogg|flac|mp4);base64,[A-Za-z0-9+/=]+$/.test(result.audio_preview_data_url)
+        ? result.audio_preview_data_url : undefined;
       const nextState: CapabilityTestState = resultStatus === 'succeeded'
         ? { fingerprint, requestId, status: 'succeeded', message: resultDetail || '测试成功，点击可再次测试。' }
         : resultStatus === 'blocked'
@@ -262,7 +249,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
           : { fingerprint, requestId, status: 'failed', message: resultDetail || '服务未通过功能测试，请检查模型服务、模型和价格配置后重试。' };
       setCapabilityTests((current) => current[key]?.requestId === requestId ? {
         ...current,
-        [key]: nextState,
+        [key]: { ...nextState, checkedAt, audioPreview },
       } : current);
     } catch (reason) {
       setCapabilityTests((current) => current[key]?.requestId === requestId ? {
@@ -272,6 +259,8 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
     }
   }
 
+  const primary = props.draft.bindings.find((binding) => binding.capability === 'llm' && binding.variant_key === 'primary');
+  const primaryProfile = props.profiles.find((profile) => profile.id === primary?.provider_profile_id);
   const bindingGroups = (
     <div className="family-model-settings-binding-groups">
       {visibleGroups.map((group) => (
@@ -289,34 +278,40 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
             {props.draft.bindings.map((binding, index) => ({ binding, index })).filter(({ binding }) => group.capabilities.includes(binding.capability) && (!allowedCapabilities || allowedCapabilities.has(binding.capability))).sort((a, b) => bindingOrder(a.binding) - bindingOrder(b.binding)).map(({ binding, index }) => {
               const key = bindingKey(binding);
               const embeddingLocked = isActiveEmbedding(props.draft, binding);
-              const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability));
+              const profiles = props.profiles.filter((profile) => profileSupportsCapability(profile, binding.capability)
+                && (binding.capability !== 'llm' || binding.variant_key !== 'fallback' || !primaryProfile
+                  || profile.adapter_kind === primaryProfile.adapter_kind));
               const expanded = selectedBindingKey === key;
-              const capabilityTest = capabilityTests[key]?.fingerprint === JSON.stringify(binding) ? capabilityTests[key] : undefined;
+              const capabilityTest = capabilityTests[key]?.fingerprint === capabilityTestFingerprint(binding, props.profiles.find((profile) => profile.id === binding.provider_profile_id)) ? capabilityTests[key] : undefined;
+              const testOutdated = Boolean(capabilityTests[key] && !capabilityTest);
               const profile = props.profiles.find((item) => item.id === binding.provider_profile_id);
               const serviceAvailable = profiles.some((item) => item.id === binding.provider_profile_id);
+              const protocolMismatch = binding.capability === 'llm' && binding.variant_key === 'fallback'
+                && primary?.capability === 'llm' && primary.enabled && profile?.adapter_kind !== 'dashscope'
+                && (primary.runtime_protocol ?? 'chat_completions') !== (binding.runtime_protocol ?? 'chat_completions');
               const configurationIssue = !binding.provider_profile_id
                 ? profiles.length ? '请选择模型服务。' : '暂无兼容服务，请先在“模型服务”中添加或启用服务。'
                 : !serviceAvailable ? '当前服务不可用，请重新选择模型服务。'
-                  : !binding.requested_model.trim() ? '请选择或输入模型名称。' : null;
+                  : !binding.requested_model.trim() ? '请选择或输入模型名称。' : protocolMismatch ? '备用模型的请求协议需要与主用模型一致。' : null;
               const testBlocked = props.blockedTests?.includes(binding.capability) ?? false;
-              const canRunDraftTest = bindingCanRunDraftTest(binding) && serviceAvailable && !testBlocked && !embeddingLocked;
+              const canRunDraftTest = bindingCanRunDraftTest(binding) && serviceAvailable && !configurationIssue && !testBlocked && !embeddingLocked && !invalidFields[key];
               return (
                 <article key={key} className={`family-model-settings-binding-card ${expanded ? 'is-expanded' : ''}`}>
                   <div className="family-model-settings-binding-head">
-                    <button type="button" aria-expanded={expanded} aria-controls={`family-model-settings-binding-panel-${key}`} onClick={() => setSelectedBindingKey(expanded ? '' : key)}>
+                    <button type="button" aria-label={bindingTitle(binding)} aria-expanded={expanded} aria-controls={`family-model-settings-binding-panel-${key}`} onClick={() => { setSelectedBindingKey(expanded ? '' : key); setInvalidFields({}); }}>
                       <div className="family-model-settings-binding-head-info">
                         <span className={`family-model-settings-binding-icon tone-${binding.capability}`} aria-hidden="true">
                           {getCapabilityIcon(binding.capability)}
                         </span>
                         <div>
-                          <h3>{bindingTitle(binding)}</h3>
+                          <h3>{binding.capability === 'llm' ? binding.variant_key === 'fallback' ? '备用模型' : '主用模型' : bindingTitle(binding)}</h3>
                           <p>{bindingDescription(binding)}</p>
                           {props.scope !== 'search' ? <div className="family-model-settings-binding-summary">
                             <span>{profile?.display_name ?? '未选择服务'}</span>
                             <span aria-hidden="true">/</span>
                             <strong>{binding.requested_model.trim() || '未选择模型'}</strong>
                             <StatusBadge tone={configurationIssue ? binding.enabled ? 'warning' : 'neutral' : capabilityTest?.status === 'succeeded' ? 'success' : capabilityTest?.status === 'failed' || capabilityTest?.status === 'request-error' ? 'danger' : 'neutral'} size="compact">
-                              {configurationIssue ? binding.enabled ? '待完善' : '未配置' : capabilityTest?.status === 'succeeded' ? '测试通过' : capabilityTest?.status === 'running' ? '测试中' : capabilityTest?.status === 'blocked' ? '用量受限' : capabilityTest ? '测试失败' : '未测试'}
+                              {configurationIssue ? binding.enabled ? '待完善' : '未配置' : capabilityTest?.status === 'succeeded' ? '测试通过' : capabilityTest?.status === 'running' ? '测试中' : capabilityTest?.status === 'blocked' ? '用量受限' : capabilityTest ? '测试失败' : testOutdated ? '需重新测试' : '尚未测试'}
                             </StatusBadge>
                           </div> : null}
                         </div>
@@ -342,7 +337,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                   {embeddingLocked ? <p className="family-model-settings-readonly-note">搜索设置已生效。更换模型服务、模型或维度时，需要重新生成搜索数据。</p> : null}
                   <div className="family-model-settings-binding-panel-heading">
                     <strong>服务与模型</strong>
-                    {props.scope !== 'search' ? <span>修改会自动保存，完整配置通过校验后生效。</span> : null}
+                    {props.scope !== 'search' ? <span>自动保存，校验通过后生效。</span> : null}
                   </div>
                   {configurationIssue ? <p className="family-model-settings-binding-notice" role="status">{configurationIssue}</p> : null}
                   <div className="family-model-settings-form-grid">
@@ -366,7 +361,11 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                         }}
                         disabled={props.busy || embeddingLocked}
                         className="family-model-settings-dropdown"
-                        onChange={(value) => patchBinding(index, binding, { provider_profile_id: value || null })}
+                        onChange={(value) => patchBinding(index, binding, {
+                          provider_profile_id: value || null,
+                          ...(binding.capability === 'llm' && props.profiles.find((item) => item.id === value)?.adapter_kind === 'dashscope'
+                            ? { runtime_protocol: 'chat_completions' as const } : {}),
+                        })}
                       />
                     </div>
                     <div className="family-model-settings-field">
@@ -389,7 +388,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                           <span>
                             {modelDiscovery[binding.provider_profile_id]?.status === 'ready'
                               ? modelDiscovery[binding.provider_profile_id].models.length > 0
-                                ? `已自动读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可以直接输入其他模型名称。`
+                                ? `已读取 ${modelDiscovery[binding.provider_profile_id].models.length} 个模型，也可手动输入。`
                                 : '服务连接正常，但未返回模型列表，请手动输入模型名称。'
                               : modelDiscovery[binding.provider_profile_id]?.status === 'not_supported'
                                 ? '此服务不支持自动读取模型列表，请手动输入模型名称。'
@@ -418,77 +417,58 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                   <div className="family-model-settings-form-grid">
                     {binding.capability === 'llm' ? (
                       <>
-                        <label className="family-model-settings-field">
-                          <span>最大回复长度（Token）</span>
-                          <input type="number" min="1" value={binding.max_output_tokens} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { max_output_tokens: Number(event.target.value) || 1 })} />
-                        </label>
-                        <div className="family-model-settings-field">
-                          <span>图片理解</span>
-                          <label className="family-model-settings-toggle-card">
-                            <input type="checkbox" checked={binding.supports_vision} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { supports_vision: event.target.checked })} />
-                            <span className="family-model-settings-switch-track" aria-hidden="true" />
-                            <span className="family-model-settings-toggle-card-copy">
-                              <strong>支持图片理解</strong>
-                              <small>允许识别菜谱照片与食材图片</small>
-                            </span>
-                          </label>
-                        </div>
+                        <ModelIntegerField label="最大回复长度（Token）" value={binding.max_output_tokens} max={MAX_LLM_OUTPUT_TOKENS} disabled={props.busy}
+                          hint={`默认 ${DEFAULT_LLM_OUTPUT_TOKENS}，部分模型包含思考 Token；以模型上限为准。`}
+                          onChange={(value) => patchBinding(index, binding, { max_output_tokens: value })}
+                          onValidityChange={(valid) => setInvalidFields((current) => ({ ...current, [key]: !valid }))} />
+                        <ModelBooleanField label="图片理解" hint="模型支持图片输入时开启。" checked={binding.supports_vision} disabled={props.busy}
+                          onChange={(checked) => patchBinding(index, binding, { supports_vision: checked })} />
                       </>
                     ) : null}
-                    {binding.capability === 'image_generation' ? (
-                      <>
-                        <div className="family-model-settings-field family-model-settings-image-options">
-                          <span>图片尺寸</span>
-                          <OptionChipGroup
-                            ariaLabel="图片尺寸"
-                            value={binding.image_size}
-                            options={IMAGE_SIZE_OPTIONS.map((option) => ({ ...option, disabled: props.busy }))}
-                            className="family-model-settings-image-sizes"
-                            onChange={(value) => patchBinding(index, binding, { image_size: value })}
-                          />
-                        </div>
-                      </>
-                    ) : null}
-                    {binding.capability === 'embedding' ? (
-                      <label className="family-model-settings-field">
-                        <span>模型维度</span>
-                        <input type="number" min="1" value={binding.dimensions} disabled={props.busy || embeddingLocked} onChange={(event) => patchBinding(index, binding, { dimensions: Number(event.target.value) || 1 })} />
-                      </label>
-                    ) : null}
-                    {binding.capability === 'rerank' ? (
-                      <label className="family-model-settings-field">
-                        <span>返回条数</span>
-                        <input type="number" min="1" max="200" value={binding.top_n} disabled={props.busy} onChange={(event) => patchBinding(index, binding, { top_n: Number(event.target.value) || 1 })} />
-                      </label>
-                    ) : null}
+                    {binding.capability === 'image_generation' ? <p className="family-model-settings-readonly-note">图片尺寸跟随用途自动选择，生成结果由系统统一保存。</p> : null}
+                    {binding.capability === 'embedding' ? <ModelIntegerField label="模型维度" value={binding.dimensions} max={65536} disabled={props.busy || embeddingLocked}
+                      hint="维度必须与模型实际输出一致，不是越大越好；测试会核对返回维度。"
+                      onChange={(value) => patchBinding(index, binding, { dimensions: value })}
+                      onValidityChange={(valid) => setInvalidFields((current) => ({ ...current, [key]: !valid }))} /> : null}
+                    {binding.capability === 'rerank' ? <ModelIntegerField label="参与排序的候选条数" value={binding.top_n} max={200} disabled={props.busy}
+                      hint={`默认 ${DEFAULT_RERANK_CANDIDATES} 条；增加候选可扩大排序范围，也会增加用量和等待时间。`}
+                      onChange={(value) => patchBinding(index, binding, { top_n: value })}
+                      onValidityChange={(valid) => setInvalidFields((current) => ({ ...current, [key]: !valid }))} /> : null}
+                    <ModelAudioOptions key={`${key}:${binding.provider_profile_id}`} binding={binding} dashscope={profile?.adapter_kind === 'dashscope'} disabled={props.busy}
+                      onChange={(patch) => patchBinding(index, binding, patch)}
+                      onValidityChange={(valid) => setInvalidFields((current) => ({ ...current, [key]: !valid }))} />
                   </div>
-                  {binding.capability === 'image_generation' ? (
-                    <details className="family-model-settings-binding-advanced">
-                      <summary>高级设置</summary>
-                        <div className="family-model-settings-field">
-                          <span>返回格式</span>
-                          <DropdownSelect
-                            ariaLabel="返回格式选项"
-                            triggerAriaLabel="返回格式"
-                            placeholder="选择返回格式"
-                            value={binding.response_format}
-                            options={RESPONSE_FORMAT_OPTIONS}
-                            disabled={props.busy}
-                            className="family-model-settings-dropdown"
-                            onChange={(value) => { if (value) patchBinding(index, binding, { response_format: value }); }}
-                          />
-                        </div>
-                    </details>
-                  ) : null}
+                  {binding.capability === 'llm' ? <details className="family-model-settings-binding-advanced">
+                    <summary>
+                      <span>高级设置</span>
+                      <span className="family-model-settings-advanced-summary-note">协议与缓存</span>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+                    </summary>
+                    <div className="family-model-settings-form-grid family-model-settings-advanced-fields">
+                      {profile?.adapter_kind !== 'dashscope' ? <div className="family-model-settings-field">
+                        <span>请求协议</span>
+                        <DropdownSelect ariaLabel="请求协议选项" triggerAriaLabel="请求协议" placeholder="选择请求协议" className="family-model-settings-dropdown"
+                          value={binding.runtime_protocol ?? 'chat_completions'} disabled={props.busy}
+                          options={[{ value: 'chat_completions', label: 'Chat Completions' }, { value: 'responses', label: 'Responses' }]}
+                          onChange={(value) => patchBinding(index, binding, { runtime_protocol: value as 'chat_completions' | 'responses' })} />
+                        <small>与模型服务支持的接口协议保持一致。</small>
+                      </div> : null}
+                      <ModelBooleanField label="提示词缓存" hint="发送缓存标识，是否命中由服务决定。" checked={binding.prompt_cache_enabled} disabled={props.busy}
+                        onChange={(checked) => patchBinding(index, binding, { prompt_cache_enabled: checked })} />
+                    </div>
+                  </details> : null}
+                  {capabilityTest?.status === 'succeeded' && capabilityTest.audioPreview ? <audio
+                    controls preload="none" src={capabilityTest.audioPreview} aria-label="测试音色试听" /> : null}
                   <div className="family-model-settings-binding-test">
                     <div className="family-model-settings-binding-test-copy">
                       <strong>功能测试</strong>
-                      <p>{!binding.enabled ? '启用并补全配置后可测试。' : '测试会发送真实请求，可能产生模型费用。'}</p>
+                      <p>{!binding.enabled ? '启用并补全配置后可测试。' : testOutdated ? '配置已变更，请重新测试。测试可能产生模型费用。' : '启用不代表测试通过。测试会发送真实请求，可能产生模型费用。'}</p>
                     {capabilityTest && capabilityTest.status !== 'running' ? (
                       <span className={`family-model-settings-test-detail is-${capabilityTest.status}`} role="status" aria-label="能力测试状态">
                         {capabilityTest.message}
                       </span>
                     ) : null}
+                    {capabilityTest?.checkedAt ? <span className="family-model-settings-save-note">最近测试：{formatDateTime(capabilityTest.checkedAt)}</span> : null}
                     </div>
                     <button
                       className={`ghost-button family-model-settings-test-button ${capabilityTest ? `is-${capabilityTest.status}` : ''}`}
@@ -501,7 +481,7 @@ export function CapabilityBindingEditor(props: CapabilityBindingEditorProps) {
                           ? '请先启用功能，并补全模型服务和模型名称。'
                           : capabilityTest?.message}
                       aria-busy={capabilityTest?.status === 'running'}
-                      disabled={props.busy || !canRunDraftTest || capabilityTest?.status === 'running'}
+                      disabled={props.busy || props.testBusy || !canRunDraftTest || capabilityTest?.status === 'running'}
                       onClick={() => { void runCapabilityTest(binding); }}
                     >
                       {capabilityTest?.status === 'running' ? (

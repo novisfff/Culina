@@ -8,11 +8,12 @@ supplies only a small, fixed protocol payload for each capability.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -51,6 +52,9 @@ from app.repos.family_model_settings.profiles import (
 )
 from app.repos.model_usage.catalog import next_price_version_number
 from app.services.ai_audio.config import realtime_endpoint_url
+from app.services.ai_audio import cosyvoice, dashscope_realtime
+from app.services.ai_audio.dashscope_protocols import audio_binding_issue, is_cosyvoice_model, tts_output_format
+from app.services.family_model_settings.probe_contracts import (audio_preview, image_probe, llm_probe, probe_response_detail, silence_wav, speech_probe_matches)
 from app.services.family_model_settings.credentials import (
     FamilyModelCredentialCipher,
     operation_request_fingerprint,
@@ -67,6 +71,7 @@ from app.services.family_model_settings.network_policy import ProviderNetworkPol
 from app.services.family_model_settings.publishing import insert_family_price_rates
 from app.services.family_model_settings.resolver import FamilyModelConfigurationResolver
 from app.services.family_model_settings.transport import ProviderResponse, ProviderTransport
+from app.services.family_model_settings.multipart import provider_multipart_form
 from app.services.family_model_settings.types import (
     DispatchCredential,
     FamilyModelCapability,
@@ -127,6 +132,8 @@ class CapabilityTestResult:
     status: CapabilityTestStatus
     detail: str
     checked_at: datetime
+    # Ephemeral sample: excluded from the durable idempotency record. Replays do not resend.
+    audio_preview_data_url: str | None = None
 
     def response_record(self) -> dict[str, object]:
         return {
@@ -225,34 +232,24 @@ def _openai_http_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str,
     """
 
     if binding.capability == "llm":
-        return "chat/completions", {
-            "model": binding.requested_model,
-            "messages": [{"role": "user", "content": "请回复：已完成能力测试。"}],
-            "max_tokens": 1,
-        }
+        return llm_probe(binding)
     if binding.capability == "image_generation":
-        return "images/generations", {
-            "model": binding.requested_model,
-            "prompt": "一颗番茄，白色背景，测试图。",
-            "n": 1,
-            "size": "256x256",
-        }
+        return image_probe(binding)
     if binding.capability == "stt":
-        # The normal adapter owns production multipart encoding.  This fixed
-        # capability probe intentionally contains only a short silent WAV
-        # marker and is never derived from user media.
-        return "audio/transcriptions", {
-            "model": binding.requested_model,
-            "file": "capability-test-silence.wav",
-        }
+        fields = {"model": binding.requested_model}
+        language = binding.options.get("language_hint")
+        if language and language != "auto":
+            fields["language"] = str(language)
+        return "audio/transcriptions", fields
     if binding.capability == "tts":
         return "audio/speech", {
             "model": binding.requested_model,
-            "voice": "alloy",
+            "voice": binding.options.get("voice") or "alloy",
+            "response_format": binding.options.get("output_format") or "mp3",
             "input": "能力测试。",
         }
     if binding.capability == "embedding":
-        return "embeddings", {"model": binding.requested_model, "input": ["能力测试"]}
+        return "embeddings", {"model": binding.requested_model, "input": ["能力测试"], "dimensions": binding.options["dimensions"]}
     if binding.capability == "rerank":
         return "rerank", {
             "model": binding.requested_model,
@@ -263,82 +260,40 @@ def _openai_http_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str,
     raise FamilyModelProviderProtocolUnsupported()
 
 
-def _dashscope_stt_probe_payload(model: str) -> dict[str, object]:
-    """Build the same native DashScope STT envelope as the audio runtime.
-
-    The content is a fixed, tiny WAV data URL rather than caller or household
-    media.  Keeping this shape aligned with ``DashScopeAudioProvider`` means
-    an Owner capability probe tests the protocol they will actually use.
-    """
-
-    silence_data_url = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
-    if model.startswith("qwen3-asr-flash"):
-        return {
-            "model": model,
-            "input": {
-                "messages": [
-                    {"role": "system", "content": [{"text": ""}]},
-                    {"role": "user", "content": [{"audio": silence_data_url}]},
-                ]
-            },
-            "parameters": {
-                "asr_options": {"enable_itn": False},
-                "format": "wav",
-                "sample_rate": "16000",
-            },
-        }
-    return {
-        "model": model,
-        "input": {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_audio",
-                            "input_audio": {"data": silence_data_url},
-                        }
-                    ],
-                }
-            ]
-        },
-        "parameters": {"format": "wav", "sample_rate": "16000"},
-    }
-
-
 def _dashscope_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str, dict[str, object]]:
     """Return a native DashScope probe instead of assuming OpenAI wire paths."""
 
     model = binding.requested_model
     if binding.capability == "llm":
-        return "services/aigc/text-generation/generation", {
-            "model": model,
-            "input": {"messages": [{"role": "user", "content": "请回复：已完成能力测试。"}]},
-            "parameters": {"result_format": "message", "max_tokens": 1},
-        }
+        return llm_probe(binding)
     if binding.capability == "image_generation":
-        return "services/aigc/text2image/image-synthesis", {
-            "model": model,
-            "input": {"prompt": "一颗番茄，白色背景，测试图。"},
-            "parameters": {"n": 1, "size": "1024*1024"},
-        }
+        return image_probe(binding)
     if binding.capability == "stt":
-        return "services/aigc/multimodal-generation/generation", _dashscope_stt_probe_payload(model)
+        from app.services.ai_audio.dashscope_audio import _dashscope_stt_payload
+        payload = _dashscope_stt_payload(model=model, audio_data_url="data:audio/wav;base64," + base64.b64encode(silence_wav()).decode(), content_type="audio/wav", sample_rate=16000)
+        if binding.options.get("language_hint") and binding.options["language_hint"] != "auto":
+            payload["parameters"]["language"] = binding.options["language_hint"]
+        if binding.options.get("hotwords"):
+            payload["parameters"]["hotwords"] = list(binding.options["hotwords"])
+        return "services/aigc/multimodal-generation/generation", payload
     if binding.capability == "tts":
+        if is_cosyvoice_model(model):
+            # CosyVoice is selected by the runner before HTTP construction.
+            raise FamilyModelProviderProtocolUnsupported()
         return "services/aigc/multimodal-generation/generation", {
             "model": model,
             "input": {
                 "text": "能力测试。",
-                "voice": "Cherry",
+                "voice": binding.options.get("voice") or "Cherry",
                 "language_type": "Chinese",
             },
-            "parameters": {"format": "mp3", "sample_rate": 24000},
+            "parameters": {"format": tts_output_format(model, binding.options.get("output_format")), "sample_rate": 24000},
         }
     if binding.capability == "embedding":
         return "services/embeddings/text-embedding/text-embedding", {
             "model": model,
             "input": {"texts": ["能力测试"]},
-            "parameters": {"text_type": "query"},
+            "parameters": {"text_type": "query", "dimension": binding.options["dimensions"]},
         }
     if binding.capability == "rerank":
         return "services/rerank/text-rerank/text-rerank", {
@@ -361,7 +316,7 @@ def _http_probe_request(binding: ResolvedCapabilityBinding) -> tuple[str, dict[s
 
 def _estimate(binding: ResolvedCapabilityBinding) -> UsageEstimate:
     if binding.capability == "llm":
-        return estimate_llm(input_tokens=8, cached_input_tokens=0, max_output_tokens=1)
+        return estimate_llm(input_tokens=1024 if binding.options.get("supports_vision") else 256, cached_input_tokens=0, max_output_tokens=int(binding.options.get("max_output_tokens", 256)))
     if binding.capability == "image_generation":
         return estimate_image_generation(image_count=1)
     if binding.capability == "stt":
@@ -472,13 +427,34 @@ def _run_http_probe(
     credential: DispatchCredential,
     transport: ProviderTransport,
 ) -> ProviderResponse:
+    if binding.adapter_kind == 'dashscope' and binding.capability == 'tts' and is_cosyvoice_model(binding.requested_model):
+        return cosyvoice.synthesize(
+            binding, transport=transport, headers=_headers(binding, credential, permit=permit),
+            text='能力测试。', voice=binding.options.get('voice'),
+            output_format=binding.options.get('output_format') or 'mp3',
+            timeout_seconds=20, max_audio_bytes=512 * 1024,
+        )
     suffix, payload = _http_probe_request(binding)
-    return transport.request(
-        "POST",
-        _binding_url(binding, suffix),
-        headers=_headers(binding, credential, permit=permit),
-        json=payload,
-    )
+    headers = _headers(binding, credential, permit=permit)
+    url = _binding_url(binding, suffix)
+    if binding.adapter_kind == "dashscope" and binding.capability == "llm":
+        url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    if binding.capability == "stt" and binding.adapter_kind == "openai_compatible_http":
+        from app.services.ai_audio.openai_audio import _multipart_form
+        body, content_type = _multipart_form(payload, filename="capability-test-silence.wav", payload=silence_wav(), media_type="audio/wav")
+        headers["Content-Type"] = content_type
+        return transport.request("POST", url, headers=headers, body=body)
+    if (binding.capability == "image_generation" and binding.variant_key == "reference"
+            and binding.adapter_kind == "openai_compatible_http"):
+        from app.services.family_model_settings.probe_contracts import REFERENCE_IMAGE
+        body, content_type = provider_multipart_form(
+            {key: str(value) for key, value in payload.items()},
+            filename="capability-reference.png", payload=base64.b64decode(REFERENCE_IMAGE.split(",", 1)[1]),
+            media_type="image/png", file_field="image[]",
+        )
+        headers["Content-Type"] = content_type
+        return transport.request("POST", url, headers=headers, body=body)
+    return transport.request("POST", url, headers=headers, json=payload)
 
 
 def _run_realtime_probe(
@@ -487,21 +463,99 @@ def _run_realtime_probe(
     credential: DispatchCredential,
     transport: ProviderTransport,
 ) -> None:
-    connection = transport.connect_websocket(
-        realtime_endpoint_url(binding),
-        headers={
-            **_headers(binding, credential),
-            "OpenAI-Beta": "realtime=v1",
-        },
+    from time import monotonic
+    from app.services.ai_audio import openai_realtime
+    from app.services.ai_audio.dashscope_audio import (
+        _audio_append_event, _audio_commit_event, _event_audio,
     )
-    try:
-        send = getattr(connection, "send", None)
-        if callable(send):
-            send(json.dumps({"type": "session.update", "session": {"modalities": ["text"]}}))
-    finally:
-        close = getattr(connection, "close", None)
-        if callable(close):
-            close()
+
+    is_openai = binding.adapter_kind == "openai_realtime"
+    if not is_openai and binding.adapter_kind != "dashscope":
+        raise FamilyModelProviderProtocolUnsupported()
+    if not is_openai:
+        issue = audio_binding_issue(binding.capability, binding.requested_model, binding.options)
+        if issue:
+            raise FamilyModelProviderProtocolUnsupported(issue)
+    # Match the runtime's separate ASR/TTS connections, including actual
+    # audio exchange. A session.updated acknowledgement alone is insufficient.
+    for transcription in (True, False):
+        connection = transport.connect_websocket(realtime_endpoint_url(binding), headers=_headers(binding, credential))
+        try:
+            deadline = monotonic() + 20
+
+            def send(event: dict[str, object]) -> None:
+                connection.send(json.dumps(event))
+
+            def receive() -> dict[str, object]:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise ValueError("realtime_probe_timeout")
+                raw = connection.recv(timeout=remaining)
+                if isinstance(raw, bytes) and not is_openai:
+                    return {"type": "response.audio.delta", "_audio": raw}
+                event = json.loads(raw)
+                if not isinstance(event, dict) or event.get("type") in {"error", "conversation.item.input_audio_transcription.failed"}:
+                    raise ValueError("realtime_probe_rejected")
+                return event
+
+            voice = binding.options.get("voice")
+            language = binding.options.get("language_hint")
+            if is_openai:
+                session = openai_realtime.session_update_event(model=binding.requested_model, voice=voice,
+                    transcription=transcription, language=language)
+            else:
+                session = dashscope_realtime.session_update_event(voice=voice, transcription=transcription, language=language)
+            send(session)
+            for _ in range(32):
+                if receive().get("type") == "session.updated":
+                    break
+            else:
+                raise ValueError("realtime_session_not_confirmed")
+
+            if transcription:
+                send(_audio_append_event(b"\x00\x00" * (24000 if is_openai else 16000)))
+                send(_audio_commit_event())
+                for _ in range(128):
+                    event = receive()
+                    if event.get("type") == "conversation.item.input_audio_transcription.completed":
+                        if not isinstance(event.get("transcript"), str):
+                            raise ValueError("realtime_transcription_invalid")
+                        break
+                else:
+                    raise ValueError("realtime_transcription_not_confirmed")
+            else:
+                speech_text = '能力测试。'
+                if is_openai:
+                    event = openai_realtime.speech_event("测")
+                    event["response"]["max_output_tokens"] = 128
+                    send(event)
+                else:
+                    for event in dashscope_realtime.speech_events(speech_text):
+                        send(event)
+                audio_size = 0
+                transcript = None
+                for _ in range(128):
+                    event = receive()
+                    if not is_openai and event.get('type') == 'response.audio_transcript.done':
+                        transcript = event.get('transcript')
+                    audio = openai_realtime.audio_delta(event) if is_openai else _event_audio(event)
+                    if audio is not None:
+                        if not audio or len(audio) % 2:
+                            raise ValueError("realtime_audio_invalid")
+                        audio_size += len(audio)
+                        if audio_size > 512 * 1024:
+                            raise ValueError("realtime_probe_audio_too_large")
+                    finished = openai_realtime.response_done(event) if is_openai else dashscope_realtime.response_done(event)
+                    if finished:
+                        if not audio_size:
+                            raise ValueError("realtime_audio_missing")
+                        if not is_openai and not speech_probe_matches(speech_text, transcript):
+                            raise ValueError('realtime_speech_text_mismatch')
+                        break
+                else:
+                    raise ValueError("realtime_audio_not_confirmed")
+        finally:
+            connection.close()
 
 
 def _safe_result(
@@ -1093,6 +1147,10 @@ def run_family_capability_test(
     finally:
         credential = None
 
+    if not 200 <= response_status < 300 and response_status not in {400, 401, 403, 404, 405, 406, 413, 415, 422, 429}:
+        attempt.mark_uncertain("family_model_capability_test_result_unknown")
+        raise FamilyModelProviderTransportError("family_model_capability_test_transport_failed")
+
     if not 200 <= response_status < 300:
         settlement = attempt.settle(
             _receipt(
@@ -1122,7 +1180,19 @@ def run_family_capability_test(
             completed_at=dependencies.now(),
         )
     )
-    result = _safe_result(command, status="succeeded", now=dependencies.now())
+    # A 2xx request may have been billed even when its content is unusable.
+    # Keep the settled event, but never label that capability test successful.
+    try:
+        preview = None
+        if binding.capability == "tts" and provider_response is not None:
+            preview = audio_preview(binding, provider_response, dependencies.transport)
+        detail = ("已收到当前音色的音频数据。" if preview else
+                  probe_response_detail(binding, provider_response, dependencies.transport) if provider_response is not None
+                  else "音频上传、转写响应与音频合成协议通过；静音样本不验证识别准确率。")
+        result = replace(_safe_result(command, status="succeeded", now=dependencies.now(), detail=detail), audio_preview_data_url=preview)
+    except Exception:
+        result = _safe_result(command, status="failed", now=dependencies.now(),
+                              detail="服务已响应，但返回内容与功能配置不符。请检查模型能力、协议或向量维度；本次请求可能已计费。")
     return _complete_result(db, claim=claim, result=result, result_id=settlement.event_id)
 
 
