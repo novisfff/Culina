@@ -1,10 +1,11 @@
 # Culina 部署指南
 
-`deploy/` 目录只放 Docker Compose 编排和部署环境变量示例。各服务自己的镜像文件放在对应服务目录：
+`deploy/` 保存 Docker Compose 编排、部署环境变量示例和 MinIO 构建配置。应用镜像文件放在对应服务目录：
 
 - 后端镜像：`../backend/Dockerfile`
 - 前端镜像：`../frontend/Dockerfile`
 - 前端 nginx 配置：`../frontend/nginx.conf`
+- MinIO 镜像：`minio/Dockerfile`
 
 ## 服务组成
 
@@ -51,6 +52,8 @@ npm run deploy:up
 ```bash
 docker compose up -d --build
 ```
+
+MinIO 从官方仓库的固定提交构建，对应原有 `RELEASE.2023-11-06T22-26-08Z` 版本。首次构建需要下载 Go 工具链镜像和模块依赖，后续复用 Docker 构建缓存；生产部署与媒体权限 smoke 使用同一构建配置。
 
 启动后访问：
 

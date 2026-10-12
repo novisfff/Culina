@@ -122,7 +122,9 @@ def test_backend_waits_for_healthy_minio_before_privacy_bootstrap() -> None:
 
     minio = compose["services"]["minio"]
     backend = compose["services"]["backend"]
-    assert minio["healthcheck"]["test"] == ["CMD", "mc", "ready", "local"]
+    assert minio["healthcheck"]["test"] == [
+        "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9000/minio/health/ready",
+    ]
     assert backend["depends_on"]["minio"]["condition"] == "service_healthy"
 
 
