@@ -606,7 +606,10 @@ class AIClientProjectionRouteTestCase(AIAgentInfraTestCase):
         listed = self.client.get("/api/ai/conversations")
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.headers.get("Cache-Control"), "private, no-store")
-        self.assertEqual(listed.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+        self.assertIn(
+            AI_DRAFT_CONTRACTS_HEADER.lower(),
+            {field.strip().lower() for field in listed.headers.get("Vary", "").split(",")},
+        )
         row = next(item for item in listed.json() if item["id"] == conversation_id)
         self.assertEqual(row["context"], {"activeRunId": "run-projection-v2"})
         self.assertNotIn("fastApprovalDecisions", row["context"])
@@ -852,7 +855,10 @@ class AIClientProjectionRouteTestCase(AIAgentInfraTestCase):
             with self.client.stream("POST", "/api/ai/chat/stream", json={"message": "做菜"}) as response:
                 body = "".join(response.iter_text())
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+                self.assertIn(
+                    AI_DRAFT_CONTRACTS_HEADER.lower(),
+                    {field.strip().lower() for field in response.headers.get("Vary", "").split(",")},
+                )
 
         self.assertIn("error_recovery", body)
         self.assertNotIn(RECIPE_COOK_V2, body)

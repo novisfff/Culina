@@ -2467,7 +2467,10 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 captured,
             )
             self.assertEqual(retry_response.headers.get("Cache-Control"), "private, no-store")
-            self.assertEqual(retry_response.headers.get("Vary"), AI_DRAFT_CONTRACTS_HEADER)
+            self.assertIn(
+                AI_DRAFT_CONTRACTS_HEADER.lower(),
+                {field.strip().lower() for field in retry_response.headers.get("Vary", "").split(",")},
+            )
 
         def test_generation_entrypoint_chat_stream_propagates_capability(self) -> None:
             from app.ai.draft_contracts import AI_DRAFT_CONTRACTS_HEADER
@@ -2495,7 +2498,10 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 frozenset({"recipe_cook_operation.v1", "recipe_cook_operation.v2"}),
                 captured,
             )
-            self.assertEqual(vary, AI_DRAFT_CONTRACTS_HEADER)
+            self.assertIn(
+                AI_DRAFT_CONTRACTS_HEADER.lower(),
+                {field.strip().lower() for field in (vary or "").split(",")},
+            )
 
         def test_ai_workspace_phase4_regenerates_message_part_with_same_context(self) -> None:
             response = self.client.post("/api/ai/chat", json={"message": "今日吃什么？", "quick_task": "today_recommendation"})

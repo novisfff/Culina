@@ -4,14 +4,15 @@ sqlalchemy==2.0.36
 alembic==1.14.0
 pymysql==1.1.1
 pydantic-settings==2.7.0
-PyJWT==2.13.0
+PyJWT==2.15.1
 cryptography==50.0.0
 bcrypt==5.0.0
 python-multipart==0.0.32
 httpx==0.28.1
 httpcore==1.0.9
 websockets==16.0
-langgraph==1.2.0
+langgraph==1.2.4
+langgraph-sdk==0.4.6
 langchain-openai==1.2.1
 minio==7.2.10
 Pillow==12.3.0
