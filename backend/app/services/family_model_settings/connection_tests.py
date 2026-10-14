@@ -113,22 +113,45 @@ def _probe_url(api_base_url: str, path: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, probe_path, "", ""))
 
 
-def _discovered_model_ids(content: bytes) -> tuple[str, ...]:
-    """Extract only bounded model identifiers from an OpenAI-compatible catalog."""
+def _discovered_model_ids(content: bytes, *, adapter_kind: str) -> tuple[str, ...]:
+    """Extract bounded IDs from the returned catalog page, never its metadata."""
 
     try:
         payload = json.loads(content)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        if adapter_kind == "dashscope":
+            raise FamilyModelProviderTransportError("family_model_provider_response_invalid") from exc
         return ()
-    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-        return ()
+    model_key = "id"
+    if adapter_kind == "dashscope":
+        if not isinstance(payload, dict):
+            raise FamilyModelProviderTransportError("family_model_provider_response_invalid")
+        if payload.get("success") is False or payload.get("code"):
+            raise FamilyModelProviderTransportError("family_model_provider_connection_rejected")
+        # Legacy profiles may still use the compatible-mode catalog.
+        if isinstance(payload.get("data"), list):
+            entries = payload["data"]
+        else:
+            output = payload.get("output")
+            if (
+                payload.get("success") is not True
+                or not isinstance(output, dict)
+                or not isinstance(output.get("models"), list)
+            ):
+                raise FamilyModelProviderTransportError("family_model_provider_response_invalid")
+            entries = output["models"]
+            model_key = "model"
+    else:
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            return ()
+        entries = payload["data"]
 
     models: list[str] = []
     seen: set[str] = set()
-    for item in payload["data"]:
-        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+    for item in entries:
+        if not isinstance(item, dict) or not isinstance(item.get(model_key), str):
             continue
-        model_id = item["id"].strip()
+        model_id = item[model_key].strip()
         if (
             not model_id
             or len(model_id) > _MAX_MODEL_ID_LENGTH
@@ -193,7 +216,7 @@ def _probe_provider_catalog(
         checked_at=utcnow(),
         latency_ms=latency_ms,
         profile_version_number=version.version_number,
-        models=_discovered_model_ids(response.content),
+        models=_discovered_model_ids(response.content, adapter_kind=version.adapter_kind),
     )
 
 
