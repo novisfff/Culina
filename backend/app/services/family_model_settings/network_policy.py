@@ -49,7 +49,8 @@ class SystemAddressResolver:
             infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
         except OSError:
             return ()
-        return tuple(sorted({str(info[4][0]) for info in infos}))
+        # Preserve getaddrinfo's route preference (not lexical IP order).
+        return tuple(dict.fromkeys(str(info[4][0]) for info in infos))
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,7 +283,7 @@ class ProviderNetworkPolicy:
             resolved_values = (str(literal_address),)
         try:
             addresses = tuple(
-                sorted({str(ipaddress.ip_address(value)) for value in resolved_values})
+                dict.fromkeys(str(ipaddress.ip_address(value)) for value in resolved_values)
             )
         except ValueError as exc:
             raise _blocked("family_model_endpoint_dns_resolution_failed") from exc

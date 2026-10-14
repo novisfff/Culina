@@ -111,7 +111,8 @@ _ADAPTERS: Mapping[FamilyModelAdapterKind, AdapterDefinition] = MappingProxyType
                 **_HTTP_BILLING_SCHEMES,
                 "realtime_audio": _REALTIME_BILLING_SCHEMES["realtime_audio"],
             },
-            free_probe_path=None,
+            # Native read-only catalog; no model inference is started.
+            free_probe_path="/models",
             media_host_policy="dashscope_declared_hosts",
             declared_media_hosts=frozenset({
                 "dashscope.aliyuncs.com",

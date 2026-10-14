@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from app.services.family_model_settings.errors import (
 from app.services.family_model_settings.network_policy import (
     NetworkProtocol,
     ProviderNetworkPolicy,
+    SystemAddressResolver,
     decode_private_target_allowlist,
 )
 
@@ -24,6 +26,28 @@ class FakeResolver:
     def resolve_all(self, host: str) -> tuple[str, ...]:
         del host
         return self.answers
+
+
+@pytest.mark.parametrize("ipv6_first", [False, True])
+def test_system_dns_preference_survives_authorization(monkeypatch, ipv6_first: bool) -> None:
+    # getaddrinfo ranks routes for the host; lexical sorting can prefer an
+    # unreachable IPv6 route on an IPv4-only Docker network.
+    ipv4 = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))
+    ipv6 = (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:4700:4700::1111", 0, 0, 0))
+    ordered = [ipv6, ipv4] if ipv6_first else [ipv4, ipv6]
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: ordered + ordered)
+    policy = ProviderNetworkPolicy(resolver=SystemAddressResolver())
+
+    endpoint = policy.authorize("https://provider.example/v1", protocol="http")
+
+    assert endpoint.resolved_addresses == tuple(info[4][0] for info in ordered)
+
+
+def test_preferred_public_address_does_not_hide_unsafe_dns_answers() -> None:
+    policy = ProviderNetworkPolicy(resolver=FakeResolver(("93.184.216.34", "127.0.0.1")))
+
+    with pytest.raises(FamilyModelEndpointBlocked):
+        policy.authorize("https://provider.example/v1", protocol="http")
 
 
 @pytest.fixture()
@@ -296,7 +320,7 @@ def test_allowlisted_private_http_returns_a_normalized_pinned_endpoint(
     assert endpoint.normalized_url == "http://ollama.internal:11434/v1/"
     assert endpoint.host == "ollama.internal"
     assert endpoint.port == 11434
-    assert endpoint.resolved_addresses == ("10.20.0.7", "10.20.0.8")
+    assert endpoint.resolved_addresses == ("10.20.0.8", "10.20.0.7")
     assert endpoint.private_target is True
 
 
