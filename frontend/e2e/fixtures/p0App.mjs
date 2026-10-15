@@ -3,21 +3,24 @@ import { installApiMocks } from './apiMocks.mjs';
 
 export const test = base.extend({
   authenticated: [true, { option: true }],
-  modelUsageScenario: ['owner', { option: true }],
+  role: ['Owner', { option: true }],
   familyModelScenario: ['configured', { option: true }],
-  app: async ({ authenticated, context, familyModelScenario, modelUsageScenario, page }, use) => {
+  app: async ({ authenticated, context, familyModelScenario, role, page }, use) => {
     const consoleErrors = [];
     const pageErrors = [];
     const requestedApiPaths = [];
     const familyModelRequests = [];
     const unexpectedRequests = [];
+    const mealRecordRequests = [];
+    const httpErrors = [];
 
     await installApiMocks(context, unexpectedRequests, {
-      modelUsageScenario,
+      role,
       familyModelScenario,
       authenticated,
       requestedApiPaths,
       familyModelRequests,
+      mealRecordRequests,
     });
 
     if (authenticated) {
@@ -48,18 +51,26 @@ export const test = base.extend({
     });
     page.on('console', (message) => {
       if (message.type() === 'error') {
+        const url = message.location().url;
+        // The initial unauthenticated bootstrap deliberately returns 401.
+        if (!authenticated && message.text().startsWith('Failed to load resource')
+          && url && new URL(url).pathname === '/api/auth/refresh') return;
         consoleErrors.push(message.text());
       }
     });
+    page.on('response', (response) => {
+      if (response.status() < 400) return;
+      if (!authenticated && response.status() === 401
+        && new URL(response.url()).pathname === '/api/auth/refresh') return;
+      httpErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    });
 
-    await use({ page, requestedApiPaths, familyModelRequests });
+    await use({ page, requestedApiPaths, familyModelRequests, mealRecordRequests, unexpectedRequests });
 
-    const relevantConsoleErrors = consoleErrors.filter(
-      (message) => !message.includes('Failed to load resource'),
-    );
     expect(unexpectedRequests, 'P0 页面不应发出未 mock 的 API 请求').toEqual([]);
+    expect(httpErrors, 'P0 页面不应收到非预期的 HTTP 错误').toEqual([]);
     expect(pageErrors, 'P0 页面不应产生未捕获的运行时错误').toEqual([]);
-    expect(relevantConsoleErrors, 'P0 页面不应产生浏览器 console error').toEqual([]);
+    expect(consoleErrors, 'P0 页面不应产生浏览器 console error').toEqual([]);
   },
 });
 

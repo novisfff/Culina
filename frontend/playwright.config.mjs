@@ -49,9 +49,9 @@ export default defineConfig({
       },
     },
     {
-      name: 'tablet-1180x820',
+      name: 'tablet-768x1024',
       use: {
-        viewport: { width: 1180, height: 820 },
+        viewport: { width: 768, height: 1024 },
         hasTouch: true,
       },
     },

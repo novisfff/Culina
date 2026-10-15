@@ -507,3 +507,48 @@ cd backend && .venv/bin/python scripts/run_ci_test_group.py --mysql-suite=servic
 npm run backend:typecheck
 git diff --check
 ```
+
+## 8. Playwright P0 后续优化
+
+本轮按用户授权优化浏览器测试，未改业务实现或后端策略。
+
+| 项目 | 落地结果 |
+| --- | --- |
+| 记餐闭环 | mock 按浏览器 context 保存新记录；断言准确食物、餐次、单次 POST、列表更新和刷新后唯一记录。 |
+| 登录恢复 | 在刷新前监听 refresh 响应，明确断言 200，并保留 Cookie、localStorage 与首页检查。 |
+| Member AI | 从旧入口不存在改为读取会话、实际撤销自己的结果、原卡更新与焦点保持；禁止请求 Owner 配置。 |
+| AI 重复断言 | P0 保留撤销、恢复与过期流程；七种文案枚举由组件测试承担，删除单按钮排列的无效循环。 |
+| 模型设置 | 核心保留 Escape、自动保存真实 payload、测试和切页恢复；输入边界复用组件测试。 |
+| 平板 | 核心项目从 1180×820 改为 768×1024，覆盖真实平板 CSS；替换两平台的三张基线。 |
+| 响应式专项 | 独立 `e2e:responsive` 命令，六种尺寸各自建 context；默认 CI 不执行该按需专项。 |
+| mock 严格性 | 模型配置未知接口进入统一未处理请求清单；AI 共用该清单；HTTP 错误和 console 不再宽泛忽略。 |
+| 精简 | 移除无调用场景的用量、配置冲突、搜索重建等 mock 分支；AI fixture 移出 spec；成功截图改为显式启用。 |
+
+核心 P0 为 5 场景 × 3 视口，共 15 项；响应式专项为 6 项。零重试、失败 trace/截图/视频和核心视觉对比继续保留。新餐食可读与未知设置接口登记的两条回归先在旧 mock 上失败，修复后通过，且另校验 context 间数据不泄漏。
+
+本地实际执行：
+
+```bash
+npm --prefix frontend test -- scripts/p0-api-mocks-boundary.test.mjs src/features/family-model-settings/ModelAudioOptions.test.tsx src/features/family-model-settings/ModelIntegerField.test.tsx src/features/family-model-settings/FamilyModelSettingsWorkspace.test.tsx src/components/ai/AiResultCards.test.tsx
+npm run frontend:build
+npm --prefix frontend run e2e:p0 -- --update-snapshots=missing
+npm --prefix frontend run e2e:p0 -- --grep navigates --update-snapshots=none
+npm --prefix frontend run e2e:p0 -- --update-snapshots=none
+npm --prefix frontend run e2e:responsive
+npm --prefix frontend run e2e:p0 -- --list --reporter=line
+npm --prefix frontend run e2e:responsive -- --list --reporter=line
+git diff --check
+```
+
+相关 Vitest 75 项通过，生产构建及预算通过。macOS 核心 P0 最终 15 项通过（16.6 秒）；响应式专项 6 项通过（6.0 秒）。首次生成三张新基线按 Playwright 规则报告缺失，同时发现食物选择器会在异步搜索完成前匹配“按名称新建”，已收紧为已有食物选项后验证通过。上述时间是本地本轮样本，不与 GHA 时间直接比较或作为受控性能提升百分比。
+
+核心实测视口：375×812、768×1024、1440×960。专项实测视口：375×812、390×844、430×932、768×1024、1024×768、1440×900。人工检查新增平板登录、首页、记餐基线；未宣称测试覆盖真实后端写入、服务端 Member policy 或真实设备软键盘。
+
+Linux 补充验证：使用官方 `mcr.microsoft.com/playwright:v1.60.0-noble` 的 ARM64 容器和独立、不含本地配置的构建副本，生成并人工检查三张 Linux 平板基线，再以 `--update-snapshots=none` 执行完整 P0：15 项通过（20.3 秒）。原有手机、桌面的两平台基线未改。容器已自动清理。AMD64 镜像下载约 9 分钟仍未完成，已停止该额外下载；本轮没有执行 GitHub AMD64 runner 的线上验收，也未推送更改。
+
+```bash
+docker run --rm --platform linux/arm64 --ipc=host -e CI=1 -v /Users/zyf/IdeaProjects/Culina/.artifacts/p0-optimization/linux:/work -w /work mcr.microsoft.com/playwright:v1.60.0-noble sh -c 'npm ci --no-audit --no-fund && npm run e2e:p0 -- --project=tablet-768x1024 --grep "signs in|navigates" --update-snapshots=missing'
+docker run --rm --platform linux/arm64 --ipc=host -e CI=1 -v /Users/zyf/IdeaProjects/Culina/.artifacts/p0-optimization/linux:/work -w /work mcr.microsoft.com/playwright:v1.60.0-noble npm run e2e:p0 -- --update-snapshots=none
+```
+
+本轮 P0 日志保存在 `.artifacts/p0-optimization/macos-p0.log`、`.artifacts/p0-optimization/linux-baseline.log`、`.artifacts/p0-optimization/linux-arm-p0.log`；基线生成阶段的预期缺图失败不计为最终验收通过。
