@@ -43,7 +43,10 @@ def test_verify_password_treats_malformed_hash_as_invalid() -> None:
     assert not verify_password("Culina123!", f"{BCRYPT_SHA256_PREFIX}not-a-bcrypt-hash")
 
 
-def test_access_token_is_short_lived_and_bound_to_a_server_session() -> None:
+def test_access_token_is_short_lived_and_bound_to_a_server_session(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+    monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
     before = utcnow()
 
     token = create_access_token("user-a", session_id="session-a")

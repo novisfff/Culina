@@ -19,6 +19,9 @@ from tests.model_usage.test_migration_mysql import (
 )
 
 
+pytestmark = pytest.mark.mysql
+
+
 LEGACY_PAYLOAD_HASH = hashlib.sha256(
     b'{"action":"set_favorite","foodId":"legacy-food"}'
 ).hexdigest()
@@ -233,7 +236,10 @@ def test_ai_auto_execution_migration_backfills_and_round_trips(
         {},
     )
 
-    database.downgrade("6a7b8c9d0e1f")
+    # Roll back the AI migration to its actual predecessor. Authentication has
+    # its own migration between the family-settings and AI revisions.
+    database.downgrade("7b8c9d0e1f2a")
+    assert database.current_revision() == "7b8c9d0e1f2a"
     assert database.rows("SELECT id, status FROM ai_task_drafts ORDER BY id") == [
         ("legacy-draft-executed", "confirmed"),
         ("legacy-draft-expired", "rejected"),

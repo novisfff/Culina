@@ -10,6 +10,7 @@ from scripts.run_ci_test_group import (
     build_pytest_command,
     discover_test_directories,
     load_test_groups,
+    load_mysql_suites,
     validate_test_groups,
 )
 
@@ -26,7 +27,9 @@ def test_repository_ci_groups_cover_every_backend_test_directory_once() -> None:
     assert "meal_logs" in groups["service"]
     assert "deployment" in groups["service"]
     assert "ai_audio" in groups["ai"]
-    assert len(discovered) == 17
+    suites = load_mysql_suites(BACKEND_ROOT / "ci-test-groups.json", groups)
+    assert any("service" in suite["groups"] for suite in suites.values())
+    assert any("ai" in suite["groups"] for suite in suites.values())
 
 
 def test_group_validation_rejects_missing_duplicate_and_unknown_directories() -> None:

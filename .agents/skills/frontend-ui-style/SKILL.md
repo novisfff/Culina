@@ -97,7 +97,7 @@ description: Use when modifying or reviewing Culina frontend pages, components, 
 
 - 纯文案或文档：人工审阅。
 - 组件结构、交互或状态：对应 Vitest，随后运行 `npm run frontend:quality` 和 `npm run frontend:build`。
-- CSS、ui-kit 或 token：运行 `npm --prefix frontend run check:style-tokens`；它是报告型检查，必须人工审阅新增命中。
+- CSS、ui-kit 或 token：运行 `npm --prefix frontend run check:style-tokens`；它在命中超过基线时阻断，仍必须人工审阅新增命中；退出码 0 不等于视觉验收通过。
 - 移动端、平板、弹窗、导航或关键路径：补跑 `npm run frontend:smoke`，并检查任务涉及的真实视口。
 - AI message part、结果卡片或草稿类型：补跑对应 AI workspace 测试和跨端 contract 测试。
 

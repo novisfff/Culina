@@ -40,7 +40,7 @@ def _production_settings(**overrides: object) -> Settings:
         "family_model_credential_keys_json": SecretStr(""),
     }
     values.update(overrides)
-    return Settings(**values)
+    return Settings(_env_file=None, **values)
 
 
 def _secret_version(*, envelope, encryption_key_id: str | None = None) -> FamilyModelSecretVersion:

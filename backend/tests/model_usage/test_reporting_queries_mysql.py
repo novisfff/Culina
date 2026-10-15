@@ -56,6 +56,9 @@ from app.repos.model_usage.reporting import (
 from app.services.model_usage.rollups import rebuild_monthly_rollups
 
 
+pytestmark = [pytest.mark.mysql, pytest.mark.mysql_reporting]
+
+
 PERIOD = BillingPeriod(
     local_month="2026-07",
     start_at=datetime(2026, 6, 30, 16, tzinfo=timezone.utc),

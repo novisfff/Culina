@@ -43,12 +43,12 @@ def recipe_has_history_detail(exc: RecipeHasHistoryError) -> dict[str, str]:
 def food_has_history(db: Session, *, food_id: str) -> bool:
     """Return True when a food is referenced by meal logs, plans, or cook logs."""
     has_meal = (
-        db.scalar(select(MealLogFood.id).where(MealLogFood.food_id == food_id).limit(1)) is not None
+        db.scalar(select(MealLogFood.id).where(MealLogFood.food_id == food_id).limit(1).with_for_update()) is not None
     )
     if has_meal:
         return True
     has_plan = (
-        db.scalar(select(FoodPlanItem.id).where(FoodPlanItem.food_id == food_id).limit(1)) is not None
+        db.scalar(select(FoodPlanItem.id).where(FoodPlanItem.food_id == food_id).limit(1).with_for_update()) is not None
     )
     if has_plan:
         return True
@@ -84,15 +84,18 @@ def lock_recipe_deletion_target(
         lock_inventory_targets(db, family_id=family_id, food_ids=food_ids).foods if food_ids else {}
     )
 
+    # The caller may already have a REPEATABLE READ snapshot from before a
+    # competing writer committed. After parent locks, use current locking reads
+    # so that deleting a recipe cannot cascade away newly committed history.
     has_cook = (
-        db.scalar(select(RecipeCookLog.id).where(RecipeCookLog.recipe_id == recipe.id).limit(1))
+        db.scalar(select(RecipeCookLog.id).where(RecipeCookLog.recipe_id == recipe.id).limit(1).with_for_update())
         is not None
     )
     has_meal = bool(food_ids) and (
-        db.scalar(select(MealLogFood.id).where(MealLogFood.food_id.in_(food_ids)).limit(1)) is not None
+        db.scalar(select(MealLogFood.id).where(MealLogFood.food_id.in_(food_ids)).limit(1).with_for_update()) is not None
     )
     has_plan = bool(food_ids) and (
-        db.scalar(select(FoodPlanItem.id).where(FoodPlanItem.food_id.in_(food_ids)).limit(1))
+        db.scalar(select(FoodPlanItem.id).where(FoodPlanItem.food_id.in_(food_ids)).limit(1).with_for_update())
         is not None
     )
     if has_cook or has_meal or has_plan:

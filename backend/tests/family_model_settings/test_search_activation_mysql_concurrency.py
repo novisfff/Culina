@@ -61,6 +61,9 @@ from app.services.family_model_settings.validation import (
 from tests.family_model_settings._support import StaticResolver, make_cipher
 
 
+pytestmark = pytest.mark.mysql
+
+
 FAMILY_ID = "family-search-activation-mysql"
 OWNER_ID = "owner-search-activation"
 

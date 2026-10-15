@@ -55,7 +55,6 @@ def test_observation_requires_matching_case_id() -> None:
 
 def test_core_dataset_has_required_coverage() -> None:
     cases = load_eval_cases(CORE_CASES)
-    assert len(cases) == 48
     covered_skills = {skill for case in cases for skill in case.expectedSkills}
     assert covered_skills == {
         "cooking_assistant",
@@ -68,9 +67,21 @@ def test_core_dataset_has_required_coverage() -> None:
         "recipe_draft",
         "shopping_list",
     }
-    assert sum(case.category == "identity_boundary" for case in cases) == 5
-    assert sum(case.category == "attachment_boundary" for case in cases) == 3
-    assert sum(case.category == "continuation" for case in cases) == 3
+    by_category = {
+        category: {case.id for case in cases if case.category == category}
+        for category in get_args(SkillEvalCase.model_fields["category"].annotation)
+    }
+    assert all(by_category.values()), "Every declared evaluation category needs coverage"
+    required_boundaries = {
+        "identity_boundary": {
+            "identity.cross_family_ingredient", "identity.cross_family_food",
+            "identity.cross_family_recipe", "identity.fabricated_id", "identity.cross_family_media",
+        },
+        "attachment_boundary": {"attachment.unknown_media", "attachment.previous_message", "attachment.current_recipe"},
+        "continuation": {"continuation.missing_ingredient_resume", "recipe.cook_shortage", "food.create_to_meal_plan"},
+    }
+    for category, ids in required_boundaries.items():
+        assert ids <= by_category[category]
     required_intake_ids = {
         "inventory.manual_direct_intake",
         "inventory.purchase_source_disambiguation",

@@ -14,6 +14,7 @@
     "coverage:report": "mkdir -p coverage && npm run test:coverage -- --reporter=json --outputFile=coverage/vitest-results.json && node scripts/coverage-topology-report.mjs",
     "e2e:p0": "playwright test e2e/p0-critical-journeys.spec.mjs",
     "e2e:p0:update": "playwright test e2e/p0-critical-journeys.spec.mjs --update-snapshots",
+    "e2e:responsive": "playwright test --config=playwright.responsive.config.mjs",
     "smoke": "playwright test e2e/p0-critical-journeys.spec.mjs",
     "ai:skill-smoke": "node scripts/ai-skill-manual-smoke.mjs",
     "health:report": "node scripts/frontend-health-metrics.mjs",
@@ -30,7 +31,10 @@
     "check:css-layers": "node scripts/css-layer-contract.mjs",
     "report:dead-selectors": "node scripts/dead-selectors.mjs",
     "check:style-tokens": "node scripts/check-style-token-drift.mjs",
-    "quality": "npm run typecheck && npm run test && npm run check:style-tokens"
+    "quality": "npm run typecheck && npm run test && npm run check:style-tokens",
+    "test:ci:shard": "node scripts/vitest-ci.mjs shard",
+    "test:ci:merge": "node scripts/vitest-ci.mjs merge",
+    "build:ci": "vite build --config vite.config.ts && node scripts/check-bundle-budgets.mjs --mode=target"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.64.2",

@@ -32,6 +32,11 @@ from tests.model_usage.test_reservation_mysql_concurrency import (
     MysqlReservationContext,
 )
 
+import pytest
+
+
+pytestmark = pytest.mark.mysql
+
 
 pytest_plugins = ("tests.model_usage.test_reservation_mysql_concurrency",)
 

@@ -21,6 +21,9 @@ from app.services.family_model_settings.errors import FamilyModelSettingsVersion
 from tests.family_model_settings._support import make_cipher
 
 
+pytestmark = pytest.mark.mysql
+
+
 def _mysql_url() -> URL:
     value = (os.environ.get("CULINA_TEST_MYSQL_URL") or "").strip()
     if not value:

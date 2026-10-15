@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { Ingredient } from '../../api/types';
 import { resolveShoppingFormSubmission } from './shoppingFormSubmission';
@@ -41,4 +42,21 @@ describe('resolveShoppingFormSubmission', () => {
       },
     });
   });
+});
+
+it('resolves same-name ingredients by the selected ID', () => {
+  const result = resolveShoppingFormSubmission({
+    form: { targetType: 'ingredient', ingredientId: 'chosen', foodId: '', title: '鸡', quantity: '2', unit: '克', reason: '' },
+    ingredients: [chickenIngredient, { ...chickenIngredient, id: 'chosen' }],
+    foods: [],
+  });
+  expect(result).toMatchObject({ ok: true, payload: { ingredient_id: 'chosen', food_id: null } });
+});
+
+it('does not silently bind a missing selected ID to a same-name ingredient', () => {
+  const result = resolveShoppingFormSubmission({
+    form: { targetType: 'ingredient', ingredientId: 'missing', foodId: '', title: '鸡', quantity: '2', unit: '克', reason: '' },
+    ingredients: [chickenIngredient], foods: [],
+  });
+  expect(result).toMatchObject({ ok: false, title: '先选择采购内容' });
 });

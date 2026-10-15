@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from threading import Barrier
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, select, text
@@ -38,6 +39,9 @@ from app.services.model_usage.types import (
     UsageEstimate,
     UsageMeterQuantity,
 )
+
+
+pytestmark = pytest.mark.mysql
 
 
 NOW = datetime(2026, 7, 30, 3, 0, tzinfo=timezone.utc)
@@ -97,10 +101,14 @@ class MysqlReservationContext:
             return value or Decimal("0")
 
 
-@pytest.fixture()
-def mysql_reservation_context() -> MysqlReservationContext:
+@pytest.fixture(scope="session")
+def mysql_reservation_engine():
     url = mysql_url()
-    database = url.database or ""
+    # Migrations and other modules may drop their own database. This schema is
+    # private to this pytest process, so committed multi-connection tests can
+    # share DDL without sharing mutable data or migration state.
+    database = f"culina_usage_{uuid4().hex}_test"
+    url = url.set(database=database)
     admin_url = URL.create(
         drivername=url.drivername,
         username=url.username,
@@ -118,10 +126,36 @@ def mysql_reservation_context() -> MysqlReservationContext:
                 "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
         )
-    admin.dispose()
     engine = create_engine(url, pool_size=50, max_overflow=0, future=True)
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+        yield engine
+    finally:
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.execute(text(f"DROP DATABASE IF EXISTS `{database}`"))
+        admin.dispose()
+
+
+def _clear_reservation_data(engine) -> None:
+    if engine.pool.checkedout():
+        raise AssertionError("reservation fixture leaked an active database connection")
+    # DELETE preserves schema/indexes; one connection owns FK disabling and
+    # restores it even if cleanup fails. No outer transaction replaces the
+    # independent commits exercised by the concurrency tests.
+    with engine.begin() as connection:
+        connection.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        try:
+            for table in reversed(list(Base.metadata.tables.values())):
+                connection.execute(table.delete())
+        finally:
+            connection.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+
+
+@pytest.fixture()
+def mysql_reservation_context(mysql_reservation_engine) -> MysqlReservationContext:
+    engine = mysql_reservation_engine
+    _clear_reservation_data(engine)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with SessionLocal() as db:
         family = Family(id="family-mysql-reserve", name="并发家庭", motto="", location="")
@@ -223,8 +257,7 @@ def mysql_reservation_context() -> MysqlReservationContext:
     try:
         yield context
     finally:
-        Base.metadata.drop_all(engine)
-        engine.dispose()
+        _clear_reservation_data(engine)
 
 
 def run_barriered(count: int, operation):

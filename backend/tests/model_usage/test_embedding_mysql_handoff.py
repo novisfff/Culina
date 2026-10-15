@@ -22,6 +22,11 @@ from app.services.search.jobs import process_search_index_job
 from app.services.search.vector_store import VectorStoreUnavailableError
 from tests.model_usage.test_reservation_mysql_concurrency import MysqlReservationContext
 
+import pytest
+
+
+pytestmark = pytest.mark.mysql
+
 
 pytest_plugins = ("tests.model_usage.test_reservation_mysql_concurrency",)
 

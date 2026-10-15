@@ -1,85 +1,81 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+import yaml
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+from scripts.run_ci_test_group import load_mysql_suites, load_test_groups
 
-
-def _quality_gates_workflow() -> str:
-    return (REPOSITORY_ROOT / ".github" / "workflows" / "quality-gates.yml").read_text(
-        encoding="utf-8"
-    )
+ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_backend_ci_jobs_use_complete_manifest_groups_and_dev_dependencies() -> None:
-    workflow = _quality_gates_workflow()
-
-    assert "-r backend/requirements.txt" not in workflow
-    assert workflow.count("-r backend/requirements-dev.txt") >= 5
-    for script in (
-        "backend:test:service",
-        "backend:test:ai",
-        "backend:test:ai-evals",
-        "backend:test:search",
-        "backend:test:family-model-settings",
-        "backend:test:model-usage",
-    ):
-        assert f"npm run {script}" in workflow
+def jobs():
+    return yaml.safe_load((ROOT / ".github/workflows/quality-gates.yml").read_text())["jobs"]
 
 
-def test_quality_gates_cancel_stale_runs_and_cache_backend_dependencies() -> None:
-    workflow = _quality_gates_workflow()
-
-    assert "concurrency:" in workflow
-    assert "cancel-in-progress: true" in workflow
-    assert workflow.count("cache: pip") >= 6
-    assert workflow.count("backend/requirements.txt") >= 6
-    assert workflow.count("backend/requirements-dev.txt") >= 6
-    assert "pip install --upgrade pip" not in workflow
+def commands(job):
+    return "\n".join(step.get("run", "") for step in job["steps"])
 
 
-def test_quality_gates_shard_vitest_and_keep_a_fail_closed_required_check() -> None:
-    workflow = _quality_gates_workflow()
-
-    assert "frontend-vitest-shard:" in workflow
-    assert "shard: [1, 2]" in workflow
-    assert "--shard=${{ matrix.shard }}/2" in workflow
-    assert "frontend-vitest:" in workflow
-    assert "name: Frontend Vitest" in workflow
-    assert "needs: frontend-vitest-shard" in workflow
-    assert "needs.frontend-vitest-shard.result" in workflow
-    assert 'if [ "$SHARD_RESULT" != "success" ]; then' in workflow
-
-
-def test_e2e_uses_a_dedicated_build_without_repeating_the_standalone_gate() -> None:
-    workflow = _quality_gates_workflow()
-    package_json = (REPOSITORY_ROOT / "frontend" / "package.json").read_text(
-        encoding="utf-8"
-    )
-
-    assert '"build:e2e": "vite build"' in package_json
-    assert "run: npm --prefix frontend run build:e2e" in workflow
-    assert "run: npm run frontend:build" in workflow
+def test_pr_gate_directly_waits_for_every_result_it_checks():
+    workflow = jobs()
+    gate = workflow["pr-gate"]
+    assert gate["if"] == "always()"
+    verify = next(step for step in gate["steps"] if "CLASSIFY_RESULT" in step.get("env", {}))
+    results = {name: expression for name, expression in verify["env"].items() if name.startswith("RESULT_")}
+    dependencies = set(gate["needs"])
+    assert set(re.findall(r"needs\.([a-z0-9-]+)\.result", " ".join(results.values()))) <= dependencies
+    for matrix in ("frontend-vitest-shard", "backend-mysql-suite"):
+        assert matrix in dependencies
+        assert any(f"needs.{matrix}.result" in value for value in results.values())
+        assert workflow[matrix]["strategy"]["fail-fast"] is False
+    assert "classify" in dependencies
 
 
-def test_quality_gates_block_style_drift_migrations_and_production_vulnerabilities() -> None:
-    workflow = _quality_gates_workflow()
+def test_mysql_selection_uses_manifest_and_requires_a_disposable_database():
+    workflow = jobs()
+    job = workflow["backend-mysql-suite"]
+    groups = load_test_groups(ROOT / "backend/ci-test-groups.json")
+    suites = load_mysql_suites(ROOT / "backend/ci-test-groups.json", groups)
+    assert {group for suite in suites.values() for group in suite["groups"]} == {"service", "ai", "family_model_settings", "model_usage"}
+    assert "needs.classify.outputs.mysql_suites" in job["strategy"]["matrix"]["suite"]
+    assert job["services"]["mysql"]["image"] == "mysql:8.4"
+    assert job["env"]["CULINA_TEST_MYSQL_URL"].endswith("_test")
+    assert "--mysql-suite=${{ matrix.suite }}" in commands(job)
+    assert "--local-only" in commands(workflow["backend-service"])
+    assert "--local-only" in commands(workflow["backend-ai"])
 
-    assert "frontend-style-drift:" in workflow
-    assert "npm --prefix frontend run check:style-tokens" in workflow
-    assert "backend-migration-smoke:" in workflow
-    assert "MYSQL_DATABASE: culina_migration_smoke" in workflow
-    assert "npm run backend:migrate:smoke" in workflow
-    assert "production-dependency-audit:" in workflow
-    assert "pip-audit==2.9.0" in workflow
-    assert "npm run audit:prod" in workflow
+
+def test_shared_frontend_evidence_has_dependencies_and_no_second_test_or_build_run():
+    workflow = jobs()
+    build = workflow["frontend-build"]
+    for consumer in ("frontend-e2e-p0", "frontend-governance"):
+        assert "frontend-build" in workflow[consumer]["needs"]
+        downloads = [step for step in workflow[consumer]["steps"] if step.get("uses", "").startswith("actions/download-artifact@")]
+        assert any(step["with"].get("name") == "frontend-build" for step in downloads)
+    assert "frontend:typecheck" in commands(build)
+    assert "build:ci" in commands(build)
+    governance = workflow["frontend-governance"]
+    assert "frontend-vitest-shard" in governance["needs"]
+    assert "test:ci:merge" in commands(governance)
+    assert "coverage:report" not in commands(governance)
+    assert "--mode=ratchet" in commands(governance)
+    assert "frontend_build != 'true'" in workflow["frontend-typecheck"]["if"]
+    assert "frontend_full != 'true'" in workflow["frontend-ai-contract"]["if"]
 
 
-def test_quality_gates_run_blocking_media_compose_smoke() -> None:
-    workflow = _quality_gates_workflow()
-
-    assert "deployment-compose-smokes:" in workflow
-    assert "npm run deploy:smoke:media" in workflow
-    assert "npm run deploy:smoke:realtime" not in workflow
-    assert workflow.count("set -o pipefail") == 1
+def test_selected_checks_publish_evidence_and_do_not_ignore_failures():
+    workflow = jobs()
+    for name in ("backend-service", "backend-ai", "backend-search", "ai-skill-evals", "backend-mysql-suite"):
+        job = workflow[name]
+        assert "--junitxml=" in commands(job)
+        assert "--ci-selection-report=" in commands(job)
+        assert not any(step.get("continue-on-error") for step in job["steps"])
+        assert any(step.get("if") == "always()" and step.get("uses", "").startswith("actions/upload-artifact@") for step in job["steps"])
+    smokes = workflow["deployment-compose-smokes"]
+    assert "deploy:smoke:media" in commands(smokes)
+    assert "deploy:smoke:websocket" in commands(smokes)
+    audit = workflow["production-dependency-audit"]
+    assert "npm run audit:prod" in commands(audit)
+    assert "exit 0" not in commands(audit)

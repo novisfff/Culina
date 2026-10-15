@@ -82,7 +82,8 @@ async function login(credentials, label) {
 }
 
 async function runSmoke() {
-  run('docker', [...compose, 'up', '-d', '--build', '--wait', '--wait-timeout', '240']);
+  const build = process.env.CULINA_SMOKE_PREBUILT === '1' ? ['--no-build', '--pull', 'never'] : ['--build'];
+  run('docker', [...compose, 'up', '-d', ...build, '--wait', '--wait-timeout', '240']);
   const frontendPort = parsePublishedPort(
     run('docker', [...compose, 'port', 'frontend', '80'], { capture: true }).stdout,
   );

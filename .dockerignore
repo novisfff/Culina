@@ -13,6 +13,12 @@ backend/alembic/**/__pycache__
 backend/scripts/**/__pycache__
 backend/tests/**/__pycache__
 backend/storage/uploads
+backend/storage/secrets
+**/.artifacts
+**/coverage
+**/.vitest-reports
+frontend/test-results
+frontend/playwright-report
 frontend/.env
 frontend/node_modules
 frontend/dist

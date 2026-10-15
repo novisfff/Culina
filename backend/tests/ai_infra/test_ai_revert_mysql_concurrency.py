@@ -49,6 +49,9 @@ from app.services.ai_revert.registry import AIRevertAdapterRegistry
 from app.services.ai_revert.types import AIRevertContext, AIRevertResult
 
 
+pytestmark = pytest.mark.mysql
+
+
 NOW = datetime(2026, 8, 24, 10, 0, tzinfo=UTC)
 FAMILY_ID = "family-ai-revert-mysql"
 SHARED_REQUEST_ID = "request-ai-revert-mysql-race"

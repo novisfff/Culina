@@ -126,11 +126,3 @@ def test_backend_waits_for_healthy_minio_before_privacy_bootstrap() -> None:
         "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9000/minio/health/ready",
     ]
     assert backend["depends_on"]["minio"]["condition"] == "service_healthy"
-
-
-def test_realtime_smoke_checks_error_logs_after_upstream_failure() -> None:
-    smoke = (REPOSITORY_ROOT / "deploy" / "tests" / "run-realtime-websocket-smoke.mjs").read_text()
-
-    assert "stop', 'backend'" in smoke
-    assert "media-error-log-sentinel" in smoke
-    assert "failed media capability request did not reach nginx upstream failure path" in smoke

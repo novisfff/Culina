@@ -10,6 +10,9 @@ from tests.model_usage.test_migration_mysql import (
 )
 
 
+pytestmark = pytest.mark.mysql
+
+
 @pytest.fixture()
 def mysql_alembic_database() -> Iterator[MySqlAlembicDatabase]:
     database = MySqlAlembicDatabase.from_test_url(require_model_usage_mysql_url())

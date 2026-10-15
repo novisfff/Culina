@@ -19,6 +19,9 @@ from app.core.config import get_settings
 from app.core.enums import MembershipStatus, UserRole
 
 
+pytestmark = pytest.mark.mysql
+
+
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 

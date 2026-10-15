@@ -28,9 +28,10 @@ function readScopes(value) {
   return normalized;
 }
 
-export function runFrontendDomainTests({ scopesValue = process.env.FRONTEND_TEST_SCOPES, spawn = spawnSync } = {}) {
+export function runFrontendDomainTests({ scopesValue = process.env.FRONTEND_TEST_SCOPES, reportPath = process.env.FRONTEND_TEST_REPORT, spawn = spawnSync } = {}) {
   const scopes = readScopes(scopesValue);
   const command = ['run', 'frontend:test', '--', ...scopes];
+  if (reportPath) command.push('--reporter=default', '--reporter=json', `--outputFile=${reportPath}`);
   const result = spawn('npm', command, { stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exitCode = result.status ?? 1;

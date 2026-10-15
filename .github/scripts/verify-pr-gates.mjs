@@ -12,6 +12,7 @@ export function verifyGateResults(env = process.env) {
   if (env.CLASSIFY_RESULT !== 'success') errors.push(`classify job finished with ${env.CLASSIFY_RESULT || 'unknown'}`);
 
   for (const gate of GATE_KEYS) {
+    if (!['true', 'false'].includes(env[envKey('REQUIRE', gate)])) errors.push(`${gate} has no valid classification requirement`);
     const required = env[envKey('REQUIRE', gate)] === 'true';
     const result = env[envKey('RESULT', gate)] || 'missing';
     if (required && result !== 'success') errors.push(`${gate} is required but finished with ${result}`);

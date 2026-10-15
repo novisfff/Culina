@@ -21,6 +21,7 @@ def test_local_environment_allows_dynamic_dev_server_origins() -> None:
 
 def test_non_local_environment_keeps_cors_to_explicit_origins() -> None:
     settings = Settings(
+        _env_file=None,
         environment="production",
         frontend_origin="https://culina.example.com",
         mysql_password="safe-password",

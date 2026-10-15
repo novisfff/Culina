@@ -34,3 +34,8 @@ backend/tests/__pycache__/
 .DS_Store
 tmp/
 .worktrees/
+
+# Disposable CI evidence and merged Vitest reports
+/.artifacts/
+frontend/.vitest-reports/
+frontend/coverage/

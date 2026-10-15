@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from app.ai.errors import ToolExecutionError
 from app.ai.evals.loader import load_eval_cases
 from app.ai.evals.scoring import score_case, score_report
@@ -11,26 +13,39 @@ from tests.ai_infra._support import AIAgentInfraTestCase, AIEvalContext
 CORE_CASES = load_eval_cases(Path(__file__).parent / "cases" / "core.jsonl")
 
 
-class AIScriptedSkillScenariosTestCase(AIAgentInfraTestCase):
-    def test_scripted_skill_scenarios(self) -> None:
-        context = AIEvalContext(self)
-        pairs = []
-        failures = []
-        for case in CORE_CASES:
-            observation = context.run_case(case)
-            pairs.append((case, observation))
-            score = score_case(case=case, observation=observation)
-            if not score.passed:
-                failures.append(case.id + ": " + "; ".join(score.failures))
-
+@pytest.fixture(scope="session")
+def scripted_results():
+    pairs = []
+    yield pairs
+    output_path = os.getenv("CULINA_AI_EVAL_REPORT_PATH")
+    if output_path:
         report = score_report(pairs, source="scripted")
-        output_path = os.getenv("CULINA_AI_EVAL_REPORT_PATH")
-        if output_path:
-            path = Path(output_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        self.assertFalse(failures, "\n".join(failures))
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
 
+
+@pytest.fixture()
+def scripted_context():
+    owner = AIAgentInfraTestCase()
+    owner.setUp()
+    try:
+        yield AIEvalContext(owner)
+    finally:
+        owner.client.close()
+        owner.tearDown()
+        owner.engine.dispose()
+
+
+@pytest.mark.parametrize("case", CORE_CASES, ids=lambda case: case.id)
+def test_scripted_skill_scenario(case, scripted_context, scripted_results) -> None:
+    observation = scripted_context.run_case(case)
+    scripted_results.append((case, observation))
+    score = score_case(case=case, observation=observation)
+    assert score.passed, case.id + ": " + "; ".join(score.failures)
+
+
+class AIScriptedSkillScenariosTestCase(AIAgentInfraTestCase):
     def test_eval_error_classification_rejects_unrelated_runtime_failure(self) -> None:
         context = AIEvalContext(self)
         case = next(item for item in CORE_CASES if item.id == "identity.cross_family_ingredient")

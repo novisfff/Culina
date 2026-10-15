@@ -14,8 +14,11 @@ from sqlalchemy.pool import NullPool
 
 from app.db.base import Base
 from app.models.domain import AIAgentRun, Family, AIRunExecutionLease
-from app.services.ai_operations.execution_lease import ExecutionFence, ExecutionLeaseLost, claim_execution, database_now, renew_execution
+from app.services.ai_operations.execution_lease import ExecutionFence, ExecutionLeaseLost, as_utc, claim_execution, database_now, renew_execution
 from app.services.ai_operations.run_recovery import recover_expired_runs
+
+
+pytestmark = pytest.mark.mysql
 
 
 @pytest.fixture
@@ -75,8 +78,13 @@ def test_mysql_reaper_skips_locked_worker_then_rolls_back_expired_commit(mysql_r
     with sessions() as db:
         lease = claim_execution(db, family_id=family, run_id=run)
         deadline = database_now(db) + timedelta(seconds=3)
-        db.get(AIRunExecutionLease, run).lease_until = deadline
+        row = db.get(AIRunExecutionLease, run)
+        row.lease_until = deadline
         db.commit()
+        db.refresh(row)
+        # Wait for the durable deadline: MySQL may round DATETIME values to
+        # whole seconds rather than retaining the Python microseconds.
+        deadline = as_utc(row.lease_until)
     with sessions() as worker:
         fence = ExecutionFence(worker, lease)
         fence.install()

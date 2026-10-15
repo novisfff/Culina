@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -317,33 +318,6 @@ describe('IngredientWorkspace navigation consumption', () => {
     expect(workspaceSource).not.toContain("from './IngredientDestroyExpiredOverlay'");
     expect(overlaysSource).not.toContain("from './IngredientDestroyExpiredOverlay'");
     expect(overlaysSource).toContain('InventoryActionDialog');
-  });
-});
-
-describe('IngredientWorkspace free-text shopping contract', () => {
-  it('starts blank shopping forms as free_text and never auto-binds by title', () => {
-    const formsSource = readFileSync(resolve(__dirname, 'ingredientWorkspaceForms.ts'), 'utf8');
-    const actionSource = readFileSync(resolve(__dirname, 'useIngredientActionState.ts'), 'utf8');
-    const submissionSource = readFileSync(resolve(__dirname, 'shoppingFormSubmission.ts'), 'utf8');
-    const overlayStateSource = readFileSync(resolve(__dirname, 'useIngredientOverlayState.ts'), 'utf8');
-
-    expect(formsSource).toContain("export type ShoppingTargetType = 'ingredient' | 'food' | 'free_text'");
-    expect(formsSource).toContain("targetType: food ? 'food' : ingredient ? 'ingredient' : 'free_text'");
-    expect(formsSource).toContain('resolveShoppingTargetType');
-    expect(formsSource).toContain("return item.ingredient_id ? 'ingredient' : 'free_text'");
-    expect(formsSource).not.toContain("const targetType = item.target_type === 'food' || item.food_id ? 'food' : 'ingredient'");
-
-    expect(actionSource).toContain('resolveShoppingFormSubmission');
-    expect(submissionSource).toContain("args.form.targetType === 'ingredient' && args.form.ingredientId");
-    expect(submissionSource).toContain("args.form.targetType === 'food' && args.form.foodId");
-    expect(submissionSource).not.toContain("args.ingredients.find((item) => item.name === title)");
-    expect(submissionSource).toContain('ingredient_id: selectedIngredient?.id ?? null');
-    expect(submissionSource).toContain('food_id: selectedFood?.id ?? null');
-
-    expect(overlayStateSource).toContain('// Only resolve bound targets by stable IDs');
-    expect(overlayStateSource).not.toContain(
-      "args.ingredientOptions.find((ingredient) => ingredient.name === options.shoppingItem?.title.trim())",
-    );
   });
 });
 
