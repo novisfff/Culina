@@ -84,6 +84,7 @@ export type HomeDashboardProps = {
   sidebarMemberLabel: string;
   sidebarActivityLabel: string;
   inventoryAlerts: unknown[];
+  inventoryFeedback?: ReactNode;
   notificationCenter?: ReactNode;
   dashboardStats: DashboardStat[];
   desktopRecommendations: DashboardRecommendation[];
@@ -585,6 +586,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
   return (
     <>
       <HomeMobileDashboard
+        inventoryFeedback={props.inventoryFeedback}
         sidebarFamilyName={sidebarFamilyName}
         sidebarMotto={sidebarMotto}
         sidebarLocation={sidebarLocation}
@@ -1007,14 +1009,14 @@ export function HomeDashboard(props: HomeDashboardProps) {
         />
 
         <div className="home-dashboard-lower-grid" data-testid="home-lower-grid">
-          <HomeRequiredActions
+          {props.inventoryFeedback ?? <HomeRequiredActions
             actions={requiredActions}
             hasMore={hasMoreHomeActions}
             onOpenInventory={handleOpenInventoryAction}
             onOpenShoppingIntake={onOpenShoppingIntake}
             onOpenReconciliation={() => onOpenReconciliation?.({ scope: 'suggested' })}
             onViewAll={onOpenIngredientPriority}
-          />
+          />}
           <HomeHighlightTimeline
             viewModel={homeHighlights}
             limit={5}

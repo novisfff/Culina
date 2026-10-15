@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
+import pytest
 import yaml
 
 
@@ -103,12 +105,61 @@ def test_compose_uses_short_auth_lifetimes() -> None:
     assert environment["REFRESH_ROTATION_GRACE_SECONDS"] == "${REFRESH_ROTATION_GRACE_SECONDS:-10}"
 
 
+def test_qdrant_is_loopback_only_and_shares_auth_configuration_with_backend() -> None:
+    compose = yaml.safe_load((REPOSITORY_ROOT / "deploy" / "docker-compose.yml").read_text())
+    qdrant = compose["services"]["qdrant"]
+    assert qdrant["ports"] == ["127.0.0.1:${QDRANT_PORT:-6333}:6333"]
+    assert qdrant["environment"]["QDRANT__SERVICE__API_KEY"] == "${QDRANT_API_KEY:-}"
+    assert qdrant["environment"]["QDRANT__SERVICE__API_KEY"] == compose["services"]["backend"]["environment"]["QDRANT_API_KEY"]
+
+
+@pytest.mark.parametrize("api_key", ["", "local-test-key"])
+def test_qdrant_startup_unsets_only_empty_api_keys(tmp_path: Path, api_key: str) -> None:
+    compose = yaml.safe_load((REPOSITORY_ROOT / "deploy" / "docker-compose.yml").read_text())
+    # Model Compose's escaped-dollar handling, then observe the environment
+    # inherited by the image's entrypoint without requiring Docker in CI.
+    command = [part.replace("$$", "$") for part in compose["services"]["qdrant"]["command"]]
+    entrypoint = tmp_path / "entrypoint.sh"
+    entrypoint.write_text(
+        '#!/bin/sh\n'
+        'if [ "${QDRANT__SERVICE__API_KEY+x}" = x ]; then\n'
+        '  printf "configured:%s" "$QDRANT__SERVICE__API_KEY"\n'
+        'else\n'
+        '  printf "unconfigured"\n'
+        'fi\n'
+    )
+    entrypoint.chmod(0o755)
+    result = subprocess.run(
+        command, cwd=tmp_path, env={"QDRANT__SERVICE__API_KEY": api_key},
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    assert result.stdout == (f"configured:{api_key}" if api_key else "unconfigured")
+
+
 def test_vite_development_server_proxies_same_origin_api_and_websockets() -> None:
     config = (REPOSITORY_ROOT / "frontend" / "vite.config.ts").read_text()
 
     assert "'/api':" in config
     assert "target: 'http://127.0.0.1:8010'" in config
     assert "ws: true" in config
+
+
+@pytest.mark.parametrize("file_limit", [31457280, 52428800])
+def test_nginx_upload_limit_tracks_backend_with_multipart_headroom(file_limit: int) -> None:
+    compose = yaml.safe_load((REPOSITORY_ROOT / "deploy" / "docker-compose.yml").read_text())
+    backend_limit = compose["services"]["backend"]["environment"]["MEDIA_MAX_UPLOAD_BYTES"]
+    assert compose["services"]["frontend"]["environment"]["MEDIA_MAX_UPLOAD_BYTES"] == backend_limit
+    script = REPOSITORY_ROOT / "frontend" / "docker" / "19-media-upload-limit.envsh"
+    result = subprocess.run(
+        ['sh', '-ec', '. "$1"; printf "%s" "$CULINA_MAX_REQUEST_BYTES"', 'test', str(script)],
+        env={"MEDIA_MAX_UPLOAD_BYTES": str(file_limit)}, capture_output=True, text=True, check=True,
+    )
+    assert int(result.stdout) == file_limit + 1048576
+    config = (REPOSITORY_ROOT / "frontend" / "nginx.conf").read_text()
+    assert 'client_max_body_size ${CULINA_MAX_REQUEST_BYTES};' in config
+    assert 'error_page 413 = @upload_too_large;' in config
+    assert 'default_type application/json;' in config
+    assert '请压缩文件后重试' in config
 
 
 def test_backend_container_disables_query_bearing_uvicorn_access_log() -> None:

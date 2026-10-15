@@ -9,10 +9,11 @@
 
 ## 服务组成
 
-Compose 会启动四类服务：
+Compose 会启动五类服务：
 
 - `mysql`：MySQL 8.4 数据库
 - `minio`：对象存储，保存上传图片和 AI 生成图片
+- `qdrant`：家庭搜索向量索引
 - `backend`：FastAPI 后端服务，启动时自动执行 Alembic 迁移
 - `frontend`：nginx 托管 Vite 构建产物，并代理 `/api`（包括实时语音 WebSocket）到后端
 
@@ -31,6 +32,7 @@ cp deploy/.env.example deploy/.env
 - `MYSQL_PASSWORD`
 - `MYSQL_ROOT_PASSWORD`
 - `MINIO_ROOT_PASSWORD`
+- `QDRANT_API_KEY`
 - `FRONTEND_ORIGIN`
 - `INITIAL_ADMIN_USERNAME`
 - `INITIAL_ADMIN_PASSWORD`
@@ -64,6 +66,10 @@ http://localhost:8080
 如果 `8080` 端口已被占用，可以在 `deploy/.env` 中修改 `FRONTEND_PORT`。
 
 MinIO 控制台默认映射到 `http://localhost:9001`。S3 API 默认映射到 `localhost:9000`，只用于本地后端开发；bucket 保持私有，浏览器图片统一使用后端签发的短时 `/api/media/{media_id}/content` capability URL。nginx 不再把 `/media/...` 直接代理到 MinIO。
+
+图片文件上限由 `MEDIA_MAX_UPLOAD_BYTES` 统一配置，默认 30 MiB。nginx 启动时额外预留 1 MiB 用于 multipart 请求开销，后端按文件实际字节数校验；两层超限均返回 JSON 413。修改上限后需同步重建前后端容器；升级本次配置需重新构建 frontend 镜像，以包含 nginx 启动脚本。
+
+Qdrant 宿主机端口仅绑定 `127.0.0.1:${QDRANT_PORT:-6333}`，供本地开发使用；容器内后端继续通过 `http://qdrant:6333` 访问。`QDRANT_API_KEY` 同时注入 Qdrant 服务端和后端客户端，生产环境应设置独立强随机值。修改 key 后使用 `docker compose up -d qdrant backend` 同步更新两个容器；只重启容器不会更新环境变量。本地直连 Qdrant 的后端也必须配置相同的 key。升级时需重新创建 Qdrant 容器以应用本机端口绑定，已有索引卷会保留。
 
 实时语音会话通过同源 `/api/ai/realtime/.../ws` 建立 WebSocket。nginx 转发 Upgrade/Connection，并使用 360 秒读写超时覆盖默认 300 秒会话上限。连接认证使用 45 秒单用途 ticket 的 WebSocket 子协议，不把普通 access token 或 ticket 放进 URL。
 

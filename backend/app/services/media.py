@@ -329,7 +329,7 @@ def _read_validated_upload(upload: UploadFile, max_bytes: int) -> tuple[bytes, s
 
     payload = upload.file.read(max_bytes + 1)
     if len(payload) > max_bytes:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image file is too large")
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=f"图片超过上传大小限制（{max_bytes} 字节），请压缩后重试")
 
     detected_type = _detect_image_content_type(payload)
     if detected_type is None:
@@ -528,6 +528,19 @@ def build_ai_cover_svg(title: str) -> str:
     """.strip()
 
 
+def _validated_binding_assets(db: Session, *, family_id: str, media_ids: Iterable[str]) -> list[MediaAsset]:
+    ids = list(dict.fromkeys(media_ids))
+    if not ids:
+        return []
+    assets = list(db.scalars(select(MediaAsset).where(MediaAsset.family_id == family_id, MediaAsset.id.in_(ids))))
+    if len(assets) != len(ids):
+        # Missing and cross-family IDs have the same response. Validate the
+        # entire selection before changing any existing binding.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="所选图片不存在或不可用，请重新选择")
+    by_id = {asset.id: asset for asset in assets}
+    return [by_id[media_id] for media_id in ids]
+
+
 def bind_media_assets(
     db: Session,
     *,
@@ -536,12 +549,7 @@ def bind_media_assets(
     entity_type: str,
     entity_id: str,
 ) -> list[MediaAsset]:
-    ids = list(dict.fromkeys(media_ids))
-    if not ids:
-        return []
-
-    statement = select(MediaAsset).where(MediaAsset.family_id == family_id, MediaAsset.id.in_(ids))
-    assets = list(db.scalars(statement))
+    assets = _validated_binding_assets(db, family_id=family_id, media_ids=media_ids)
     for asset in assets:
         asset.entity_type = entity_type
         asset.entity_id = entity_id
@@ -557,6 +565,7 @@ def replace_media_assets(
     entity_type: str,
     entity_id: str,
 ) -> list[MediaAsset]:
+    assets = _validated_binding_assets(db, family_id=family_id, media_ids=media_ids)
     current_assets = list(
         db.scalars(
             select(MediaAsset).where(
@@ -570,10 +579,8 @@ def replace_media_assets(
         asset.entity_type = None
         asset.entity_id = None
 
-    return bind_media_assets(
-        db,
-        family_id=family_id,
-        media_ids=media_ids,
-        entity_type=entity_type,
-        entity_id=entity_id,
-    )
+    for asset in assets:
+        asset.entity_type = entity_type
+        asset.entity_id = entity_id
+    db.flush()
+    return assets

@@ -17,7 +17,9 @@ RUN npm run build
 FROM nginx:1.27-alpine
 
 ENV TRUSTED_PROXY_CIDR=127.0.0.1/32
+ENV MEDIA_MAX_UPLOAD_BYTES=31457280
 
+COPY --chmod=755 frontend/docker/19-media-upload-limit.envsh /docker-entrypoint.d/19-media-upload-limit.envsh
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 

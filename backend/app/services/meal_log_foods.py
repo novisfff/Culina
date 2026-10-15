@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -102,12 +103,18 @@ def create_minimal_meal_food(
     return food
 
 
-def is_food_recommendation_eligible(food: Food, distinct_meal_count: int) -> bool:
+def is_food_recommendation_eligible(food: Food, distinct_meal_count: int, *, target_date: date) -> bool:
     """Return whether a Food may enter homepage recommendations.
 
-    Eligibility is derived from current facts only: repeated meals, favorite,
-    positive stock, linked recipe, or non-empty external source fields.
+    Exclude stock that expires before the recommended meal, even if it is a
+    favorite or frequently eaten. Remaining eligibility uses current facts.
     """
+    if (
+        food.type in {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
+        and food.expiry_date is not None
+        and food.expiry_date < target_date
+    ):
+        return False
     if int(distinct_meal_count) >= 2:
         return True
     if food.favorite:

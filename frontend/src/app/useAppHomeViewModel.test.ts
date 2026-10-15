@@ -75,6 +75,26 @@ function buildHomeArgs(overrides: Partial<HomeArgs> = {}): HomeArgs {
 }
 
 describe('useAppHomeViewModel', () => {
+  it('shows unknown inventory counts without fabricating shortage actions', () => {
+    const model = useAppHomeViewModel(buildHomeArgs({
+      inventoryItems: [],
+      inventoryReadState: { hasInventoryData: false, hasShoppingData: false, canSuggest: false, hasError: true, isFetching: false },
+    }));
+    expect(model.dashboardStats.slice(0, 3).map((stat) => stat.value)).toEqual(['—', '—', '—']);
+    expect(model.inventoryActionGroups).toEqual([]);
+    expect(model.homeRequiredActions).toEqual([]);
+  });
+
+  it('preserves cached stock counts while suspending recommendations on refresh failure', () => {
+    const model = useAppHomeViewModel(buildHomeArgs({
+      now: new Date('2026-07-12T03:30:00Z'),
+      inventoryReadState: { hasInventoryData: true, hasShoppingData: true, canSuggest: false, hasError: true, isFetching: false },
+    }));
+    expect(model.dashboardStats.find((stat) => stat.label === '在库食材')?.value).toBe('1');
+    expect(model.inventoryAlerts).toEqual([]);
+    expect(model.homeRequiredActions).toEqual([]);
+  });
+
   it('injects Asia/Shanghai businessDateKey even when device local calendar differs', () => {
     // 2026-07-11 23:30 America/New_York == 2026-07-12 11:30 Asia/Shanghai
     const now = new Date('2026-07-12T03:30:00.000Z');

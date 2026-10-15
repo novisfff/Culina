@@ -9,8 +9,15 @@ import { AppFamilyWorkspaceRoute } from './AppFamilyWorkspaceRoute';
 import { InventoryOperationBanner } from '../features/inventory/InventoryOperationBanner';
 import { useAppEatTaskBodyArgs } from './useAppEatTaskBodyArgs';
 import { useAppEatTaskResolutionArgs } from './useAppEatTaskResolutionArgs';
+import { HomeInventoryFeedback } from '../features/home/HomeInventoryFeedback';
+import type { HomeInventoryReadState } from '../features/home/homeInventoryReadState';
 
-export function AppWorkspaceRouteComposition({ context }: { context: any }) {
+export function AppWorkspaceRouteComposition({ context, inventoryRevertPending, homeInventoryReadState, onRetryHomeInventory }: {
+  context: any;
+  inventoryRevertPending: boolean;
+  homeInventoryReadState: HomeInventoryReadState;
+  onRetryHomeInventory: () => void;
+}) {
   const {
     navigation, recipes, foods, ingredients, inventoryItems, mealLogs, foodPlanItems, members,
     foodPlanDetail, foodPlanDetailQuery, recipesQuery, foodsQuery, mealLogsQuery, mealLogsFetching,
@@ -21,7 +28,7 @@ export function AppWorkspaceRouteComposition({ context }: { context: any }) {
     inventoryStates, shoppingItems, recentMeals, mealInsights, mealInsightsQuery, aiConversations, aiConversationsQuery,
     dashboardPlanDays, previewCookRecipeMutation, businessDateKey, updateShoppingMutation,
     createFoodSceneMutation, updateFoodSceneMutation, deleteFoodSceneMutation, updateMealCompositionMutation,
-    openOperationHistory, recentBannerOperation, revertInventoryOperationMutation, handleRevertInventoryOperation,
+    openOperationHistory, recentBannerOperation, handleRevertInventoryOperation,
     ingredientNavigationRequest, consumeIngredientNavigationRequest, createIngredientMutation,
     updateIngredientMutation, transitionIngredientTrackingModeMutation, createInventoryMutation,
     upsertInventoryStateMutation, consumeInventoryMutation, disposeExpiredInventoryMutation,
@@ -53,6 +60,7 @@ export function AppWorkspaceRouteComposition({ context }: { context: any }) {
           home: (
           <WorkspaceRouteBoundary>
           <AppHomeWorkspaceRoute
+            inventoryFeedback={homeInventoryReadState.canSuggest ? undefined : <HomeInventoryFeedback state={homeInventoryReadState} onRetry={onRetryHomeInventory} />}
             sidebarFamilyName={sidebarFamilyName}
             sidebarMotto={sidebarMotto}
             sidebarLocation={sidebarLocation}
@@ -366,7 +374,7 @@ export function AppWorkspaceRouteComposition({ context }: { context: any }) {
                 recentBannerOperation ? (
                   <InventoryOperationBanner
                     operation={recentBannerOperation}
-                    busy={revertInventoryOperationMutation.isPending}
+                    busy={inventoryRevertPending}
                     onView={(operationId) => openOperationHistory(operationId)}
                     onRevert={(operationId) => {
                       void handleRevertInventoryOperation(operationId);

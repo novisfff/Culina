@@ -231,11 +231,11 @@ def _score_food(
         if food.stock_quantity is not None and food.stock_quantity <= 0:
             add(-180)
         if days is not None:
-            if days <= 0:
+            if days == 0:
                 add(260, "expiring_today")
-            elif days <= 3:
+            elif 0 < days <= 3:
                 add(220, "expiring_soon", days=days)
-            elif days <= 7:
+            elif 3 < days <= 7:
                 add(150, "expiring_soon", days=days)
 
     if food_type == FoodType.SELF_MADE.value:
@@ -271,7 +271,7 @@ def _score_food(
         "primary_action": primary_action,
         "recipe_availability": recipe_availability,
         "food_type": food_type,
-        "is_expiring": food_type in READY_LIKE_TYPES and (_days_until(food.expiry_date, target_date) is not None and (_days_until(food.expiry_date, target_date) or 0) <= 7),
+        "is_expiring": food_type in READY_LIKE_TYPES and (_days_until(food.expiry_date, target_date) is not None and 0 <= (_days_until(food.expiry_date, target_date) or 0) <= 7),
     }
 
 
@@ -367,7 +367,9 @@ def recommend_foods(
     db: Session = Depends(get_db),
 ) -> dict:
     _, membership = auth
-    resolved_now = now or now_for_family(membership.family_id)
+    # Browser ISO timestamps are UTC; retain the legacy local-time meaning of
+    # explicitly supplied naive timestamps while normalizing aware instants.
+    resolved_now = now if now is not None and now.tzinfo is None else now_for_family(membership.family_id, at=now)
     foods = list(
         db.scalars(
             select(Food)
@@ -403,7 +405,7 @@ def recommend_foods(
     eligible_foods = [
         food
         for food in foods
-        if is_food_recommendation_eligible(food, distinct_meal_counts.get(food.id, 0))
+        if is_food_recommendation_eligible(food, distinct_meal_counts.get(food.id, 0), target_date=target_date)
     ]
     recipes = [food.recipe for food in eligible_foods if food.recipe is not None]
     ingredient_ids = [item.ingredient_id for recipe in recipes for item in recipe.ingredient_items if item.ingredient_id]

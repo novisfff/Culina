@@ -1,0 +1,12 @@
+#!/bin/sh
+# Sourced by the nginx image before 20-envsubst-on-templates.sh.
+MEDIA_MAX_UPLOAD_BYTES=${MEDIA_MAX_UPLOAD_BYTES:-31457280}
+case "$MEDIA_MAX_UPLOAD_BYTES" in
+  ''|*[!0-9]*) echo 'MEDIA_MAX_UPLOAD_BYTES must be a positive integer' >&2; exit 1 ;;
+esac
+if [ "$MEDIA_MAX_UPLOAD_BYTES" -le 0 ]; then
+  echo 'MEDIA_MAX_UPLOAD_BYTES must be a positive integer' >&2
+  exit 1
+fi
+# The backend enforces the file limit; reserve 1 MiB for multipart metadata.
+export CULINA_MAX_REQUEST_BYTES=$((MEDIA_MAX_UPLOAD_BYTES + 1048576))

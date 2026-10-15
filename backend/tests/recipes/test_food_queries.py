@@ -188,7 +188,7 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
                 food = db.get(Food, food_id)
                 self.assertIsNotNone(food)
                 assert food is not None
-                self.assertFalse(is_food_recommendation_eligible(food, 1))
+                self.assertFalse(is_food_recommendation_eligible(food, 1, target_date=date(2026, 7, 15)))
                 db.commit()
             self.assertNotIn(food_id, self._recommendation_ids())
 
@@ -506,3 +506,86 @@ class RecipeFoodQueriesTestCase(RecipeApiTestCase):
             self.assertIn("今天到期", items[0]["reasons"])
             scores_by_name = {item["food"]["name"]: item["score"] for item in items}
             self.assertLess(scores_by_name["不想复购外卖"], scores_by_name["昨天刚吃面"])
+
+        def test_recommendations_exclude_expired_stock_before_ranking_and_limit(self) -> None:
+            with self.SessionLocal() as db:
+                for food_type in (FoodType.READY_MADE, FoodType.INSTANT, FoodType.PACKAGED):
+                    for state, expiry in (
+                        ("expired", date(2026, 7, 14)),
+                        ("today", date(2026, 7, 15)),
+                        ("future", date(2026, 7, 18)),
+                        ("unknown", None),
+                    ):
+                        db.add(Food(
+                            id=f"expiry-{food_type.value}-{state}",
+                            family_id=self.family.id,
+                            name=f"{food_type.value}-{state}",
+                            type=food_type.value,
+                            category="测试食品",
+                            suitable_meal_types=["breakfast"],
+                            source_name="超市",
+                            purchase_source="超市",
+                            expiry_date=expiry,
+                            stock_quantity=Decimal("2"),
+                            stock_unit="份",
+                            favorite=True,
+                            created_by=self.user.id,
+                            updated_by=self.user.id,
+                        ))
+                db.commit()
+
+            # UTC is still yesterday; the household date is July 15.
+            for now in ("2026-07-14T23:00:00Z", "2026-07-15T07:00:00+08:00", "2026-07-15T07:00:00"):
+                with self.subTest(now=now):
+                    response = self.client.get("/api/foods/recommendations", params={"now": now, "limit": 30})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    payload = response.json()
+                    self.assertEqual(payload["target_date"], "2026-07-15")
+                    self.assertEqual(payload["target_meal_type"], "breakfast")
+                    items = {item["food"]["id"]: item for item in payload["items"]}
+                    self.assertEqual(len(items), 9)
+                    for food_type in (FoodType.READY_MADE, FoodType.INSTANT, FoodType.PACKAGED):
+                        self.assertNotIn(f"expiry-{food_type.value}-expired", items)
+                        self.assertIn("今天到期", items[f"expiry-{food_type.value}-today"]["reasons"])
+                        self.assertIn(f"expiry-{food_type.value}-future", items)
+                        self.assertIn(f"expiry-{food_type.value}-unknown", items)
+
+            response = self.client.get("/api/foods/recommendations", params={"now": "2026-07-15T07:00:00+08:00", "limit": 3})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(len(response.json()["items"]), 3)
+            self.assertTrue(all(item["food"]["id"].endswith("-today") for item in response.json()["items"]))
+
+        def test_recommendation_meal_type_matches_for_equivalent_utc_and_local_instants(self) -> None:
+            for utc, local, meal_type in (
+                ("2026-07-15T04:00:00Z", "2026-07-15T12:00:00+08:00", "lunch"),
+                ("2026-07-15T10:00:00Z", "2026-07-15T18:00:00+08:00", "dinner"),
+            ):
+                with self.subTest(utc=utc):
+                    payloads = [self.client.get('/api/foods/recommendations', params={"now": now}).json() for now in (utc, local)]
+                    self.assertEqual(payloads[0], payloads[1])
+                    self.assertEqual(payloads[0]["target_meal_type"], meal_type)
+                    self.assertEqual(payloads[0]["target_date"], "2026-07-15")
+
+        def test_recommendations_use_next_meal_date_for_expiry_cutoff(self) -> None:
+            with self.SessionLocal() as db:
+                for suffix, expiry in (("tonight", date(2026, 7, 15)), ("tomorrow", date(2026, 7, 16))):
+                    db.add(Food(
+                        id=f"expiry-{suffix}", family_id=self.family.id, name=suffix,
+                        type=FoodType.PACKAGED.value, category="测试食品",
+                        suitable_meal_types=["breakfast"], expiry_date=expiry,
+                        stock_quantity=Decimal("1"), stock_unit="份", favorite=True,
+                        created_by=self.user.id, updated_by=self.user.id,
+                    ))
+                db.add(MealLog(
+                    id="expiry-evening-snack", family_id=self.family.id,
+                    date=date(2026, 7, 15), meal_type=MealType.SNACK,
+                    participant_user_ids=[], notes="", mood="",
+                    created_by=self.user.id, updated_by=self.user.id,
+                ))
+                db.commit()
+            response = self.client.get("/api/foods/recommendations", params={"now": "2026-07-15T14:00:00Z"})
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["target_date"], "2026-07-16")
+            self.assertEqual(payload["target_meal_type"], "breakfast")
+            self.assertEqual([item["food"]["id"] for item in payload["items"]], ["expiry-tomorrow"])

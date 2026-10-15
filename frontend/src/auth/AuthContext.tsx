@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -10,7 +11,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
-  clearAuthenticatedSession,
+  isApiError,
   subscribeAuthSession,
 } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
@@ -29,6 +30,9 @@ type AuthContextValue = {
   isLoading: boolean;
   isInitializing: boolean;
   isAuthenticated: boolean;
+  recoveryError: string | null;
+  isRecovering: boolean;
+  retrySession: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -39,8 +43,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const queryClient = useQueryClient();
   const [bootstrapped, setBootstrapped] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState(false);
+  const [isRefreshingSession, setIsRefreshingSession] = useState(false);
   const bootstrapPromise = useRef<Promise<void> | null>(null);
   const authIdentity = useRef<string | null>(null);
+  const sessionVersion = useRef(0);
 
   const meQuery = useQuery({
     queryKey: queryKeys.authMe,
@@ -56,6 +63,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       family: payload.family,
     });
     return subscribeAuthSession((payload) => {
+      sessionVersion.current += 1;
       const nextIdentity = payload
         ? `${payload.user.id}:${payload.membership.family_id}`
         : null;
@@ -67,6 +75,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         queryClient.clear();
       }
       setHasSession(Boolean(payload));
+      setBootstrapError(false);
       if (payload) {
         queryClient.setQueryData(queryKeys.authMe, authSnapshot(payload));
         return;
@@ -76,26 +85,28 @@ export function AuthProvider({ children }: PropsWithChildren) {
     });
   }, [queryClient]);
 
-  useEffect(() => {
-    if (!bootstrapPromise.current) {
-      bootstrapPromise.current = api.refresh()
-        .then(() => undefined)
-        .catch(() => undefined);
-    }
-    let active = true;
-    void bootstrapPromise.current.finally(() => {
-      if (active) setBootstrapped(true);
-    });
-    return () => {
-      active = false;
-    };
+  const restoreSession = useCallback(() => {
+    if (bootstrapPromise.current) return bootstrapPromise.current;
+    const requestedVersion = sessionVersion.current;
+    setIsRefreshingSession(true);
+    bootstrapPromise.current = api.refresh()
+      .then(() => { setBootstrapError(false); })
+      .catch((reason: unknown) => {
+        if (sessionVersion.current === requestedVersion) {
+          setBootstrapError(!(isApiError(reason) && reason.status === 401));
+        }
+      })
+      .finally(() => {
+        setBootstrapped(true);
+        setIsRefreshingSession(false);
+        bootstrapPromise.current = null;
+      });
+    return bootstrapPromise.current;
   }, []);
 
   useEffect(() => {
-    if (meQuery.isError) {
-      clearAuthenticatedSession();
-    }
-  }, [meQuery.isError]);
+    void restoreSession();
+  }, [restoreSession]);
 
   const loginMutation = useMutation({
     mutationFn: ({ username, password }: { username: string; password: string }) =>
@@ -124,6 +135,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
           logoutMutation.isPending,
         isInitializing: !bootstrapped,
         isAuthenticated,
+        recoveryError: bootstrapError || (hasSession && meQuery.isError)
+          ? '暂时无法验证登录状态，请检查网络后重试。'
+          : null,
+        isRecovering: isRefreshingSession || meQuery.isFetching,
+        retrySession: async () => {
+          if (bootstrapError || !hasSession) await restoreSession();
+          else await meQuery.refetch();
+        },
         login: async (username: string, password: string) => {
           await loginMutation.mutateAsync({ username, password });
         },
@@ -132,7 +151,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         },
       };
     },
-    [bootstrapped, hasSession, loginMutation, logoutMutation, meQuery.data, meQuery.isLoading]
+    [bootstrapped, bootstrapError, hasSession, isRefreshingSession, loginMutation, logoutMutation, meQuery, restoreSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

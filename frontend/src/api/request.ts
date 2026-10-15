@@ -177,11 +177,9 @@ export async function refreshAuthSession(
         : withAuthCookieLock(refreshOperation)
     )
       .catch((reason) => {
-        if (authSessionRevision === requestedRevision) {
+        if (authSessionRevision === requestedRevision && reason instanceof ApiError && reason.status === 401) {
           clearAuthenticatedSession();
-          if (reason instanceof ApiError && reason.status === 401) {
-            publishAuthCookieTransition(null);
-          }
+          publishAuthCookieTransition(null);
         }
         throw reason;
       });
