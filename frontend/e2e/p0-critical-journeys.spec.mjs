@@ -313,6 +313,9 @@ for (const failedPath of ['/api/auth/refresh', '/api/auth/me']) {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     const retry = page.getByRole('button', { name: '重试连接', exact: true });
     await expect(retry).toBeVisible();
+    if (failedPath.endsWith('/me')) {
+      await expect(page.getByRole('dialog', { name: '登录状态暂未更新' })).toBeVisible();
+    }
     await expect(page.getByRole('heading', { name: '登录家庭厨房' })).toHaveCount(0);
     expect(failures).toBeGreaterThan(0);
     await attachCheckpointScreenshot(page, testInfo, failedPath.endsWith('/me') ? 'checkpoint-auth-stale' : 'checkpoint-auth-recovery');
@@ -324,6 +327,39 @@ for (const failedPath of ['/api/auth/refresh', '/api/auth/me']) {
     await expectNoHorizontalOverflow(page);
   });
 }
+
+test('@p0 auth recovery dialog preserves the AI workspace layout', async ({ app, context }, testInfo) => {
+  const { page, expectedHttpErrors, unexpectedRequests } = app;
+  expectedHttpErrors.push({ path: '/api/auth/me', status: 503 });
+  await installAiAutoExecutionMocks(context, unexpectedRequests);
+  await context.route('**/api/auth/me', (route) => route.fulfill({ status: 503, json: { detail: 'temporary outage' } }));
+  await page.addInitScript(() => {
+    localStorage.setItem('culina-navigation-v2', JSON.stringify({
+      version: 2, primaryTab: 'ai', eatBaseView: 'discover', discoverSection: 'all',
+    }));
+  });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  const surface = page.locator(page.viewportSize().width < 768 ? '.ai-mobile-page' : '.ai-main-panel');
+  const editor = surface.locator('textarea');
+  const dialog = page.getByRole('dialog', { name: '登录状态暂未更新' });
+  await expect(dialog).toBeVisible();
+  await expect(surface).toBeVisible();
+  await expect(editor).toBeInViewport({ ratio: 1 });
+  const boundsWithDialog = await surface.boundingBox();
+  await dialog.getByRole('button', { name: '重试连接', exact: true }).click({ trial: true });
+  await expectNoHorizontalOverflow(page);
+  await attachCheckpointScreenshot(page, testInfo, 'checkpoint-auth-ai-dialog');
+
+  await dialog.getByRole('button', { name: '暂时关闭', exact: true }).last().click();
+  await expect(dialog).toBeHidden();
+  expect(await surface.boundingBox()).toEqual(boundsWithDialog);
+  await expect(editor).toBeInViewport({ ratio: 1 });
+  await editor.fill('帮我安排今天的晚餐');
+  await expect(editor).toHaveValue('帮我安排今天的晚餐');
+  await expect(editor).toBeFocused();
+  await expect(surface.getByRole('button', { name: '发送消息', exact: true })).toBeInViewport({ ratio: 1 });
+  await attachCheckpointScreenshot(page, testInfo, 'checkpoint-auth-ai-dismissed');
+});
 
 test('@p0 inventory read failures show unknown data and recover without losing cached counts', async ({ app, context }, testInfo) => {
   const { page, expectedHttpErrors } = app;

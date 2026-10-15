@@ -553,7 +553,8 @@ def bind_media_assets(
     for asset in assets:
         asset.entity_type = entity_type
         asset.entity_id = entity_id
-    db.flush()
+    if assets:
+        db.flush()
     return assets
 
 
@@ -582,5 +583,8 @@ def replace_media_assets(
     for asset in assets:
         asset.entity_type = entity_type
         asset.entity_id = entity_id
-    db.flush()
+    # An empty selection still detaches existing media, but leaves flushing to
+    # the caller so unrelated entity edits do not advance their version early.
+    if assets:
+        db.flush()
     return assets
