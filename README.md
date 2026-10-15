@@ -257,3 +257,5 @@ npx playwright install chromium
 ---
 
 <p align="center">好好吃饭，认真生活。让每一餐，都更像家的味道。</p>
+
+<p align="center">交流社区：<a href="https://linux.do/">LINUX DO</a></p>
