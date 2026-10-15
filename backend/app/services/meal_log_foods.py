@@ -164,6 +164,9 @@ def can_delete_record_created_food(db: Session, food: Food) -> bool:
     Callers must already hold a lock on ``food``. The Food is deleted only when it
     still matches creation defaults, has ``row_version == 1``, and has no remaining
     MealLog, plan, shopping, inventory, or media references.
+
+    Use current locking reads after the Food lock: an earlier REPEATABLE READ
+    snapshot must not hide references committed by a competing writer.
     """
     if int(food.row_version) != 1:
         return False
@@ -171,19 +174,25 @@ def can_delete_record_created_food(db: Session, food: Food) -> bool:
         return False
 
     has_meal = (
-        db.scalar(select(MealLogFood.id).where(MealLogFood.food_id == food.id).limit(1)) is not None
+        db.scalar(
+            select(MealLogFood.id).where(MealLogFood.food_id == food.id).limit(1).with_for_update()
+        ) is not None
     )
     if has_meal:
         return False
 
     has_plan = (
-        db.scalar(select(FoodPlanItem.id).where(FoodPlanItem.food_id == food.id).limit(1)) is not None
+        db.scalar(
+            select(FoodPlanItem.id).where(FoodPlanItem.food_id == food.id).limit(1).with_for_update()
+        ) is not None
     )
     if has_plan:
         return False
 
     has_shopping = (
-        db.scalar(select(ShoppingListItem.id).where(ShoppingListItem.food_id == food.id).limit(1))
+        db.scalar(
+            select(ShoppingListItem.id).where(ShoppingListItem.food_id == food.id).limit(1).with_for_update()
+        )
         is not None
     )
     if has_shopping:
@@ -195,7 +204,7 @@ def can_delete_record_created_food(db: Session, food: Food) -> bool:
                 MediaAsset.family_id == food.family_id,
                 MediaAsset.entity_type == "food",
                 MediaAsset.entity_id == food.id,
-            ).limit(1)
+            ).limit(1).with_for_update()
         )
         is not None
     )

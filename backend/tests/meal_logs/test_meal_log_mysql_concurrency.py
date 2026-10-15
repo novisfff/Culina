@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable, Iterator
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ from app.models.domain import (
     Membership,
     User,
 )
+from app.services.meal_log_record_history import revert_record_operation
 
 
 pytestmark = pytest.mark.mysql
@@ -318,6 +320,67 @@ def test_record_append_versus_revert_no_deadlock(mysql_concurrency_context: dict
         # remaining entries must not reference a missing Food.
         if created_food_id in food_ids:
             assert db.get(Food, created_food_id) is not None
+
+
+def test_revert_keeps_food_reused_after_its_snapshot(mysql_concurrency_context: dict) -> None:
+    ctx = mysql_concurrency_context
+    client: TestClient = ctx["client"]
+    created = client.post(
+        "/api/meal-logs/record",
+        json={
+            "client_request_id": "mysql-create-before-revert-snapshot",
+            "date": "2026-07-15",
+            "meal_type": "dinner",
+            "target": {"kind": "new"},
+            "new_foods": [
+                {"client_food_id": "local-snapshot", "name": "快照复用菜", "type": "selfMade"},
+            ],
+            "entries": [{"client_food_id": "local-snapshot", "servings": 1}],
+        },
+    )
+    assert created.status_code == 200, created.text
+    payload = created.json()
+    food_id = payload["created_foods"][0]["id"]
+    entry_count = select(func.count()).select_from(MealLogFood).where(MealLogFood.food_id == food_id)
+
+    with ctx["SessionLocal"]() as db:
+        assert db.connection().get_isolation_level() == "REPEATABLE READ"
+        assert db.scalar(entry_count) == 1
+        reused = client.post(
+            "/api/meal-logs/record",
+            json={
+                "client_request_id": "mysql-reuse-after-revert-snapshot",
+                "date": "2026-07-16",
+                "meal_type": "lunch",
+                "target": {"kind": "new"},
+                "new_foods": [],
+                "entries": [{"food_id": food_id, "servings": 1}],
+            },
+        )
+        assert reused.status_code == 200, reused.text
+        # The transaction still sees its old snapshot after the other request commits.
+        assert db.scalar(entry_count) == 1
+        result = revert_record_operation(
+            db,
+            family_id=ctx["family_id"],
+            actor_user_id=ctx["user_id"],
+            user_role=UserRole.OWNER,
+            operation_id=payload["operation"]["id"],
+            now=datetime.now(timezone.utc),
+        )
+        db.commit()
+
+    assert food_id not in result.removed_food_ids
+    with ctx["SessionLocal"]() as db:
+        assert db.get(Food, food_id) is not None
+        assert db.get(MealLog, payload["meal_log"]["id"]) is None
+        reused_entries = list(
+            db.scalars(
+                select(MealLogFood).where(MealLogFood.meal_log_id == reused.json()["meal_log"]["id"])
+            )
+        )
+        assert len(reused_entries) == 1
+        assert reused_entries[0].food_id == food_id
 
 
 def test_reuse_created_food_versus_revert_no_deadlock(mysql_concurrency_context: dict) -> None:
