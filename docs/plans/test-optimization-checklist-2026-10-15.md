@@ -487,3 +487,5 @@ CULINA_SMOKE_PREBUILT=1 npm run deploy:smoke:media
 本地证据为 `.artifacts/websocket-smoke{,-standard}.log`、`.artifacts/media-permission-smoke{,-standard,-all-standard}.log`、`.artifacts/*-image*.log`、`.artifacts/minio-cold.log`、`.artifacts/minio-build-cold.log`、`.artifacts/minio-proxy-{cold,hot}.log` 与 `.artifacts/minio-proxy-cache-times.json`。本任务创建的独立 MySQL 容器已清理，未清理用户其他容器或已有镜像缓存。
 
 本节记录截至本地验收结束时的证据，未修改 Ruleset。GitHub 上完整 workflow 的实际运行结果、artifact 网络耗时及新的 CI 墙钟时间需通过对应 PR 的线上验收确认；不使用旧 CI 时长冒充优化后收益。
+
+首次 [PR #146 线上验收](https://github.com/novisfff/Culina/actions/runs/38690959761) 的业务测试、五组 MySQL、前端分片、Governance、P0、迁移及审计均通过；报告核对确认后端 3,170 条分区无遗漏/重复（3,168 通过、2 个 reference-host 预期跳过），前端 313 文件、2,212 条全通过。部署 smoke 在新 runner 上暴露两项准备缺失：`--pull never` 模式下没有 MySQL 8.4 镜像，以及未安装 Playwright Chromium；本地已有缓存使这两个缺口未被发现。已在部署 Job 显式安装 Chromium 及系统依赖、拉取 Compose 的 MySQL 服务镜像，再复用三个当前提交的应用镜像；PR Gate 正确阻止该次失败。最终线上验收以 PR 最新提交的结果为准。

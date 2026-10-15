@@ -637,6 +637,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend deployment-test dependencies
         run: npm ci --prefix frontend
+      - name: Install deployment-test Chromium
+        run: cd frontend && npx playwright install --with-deps chromium
+      - name: Pull MySQL deployment-test dependency
+        run: docker compose -f deploy/tests/docker-compose.media-permission-smoke.yml pull mysql
       - uses: docker/setup-buildx-action@v3
       - name: Build cached minio smoke image
         uses: docker/build-push-action@v6
