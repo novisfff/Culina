@@ -118,6 +118,28 @@ function stubHomeBootQueries() {
 }
 
 describe('useAppWorkspaceQueries', () => {
+  it('distinguishes missing inventory, recovered empty data, and stale cached data', async () => {
+    vi.spyOn(api, 'getActivityHighlights').mockResolvedValue({ items: [], week_highlight_count: 0 });
+    vi.mocked(api.getInventory).mockRejectedValue(new Error('temporary failure'));
+    const harness = renderWorkspaceQueries(navigationForPrimary('home'));
+    await flushQueries();
+    expect(harness.current().homeInventoryReadState).toMatchObject({
+      hasInventoryData: false, hasShoppingData: true, canSuggest: false, hasError: true,
+    });
+    vi.mocked(api.getInventory).mockResolvedValue([]);
+    await act(async () => { await harness.current().retryHomeInventory(); });
+    await flushQueries();
+    expect(harness.current().homeInventoryReadState).toMatchObject({
+      hasInventoryData: true, canSuggest: true, hasError: false,
+    });
+    vi.mocked(api.getInventory).mockRejectedValue(new Error('refresh failed'));
+    await act(async () => { await harness.current().inventoryQuery.refetch(); });
+    await flushQueries();
+    expect(harness.current().homeInventoryReadState).toMatchObject({
+      hasInventoryData: true, canSuggest: false, hasError: true,
+    });
+  });
+
   beforeEach(() => {
     latest = null;
     stubHomeBootQueries();

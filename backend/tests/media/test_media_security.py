@@ -32,7 +32,7 @@ from app.services.family_model_settings.types import (
     ResolvedCapabilityBinding,
     ResolvedProviderEndpoint,
 )
-from app.services.media import build_media_variants, delete_media_file, read_media_asset_content
+from app.services.media import bind_media_assets, replace_media_assets, build_media_variants, delete_media_file, read_media_asset_content
 from app.services.access_tickets import MEDIA_ACCESS_AUDIENCE
 
 def make_png_payload() -> bytes:
@@ -357,6 +357,55 @@ class MediaSecurityTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_binding_validates_the_entire_selection_before_mutating(self) -> None:
+        for bind in (bind_media_assets, replace_media_assets):
+            for family_id, invalid_id in (("family-test", "missing"), ("family-other", "photo-private")):
+                with self.subTest(operation=bind.__name__, family_id=family_id), self.SessionLocal() as db:
+                    asset = db.get(MediaAsset, "photo-private")
+                    asset.entity_type, asset.entity_id = "food", "existing-food"
+                    db.commit()
+                    with self.assertRaises(HTTPException) as raised:
+                        bind(db, family_id=family_id, media_ids=["photo-private", invalid_id], entity_type="food", entity_id="new-food")
+                    self.assertEqual(raised.exception.status_code, 404)
+                    # Even before rollback, failed validation must not detach or move an asset.
+                    self.assertEqual((asset.entity_type, asset.entity_id), ("food", "existing-food"))
+
+    def test_replace_media_accepts_duplicates_and_explicit_empty_selection(self) -> None:
+        with self.SessionLocal() as db:
+            assets = replace_media_assets(db, family_id="family-test", media_ids=["photo-private", "photo-private"], entity_type="food", entity_id="food-test")
+            self.assertEqual([asset.id for asset in assets], ["photo-private"])
+            db.commit()
+            self.assertEqual(replace_media_assets(db, family_id="family-test", media_ids=[], entity_type="food", entity_id="food-test"), [])
+            db.commit()
+            asset = db.get(MediaAsset, "photo-private")
+            self.assertIsNone(asset.entity_id)
+            self.assertIsNone(asset.entity_type)
+
+    def test_invalid_media_update_rolls_back_food_changes_and_keeps_original_image(self) -> None:
+        with self.SessionLocal() as db:
+            db.add(Food(id="food-media-test", family_id="family-test", name="原名称", type="packaged", category="零食", created_by="user-test", updated_by="user-test"))
+            asset = db.get(MediaAsset, "photo-private")
+            asset.entity_type, asset.entity_id = "food", "food-media-test"
+            db.commit()
+        response = self.client.patch('/api/foods/food-media-test', json={
+            "name": "不应保存", "type": "packaged", "category": "零食", "expected_row_version": 1,
+            "media_ids": ["photo-private", "missing"],
+        })
+        self.assertEqual(response.status_code, 404, response.text)
+        with self.SessionLocal() as db:
+            food = db.get(Food, "food-media-test")
+            self.assertEqual(food.name, "原名称")
+            self.assertEqual(food.row_version, 1)
+            self.assertEqual(db.get(MediaAsset, "photo-private").entity_id, food.id)
+
+    def test_invalid_media_create_does_not_persist_food(self) -> None:
+        response = self.client.post('/api/foods', json={
+            "name": "不应创建", "type": "packaged", "category": "零食", "media_ids": ["missing"],
+        })
+        self.assertEqual(response.status_code, 404, response.text)
+        with self.SessionLocal() as db:
+            self.assertEqual(db.query(Food).count(), 0)
+
     def test_upload_rejects_spoofed_content_type(self) -> None:
         response = self.client.post(
             "/api/media/upload",
@@ -375,6 +424,7 @@ class MediaSecurityTestCase(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 413)
+        self.assertIn("请压缩后重试", response.json()["detail"])
 
     def test_ai_render_returns_job_and_finalizes_asset_on_poll(self) -> None:
         response = self.client.post(

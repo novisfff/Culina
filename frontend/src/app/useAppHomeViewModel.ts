@@ -19,6 +19,7 @@ import {
   type InventoryActionGroup,
 } from '../features/inventory/inventoryActionModel';
 import { businessDateKey } from '../lib/date';
+import type { HomeInventoryReadState } from '../features/home/homeInventoryReadState';
 import {
   buildHomeDashboardViewModel,
   buildHomeHighlightsViewModel,
@@ -61,6 +62,7 @@ type UseAppHomeViewModelArgs = {
   homeRestockForm: HomeRestockFormState | null;
   /** Optional prebuilt groups so App can share one projection with home state. */
   inventoryActionGroups?: InventoryActionGroup[];
+  inventoryReadState?: HomeInventoryReadState;
   resolveDashboardAssetUrl: (url?: string) => string | undefined;
   now?: Date;
 };
@@ -88,7 +90,8 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
   const currentUser = args.user;
   const isOwner = args.membershipRole === 'Owner';
   const businessDate = businessDateKey(args.now ?? new Date(), 'Asia/Shanghai');
-  const inventoryActionGroups = args.inventoryActionGroups ?? buildInventoryActionGroups({
+  const canSuggest = args.inventoryReadState?.canSuggest ?? true;
+  const inventoryActionGroups = !canSuggest ? [] : args.inventoryActionGroups ?? buildInventoryActionGroups({
     inventoryItems: args.inventoryItems,
     inventoryStates: args.inventoryStates ?? [],
     ingredients: args.ingredients,
@@ -137,7 +140,7 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     hasMoreHomeActions,
   } = buildHomeRequiredActions({
     inventoryGroups: dashboardViewModel.homeEligibleInventoryActionGroups,
-    pendingShoppingCount: dashboardViewModel.pendingShoppingCount,
+    pendingShoppingCount: canSuggest ? dashboardViewModel.pendingShoppingCount : 0,
   });
   const homeRestockShoppingItem = args.homeRestockShoppingItemId
     ? args.shoppingItems.find((item) => item.id === args.homeRestockShoppingItemId) ?? null
@@ -187,6 +190,18 @@ export function useAppHomeViewModel(args: UseAppHomeViewModelArgs) {
     sidebarUserNote,
     today,
     ...dashboardViewModel,
+    dashboardStats: dashboardViewModel.dashboardStats.map((stat) => {
+      const state = args.inventoryReadState;
+      if (!state) return stat;
+      const available = stat.label === '待采购' ? state.hasShoppingData
+        : stat.label === '在库食材' ? state.hasInventoryData
+        : stat.label === '需要处理的食材' ? state.canSuggest : true;
+      if (!available) return { ...stat, value: '—', unit: '', detail: '数据暂未确认' };
+      if (state.hasError && (stat.label === '在库食材' || stat.label === '待采购')) {
+        return { ...stat, detail: '上次读取的数据' };
+      }
+      return stat;
+    }),
     homeHighlightsViewModel,
     homeRequiredActions,
     hasMoreHomeActions,

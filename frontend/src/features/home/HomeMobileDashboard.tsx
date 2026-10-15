@@ -129,6 +129,7 @@ export type HomeMobileDashboardProps = {
   sidebarMemberLabel: string;
   sidebarActivityLabel: string;
   inventoryAlerts: unknown[];
+  inventoryFeedback?: ReactNode;
   notificationCenter?: ReactNode;
   dashboardStats: DashboardStat[];
   mobileRecommendations: DashboardRecommendation[];
@@ -259,7 +260,7 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
                 {item.value}
                 <small>{item.unit}</small>
               </strong>
-              <p>{copy.detail}</p>
+              <p>{item.value === '—' || item.detail === '上次读取的数据' ? item.detail : copy.detail}</p>
             </article>
           );
         })}
@@ -311,14 +312,14 @@ export function HomeMobileDashboard(props: HomeMobileDashboardProps) {
       />
 
       <div className="mobile-home-question" data-testid="mobile-home-question" data-question="2">
-        <HomeRequiredActions
+        {props.inventoryFeedback ?? <HomeRequiredActions
           actions={props.requiredActions}
           hasMore={props.hasMoreHomeActions}
           onOpenInventory={handleOpenInventoryAction}
           onOpenShoppingIntake={props.onOpenShoppingIntake}
           onOpenReconciliation={() => props.onOpenReconciliation?.({ scope: 'suggested' })}
           onViewAll={props.onOpenIngredientPriority}
-        />
+        />}
       </div>
 
       <div className="mobile-home-question" data-testid="mobile-home-question" data-question="3">

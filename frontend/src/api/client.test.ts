@@ -70,6 +70,25 @@ afterEach(() => {
 });
 
 describe('api client errors', () => {
+  it.each(['network', '503', '429'])('preserves the session on a temporary refresh failure: %s', async (failure) => {
+    setAuthenticatedSession(authPayload);
+    const listener = vi.fn();
+    const unsubscribe = subscribeAuthSession(listener);
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (failure === 'network') throw new TypeError('offline');
+      return new Response(JSON.stringify({ detail: 'try again' }), {
+        status: Number(failure), headers: { 'Content-Type': 'application/json' },
+      });
+    }));
+    try {
+      await expect(refreshAuthSession()).rejects.toThrow();
+      expect(getAccessToken()).toBe(authPayload.access_token);
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('keeps access tokens in memory without writing localStorage', () => {
     setAccessToken('short-lived-access-token');
 

@@ -22,6 +22,7 @@ import { AppMealLogWorkspaceRoute } from './app/AppMealLogWorkspaceRoute';
 import { AppFamilyWorkspaceRoute } from './app/AppFamilyWorkspaceRoute';
 import type { InventoryOperationResult, MealLog, UpdateMealLogPayload } from './api/types';
 import { useAuth } from './auth/AuthContext';
+import { AuthRecoveryNotice } from './auth/AuthRecoveryNotice';
 import { AuthStatusScreen, LoginScreen } from './components/LoginScreen';
 import { PageLoadingState } from './components/ui-kit';
 import { getWeekRange } from './lib/date';
@@ -71,6 +72,9 @@ function App() {
     isAuthenticated,
     isInitializing: authInitializing,
     isLoading: authLoading,
+    recoveryError: authRecoveryError,
+    isRecovering: isAuthRecovering,
+    retrySession,
     user,
     membership,
     logout,
@@ -110,6 +114,8 @@ function App() {
     aiConversationsQuery,
     activeMealRecordOperations,
     isBootLoading: isWorkspaceBootLoading,
+    homeInventoryReadState,
+    retryHomeInventory,
     members,
     ingredients,
     inventoryItems,
@@ -144,14 +150,14 @@ function App() {
   const homeBusinessDateKey = businessDateKey(new Date(), 'Asia/Shanghai');
   const homePreparedActionGroups = useMemo(
     () =>
-      buildInventoryActionGroups({
+      homeInventoryReadState.canSuggest ? buildInventoryActionGroups({
         inventoryItems,
         inventoryStates,
         ingredients,
         shoppingItems,
         referenceDate: homeBusinessDateKey,
-      }),
-    [homeBusinessDateKey, ingredients, inventoryItems, inventoryStates, shoppingItems],
+      }) : [],
+    [homeInventoryReadState.canSuggest, homeBusinessDateKey, ingredients, inventoryItems, inventoryStates, shoppingItems],
   );
   const homeEligibleInventoryActionGroupsForState = useMemo(
     () => selectHomeEligibleInventoryActionGroups(homePreparedActionGroups),
@@ -531,6 +537,7 @@ function App() {
     homeMealDetailId,
     homeRestockForm,
     inventoryActionGroups: homePreparedActionGroups,
+    inventoryReadState: homeInventoryReadState,
     resolveDashboardAssetUrl,
   });
 
@@ -766,6 +773,15 @@ function App() {
   }
 
   if (!isAuthenticated) {
+    if (authRecoveryError) {
+      return (
+        <AuthStatusScreen title="暂时无法连接家庭厨房" description={authRecoveryError}>
+          <button className="solid-button" type="button" disabled={isAuthRecovering} onClick={() => void retrySession()}>
+            {isAuthRecovering ? '正在重试…' : '重试连接'}
+          </button>
+        </AuthStatusScreen>
+      );
+    }
     return <LoginScreen />;
   }
 
@@ -816,10 +832,18 @@ function App() {
         });
       }}
     >
+      {authRecoveryError && (
+        <AuthRecoveryNotice error={authRecoveryError} busy={isAuthRecovering} onRetry={() => void retrySession()} />
+      )}
       {/* routes={{...}} is owned by AppWorkspaceRouteComposition. */}
       {/* <AppMealLogWorkspaceRoute foods={foods} /> and upsertInventoryState={(ingredientId, payload) are wired in the route composition. */}
       <Suspense fallback={<PageLoadingState title="家庭厨房" description="页面内容正在加载，请稍候。" eyebrow="正在准备" />}>
-        <AppWorkspaceRouteComposition context={routeContext} />
+        <AppWorkspaceRouteComposition
+          context={routeContext}
+          inventoryRevertPending={revertInventoryOperationMutation.isPending}
+          homeInventoryReadState={homeInventoryReadState}
+          onRetryHomeInventory={() => void retryHomeInventory()}
+        />
       </Suspense>
 
       <Suspense fallback={null}>
