@@ -35,6 +35,7 @@ jobs:
       ai_evals: ${{ steps.classify.outputs.ai_evals }}
       backend_search: ${{ steps.classify.outputs.backend_search }}
       backend_mysql: ${{ steps.classify.outputs.backend_mysql }}
+      mysql_suites: ${{ steps.classify.outputs.mysql_suites }}
       backend_migration: ${{ steps.classify.outputs.backend_migration }}
       dependency_audit: ${{ steps.classify.outputs.dependency_audit }}
       deployment_smokes: ${{ steps.classify.outputs.deployment_smokes }}
@@ -91,7 +92,15 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend service tests
-        run: npm run backend:test:service
+        run: npm run backend:test:service -- --local-only -q --durations=20 -rs --junitxml=.artifacts/pytest/service.xml --ci-selection-report=.artifacts/pytest/service.json
+      - name: Upload pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-service-tests
+          path: backend/.artifacts/pytest/
+          include-hidden-files: true
+          if-no-files-found: error
 
   backend-ai:
     name: Backend AI Tests
@@ -113,7 +122,15 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend AI tests
-        run: npm run backend:test:ai
+        run: npm run backend:test:ai -- --local-only -q --durations=20 -rs --junitxml=.artifacts/pytest/ai.xml --ci-selection-report=.artifacts/pytest/ai.json
+      - name: Upload pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-ai-tests
+          path: backend/.artifacts/pytest/
+          include-hidden-files: true
+          if-no-files-found: error
 
   ai-skill-evals:
     name: AI Skill Evaluation Gate
@@ -137,7 +154,15 @@ jobs:
       - name: Run deterministic AI skill evaluations
         env:
           CULINA_AI_EVAL_REPORT_PATH: .artifacts/ai-skill-eval-report.json
-        run: npm run backend:test:ai-evals
+        run: npm run backend:test:ai-evals -- -q --durations=20 -rs --junitxml=.artifacts/pytest/ai-evals.xml --ci-selection-report=.artifacts/pytest/ai-evals.json
+      - name: Upload pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-ai-evals-tests
+          path: backend/.artifacts/pytest/
+          include-hidden-files: true
+          if-no-files-found: error
       - name: Check AI skill thresholds
         run: npm run backend:check:ai-evals
       - name: Upload AI skill report
@@ -145,6 +170,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ai-skill-eval-report
+          include-hidden-files: true
+          if-no-files-found: error
           path: backend/.artifacts/ai-skill-eval-report.json
 
   backend-search:
@@ -167,7 +194,15 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run backend search tests
-        run: npm run backend:test:search
+        run: npm run backend:test:search -- -q --durations=20 -rs --junitxml=.artifacts/pytest/search.xml --ci-selection-report=.artifacts/pytest/search.json
+      - name: Upload pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-search-tests
+          path: backend/.artifacts/pytest/
+          include-hidden-files: true
+          if-no-files-found: error
 
   backend-mysql-suite:
     name: Backend MySQL (${{ matrix.suite }})
@@ -178,15 +213,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - suite: family-model-settings
-            command: npm run backend:test:family-model-settings -- --durations=20
-          - suite: model-usage-core
-            command: npm run backend:test:model-usage -- --ignore=tests/model_usage/test_reporting_queries_mysql.py --durations=20
-          - suite: model-usage-reporting
-            command: cd backend && .venv/bin/python -m pytest tests/model_usage/test_reporting_queries_mysql.py -q --durations=20
-          - suite: ai-resume-concurrency
-            command: cd backend && .venv/bin/python -m pytest tests/ai_infra/test_human_input_resume_mysql_concurrency.py -q --durations=20
+        suite: ${{ fromJSON(needs.classify.outputs.mysql_suites) }}
     services:
       mysql:
         image: mysql:8.4
@@ -217,23 +244,15 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
       - name: Run ${{ matrix.suite }} with MySQL 8.4
-        run: ${{ matrix.command }}
-
-  backend-model-usage:
-    name: Backend Model Usage Tests
-    if: ${{ always() && needs.backend-mysql-suite.result != 'skipped' }}
-    needs: backend-mysql-suite
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every backend MySQL suite to pass
-        env:
-          SUITE_RESULT: ${{ needs.backend-mysql-suite.result }}
-        run: |
-          if [ "$SUITE_RESULT" != "success" ]; then
-            echo "Backend MySQL suites finished with: $SUITE_RESULT"
-            exit 1
-          fi
+        run: cd backend && .venv/bin/python scripts/run_ci_test_group.py --mysql-suite=${{ matrix.suite }} -q --durations=20 -rs --junitxml=.artifacts/pytest/${{ matrix.suite }}.xml --ci-selection-report=.artifacts/pytest/${{ matrix.suite }}.json
+      - name: Upload database test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-mysql-${{ matrix.suite }}
+          path: backend/.artifacts/pytest/
+          include-hidden-files: true
+          if-no-files-found: error
 
   backend-migration-smoke:
     name: Alembic Head and Migration Smoke
@@ -301,20 +320,20 @@ jobs:
           python -m venv backend/.venv
           backend/.venv/bin/python -m pip install pip-audit==2.9.0
       - name: Audit production dependency graphs
-        run: |
-          set +e
-          npm run audit:prod 2>&1 | tee dependency-audit.log
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ] && grep -Eq '503 Service Unavailable|audit endpoint returned an error' dependency-audit.log; then
-            echo "::warning::Dependency audit service was unavailable; audit deferred to a later run."
-            exit 0
-          fi
-          exit "$status"
+        run: npm run audit:prod
+      - name: Upload dependency audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-dependency-audit
+          path: .artifacts/dependency-audit/
+          include-hidden-files: true
+          if-no-files-found: error
 
   frontend-typecheck:
     name: Frontend Typecheck
     needs: classify
-    if: needs.classify.outputs.frontend_typecheck == 'true'
+    if: needs.classify.outputs.frontend_typecheck == 'true' && needs.classify.outputs.frontend_build != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -337,6 +356,7 @@ jobs:
     timeout-minutes: 20
     env:
       FRONTEND_TEST_SCOPES: ${{ needs.classify.outputs.frontend_scopes }}
+      FRONTEND_TEST_REPORT: coverage/domain-results.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -348,11 +368,18 @@ jobs:
         run: npm ci --prefix frontend
       - name: Run selected frontend domain tests
         run: node .github/scripts/run-frontend-domain-tests.mjs
+      - name: Upload domain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-domain-tests
+          path: frontend/coverage/domain-results.json
+          if-no-files-found: error
 
   frontend-ai-contract:
     name: Frontend AI Contract
     needs: classify
-    if: needs.classify.outputs.frontend_ai_contract == 'true'
+    if: needs.classify.outputs.frontend_ai_contract == 'true' && needs.classify.outputs.frontend_full != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -365,10 +392,19 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
       - name: Run AI workspace contract tests
-        run: npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts
+        run: npm --prefix frontend test -- src/lib/aiWorkspaceContracts.test.ts --reporter=default --reporter=json --outputFile=coverage/ai-contract-results.json
+      - name: Upload AI contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-ai-contract
+          path: frontend/coverage/ai-contract-results.json
+          if-no-files-found: error
 
   frontend-vitest-shard:
-    name: Frontend Vitest Shard ${{ matrix.shard }}/2
+    name: Frontend Vitest Shard ${{ matrix.shard }}
+    outputs:
+      shard_count: ${{ steps.tests.outputs.shard_count }}
     needs: classify
     if: needs.classify.outputs.frontend_full == 'true'
     runs-on: ubuntu-latest
@@ -386,24 +422,21 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
-      - name: Run frontend test shard ${{ matrix.shard }}/2
-        run: npm run frontend:test -- --shard=${{ matrix.shard }}/2
-
-  frontend-vitest:
-    name: Frontend Vitest
-    if: ${{ always() && needs.frontend-vitest-shard.result != 'skipped' }}
-    needs: frontend-vitest-shard
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every frontend Vitest shard to pass
+      - name: Run frontend tests and collect coverage once
+        id: tests
         env:
-          SHARD_RESULT: ${{ needs.frontend-vitest-shard.result }}
-        run: |
-          if [ "$SHARD_RESULT" != "success" ]; then
-            echo "Frontend Vitest shards finished with: $SHARD_RESULT"
-            exit 1
-          fi
+          VITEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npm --prefix frontend run test:ci:shard
+      - name: Upload test and coverage blob
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-vitest-blob-${{ matrix.shard }}
+          path: |
+            frontend/.vitest-reports/
+            frontend/coverage/shard-*.json
+          include-hidden-files: true
+          if-no-files-found: error
 
   frontend-style-drift:
     name: Frontend Incremental Style Drift
@@ -421,8 +454,8 @@ jobs:
 
   frontend-governance:
     name: Frontend Governance
-    needs: classify
-    if: needs.classify.outputs.frontend_governance == 'true'
+    needs: [classify, frontend-vitest-shard, frontend-build]
+    if: ${{ always() && needs.classify.outputs.frontend_governance == 'true' && needs.frontend-vitest-shard.result == 'success' && needs.frontend-build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -478,12 +511,25 @@ jobs:
           cp .bundle-base/frontend/dist/.vite/frontend-health-manifest.json .artifacts/bundle-base/frontend-health-manifest.json
       - name: Remove comparison checkout
         run: rm -rf .bundle-base
+      - name: Download test and coverage blobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: frontend-vitest-blob-*
+          path: frontend
+          merge-multiple: true
+      - name: Merge test and coverage maps without running tests again
+        env:
+          VITEST_SHARD_COUNT: ${{ needs.frontend-vitest-shard.outputs.shard_count }}
+        run: npm --prefix frontend run test:ci:merge
       - name: Generate frontend coverage topology report
-        run: npm --prefix frontend run coverage:report
+        run: node frontend/scripts/coverage-topology-report.mjs
       - name: Generate frontend health report
         run: npm --prefix frontend run health:report -- --format json --output "$GITHUB_WORKSPACE/.artifacts/frontend-health.json"
-      - name: Build frontend logical manifest
-        run: npm --prefix frontend run build:manifest
+      - name: Download validated current build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist
       - name: Archive frontend logical manifest
         run: |
           test -s frontend/dist/.vite/frontend-health-manifest.json
@@ -495,6 +541,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-governance
+          include-hidden-files: true
           path: |
             .artifacts/frontend-health.json
             .artifacts/frontend-health-manifest.json
@@ -503,6 +550,7 @@ jobs:
             .artifacts/frontend-coverage-topology.json
             frontend/coverage/coverage-summary.json
             frontend/coverage/vitest-results.json
+            frontend/coverage/ci-summary.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -522,13 +570,22 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
-      - name: Run frontend build
-        run: npm run frontend:build
+      - name: Check types once for this build
+        run: npm run frontend:typecheck
+      - name: Build and verify production bundle
+        run: npm --prefix frontend run build:ci
+      - name: Upload validated current build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+          include-hidden-files: true
+          if-no-files-found: error
 
   frontend-e2e-p0:
     name: Frontend E2E P0
-    needs: classify
-    if: needs.classify.outputs.frontend_e2e == 'true'
+    needs: [classify, frontend-build]
+    if: ${{ always() && needs.classify.outputs.frontend_e2e == 'true' && needs.frontend-build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -542,8 +599,11 @@ jobs:
         run: npm ci --prefix frontend
       - name: Install Chromium
         run: npx --prefix frontend playwright install --with-deps chromium
-      - name: Build frontend
-        run: npm --prefix frontend run build:e2e
+      - name: Download validated current build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist
       - name: Run blocking P0 browser tests
         run: npm run frontend:e2e:p0
       - name: Upload P0 browser evidence
@@ -563,6 +623,11 @@ jobs:
     if: needs.classify.outputs.deployment_smokes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      CULINA_SMOKE_PREBUILT: '1'
+      CULINA_SMOKE_BACKEND_IMAGE: culina-smoke-backend:${{ github.sha }}
+      CULINA_SMOKE_FRONTEND_IMAGE: culina-smoke-frontend:${{ github.sha }}
+      CULINA_SMOKE_MINIO_IMAGE: culina-smoke-minio:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -572,16 +637,53 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend deployment-test dependencies
         run: npm ci --prefix frontend
+      - uses: docker/setup-buildx-action@v3
+      - name: Build cached minio smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/minio
+          file: deploy/minio/Dockerfile
+          load: true
+          tags: culina-smoke-minio:${{ github.sha }}
+          cache-from: type=gha,scope=smoke-minio
+          cache-to: type=gha,mode=max,scope=smoke-minio
+      - name: Build cached backend smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          load: true
+          tags: culina-smoke-backend:${{ github.sha }}
+          cache-from: type=gha,scope=smoke-backend
+          cache-to: type=gha,mode=max,scope=smoke-backend
+          build-args: PIP_INDEX_URL=https://pypi.org/simple
+      - name: Build cached frontend smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          load: true
+          tags: culina-smoke-frontend:${{ github.sha }}
+          cache-from: type=gha,scope=smoke-frontend
+          cache-to: type=gha,mode=max,scope=smoke-frontend
+          build-args: NPM_CONFIG_REGISTRY=https://registry.npmjs.org
       - name: Run media permission deployment smoke
         run: |
           set -o pipefail
           mkdir -p .artifacts
           npm run deploy:smoke:media 2>&1 | tee .artifacts/media-permission-smoke.log
+      - name: Run WebSocket proxy deployment smoke
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          mkdir -p .artifacts
+          npm run deploy:smoke:websocket 2>&1 | tee .artifacts/websocket-smoke.log
       - name: Upload deployment smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: deployment-compose-smokes
+          include-hidden-files: true
           path: |
             .artifacts/*.log
             frontend/playwright-report/
@@ -597,7 +699,7 @@ jobs:
       - classify
       - frontend-domain-tests
       - frontend-typecheck
-      - frontend-vitest
+      - frontend-vitest-shard
       - frontend-style-drift
       - frontend-build
       - frontend-e2e-p0
@@ -607,7 +709,7 @@ jobs:
       - backend-ai
       - ai-skill-evals
       - backend-search
-      - backend-model-usage
+      - backend-mysql-suite
       - backend-migration-smoke
       - production-dependency-audit
       - deployment-compose-smokes
@@ -622,9 +724,9 @@ jobs:
           REQUIRE_FRONTEND_FOCUS: ${{ needs.classify.outputs.frontend_focus }}
           RESULT_FRONTEND_FOCUS: ${{ needs.frontend-domain-tests.result }}
           REQUIRE_FRONTEND_TYPECHECK: ${{ needs.classify.outputs.frontend_typecheck }}
-          RESULT_FRONTEND_TYPECHECK: ${{ needs.frontend-typecheck.result }}
+          RESULT_FRONTEND_TYPECHECK: ${{ needs.classify.outputs.frontend_build == 'true' && needs.frontend-build.result || needs.frontend-typecheck.result }}
           REQUIRE_FRONTEND_FULL: ${{ needs.classify.outputs.frontend_full }}
-          RESULT_FRONTEND_FULL: ${{ needs.frontend-vitest.result }}
+          RESULT_FRONTEND_FULL: ${{ needs.frontend-vitest-shard.result }}
           REQUIRE_FRONTEND_STYLE: ${{ needs.classify.outputs.frontend_style }}
           RESULT_FRONTEND_STYLE: ${{ needs.frontend-style-drift.result }}
           REQUIRE_FRONTEND_BUILD: ${{ needs.classify.outputs.frontend_build }}
@@ -632,7 +734,7 @@ jobs:
           REQUIRE_FRONTEND_E2E: ${{ needs.classify.outputs.frontend_e2e }}
           RESULT_FRONTEND_E2E: ${{ needs.frontend-e2e-p0.result }}
           REQUIRE_FRONTEND_AI_CONTRACT: ${{ needs.classify.outputs.frontend_ai_contract }}
-          RESULT_FRONTEND_AI_CONTRACT: ${{ needs.frontend-ai-contract.result }}
+          RESULT_FRONTEND_AI_CONTRACT: ${{ needs.classify.outputs.frontend_full == 'true' && needs.frontend-vitest-shard.result || needs.frontend-ai-contract.result }}
           REQUIRE_FRONTEND_GOVERNANCE: ${{ needs.classify.outputs.frontend_governance }}
           RESULT_FRONTEND_GOVERNANCE: ${{ needs.frontend-governance.result }}
           REQUIRE_BACKEND_SERVICE: ${{ needs.classify.outputs.backend_service }}
@@ -644,7 +746,7 @@ jobs:
           REQUIRE_BACKEND_SEARCH: ${{ needs.classify.outputs.backend_search }}
           RESULT_BACKEND_SEARCH: ${{ needs.backend-search.result }}
           REQUIRE_BACKEND_MYSQL: ${{ needs.classify.outputs.backend_mysql }}
-          RESULT_BACKEND_MYSQL: ${{ needs.backend-model-usage.result }}
+          RESULT_BACKEND_MYSQL: ${{ needs.backend-mysql-suite.result }}
           REQUIRE_BACKEND_MIGRATION: ${{ needs.classify.outputs.backend_migration }}
           RESULT_BACKEND_MIGRATION: ${{ needs.backend-migration-smoke.result }}
           REQUIRE_DEPENDENCY_AUDIT: ${{ needs.classify.outputs.dependency_audit }}

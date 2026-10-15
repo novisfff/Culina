@@ -97,6 +97,9 @@ from app.schemas.inventory_intake import shopping_request_to_inventory_request
 from app.services.inventory_intake import InventoryIntakeValidationError, apply_inventory_intake
 
 
+pytestmark = pytest.mark.mysql
+
+
 def _require_test_mysql_url() -> str:
     url = (os.environ.get("CULINA_TEST_MYSQL_URL") or "").strip()
     if not url:
@@ -473,6 +476,10 @@ def mysql_concurrency_context() -> Iterator[dict]:
             ]
         )
         db.commit()
+        # Use the persisted MySQL timestamp, as an API client would. MySQL's
+        # DATETIME precision differs from Python's in-memory default value.
+        db.refresh(plan)
+        db.refresh(rebind_plan)
         plan_base_updated_at = plan.updated_at
         rebind_plan_base_updated_at = rebind_plan.updated_at
 
@@ -1910,6 +1917,19 @@ def test_recipe_delete_versus_cook_completion_serializes(mysql_concurrency_conte
             assert recipe is None
 
 
+def test_recipe_delete_rechecks_history_committed_after_its_snapshot(mysql_concurrency_context: dict) -> None:
+    ctx = mysql_concurrency_context
+    with ctx["SessionLocal"]() as db:
+        # Pin an older REPEATABLE READ snapshot before another connection adds
+        # history. The deletion guard must recheck current committed rows.
+        assert db.get(Family, ctx["family_id"]) is not None
+        result = ctx["create_rest_meal_log_in_new_session"](ctx["deletable_food_id"])
+        assert result[0] == "ok", result
+        with pytest.raises(RecipeHasHistoryError):
+            delete_recipe_with_guard(db, family_id=ctx["family_id"], actor_id=ctx["user_id"], recipe_id=ctx["deletable_recipe_id"])
+        db.rollback()
+
+
 def test_recipe_delete_versus_rest_meal_log_create_serializes(mysql_concurrency_context: dict) -> None:
     ctx = mysql_concurrency_context
     recipe_id = ctx["deletable_recipe_id"]
@@ -2109,6 +2129,8 @@ def test_ai_batch_reversed_food_plan_order_no_deadlock(mysql_concurrency_context
         )
         db.add_all([plan_a, plan_b])
         db.commit()
+        db.refresh(plan_a)
+        db.refresh(plan_b)
         plan_a_updated = plan_a.updated_at
         plan_b_updated = plan_b.updated_at
 

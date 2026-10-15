@@ -148,7 +148,7 @@ API 调用优先通过 `frontend/src/api` 中的 client 与类型封装。修改
 - model/helper 变更至少跑对应单测。
 - 页面结构、工作区编排、`app/` 组合或状态流变更，先跑相关测试和必要的 `frontend:typecheck`；只有改动影响范围或风险确实需要时，再补跑 `frontend:build` 或 `frontend:quality`。
 - 响应式、移动端或导航关键路径变更，应补跑对应的 `frontend:e2e:p0`。
-- 修改 CSS、ui-kit 或样式 token 时运行 `check:style-tokens`；该脚本是报告型检查，发现命中后必须人工判断是否为新增漂移，不能把退出码 0 当作样式验收通过。
+- 修改 CSS、ui-kit 或样式 token 时运行 `check:style-tokens`；该脚本在命中超过基线时阻断，基线内命中仍须人工判断是否为新增漂移，不能把退出码 0 当作样式验收通过。
 - 修改 AI message part、结果卡片、草稿类型或其他跨端 AI contract 时，补跑 `aiWorkspaceContracts.test.ts`，并按风险运行对应页面测试。
 
 按本次改动选择以下命令，不要求全部执行：

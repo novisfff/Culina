@@ -64,6 +64,25 @@ def load_test_groups(manifest_path: Path) -> dict[str, tuple[str, ...]]:
     return groups
 
 
+def load_mysql_suites(manifest_path: Path, groups: Mapping[str, Sequence[str]]) -> dict[str, dict]:
+    suites = json.loads(manifest_path.read_text(encoding="utf-8")).get("mysql_suites", {})
+    if not isinstance(suites, dict) or not suites:
+        raise CiTestGroupConfigurationError("mysql_suites must be a non-empty object")
+    covered: set[str] = set()
+    for name, suite in suites.items():
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or not isinstance(suite, dict):
+            raise CiTestGroupConfigurationError("invalid MySQL suite")
+        group_names = suite.get("groups")
+        if not isinstance(group_names, list) or not group_names or any(g not in groups for g in group_names):
+            raise CiTestGroupConfigurationError(f"invalid groups for MySQL suite {name}")
+        if suite.get("markers") not in ("", "mysql", "mysql_reporting", "not mysql_reporting"):
+            raise CiTestGroupConfigurationError(f"invalid marker selection for MySQL suite {name}")
+        covered.update(group_names)
+    if covered != set(groups) - {"ai_evals", "search"}:
+        raise CiTestGroupConfigurationError("MySQL suites must cover service, AI, settings and usage groups")
+    return suites
+
+
 def validate_test_groups(
     groups: Mapping[str, Sequence[str]],
     discovered_directories: Iterable[str],
@@ -125,6 +144,8 @@ def parse_args(argv: Sequence[str] | None = None) -> tuple[argparse.Namespace, l
     parser.add_argument("group", nargs="?", help="Group name from ci-test-groups.json")
     parser.add_argument("--check", action="store_true", help="Validate coverage without running pytest")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--mysql-suite", help="Run a required MySQL suite declared in the manifest")
+    parser.add_argument("--local-only", action="store_true", help="Deselect real MySQL tests for the ordinary CI job")
     return parser.parse_known_args(argv)
 
 
@@ -134,15 +155,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         groups = load_test_groups(args.manifest)
         discovered = discover_test_directories(DEFAULT_TESTS_ROOT)
         validate_test_groups(groups, discovered)
+        suites = load_mysql_suites(args.manifest, groups)
+        if (args.mysql_suite or args.local_only) and any(
+            argument == "-m" or argument.startswith("-m=") or argument.startswith("--markexpr")
+            for argument in pytest_arguments
+        ):
+            raise CiTestGroupConfigurationError("CI suite marker selection cannot be overridden")
         if args.check:
             print(
                 f"CI backend test groups cover {len(discovered)} directories "
                 f"across {len(groups)} groups."
             )
             return 0
-        if not args.group:
+        if args.mysql_suite:
+            if args.group or args.local_only or args.mysql_suite not in suites:
+                raise CiTestGroupConfigurationError("select exactly one registered MySQL suite")
+            suite = suites[args.mysql_suite]
+            directories = tuple(directory for group in suite["groups"] for directory in groups[group])
+            arguments = ["--require-mysql", "--ci-strict-skips"]
+            if suite["markers"]:
+                arguments.extend(["-m", suite["markers"]])
+            arguments.extend(pytest_arguments)
+            command = build_pytest_command("suite", {"suite": directories}, arguments)
+        elif not args.group:
             raise CiTestGroupConfigurationError("a CI test group is required unless --check is used")
-        command = build_pytest_command(args.group, groups, pytest_arguments)
+        else:
+            arguments = ["-m", "not mysql", "--ci-strict-skips", *pytest_arguments] if args.local_only else pytest_arguments
+            command = build_pytest_command(args.group, groups, arguments)
     except CiTestGroupConfigurationError as exc:
         print(f"CI test group configuration error: {exc}", file=sys.stderr)
         return 2

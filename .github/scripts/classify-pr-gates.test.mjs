@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { classifyChangedFiles } from './classify-pr-gates.mjs';
+import { classifyChangedFiles, GATE_KEYS, MYSQL_SUITE_NAMES } from './classify-pr-gates.mjs';
 import { runFrontendDomainTests } from './run-frontend-domain-tests.mjs';
 import { verifyGateResults } from './verify-pr-gates.mjs';
 import { buildAuditReport } from './audit-pr-gate-classification.mjs';
@@ -11,6 +11,56 @@ describe('classifyChangedFiles', () => {
     assert.equal(result.docsOnly, true);
     assert.equal(result.full, false);
     assert.equal(Object.values(result.gates).every((selected) => !selected), true);
+  });
+
+  it('treats runtime Skill Markdown as executable input', () => {
+    for (const name of ['SKILL.md', 'references/workflows.md']) {
+      const result = classifyChangedFiles([`backend/app/ai/skills/catalog/shopping-list/${name}`]);
+      assert.equal(result.docsOnly, false);
+      assert.equal(result.gates.backend_ai, true);
+      assert.equal(result.gates.ai_evals, true);
+    }
+  });
+
+  it('selects AI evaluations, contracts and database consumers from backend boundaries', () => {
+    const tool = classifyChangedFiles(['backend/app/ai/tools/catalog/shopping.py']);
+    assert.equal(tool.gates.ai_evals, true);
+    const schema = classifyChangedFiles(['backend/app/schemas/ai.py']);
+    assert.equal(schema.gates.frontend_ai_contract, true);
+    const repo = classifyChangedFiles(['backend/app/repos/ai_operations.py']);
+    assert.equal(repo.gates.backend_ai, true);
+    const transactions = classifyChangedFiles(['backend/app/db/transactions.py']);
+    for (const gate of ['backend_service', 'backend_ai', 'backend_search', 'backend_mysql']) {
+      assert.equal(transactions.gates[gate], true, gate);
+    }
+  });
+
+  it('keeps domain tests when CSS is added and keeps style-only scopes empty', () => {
+    for (const name of ['InventoryActionDialog.tsx', 'inventoryActionModel.ts']) {
+      const component = `frontend/src/features/inventory/${name}`;
+      const css = 'frontend/src/styles/10-inventory-actions.css';
+      for (const files of [[component, css], [css, component]]) {
+        const result = classifyChangedFiles(files);
+        assert.equal(result.gates.frontend_focus, true);
+        assert.equal(result.gates.frontend_full, false);
+        assert.equal(result.gates.frontend_e2e, true);
+        assert.deepEqual(result.frontendScopes, ['src/features/inventory']);
+      }
+    }
+    const styles = classifyChangedFiles(['frontend/src/styles/10-inventory-actions.css']);
+    assert.equal(styles.gates.frontend_focus, false);
+    assert.deepEqual(styles.frontendScopes, []);
+  });
+
+  it('selects real database tests for business and AI changes', () => {
+    for (const path of [
+      'backend/tests/inventory/test_inventory_mysql_concurrency.py',
+      'backend/tests/account/test_auth_mysql_concurrency.py',
+      'backend/tests/ai_infra/test_human_input_resume_mysql_concurrency.py',
+      'backend/app/ai/workflows/runner.py',
+    ]) {
+      assert.equal(classifyChangedFiles([path]).gates.backend_mysql, true, path);
+    }
   });
 
   it('selects the related frontend domain and typecheck for a model change', () => {
@@ -62,7 +112,7 @@ describe('classifyChangedFiles', () => {
     ]);
     assert.equal(result.gates.backend_migration, true);
     assert.equal(result.gates.backend_service, true);
-    assert.equal(result.gates.backend_mysql, false);
+    assert.equal(result.gates.backend_mysql, true);
 
     const modelUsage = classifyChangedFiles(['backend/app/models/model_usage.py']);
     assert.equal(modelUsage.gates.backend_mysql, true);
@@ -151,6 +201,18 @@ describe('classifyChangedFiles', () => {
     assert.equal(result.full, true);
     assert.equal(result.gates.frontend_focus, false);
     assert.equal(Object.entries(result.gates).every(([gate, selected]) => gate === 'frontend_focus' || selected), true);
+    assert.deepEqual([...result.mysqlSuites].sort(), [...MYSQL_SUITE_NAMES].sort());
+  });
+
+  it('selects coarse MySQL suites with shared boundary escalation', () => {
+    const service = classifyChangedFiles(['backend/app/api/inventory.py']);
+    assert.deepEqual(service.mysqlSuites, ['service-concurrency']);
+    const settings = classifyChangedFiles(['backend/app/services/family_model_settings/connection_tests.py']);
+    assert.deepEqual(settings.mysqlSuites, ['family-model-settings', 'model-usage-core', 'model-usage-reporting']);
+    const reporting = classifyChangedFiles(['backend/app/repos/model_usage/reporting.py']);
+    assert.ok(reporting.mysqlSuites.includes('model-usage-reporting'));
+    const shared = classifyChangedFiles(['backend/app/core/config.py']);
+    assert.deepEqual([...shared.mysqlSuites].sort(), [...MYSQL_SUITE_NAMES].sort());
   });
 });
 
@@ -168,6 +230,21 @@ describe('runFrontendDomainTests', () => {
 });
 
 describe('verifyGateResults', () => {
+  it('blocks every selected matrix/gate on failure, cancellation, missing results or unexpected skip', () => {
+    const env = { CLASSIFY_RESULT: 'success' };
+    for (const gate of GATE_KEYS) {
+      env[`REQUIRE_${gate.toUpperCase()}`] = 'true';
+      env[`RESULT_${gate.toUpperCase()}`] = 'success';
+    }
+    assert.doesNotThrow(() => verifyGateResults(env));
+    for (const gate of GATE_KEYS) {
+      for (const result of ['failure', 'cancelled', 'skipped', '']) {
+        assert.throws(() => verifyGateResults({ ...env, [`RESULT_${gate.toUpperCase()}`]: result }), new RegExp(gate));
+      }
+      assert.throws(() => verifyGateResults({ ...env, [`REQUIRE_${gate.toUpperCase()}`]: '' }), /classification requirement/);
+    }
+  });
+
   it('passes when selected jobs succeed and unselected jobs are skipped', () => {
     const env = { CLASSIFY_RESULT: 'success' };
     const selected = new Set(['frontend_focus', 'frontend_typecheck']);

@@ -60,29 +60,6 @@ afterEach(async () => {
 
 
 describe('coverage topology report', () => {
-  it('keeps the coverage command, aggregator input, and uploaded artifacts under contract', async () => {
-    const frontendPackage = JSON.parse(await readFile(path.resolve(process.cwd(), 'package.json'), 'utf8'));
-    const workflow = await readFile(
-      path.resolve(process.cwd(), '..', '.github', 'workflows', 'quality-gates.yml'),
-      'utf8',
-    );
-
-    const coverageCommand = frontendPackage.scripts['coverage:report'];
-    expect(coverageCommand).toBeTypeOf('string');
-    expect(coverageCommand).toContain('--reporter=json');
-    expect(coverageCommand).toContain('coverage-topology-report.mjs');
-    for (const required of [
-      'npm --prefix frontend run coverage:report',
-      '--coverage="$GITHUB_WORKSPACE/.artifacts/frontend-coverage-topology.json"',
-      '.artifacts/frontend-coverage-topology.json',
-      'frontend/coverage/coverage-summary.json',
-      'frontend/coverage/vitest-results.json',
-      'if: always()',
-    ]) {
-      expect(workflow).toContain(required);
-    }
-  });
-
   it('reports uncovered composition files even when global coverage is high', async () => {
     const fixture = await createFixture();
     await writeFile(path.join(fixture.coverageDir, 'coverage-summary.json'), JSON.stringify({

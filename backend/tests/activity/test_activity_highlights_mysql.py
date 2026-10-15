@@ -10,8 +10,11 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActivityAction, ActivityHighlightKind
-from app.models.domain import ActivityLog, Family
+from app.models.domain import ActivityLog, Base, Family
 from app.services.activity_highlights import list_activity_highlights
+
+
+pytestmark = pytest.mark.mysql
 
 
 def _mysql_test_url() -> str:
@@ -26,6 +29,7 @@ def _mysql_test_url() -> str:
 
 def test_mysql_shanghai_week_boundary_matches_naive_utc_contract() -> None:
     engine = create_engine(_mysql_test_url(), future=True)
+    Base.metadata.create_all(engine)
     connection = engine.connect()
     transaction = connection.begin()
     db = Session(bind=connection, expire_on_commit=False)
@@ -68,4 +72,5 @@ def test_mysql_shanghai_week_boundary_matches_naive_utc_contract() -> None:
         if transaction.is_active:
             transaction.rollback()
         connection.close()
+        Base.metadata.drop_all(engine)
         engine.dispose()

@@ -12,6 +12,8 @@ from scripts.model_usage_reference_artifact import (
     finalize_reference_performance_artifact,
 )
 
+pytest_plugins = ("scripts.pytest_ci",)
+
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(

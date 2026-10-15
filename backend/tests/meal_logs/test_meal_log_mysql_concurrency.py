@@ -28,6 +28,9 @@ from app.models.domain import (
 )
 
 
+pytestmark = pytest.mark.mysql
+
+
 def _require_test_mysql_url() -> str:
     url = (os.environ.get("CULINA_TEST_MYSQL_URL") or "").strip()
     if not url:

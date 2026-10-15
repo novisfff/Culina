@@ -2,6 +2,7 @@ name: culina-realtime-websocket-smoke
 
 services:
   backend:
+    image: ${CULINA_SMOKE_BACKEND_IMAGE:-culina-smoke-backend:local}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -27,13 +28,17 @@ services:
       start_period: 5s
 
   frontend:
+    image: ${CULINA_SMOKE_FRONTEND_IMAGE:-culina-smoke-frontend:local}
     build:
       context: ../..
       dockerfile: frontend/Dockerfile
       args:
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
     ports:
-      - "${CULINA_WS_SMOKE_PORT:-18080}:80"
+      - target: 80
+        published: "${CULINA_WS_SMOKE_PORT:-0}"
+        host_ip: 127.0.0.1
+        protocol: tcp
     depends_on:
       backend:
         condition: service_healthy

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const GATE_KEYS = Object.freeze([
@@ -69,6 +69,17 @@ const FRONTEND_DOMAIN_ROOTS = Object.freeze([
 const FRONTEND_PAGE_FILENAME = /(?:Workspace|Dialog|Page|View)\.(?:ts|tsx)$/;
 const FRONTEND_UNIT_FILENAME = /(?:model|helper|options|viewmodel)\.(?:ts|tsx)$/i;
 const FRONTEND_HIGH_RISK_PATH = /(?:mobile|responsive|navigation|nav|sidebar|overlay|shell)/i;
+export const MYSQL_SUITE_NAMES = Object.freeze(Object.keys(JSON.parse(
+  readFileSync(new URL('../../backend/ci-test-groups.json', import.meta.url), 'utf8'),
+).mysql_suites));
+
+function selectMysqlSuites(result, suites = MYSQL_SUITE_NAMES) {
+  for (const suite of suites) {
+    if (!MYSQL_SUITE_NAMES.includes(suite)) throw new Error(`Unknown MySQL suite: ${suite}`);
+    if (!result.mysqlSuites.includes(suite)) result.mysqlSuites.push(suite);
+  }
+  setGate(result, 'backend_mysql');
+}
 
 function normalizePath(value) {
   return value.replaceAll('\\', '/').replace(/^\.?\//, '');
@@ -79,6 +90,7 @@ function matchesAny(path, patterns) {
 }
 
 function isDocumentationPath(path) {
+  if (path.startsWith('backend/app/ai/skills/')) return false;
   return path === 'AGENTS.md' || path.startsWith('docs/') || /\.(md|mdx)$/i.test(path);
 }
 
@@ -127,6 +139,7 @@ function markRepositoryFull(result, reason = '无法可靠分类，升级为全�
   elevateRisk(result, 'full');
   result.full = true;
   for (const gate of GATE_KEYS) setGate(result, gate);
+  selectMysqlSuites(result);
   // Focused and full Vitest jobs are mutually exclusive.
   result.gates.frontend_focus = false;
   result.frontendScopes = [...FULL_FRONTEND_SCOPES];
@@ -149,6 +162,7 @@ function markBackendFull(result, reason = '后端公共范围变更，升级为�
   elevateRisk(result, 'full');
   result.full = true;
   for (const gate of BACKEND_FULL_GATES) setGate(result, gate);
+  selectMysqlSuites(result);
   if (!result.reasons.includes(reason)) result.reasons.push(reason);
 }
 
@@ -186,10 +200,16 @@ function classifyFrontendPath(result, path) {
     return true;
   }
 
-  if (path.startsWith('frontend/src/styles/') || FRONTEND_HIGH_RISK_PATH.test(path)) {
+  if (path.startsWith('frontend/src/styles/')) {
+    setDomain(result, 'frontend');
+    elevateRisk(result, 'high');
+    for (const gate of ['frontend_typecheck', 'frontend_style', 'frontend_build', 'frontend_e2e']) setGate(result, gate);
+    return true;
+  }
+
+  if (FRONTEND_HIGH_RISK_PATH.test(path)) {
     markFrontendHighRisk(result, path, '响应式、导航、移动端或全局样式变更需要 E2E');
     setGate(result, 'frontend_style');
-    if (path.startsWith('frontend/src/styles/')) result.gates.frontend_focus = false;
     return true;
   }
 
@@ -228,11 +248,16 @@ function classifyFrontendPath(result, path) {
 }
 
 function classifyBackendPath(result, path) {
-  if (path.startsWith('backend/app/ai/') || path.startsWith('backend/app/api/ai') || path.startsWith('backend/app/schemas/ai') || path.startsWith('backend/app/services/ai_') || path.startsWith('backend/tests/ai_') || path.startsWith('backend/tests/ai/')) {
+  if (path.startsWith('backend/app/ai/') || path.startsWith('backend/app/api/ai') || path.startsWith('backend/app/schemas/ai') || path.startsWith('backend/app/services/ai_') || path.startsWith('backend/app/repos/ai_') || path.startsWith('backend/tests/ai_') || path.startsWith('backend/tests/ai/')) {
     setDomain(result, 'backend-ai');
     elevateRisk(result, 'high');
     setGate(result, 'backend_ai', 'AI Runtime、Skill、Tool 或审批流变更');
-    if (path.includes('/skills/') || path.includes('/evals/') || path.startsWith('backend/tests/ai_evals/')) setGate(result, 'ai_evals', 'AI Skill catalog/eval 变更');
+    if (path.includes('/skills/') || path.includes('/tools/') || path.includes('/evals/') || path.startsWith('backend/tests/ai_evals/') || path.startsWith('backend/app/schemas/ai')) setGate(result, 'ai_evals', 'AI Skill/Tool/contract/eval 变更');
+    if (path.startsWith('backend/app/schemas/ai')) setGate(result, 'frontend_ai_contract', '后端 AI schema 变更需要前端 contract 验证');
+    if (!path.startsWith('backend/tests/ai_evals/') && !path.includes('/evals/')) {
+      selectMysqlSuites(result, ['ai-concurrency']);
+      if (path.startsWith('backend/app/')) selectMysqlSuites(result, ['service-concurrency', 'model-usage-core']);
+    }
     return true;
   }
 
@@ -240,13 +265,18 @@ function classifyBackendPath(result, path) {
     setDomain(result, 'backend-search');
     elevateRisk(result, 'high');
     setGate(result, 'backend_search', 'Search provider、索引或排序变更');
+    if (path.startsWith('backend/app/')) selectMysqlSuites(result, ['family-model-settings', 'model-usage-core', 'model-usage-reporting']);
     return true;
   }
 
   if (path.startsWith('backend/app/services/family_model_settings/') || path.startsWith('backend/app/api/family_model_settings') || path.startsWith('backend/app/repos/family_model_settings/') || path.startsWith('backend/app/schemas/family_model_settings') || path.startsWith('backend/tests/family_model_settings/') || path.startsWith('backend/app/services/model_usage/') || path.startsWith('backend/app/api/model_usage') || path.startsWith('backend/app/repos/model_usage/') || path.startsWith('backend/app/schemas/model_usage') || path.startsWith('backend/app/models/model_usage') || path.startsWith('backend/app/models/family_model_settings') || path.startsWith('backend/tests/model_usage/')) {
     setDomain(result, 'backend-model-usage');
     elevateRisk(result, 'high');
-    setGate(result, 'backend_mysql', 'Model usage/family model settings 需要 MySQL suite');
+    const isSettings = path.includes('/family_model_settings');
+    selectMysqlSuites(result, ['family-model-settings', 'model-usage-core']);
+    // Pricing, settlement, settings and search all feed reporting. Keep this
+    // boundary coarse rather than maintaining a list of individual consumers.
+    if (path.startsWith('backend/app/') || !isSettings) selectMysqlSuites(result, ['model-usage-reporting']);
     if (path.startsWith('backend/app/models/')) setGate(result, 'backend_migration', '持久化模型变更需要 migration smoke');
     return true;
   }
@@ -255,7 +285,7 @@ function classifyBackendPath(result, path) {
     setDomain(result, 'backend-migration');
     elevateRisk(result, 'high');
     setGate(result, 'backend_migration', 'Migration 或持久化模型变更需要 migration smoke');
-    if (path.startsWith('backend/app/models/')) setGate(result, 'backend_service', '模型变更补充普通后端服务测试');
+    markBackendFull(result, '共享持久化、事务或迁移变更验证全部后端消费者');
     return true;
   }
 
@@ -263,6 +293,7 @@ function classifyBackendPath(result, path) {
     setDomain(result, 'backend-service');
     elevateRisk(result, 'page');
     setGate(result, 'backend_service', '普通后端 route/service/repo 变更');
+    selectMysqlSuites(result, ['service-concurrency']);
     return true;
   }
 
@@ -303,6 +334,7 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', f
     risk: 'docs',
     domains: [],
     frontendScopes: [],
+    mysqlSuites: [],
     gates: Object.fromEntries(GATE_KEYS.map((gate) => [gate, false])),
     reasons: [],
   };
@@ -388,6 +420,8 @@ export function classifyChangedFiles(inputFiles, { eventName = 'pull_request', f
     markRepositoryFull(result, '多个业务域同时变更，升级为全量相关门禁');
   }
 
+  if (result.gates.frontend_full) result.gates.frontend_focus = false;
+  result.mysqlSuites.sort();
   return result;
 }
 
@@ -402,6 +436,7 @@ function formatClassificationSummary(result) {
     `- 风险：**${result.risk}**`,
     `- 业务域：${result.domains.length ? result.domains.join('、') : '文档'}`,
     `- 改动文件：${result.changedFiles.length}`,
+    `- MySQL 分组：${result.mysqlSuites.length ? result.mysqlSuites.join('、') : '无'}`,
     `- 选中门禁：${selectedGates.length ? selectedGates.join('、') : '无业务门禁'}`,
     `- 跳过门禁：${skippedGates.length ? skippedGates.join('、') : '无'}`,
     '',
@@ -465,6 +500,7 @@ function writeGitHubOutputs(result) {
       full: String(result.full),
       domains: JSON.stringify(result.domains),
       frontend_scopes: JSON.stringify(result.frontendScopes),
+      mysql_suites: JSON.stringify(result.mysqlSuites),
       classification: JSON.stringify(result),
     };
     for (const gate of GATE_KEYS) outputs[gate] = String(result.gates[gate]);

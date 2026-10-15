@@ -30,7 +30,10 @@
     "check:css-layers": "node scripts/css-layer-contract.mjs",
     "report:dead-selectors": "node scripts/dead-selectors.mjs",
     "check:style-tokens": "node scripts/check-style-token-drift.mjs",
-    "quality": "npm run typecheck && npm run test && npm run check:style-tokens"
+    "quality": "npm run typecheck && npm run test && npm run check:style-tokens",
+    "test:ci:shard": "node scripts/vitest-ci.mjs shard",
+    "test:ci:merge": "node scripts/vitest-ci.mjs merge",
+    "build:ci": "vite build --config vite.config.ts && node scripts/check-bundle-budgets.mjs --mode=target"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.64.2",

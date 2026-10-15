@@ -10,7 +10,7 @@
     "deploy:logs": "cd deploy && docker compose logs -f",
     "deploy:test:smoke-utils": "node --test deploy/tests/media-permission-smoke-utils.test.mjs",
     "deploy:smoke:media": "node deploy/tests/run-media-permission-smoke.mjs",
-    "deploy:smoke": "npm run deploy:smoke:media",
+    "deploy:smoke": "npm run deploy:smoke:media && npm run deploy:smoke:websocket",
     "frontend:install": "npm --prefix frontend install",
     "dev": "npm --prefix frontend run dev --",
     "build": "npm --prefix frontend run build --",
@@ -48,8 +48,9 @@
     "backend:test:search": "cd backend && .venv/bin/python scripts/run_ci_test_group.py search",
     "backend:test:coverage": "cd backend && .venv/bin/python -m pytest tests --cov=app --cov-report=term --cov-report=json:coverage.json",
     "backend:audit:prod": "cd backend && .venv/bin/python -m pip_audit -r requirements.txt",
-    "audit:prod": "npm run frontend:audit:prod && npm run backend:audit:prod",
+    "audit:prod": "node .github/scripts/audit-production-dependencies.mjs",
     "backend:typecheck": "cd backend && PYTHONPATH=. .venv/bin/python -m compileall -q app tests",
-    "backend:quality": "npm run backend:typecheck && npm run backend:test"
+    "backend:quality": "npm run backend:typecheck && npm run backend:test",
+    "deploy:smoke:websocket": "node deploy/tests/run-realtime-websocket-smoke.mjs"
   }
 }

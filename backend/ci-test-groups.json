@@ -30,5 +30,12 @@
     "search": [
       "search"
     ]
+  },
+  "mysql_suites": {
+    "service-concurrency": { "groups": ["service"], "markers": "mysql" },
+    "ai-concurrency": { "groups": ["ai"], "markers": "mysql" },
+    "family-model-settings": { "groups": ["family_model_settings"], "markers": "" },
+    "model-usage-core": { "groups": ["model_usage"], "markers": "not mysql_reporting" },
+    "model-usage-reporting": { "groups": ["model_usage"], "markers": "mysql_reporting" }
   }
 }

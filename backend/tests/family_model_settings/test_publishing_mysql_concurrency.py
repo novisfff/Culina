@@ -47,6 +47,9 @@ from tests.family_model_settings._support import StaticResolver, make_cipher
 from app.services.family_model_settings.network_policy import ProviderNetworkPolicy
 
 
+pytestmark = pytest.mark.mysql
+
+
 FAMILY_ID = "family-publishing-mysql"
 
 

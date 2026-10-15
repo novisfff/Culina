@@ -30,6 +30,9 @@ from app.models.domain import (
 from app.services.ai_timeline import AITimelineService
 
 
+pytestmark = pytest.mark.mysql
+
+
 FAMILY_ID = "family-human-input-mysql"
 USER_ID = "user-human-input-mysql"
 CONVERSATION_ID = "conversation-human-input-mysql"

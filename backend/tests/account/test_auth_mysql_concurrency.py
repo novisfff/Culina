@@ -22,6 +22,9 @@ from app.main import app
 from app.models.domain import Base, Family, Membership, User, UserCredential
 
 
+pytestmark = pytest.mark.mysql
+
+
 LOCAL_ORIGIN = "http://localhost:5173"
 
 

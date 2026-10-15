@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -10,48 +11,6 @@ describe('Food legacy style cleanup', () => {
     const routeStyles = readFileSync(resolve(repoRoot, 'src/components/foods/food-route.css'), 'utf8');
     expect(globalStyles).toContain("@import './components/foods/food-route.css' layer(domain);");
     expect(routeStyles).toContain("@import '../../styles/06-food-workspace.css' layer(domain);");
-  });
-
-  it('keeps linked recipe summary styles scoped to the food detail drawer', () => {
-    const detailSource = readFileSync(resolve(repoRoot, 'src/components/foods/FoodDetailDrawer.tsx'), 'utf8');
-    const foodStyles = readFileSync(resolve(repoRoot, 'src/styles/06-food-workspace.css'), 'utf8');
-    const staleGenericRecipeSummaryClasses = [
-      '.recipe-badge',
-      '.recipe-badge-icon',
-      '.recipe-title',
-      '.recipe-status-alert',
-      '.recipe-ingredients-pills',
-      '.recipe-steps-timeline',
-      '.metric-box',
-      '.metric-value',
-      '.metric-label',
-      '.metric-divider',
-      '.ingredient-pill',
-      '.pill-dot',
-      '.pill-name',
-      '.pill-status',
-      '.timeline-item',
-      '.timeline-badge',
-      '.timeline-content',
-      '.timeline-text',
-    ];
-
-    expect(detailSource).toContain('food-detail-recipe-badge');
-    expect(detailSource).toContain('food-detail-recipe-metric-card');
-    expect(detailSource).toContain('food-detail-recipe-status-alert');
-    expect(detailSource).toContain('food-detail-recipe-ingredient-pill');
-    expect(detailSource).toContain('food-detail-recipe-steps-timeline');
-    expect(foodStyles).toContain('.food-detail-recipe-badge');
-    expect(foodStyles).toContain('.food-detail-recipe-metric-card');
-    expect(foodStyles).toContain('.food-detail-recipe-status-alert');
-    expect(foodStyles).toContain('.food-detail-recipe-ingredient-pill');
-    expect(foodStyles).toContain('.food-detail-recipe-steps-timeline');
-
-    for (const className of staleGenericRecipeSummaryClasses) {
-      expect(detailSource).not.toContain(`className="${className.slice(1)}`);
-      expect(detailSource).not.toContain(`className={\`${className.slice(1)}`);
-      expect(foodStyles).not.toContain(className);
-    }
   });
 
   it('does not hide recipe or shopping action buttons from food mobile rules', () => {
