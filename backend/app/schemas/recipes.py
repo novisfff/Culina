@@ -265,7 +265,7 @@ class RecipeStatsOut(BaseModel):
 class FoodPlanItemOut(BaseModel):
     id: str
     family_id: str
-    user_id: str
+    user_id: str | None = Field(default=None, description="兼容的创建者引用，不用于菜单访问控制")
     food_id: str
     food_name: str
     food_type: str

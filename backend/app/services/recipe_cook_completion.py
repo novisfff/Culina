@@ -404,7 +404,6 @@ def discover_completion_inventory_candidates(
             select(FoodPlanItem)
             .where(
                 FoodPlanItem.family_id == command.family_id,
-                FoodPlanItem.user_id == command.actor_user_id,
                 FoodPlanItem.id == command.food_plan_item_id,
             )
             .options(selectinload(FoodPlanItem.food))

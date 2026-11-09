@@ -326,14 +326,13 @@ def recipe_preview_cook(context: ToolContext, payload: dict[str, Any]) -> dict[s
             .options(selectinload(FoodPlanItem.food))
             .where(
                 FoodPlanItem.family_id == context.family_id,
-                FoodPlanItem.user_id == context.user_id,
                 FoodPlanItem.id == plan_item_id,
             )
         )
         if plan_item is None:
             plan_item_warning = {
                 "code": "plan_item_not_found",
-                "message": "计划项不存在或不属于当前用户，已仅返回不关联计划的做菜预览。",
+                "message": "计划项不存在或不属于当前家庭，已仅返回不关联计划的做菜预览。",
                 "planItemId": plan_item_id,
             }
         elif plan_item.food is None or plan_item.food.recipe_id != recipe.id:

@@ -1148,19 +1148,19 @@ def test_simple_plan_hard_limits_and_indexed_requirements(policy_seed: PolicySee
     assert decision.route == expected
 
 
-def test_simple_plan_no_change_requires_all_unique_planned_items(policy_seed: PolicySeed) -> None:
+def test_simple_plan_no_change_recognizes_other_members_shared_plans(policy_seed: PolicySeed) -> None:
     payload = _simple_plan(policy_seed, count=2, start_offset=30)
     for index, item in enumerate(payload["items"]):
         policy_seed.db.add(FoodPlanItem(
             id=f"existing-plan-{index}",
             family_id=policy_seed.family_id,
-            user_id=policy_seed.actor_id,
+            user_id=policy_seed.other_member_id,
             food_id=item["foodId"],
             plan_date=date.fromisoformat(item["date"]),
             meal_type=MealType(item["mealType"]),
             status="planned",
-            created_by=policy_seed.actor_id,
-            updated_by=policy_seed.actor_id,
+            created_by=policy_seed.other_member_id,
+            updated_by=policy_seed.other_member_id,
         ))
     policy_seed.db.commit()
     _, all_satisfied = _evaluate(policy_seed, draft_type="meal_plan", payload=payload)
@@ -1181,7 +1181,7 @@ def test_simple_plan_no_change_lock_is_family_scoped_and_parent_first(policy_see
         policy_seed.db.add(FoodPlanItem(
             id=f"locked-plan-{index}",
             family_id=policy_seed.family_id,
-            user_id=policy_seed.actor_id,
+            user_id=policy_seed.other_member_id,
             food_id=item["foodId"],
             plan_date=date.fromisoformat(item["date"]),
             meal_type=MealType(item["mealType"]),

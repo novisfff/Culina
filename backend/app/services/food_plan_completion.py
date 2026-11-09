@@ -63,7 +63,6 @@ def _load_plan_item_unlocked(
         select(FoodPlanItem)
         .where(
             FoodPlanItem.family_id == family_id,
-            FoodPlanItem.user_id == user_id,
             FoodPlanItem.id == item_id,
         )
         .options(selectinload(FoodPlanItem.food))
@@ -182,11 +181,11 @@ def complete_food_plan_item(db: Session, command: CompleteFoodPlanItemCommand) -
         select(FoodPlanItem)
         .where(
             FoodPlanItem.family_id == command.family_id,
-            FoodPlanItem.user_id == command.actor_user_id,
             FoodPlanItem.id == command.item_id,
         )
         .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if plan_item is None:
         raise FoodPlanConflict("food_plan_item_not_found", "餐食计划不存在或已被删除")

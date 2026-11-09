@@ -146,7 +146,6 @@ class SimplePlanPolicy:
             existing = list(context.db.scalars(
                 select(FoodPlanItem).where(
                     FoodPlanItem.family_id == context.family_id,
-                    FoodPlanItem.user_id == context.actor_user_id,
                     FoodPlanItem.food_id == food_id,
                     FoodPlanItem.plan_date == plan_date,
                     FoodPlanItem.meal_type == meal_type,
@@ -189,7 +188,6 @@ class SimplePlanPolicy:
                 select(FoodPlanItem)
                 .where(
                     FoodPlanItem.family_id == context.family_id,
-                    FoodPlanItem.user_id == context.actor_user_id,
                     tuple_(
                         FoodPlanItem.plan_date,
                         FoodPlanItem.meal_type,

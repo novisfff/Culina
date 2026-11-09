@@ -288,7 +288,7 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(second_meal["id"], first_meal["id"])
             self.assertEqual(len(second_meal["food_entries"]), 2)
 
-        def test_get_food_plan_item_by_id_is_scoped_to_current_user(self) -> None:
+        def test_get_food_plan_item_by_id_keeps_creator_reference(self) -> None:
             food = self._create_food_for_plan(name="本人计划食物")
             plan = self._create_plan_item(food_id=food["id"])
 
@@ -300,16 +300,16 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
             self.assertEqual(payload["user_id"], self.user.id)
             self.assertTrue(payload["updated_at"])
 
-        def test_get_food_plan_item_hides_other_user(self) -> None:
-            food = self._create_food_for_plan(name="他人不可见计划")
+        def test_get_food_plan_item_is_shared_with_family_member(self) -> None:
+            food = self._create_food_for_plan(name="家庭共享计划")
             plan = self._create_plan_item(food_id=food["id"])
 
             other_user, other_membership = self._create_family_member()
             self._authenticate_as(other_user.id, other_membership.id)
 
             response = self.client.get(f"/api/food-plan/{plan['id']}")
-            self.assertEqual(response.status_code, 404, response.text)
-            self.assertEqual(response.json()["detail"], "Food plan item not found")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["id"], plan["id"])
 
         def test_get_food_plan_item_missing_returns_404(self) -> None:
             response = self.client.get("/api/food-plan/food-plan-missing")

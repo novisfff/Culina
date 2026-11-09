@@ -120,7 +120,7 @@ def test_keyword_search_treats_title_contains_as_strong_match() -> None:
     assert hits[1].keyword_score < hits[0].keyword_score
 
 
-def _private_search_document(
+def _search_document_for_creator(
     *,
     entity_type: str,
     entity_id: str,
@@ -147,7 +147,7 @@ def _private_search_document(
     )
 
 
-def test_keyword_search_filters_private_meal_plans_before_like_limit() -> None:
+def test_keyword_search_includes_other_members_plans_before_like_limit() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
@@ -156,7 +156,7 @@ def test_keyword_search_filters_private_meal_plans_before_like_limit() -> None:
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
         db.add(
-            _private_search_document(
+            _search_document_for_creator(
                 entity_type="meal_plan",
                 entity_id="current-user-plan",
                 user_id="user-current",
@@ -166,7 +166,7 @@ def test_keyword_search_filters_private_meal_plans_before_like_limit() -> None:
             )
         )
         db.add_all(
-            _private_search_document(
+            _search_document_for_creator(
                 entity_type="meal_plan",
                 entity_id=f"other-user-plan-{index}",
                 user_id="user-other",
@@ -188,10 +188,10 @@ def test_keyword_search_filters_private_meal_plans_before_like_limit() -> None:
             limit=3,
         )
 
-    assert [hit.entity_id for hit in hits] == ["current-user-plan"]
+    assert {hit.entity_id for hit in hits} == {f"other-user-plan-{index}" for index in range(3)}
 
 
-def test_keyword_search_filters_private_meal_plans_before_compact_scan_limit() -> None:
+def test_keyword_search_includes_other_members_plans_before_compact_scan_limit() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
@@ -200,7 +200,7 @@ def test_keyword_search_filters_private_meal_plans_before_compact_scan_limit() -
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
         db.add(
-            _private_search_document(
+            _search_document_for_creator(
                 entity_type="meal_plan",
                 entity_id="current-user-plan",
                 user_id="user-current",
@@ -210,7 +210,7 @@ def test_keyword_search_filters_private_meal_plans_before_compact_scan_limit() -
             )
         )
         db.add_all(
-            _private_search_document(
+            _search_document_for_creator(
                 entity_type="meal_plan",
                 entity_id=f"other-user-plan-{index}",
                 user_id="user-other",
@@ -232,10 +232,10 @@ def test_keyword_search_filters_private_meal_plans_before_compact_scan_limit() -
             limit=1,
         )
 
-    assert [hit.entity_id for hit in hits] == ["current-user-plan"]
+    assert [hit.entity_id for hit in hits] == ["other-user-plan-299"]
 
 
-def test_keyword_search_without_user_excludes_private_plans_before_mixed_scope_limit() -> None:
+def test_keyword_search_without_user_includes_family_plans() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
@@ -245,7 +245,7 @@ def test_keyword_search_without_user_excludes_private_plans_before_mixed_scope_l
         db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
         db.add_all(
             [
-                _private_search_document(
+                _search_document_for_creator(
                     entity_type="recipe",
                     entity_id="family-recipe",
                     user_id=None,
@@ -253,7 +253,7 @@ def test_keyword_search_without_user_excludes_private_plans_before_mixed_scope_l
                     keyword_text="family dinner",
                     updated_at=now,
                 ),
-                _private_search_document(
+                _search_document_for_creator(
                     entity_type="meal_plan",
                     entity_id="private-plan",
                     user_id="user-other",
@@ -274,10 +274,10 @@ def test_keyword_search_without_user_excludes_private_plans_before_mixed_scope_l
             limit=1,
         )
 
-    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("recipe", "family-recipe")]
+    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("meal_plan", "private-plan")]
 
 
-def test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scope_limit() -> None:
+def test_keyword_search_with_empty_user_includes_family_plans() -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True, class_=Session)
@@ -287,7 +287,7 @@ def test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scop
         db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
         db.add_all(
             [
-                _private_search_document(
+                _search_document_for_creator(
                     entity_type="recipe",
                     entity_id="family-recipe",
                     user_id=None,
@@ -295,7 +295,7 @@ def test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scop
                     keyword_text="family dinner",
                     updated_at=now,
                 ),
-                _private_search_document(
+                _search_document_for_creator(
                     entity_type="meal_plan",
                     entity_id="empty-user-plan",
                     user_id="",
@@ -325,8 +325,8 @@ def test_keyword_search_with_empty_user_excludes_private_plans_before_mixed_scop
             limit=1,
         )
 
-    assert [(hit.entity_type, hit.entity_id) for hit in mixed_scope_hits] == [("recipe", "family-recipe")]
-    assert meal_plan_hits == []
+    assert [(hit.entity_type, hit.entity_id) for hit in mixed_scope_hits] == [("meal_plan", "empty-user-plan")]
+    assert [hit.entity_id for hit in meal_plan_hits] == ["empty-user-plan"]
 
 
 def test_keyword_search_merges_fulltext_with_substring_fallback_for_short_chinese_query() -> None:
@@ -418,7 +418,7 @@ def test_compact_fallback_selects_only_matching_fields() -> None:
     with SessionLocal() as db:
         db.add(Family(id="family-1", name="一号家庭", created_at=now, updated_at=now))
         db.add(
-            _private_search_document(
+            _search_document_for_creator(
                 entity_type="ingredient",
                 entity_id="ingredient-chicken",
                 user_id=None,
@@ -555,8 +555,8 @@ def test_mysql_keyword_search_statement_uses_fulltext_indexes() -> None:
     assert "MATCH(keyword_text) AGAINST" in compiled
     assert "MATCH(detail_text) AGAINST" in compiled
     assert "entity_type IN" in compiled
-    assert "%s IS NOT NULL" in compiled
-    assert "JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.user_id')) = %s" in compiled
+    assert "WHERE family_id = %s" in compiled
+    assert "$.user_id" not in compiled
     assert "* 0.55" in compiled
     assert "* 0.35" in compiled
     assert "* 0.10" in compiled

@@ -300,11 +300,11 @@ def _complete_requested_plan_items(
             select(FoodPlanItem)
             .where(
                 FoodPlanItem.family_id == family_id,
-                FoodPlanItem.user_id == actor_user_id,
                 FoodPlanItem.id.in_(ordered_ids),
             )
             .order_by(FoodPlanItem.id.asc())
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     )
     items_by_id = {item.id: item for item in plan_items}

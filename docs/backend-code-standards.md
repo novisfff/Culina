@@ -96,6 +96,7 @@ Culina 的核心边界：
 
 - 一个业务对象只属于一个家庭，跨家庭引用必须禁止。
 - `Food`、`Recipe`、`Ingredient`、`InventoryItem`、`ShoppingListItem`、`MealLog` 等实体都要按家庭隔离。
+- `FoodPlanItem` 餐食计划由家庭共享，家庭成员均可维护；兼容字段 `user_id` 只记录创建者，不参与访问控制，删除创建者不能级联删除共享计划。实际操作者由审计字段与活动日志记录，用餐人员由餐食参与人表达。
 - 自做菜和菜谱存在同步关系时，优先复用 `recipe_food_sync` 相关逻辑，不重复实现。
 - 库存扣减、单位换算和菜谱可做性优先复用 `inventory_usage`、`ingredient_units` 等 service。
 - 媒体资产绑定、更新和归属校验优先复用 `backend/app/services/media.py` 与 `backend/app/repos/media.py`。

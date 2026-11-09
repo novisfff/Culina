@@ -207,6 +207,8 @@ Skill manifest 对模型提供两种记录，不能混用：
 
 `quick_task=today_recommendation` 必须路由到 `meal_plan`，`today_recommendation` 只作为结果卡片类型使用。
 
+餐食计划由家庭共享。`meal_plan`、`meal_log` 和 `recipe_cook` 的计划读取、目标校验及正式执行均以当前家庭授权，不按计划创建者过滤；实际操作者和餐食参与人分别记录。业务计划的共享范围不改变 AI 会话与审批本身的访问权限。
+
 ## 6. Orchestrator 与 Runtime
 
 默认主路径位于 `backend/app/ai/workflows/orchestrator/` 包入口，`WorkspaceOrchestratorAgent` 的当前实现位于 `backend/app/ai/workflows/orchestrator/agent.py`，并由 `WorkspaceGraphRunner` 调用。

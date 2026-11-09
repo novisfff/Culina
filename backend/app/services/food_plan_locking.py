@@ -166,7 +166,6 @@ def _load_plan_items_for_discovery(
             select(FoodPlanItem)
             .where(
                 FoodPlanItem.family_id == family_id,
-                FoodPlanItem.user_id == user_id,
                 FoodPlanItem.id.in_(ordered_ids),
             )
             .options(selectinload(FoodPlanItem.food))
@@ -183,7 +182,7 @@ def discover_food_plan_write_intents(
     operations: Sequence[Mapping[str, Any]] | None = None,
     intents: Sequence[FoodPlanWriteIntent] | None = None,
 ) -> list[FoodPlanWriteIntent]:
-    """Pre-read plan candidates without locking and record current Food IDs."""
+    """Discover family-shared plans; user_id is retained for caller compatibility."""
     if intents is None:
         if operations is None:
             return []
@@ -229,7 +228,7 @@ def lock_food_plan_write_intents(
     user_id: str,
     intents: Sequence[FoodPlanWriteIntent],
 ) -> LockedFoodPlanTargets:
-    """Lock Food parents first, then FoodPlanItem rows, and revalidate the whole set."""
+    """Lock Food then family-shared plans; user_id never narrows visibility."""
     food_ids = _unique_sorted_ids(
         [
             *[intent.current_food_id for intent in intents],
@@ -258,12 +257,12 @@ def lock_food_plan_write_intents(
                 select(FoodPlanItem)
                 .where(
                     FoodPlanItem.family_id == family_id,
-                    FoodPlanItem.user_id == user_id,
                     FoodPlanItem.id.in_(item_ids),
                 )
                 .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
                 .order_by(FoodPlanItem.id.asc())
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         if len(locked_items) != len(item_ids):
@@ -281,7 +280,7 @@ def lock_food_plan_write_intents(
         item = items_by_id.get(intent.item_id)
         if item is None:
             raise FoodPlanConflict("food_plan_targets_changed", "菜单计划目标已变化，请刷新后重试")
-        if item.family_id != family_id or item.user_id != user_id:
+        if item.family_id != family_id:
             raise FoodPlanConflict("food_plan_item_not_found", "餐食计划不存在或已被删除")
         if intent.current_food_id is not None and item.food_id != intent.current_food_id:
             raise FoodPlanConflict("food_plan_targets_changed", "菜单计划目标已变化，请刷新后重试")
@@ -331,11 +330,11 @@ def lock_plan_item_after_food(
         select(FoodPlanItem)
         .where(
             FoodPlanItem.family_id == family_id,
-            FoodPlanItem.user_id == user_id,
             FoodPlanItem.id == item_id,
         )
         .options(selectinload(FoodPlanItem.food))
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if plan_item is None:
         raise FoodPlanConflict("food_plan_item_not_found", "餐食计划不存在或已被删除")

@@ -7,7 +7,8 @@ import type { CookRecipeShortage, Recipe, RecipeScene } from './recipe';
 export interface FoodPlanItem {
   id: string;
   family_id: string;
-  user_id: string;
+  /** 创建者的兼容引用；菜单按 family_id 共享。 */
+  user_id: string | null;
   food_id: string;
   food_name: string;
   food_type: FoodType | string;

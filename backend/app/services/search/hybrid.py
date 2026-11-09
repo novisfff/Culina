@@ -918,34 +918,10 @@ def _search_vectors(
     vector: list[float],
     limit: int,
 ) -> list[VectorSearchHit]:
-    if not user_id:
-        family_visible_scopes = [scope for scope in scopes if scope != "meal_plan"]
-        if not family_visible_scopes:
-            return []
-        return _with_global_semantic_ranks(
-            vector_store.search(
-                family_id=family_id,
-                scopes=family_visible_scopes,
-                vector=vector,
-                limit=limit,
-            ),
-            limit=limit,
-        )
-    if "meal_plan" not in scopes:
-        return _with_global_semantic_ranks(
-            vector_store.search(family_id=family_id, scopes=scopes, vector=vector, limit=limit),
-            limit=limit,
-        )
-    hits: list[VectorSearchHit] = []
-    other_scopes = [scope for scope in scopes if scope != "meal_plan"]
-    if other_scopes:
-        hits.extend(vector_store.search(
-            family_id=family_id, scopes=other_scopes, vector=vector, limit=limit, user_id=None,
-        ))
-    hits.extend(vector_store.search(
-        family_id=family_id, scopes=["meal_plan"], vector=vector, limit=limit, user_id=user_id,
-    ))
-    return _with_global_semantic_ranks(hits, limit=limit)
+    return _with_global_semantic_ranks(
+        vector_store.search(family_id=family_id, scopes=scopes, vector=vector, limit=limit),
+        limit=limit,
+    )
 
 
 def _load_candidate_documents(
@@ -1167,13 +1143,12 @@ def _load_existing_business_keys(
                 select(Recipe.id).where(Recipe.family_id == family_id, Recipe.id.in_(recipe_ids))
             )
         )
-    if meal_plan_ids and user_id:
+    if meal_plan_ids:
         existing.update(
             ("meal_plan", entity_id)
             for entity_id in db.scalars(
                 select(FoodPlanItem.id).where(
                     FoodPlanItem.family_id == family_id,
-                    FoodPlanItem.user_id == user_id,
                     FoodPlanItem.id.in_(meal_plan_ids),
                 )
             )
@@ -1200,7 +1175,7 @@ def _load_business_signals(
         signals.update(_load_ingredient_business_signals(db, family_id=family_id, ingredient_ids=ingredient_ids, today=today))
     if food_ids:
         signals.update(_load_food_business_signals(db, family_id=family_id, food_ids=food_ids, today=today))
-    if meal_plan_ids and user_id:
+    if meal_plan_ids:
         signals.update(_load_meal_plan_business_signals(db, family_id=family_id, user_id=user_id, meal_plan_ids=meal_plan_ids, today=today))
     if not recipe_ids:
         return signals
@@ -1447,7 +1422,7 @@ def _load_meal_plan_business_signals(
     db: Session,
     *,
     family_id: str,
-    user_id: str,
+    user_id: str | None,
     meal_plan_ids: list[str],
     today,
 ) -> dict[tuple[str, str], SearchBusinessSignals]:
@@ -1455,7 +1430,6 @@ def _load_meal_plan_business_signals(
         db.scalars(
             select(FoodPlanItem).where(
                 FoodPlanItem.family_id == family_id,
-                FoodPlanItem.user_id == user_id,
                 FoodPlanItem.id.in_(meal_plan_ids),
             )
         )
