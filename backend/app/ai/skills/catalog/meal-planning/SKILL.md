@@ -29,7 +29,7 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - 推荐项必须有工具返回的真实 `foodId` 或 `recipeId`；名称、图片、分类、制作时间等由工具按真实 ID 补齐。
 - 正式计划的 `foodId` 来自 `food.search` 或 `food.read_by_id`，标题与 Food 名称一致；`recipeId` 只使用该 Food 已关联的真实菜谱，否则为 `null`。
 - 修改计划用 `meal_plan.read_by_id` 或明确列表定位；历史 artifact 只有摘要时先调用 `workspace.read_artifact` 读取完整 `items`。
-- `FoodPlanItem` 读取按当前用户和家庭时区隔离，不越权读取其他成员个人计划。
+- `FoodPlanItem` 是家庭共享计划，读取和修改按当前家庭隔离，日期按家庭时区解释；家庭成员可共同维护，不访问其他家庭的计划。
 
 ## 候选处理
 

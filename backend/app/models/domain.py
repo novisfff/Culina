@@ -101,7 +101,7 @@ class User(AuditMixin, Base):
 
     credential: Mapped["UserCredential"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
     memberships: Mapped[list["Membership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    food_plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    food_plan_items: Mapped[list["FoodPlanItem"]] = relationship(back_populates="user")
 
 
 class UserCredential(Base):
@@ -511,7 +511,8 @@ class FoodPlanItem(AuditMixin, Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: create_id("food-plan"))
     family_id: Mapped[str] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Compatibility creator reference; plans are owned and authorized by family_id.
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     food_id: Mapped[str] = mapped_column(ForeignKey("foods.id", ondelete="CASCADE"), nullable=False, index=True)
     plan_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     meal_type: Mapped[MealType] = mapped_column(SqlEnum(MealType, native_enum=False), nullable=False)
@@ -522,7 +523,7 @@ class FoodPlanItem(AuditMixin, Base):
     row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
 
     family: Mapped["Family"] = relationship(back_populates="food_plan_items")
-    user: Mapped["User"] = relationship(back_populates="food_plan_items")
+    user: Mapped["User | None"] = relationship(back_populates="food_plan_items")
     food: Mapped["Food"] = relationship(back_populates="plan_items")
 
     __mapper_args__ = {"version_id_col": row_version}

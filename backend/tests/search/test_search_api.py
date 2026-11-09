@@ -90,6 +90,14 @@ def _search_test_client() -> tuple[TestClient, sessionmaker[Session]]:
             note="晚餐安排",
             status="planned",
         )
+        other_family_food = Food(
+            id="food-other-family", family_id=other_family.id, name="番茄面", type=FoodType.INSTANT,
+        )
+        other_family_plan = FoodPlanItem(
+            id="plan-other-family", family_id=other_family.id, user_id=other_user.id,
+            food_id=other_family_food.id, food=other_family_food,
+            plan_date=date(2026, 6, 29), meal_type=MealType.DINNER, note="晚餐安排", status="planned",
+        )
         db.add_all(
             [
                 family,
@@ -102,6 +110,8 @@ def _search_test_client() -> tuple[TestClient, sessionmaker[Session]]:
                 own_plan,
                 later_plan,
                 other_user_plan,
+                other_family_food,
+                other_family_plan,
             ]
         )
         db.flush()
@@ -109,6 +119,7 @@ def _search_test_client() -> tuple[TestClient, sessionmaker[Session]]:
         upsert_search_document(db, build_ingredient_search_document(other_ingredient))
         upsert_search_document(db, build_meal_plan_search_document(own_plan))
         upsert_search_document(db, build_meal_plan_search_document(other_user_plan))
+        upsert_search_document(db, build_meal_plan_search_document(other_family_plan))
         db.commit()
 
     def override_db():
@@ -277,7 +288,7 @@ def test_search_api_rejects_unknown_scope() -> None:
     assert response.json()["detail"] == "不支持的搜索范围：unknown"
 
 
-def test_search_api_returns_only_current_user_meal_plan_results() -> None:
+def test_search_api_returns_family_members_meal_plan_results() -> None:
     client, _ = _search_test_client()
     try:
         response = client.get("/api/search", params={"q": "晚餐安排", "scopes": "meal_plan"})
@@ -286,8 +297,8 @@ def test_search_api_returns_only_current_user_meal_plan_results() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 1
-    assert [item["entity_id"] for item in payload["items"]] == ["plan-own"]
+    assert payload["total"] == 2
+    assert {item["entity_id"] for item in payload["items"]} == {"plan-own", "plan-other-user"}
     assert payload["items"][0]["entity_type"] == "meal_plan"
     assert payload["items"][0]["entity"]["food_name"] == "番茄面"
 

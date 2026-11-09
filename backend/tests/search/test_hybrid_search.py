@@ -192,7 +192,7 @@ def _seed_title_and_semantic_candidates():
     return SessionLocal
 
 
-def test_search_vectors_rebuilds_global_rank_by_score_across_private_and_family_scopes() -> None:
+def test_search_vectors_uses_family_scope_for_plans_and_other_entities() -> None:
     vector_store = FakeVectorStore([
         VectorSearchHit("recipe", "recipe-high", 0.91, 2),
         VectorSearchHit("recipe", "recipe-low", 0.62, 1),
@@ -215,12 +215,11 @@ def test_search_vectors_rebuilds_global_rank_by_score_across_private_and_family_
         ("recipe-low", 0.62, 3),
     ]
     assert vector_store.calls == [
-        {"family_id": "family-1", "scopes": ["recipe"], "limit": 3, "user_id": None},
-        {"family_id": "family-1", "scopes": ["meal_plan"], "limit": 3, "user_id": "user-1"},
+        {"family_id": "family-1", "scopes": ["recipe", "meal_plan"], "limit": 3, "user_id": None},
     ]
 
 
-def test_search_vectors_without_user_excludes_meal_plans_from_mixed_scope_recall() -> None:
+def test_search_vectors_without_user_includes_family_meal_plans() -> None:
     vector_store = FakeVectorStore([
         VectorSearchHit("meal_plan", "plan-private", 0.99, 1),
         VectorSearchHit("recipe", "recipe-visible", 0.82, 2),
@@ -235,13 +234,13 @@ def test_search_vectors_without_user_excludes_meal_plans_from_mixed_scope_recall
         limit=3,
     )
 
-    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("recipe", "recipe-visible")]
+    assert [(hit.entity_type, hit.entity_id) for hit in hits] == [("meal_plan", "plan-private"), ("recipe", "recipe-visible")]
     assert vector_store.calls == [
-        {"family_id": "family-1", "scopes": ["recipe"], "limit": 3, "user_id": None},
+        {"family_id": "family-1", "scopes": ["recipe", "meal_plan"], "limit": 3, "user_id": None},
     ]
 
 
-def test_search_vectors_without_user_skips_meal_plan_only_recall() -> None:
+def test_search_vectors_without_user_searches_plans_by_family() -> None:
     vector_store = FakeVectorStore([
         VectorSearchHit("meal_plan", "plan-private", 0.99, 1),
     ])
@@ -255,8 +254,10 @@ def test_search_vectors_without_user_skips_meal_plan_only_recall() -> None:
         limit=3,
     )
 
-    assert hits == []
-    assert vector_store.calls == []
+    assert [hit.entity_id for hit in hits] == ["plan-private"]
+    assert vector_store.calls == [
+        {"family_id": "family-1", "scopes": ["meal_plan"], "limit": 3, "user_id": None},
+    ]
 
 
 def test_hybrid_search_passes_user_identity_to_keyword_recall(monkeypatch) -> None:

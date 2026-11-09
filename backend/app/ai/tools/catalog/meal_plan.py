@@ -126,7 +126,6 @@ def meal_plan_read_existing(context: ToolContext, payload: dict[str, Any]) -> di
         .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
         .where(
             FoodPlanItem.family_id == context.family_id,
-            FoodPlanItem.user_id == context.user_id,
             FoodPlanItem.plan_date >= today,
         )
     )
@@ -206,12 +205,11 @@ def meal_plan_read_by_id(context: ToolContext, payload: dict[str, Any]) -> dict[
         .options(selectinload(FoodPlanItem.food))
         .where(
             FoodPlanItem.family_id == context.family_id,
-            FoodPlanItem.user_id == context.user_id,
             FoodPlanItem.id == str(payload["id"]),
         )
     )
     if item is None:
-        raise ValueError("餐食计划不存在或不属于当前用户")
+        raise ValueError("餐食计划不存在或不属于当前家庭")
     return {"item": serialize_meal_plan_tool_item(item)}
 
 
@@ -436,7 +434,7 @@ def register_meal_plan_tools(registry: ToolRegistry) -> None:
         registry,
         name="meal_plan.read_by_id",
         display_name="餐食计划详情",
-        description="读取当前用户指定计划项的完整内容。",
+        description="读取当前家庭指定计划项的完整内容。",
         side_effect="read",
         handler=meal_plan_read_by_id,
         input_schema=READ_BY_ID_INPUT,

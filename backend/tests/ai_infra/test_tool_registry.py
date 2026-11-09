@@ -1040,7 +1040,7 @@ class AIToolRegistryTestCase(AIAgentInfraTestCase):
                                 ],
                             }
                         },
-                        "当前用户",
+                        "当前家庭",
                     ),
                     (
                         "shopping.create_draft",

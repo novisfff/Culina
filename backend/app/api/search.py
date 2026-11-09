@@ -177,7 +177,6 @@ def _load_entities(db: Session, *, family_id: str, user_id: str, hits: list[Hybr
                 select(FoodPlanItem)
                 .where(
                     FoodPlanItem.family_id == family_id,
-                    FoodPlanItem.user_id == user_id,
                     FoodPlanItem.id.in_(ids_by_type["meal_plan"]),
                 )
                 .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))

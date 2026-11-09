@@ -323,7 +323,7 @@ def _normalize_meal_plan_operation_draft(
         target_id = str(operation.get("targetId") or operation.get("target_id") or "")
         target = plan_items_by_id.get(target_id)
         if target is None:
-            raise ValueError("餐食计划操作必须引用当前用户真实计划项")
+            raise ValueError("餐食计划操作必须引用当前家庭真实计划项")
         normalized_record: dict[str, Any] = {
             "operationId": _normalize_operation_id(operation.get("operationId") or operation.get("operation_id")),
             "action": action,
@@ -1424,13 +1424,11 @@ def _load_meal_plan_targets(
         .where(FoodPlanItem.family_id == family_id, FoodPlanItem.id.in_(unique_ids))
         .options(selectinload(FoodPlanItem.food))
     )
-    if user_id:
-        statement = statement.where(FoodPlanItem.user_id == user_id)
     rows = list(db.scalars(statement))
     by_id = {row.id: row for row in rows}
     missing = [item for item in unique_ids if item not in by_id]
     if missing:
-        raise ValueError(f"草稿包含不属于当前用户的餐食计划: {', '.join(missing)}")
+        raise ValueError(f"草稿包含不属于当前家庭的餐食计划: {', '.join(missing)}")
     return by_id
 
 
@@ -1573,7 +1571,6 @@ def _load_recipe_cook_plan_item(
         .join(Food, FoodPlanItem.food_id == Food.id)
         .where(
             FoodPlanItem.family_id == family_id,
-            FoodPlanItem.user_id == user_id,
             FoodPlanItem.id == plan_item_id,
             Food.recipe_id == recipe_id,
         )

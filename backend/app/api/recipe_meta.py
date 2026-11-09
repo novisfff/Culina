@@ -78,7 +78,6 @@ def _load_plan_item(db: Session, *, family_id: str, user_id: str, item_id: str) 
         select(FoodPlanItem)
         .where(
             FoodPlanItem.family_id == family_id,
-            FoodPlanItem.user_id == user_id,
             FoodPlanItem.id == item_id,
         )
         .options(selectinload(FoodPlanItem.food).selectinload(Food.recipe))
@@ -361,7 +360,6 @@ def list_food_plan(
             select(FoodPlanItem)
             .where(
                 FoodPlanItem.family_id == membership.family_id,
-                FoodPlanItem.user_id == user.id,
                 FoodPlanItem.plan_date >= date_from,
                 FoodPlanItem.plan_date <= date_to,
                 *((FoodPlanItem.id.in_(matching_ids),) if matching_ids is not None else ()),
