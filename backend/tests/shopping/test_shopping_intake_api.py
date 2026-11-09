@@ -769,7 +769,7 @@ def test_merge_food_intake_expiry_matrix(current_qty, current_expiry, incoming, 
     )
 
 
-def test_ordinary_food_restock_still_overwrites_expiry(intake_api_context: IntakeApiContext) -> None:
+def test_ordinary_food_restock_preserves_earliest_expiry(intake_api_context: IntakeApiContext) -> None:
     with intake_api_context.SessionLocal() as db:
         food = db.get(Food, intake_api_context.food_id)
         assert food is not None
@@ -786,7 +786,7 @@ def test_ordinary_food_restock_still_overwrites_expiry(intake_api_context: Intak
         )
         db.commit()
         db.refresh(food)
-        assert food.expiry_date == date(2026, 8, 1)
+        assert food.expiry_date == date(2026, 7, 15)
 
 
 def test_food_intake_zero_stock_uses_incoming_expiry(intake_api_context: IntakeApiContext) -> None:

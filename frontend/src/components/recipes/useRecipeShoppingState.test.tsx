@@ -24,6 +24,22 @@ function buildCard(): RecipeCardViewModel {
   };
 }
 
+function buildRepeatedIngredientCard(): RecipeCardViewModel {
+  const card = buildCard();
+  const ingredient = card.recipe.ingredient_items[0];
+  card.recipe.ingredient_items = [ingredient, { ...ingredient, id: 'recipe-ingredient-repeat', quantity: 3 }];
+  card.shortages = card.recipe.ingredient_items.map((item) => ({
+    ingredientId: item.ingredient_id,
+    ingredientName: item.ingredient_name,
+    requiredQuantity: item.quantity,
+    availableQuantity: 0,
+    missingQuantity: item.quantity,
+    unit: item.unit,
+    shortageType: 'quantity',
+  }));
+  return card;
+}
+
 function deferred() {
   let resolve!: (value: unknown) => void;
   let reject!: (error: Error) => void;
@@ -35,6 +51,51 @@ function deferred() {
 }
 
 describe('recipe shopping submission', () => {
+  it('edits and removes repeated ingredient shortages independently', () => {
+    const { result } = renderHook(() => useRecipeShoppingState({
+      ingredients: [], createShoppingItem: vi.fn(), showRecipeNotice: vi.fn(),
+    }));
+    act(() => result.current.openShoppingDialog(buildRepeatedIngredientCard(), vi.fn()));
+    const [firstDraft, secondDraft] = result.current.shoppingDrafts;
+
+    act(() => result.current.updateShoppingDraft(firstDraft.id, { quantity: '4' }));
+
+    expect(result.current.shoppingDrafts.map((draft) => draft.quantity)).toEqual(['4', '3']);
+
+    act(() => result.current.removeShoppingDraft(firstDraft.id));
+
+    expect(result.current.shoppingDrafts).toEqual([secondDraft]);
+  });
+
+  it('retains and retries a failed shortage when another row for the same ingredient succeeds', async () => {
+    const savedQuantities: number[] = [];
+    let shouldFail = true;
+    const { result } = renderHook(() => useRecipeShoppingState({
+      ingredients: [], showRecipeNotice: vi.fn(),
+      createShoppingItem: async (payload) => {
+        if (payload.quantity === 3 && shouldFail) throw new Error('暂时无法加入');
+        savedQuantities.push(payload.quantity!);
+      },
+    }));
+    act(() => result.current.openShoppingDialog(buildRepeatedIngredientCard(), vi.fn()));
+    const failedDraft = result.current.shoppingDrafts[1];
+
+    await act(() => result.current.submitShoppingDrafts());
+
+    expect(savedQuantities).toEqual([2]);
+    expect(result.current.shoppingDrafts).toEqual([failedDraft]);
+    expect(result.current.shoppingDialogCard).not.toBeNull();
+    expect(result.current.shoppingSubmitError).toContain('已加入 1 项');
+    expect(result.current.shoppingSubmitError).toContain('1 项未成功');
+
+    shouldFail = false;
+    await act(() => result.current.submitShoppingDrafts());
+
+    expect(savedQuantities).toEqual([2, 3]);
+    expect(result.current.shoppingDialogCard).toBeNull();
+    expect(result.current.shoppingSubmitError).toBeNull();
+  });
+
   it('keeps only failed and unsent drafts so retry does not repeat successful purchases', async () => {
     const savedTitles: string[] = [];
     let shouldFail = true;
