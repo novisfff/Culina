@@ -106,15 +106,14 @@ def create_minimal_meal_food(
 def is_food_recommendation_eligible(food: Food, distinct_meal_count: int, *, target_date: date) -> bool:
     """Return whether a Food may enter homepage recommendations.
 
-    Exclude stock that expires before the recommended meal, even if it is a
-    favorite or frequently eaten. Remaining eligibility uses current facts.
+    Exclude empty or expired ready-to-eat stock even when it is a favorite.
+    Unknown quantities remain eligible based on the other current facts.
     """
-    if (
-        food.type in {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}
-        and food.expiry_date is not None
-        and food.expiry_date < target_date
-    ):
-        return False
+    if food.type in {FoodType.READY_MADE.value, FoodType.INSTANT.value, FoodType.PACKAGED.value}:
+        if food.stock_quantity is not None and Decimal(str(food.stock_quantity)) <= 0:
+            return False
+        if food.expiry_date is not None and food.expiry_date < target_date:
+            return False
     if int(distinct_meal_count) >= 2:
         return True
     if food.favorite:

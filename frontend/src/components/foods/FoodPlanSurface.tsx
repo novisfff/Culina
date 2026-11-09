@@ -2,6 +2,7 @@ import { useState, type ReactNode, type Ref } from 'react';
 import type { FoodPlanItem, MealType, MediaAsset } from '../../api/types/food';
 import { buildMediaSizes, buildMediaSrcSet, resolveMediaUrl } from '../../lib/assets';
 import { todayKey } from '../../lib/date';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton } from '../ui-kit';
@@ -108,7 +109,7 @@ function TabletMealGroup(props: {
             </span>
             <span className="food-tablet-plan-item-copy">
               <strong>{item.food_name}</strong>
-              <small>{item.status === 'cooked' ? '已完成' : item.recipe_id ? '家常菜' : '还没有记录'}</small>
+              <small>{isFoodPlanRecorded(item) ? '已记录' : item.recipe_id ? '家常菜' : '还没有记录'}</small>
             </span>
           </article>
         );
@@ -312,7 +313,7 @@ function FoodSidebarPlanSurface(props: FoodPlanSurfaceProps) {
                 <div className="food-sidebar-plan-day-items">
                   {visibleItems.map((item) => {
                     const coverAsset = props.getPlanItemCoverAsset?.(item);
-                    const isCompleted = item.status === 'cooked';
+                    const isCompleted = isFoodPlanRecorded(item);
                     const mealLabel = MEAL_TYPE_LABELS[item.meal_type];
                     return (
                       <article

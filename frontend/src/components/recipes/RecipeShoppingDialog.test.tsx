@@ -102,6 +102,7 @@ function findButton(view: HTMLElement, text: string) {
 
 function renderDialog(options: {
   isCreatingShopping?: boolean;
+  submitError?: string | null;
   customIngredientId?: string | null;
   drafts?: RecipeShoppingDraftItem[];
 } = {}) {
@@ -123,6 +124,7 @@ function renderDialog(options: {
         }}
         isIngredientPickerOpen={false}
         isCreatingShopping={options.isCreatingShopping}
+        submitError={options.submitError}
         unitOptions={['个', '份']}
         resolveIngredientImageUrl={() => 'data:image/svg+xml,generated-placeholder'}
         onClose={onClose}
@@ -143,6 +145,13 @@ function renderDialog(options: {
 }
 
 describe('RecipeShoppingDialog', () => {
+  it('shows partial submission failures inside the dialog', () => {
+    const { view } = renderDialog({ submitError: '已加入 1 项，1 项未成功。请重试剩余项目。' });
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('已加入 1 项，1 项未成功');
+    expect(findButton(view, '重试剩余项')?.disabled).toBe(false);
+  });
+
   it('uses the shared recipe overlay frame and closes when idle', () => {
     const { onClose, view } = renderDialog();
 
@@ -178,10 +187,13 @@ describe('RecipeShoppingDialog', () => {
     const { onClose, view } = renderDialog({ isCreatingShopping: true });
 
     expect(findButton(view, '取消')?.disabled).toBe(true);
+    expect(view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.disabled).toBe(true);
+    expect(view.querySelector('.recipe-shopping-modal')?.getAttribute('data-workspace-overlay-busy')).toBe('true');
     expect(findButton(view, '删除')?.disabled).toBe(true);
     expect(findButton(view, '已加入')?.disabled).toBe(true);
     expect(findButton(view, '加入')?.disabled).toBe(true);
     expect(view.querySelector<HTMLInputElement>('input[placeholder="待买内容名称"]')?.disabled).toBe(true);
+    expect(Array.from(view.querySelectorAll<HTMLButtonElement>('.ui-quantity-unit-select button')).every((button) => button.disabled)).toBe(true);
 
     act(() => view.querySelector<HTMLDivElement>('.workspace-overlay-backdrop')?.click());
     act(() => view.querySelector<HTMLButtonElement>('.workspace-overlay-close')?.click());
@@ -226,7 +238,7 @@ describe('RecipeShoppingDialog', () => {
     const invalidDraft = { ...buildDraft(), ingredientId: null };
     const { view } = renderDialog({ drafts: [invalidDraft] });
 
-    expect(findButton(view, '确认加入采购清单')?.disabled).toBe(true);
+    expect(findButton(view, '确认加入')?.disabled).toBe(true);
     expect(view.textContent).toContain('已选择 0 项');
   });
 });

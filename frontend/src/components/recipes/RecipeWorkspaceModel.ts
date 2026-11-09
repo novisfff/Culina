@@ -1096,11 +1096,12 @@ export function applyRecipeIngredientRequirement(note: string, requirement: Reci
 }
 
 export function buildShoppingDraftsFromShortages(card: Pick<RecipeCardViewModel, 'recipe' | 'shortages'>): RecipeShoppingDraftItem[] {
-  return card.shortages.map((item) => {
+  return card.shortages.map((item, index) => {
     const recipeIngredient = card.recipe.ingredient_items.find((entry) => entry.id === item.ingredientId || entry.ingredient_id === item.ingredientId);
     const usesPresenceQuantity = item.shortageType === 'presence';
     return {
-      id: `shortage-${item.ingredientId || item.ingredientName}`,
+      // Repeated ingredients still need independent, stable draft identities.
+      id: `shortage-${index}-${item.ingredientId || item.ingredientName}`,
       ingredientId: item.ingredientId ?? null,
       title: item.ingredientName,
       quantity: usesPresenceQuantity ? '' : formatShoppingQuantity(Math.max(item.missingQuantity, 1)),

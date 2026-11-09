@@ -7,6 +7,7 @@ export type QuantityUnitFieldProps = {
   onQuantityChange: (value: string) => void;
   onUnitChange: (value: string) => void;
   quantityDisabled?: boolean;
+  unitDisabled?: boolean;
   quantityDisabledReason?: string;
   /** Browser step hint; domain validation remains the source of truth. */
   quantityStep?: string;
@@ -24,6 +25,7 @@ export function QuantityUnitField({
   onQuantityChange,
   onUnitChange,
   quantityDisabled = false,
+  unitDisabled = false,
   quantityDisabledReason,
   quantityStep = '0.01',
   quantityFieldKey,
@@ -55,6 +57,7 @@ export function QuantityUnitField({
             value={unit}
             options={unitOptions}
             triggerFieldKey={unitFieldKey}
+            disabled={unitDisabled}
             onChange={(value) => onUnitChange(value)}
           />
         </label>

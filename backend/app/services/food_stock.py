@@ -44,7 +44,7 @@ def merge_food_intake_expiry(
     current_expiry: date | None,
     incoming_expiry: date | None,
 ) -> date | None:
-    """Intake-only expiry merge: keep earliest non-null date when old stock remains."""
+    """Keep the earliest known expiry while old stock remains."""
     if current_quantity <= 0:
         return incoming_expiry
     if current_expiry is None:
@@ -104,13 +104,17 @@ def apply_food_stock_restock(
     if quantity <= 0:
         raise ValueError("库存数量必须大于 0")
     validate_food_stock_quantity_precision(quantity)
+    current_quantity = _current_quantity(food)
     normalized_unit = _normalize_unit(unit, food.stock_unit)
-    if food.stock_unit and food.stock_unit != normalized_unit and _current_quantity(food) > 0:
+    if food.stock_unit and food.stock_unit != normalized_unit and current_quantity > 0:
         raise ValueError(f"当前库存单位是 {food.stock_unit}，请先清空或使用相同单位")
+    food.expiry_date = merge_food_intake_expiry(
+        current_quantity=current_quantity,
+        current_expiry=food.expiry_date,
+        incoming_expiry=expiry_date,
+    )
     food.stock_unit = normalized_unit
-    food.stock_quantity = normalize_food_stock_quantity(_current_quantity(food) + quantity)
-    if expiry_date is not None:
-        food.expiry_date = expiry_date
+    food.stock_quantity = normalize_food_stock_quantity(current_quantity + quantity)
     if purchase_source is not None:
         food.purchase_source = purchase_source.strip()
     if storage_location is not None:

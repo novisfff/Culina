@@ -37,7 +37,7 @@ export interface UpdateFoodPlanItemPayload {
   plan_date?: string;
   meal_type?: MealType;
   note?: string;
-  status?: 'planned' | 'cooked' | 'skipped';
+  status?: 'planned' | 'skipped';
 }
 
 export interface Food {

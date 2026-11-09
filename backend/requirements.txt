@@ -15,7 +15,7 @@ langgraph==1.2.4
 langgraph-sdk==0.4.6
 langchain-openai==1.2.1
 minio==7.2.10
-Pillow==12.3.0
+Pillow==13.0.0
 av==18.0.0
-certifi==2026.2.25
+certifi==2026.10.18
 dashscope==1.27.3

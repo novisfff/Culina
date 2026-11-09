@@ -84,8 +84,9 @@ describe('homeDashboardModel', () => {
 
     expect(getDashboardPlanProgress([])).toEqual({ totalCount: 0, recordedCount: 0, pendingCount: 0, label: '当天还没有安排餐食', state: 'empty' });
     expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2' }])).toEqual({ totalCount: 2, recordedCount: 0, pendingCount: 2, label: '2 项安排', state: 'planned' });
-    expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 1, pendingCount: 1, label: '已记录 1 / 2', state: 'partial' });
-    expect(getDashboardPlanProgress([{ ...base, status: 'cooked' }, { ...base, id: 'plan-2', status: 'cooked' }])).toEqual({ totalCount: 2, recordedCount: 2, pendingCount: 0, label: '2 项已记录', state: 'complete' });
+    expect(getDashboardPlanProgress([base, { ...base, id: 'plan-2', status: 'cooked', meal_log_id: 'meal-1' }])).toEqual({ totalCount: 2, recordedCount: 1, pendingCount: 1, label: '已记录 1 / 2', state: 'partial' });
+    expect(getDashboardPlanProgress([{ ...base, status: 'cooked', meal_log_id: 'meal-1' }, { ...base, id: 'plan-2', status: 'cooked', meal_log_id: 'meal-2' }])).toEqual({ totalCount: 2, recordedCount: 2, pendingCount: 0, label: '2 项已记录', state: 'complete' });
+    expect(getDashboardPlanProgress([{ ...base, status: 'cooked', meal_log_id: null }])).toEqual({ totalCount: 1, recordedCount: 0, pendingCount: 1, label: '1 项安排', state: 'planned' });
   });
 
   it('builds restock defaults from matched ingredient', () => {

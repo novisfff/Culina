@@ -1,4 +1,5 @@
 import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import type {
   Food,
   FoodPlanItem,
@@ -144,7 +145,7 @@ export function HomeDashboardDialogs(props: Props) {
 
   // Direct record (with or without a Recipe): load authoritative candidates for plan_date + meal_type.
   const needsPlanCompleteCandidates = Boolean(
-    homePlanDetailItem && homePlanDetailItem.status !== 'cooked',
+    homePlanDetailItem && !isFoodPlanRecorded(homePlanDetailItem),
   );
   const planCandidateQuery = useMealCandidateData({
     open: needsPlanCompleteCandidates,

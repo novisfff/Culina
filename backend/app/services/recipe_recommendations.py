@@ -80,6 +80,7 @@ def recipe_recommendation_usage_maps(
 ) -> tuple[dict[str, int], dict[str, date]]:
     recipe_ids_by_food_id = {food.id: food.recipe_id for food in foods if food.recipe_id}
     event_dates_by_recipe_id: dict[str, list[date]] = {recipe.id: [] for recipe in recipes}
+    recorded_meals: set[tuple[str, str]] = set()
     for log in meal_logs:
         recipe_ids = {
             recipe_ids_by_food_id.get(entry.food_id)
@@ -91,11 +92,17 @@ def recipe_recommendation_usage_maps(
                 if recipe_id not in event_dates_by_recipe_id:
                     event_dates_by_recipe_id[recipe_id] = []
                 event_dates_by_recipe_id[recipe_id].append(log.date)
+                recorded_meals.add((recipe_id, log.id))
     for recipe in recipes:
         for cook_log in recipe.cook_logs:
+            meal_key = (recipe.id, cook_log.meal_log_id) if cook_log.meal_log_id else None
+            if meal_key is not None and meal_key in recorded_meals:
+                continue
             if recipe.id not in event_dates_by_recipe_id:
                 event_dates_by_recipe_id[recipe.id] = []
             event_dates_by_recipe_id[recipe.id].append(cook_log.cook_date)
+            if meal_key is not None:
+                recorded_meals.add(meal_key)
 
     window_start = today - timedelta(days=90)
     counts = {

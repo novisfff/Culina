@@ -24,7 +24,6 @@ const MEAL_TYPE_OPTIONS = [
 
 const PLAN_STATUS_OPTIONS = [
   { value: 'planned', label: '计划中' },
-  { value: 'cooked', label: '已完成' },
   { value: 'skipped', label: '已跳过' },
 ];
 

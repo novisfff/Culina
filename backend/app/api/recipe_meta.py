@@ -32,6 +32,7 @@ from app.services.food_plan_locking import (
     discover_food_plan_write_intents,
     food_plan_conflict_detail,
     lock_food_plan_write_intents,
+    validate_food_plan_status_update,
 )
 from app.services.meal_log_versions import MealLogConflictError, build_meal_log_conflict_detail
 from app.services.media import replace_media_assets
@@ -100,6 +101,7 @@ def _raise_food_plan_conflict(exc: FoodPlanConflict) -> None:
         "food_plan_item_already_completed",
         "food_plan_food_mismatch",
         "food_plan_item_not_planned",
+        "food_plan_completion_required",
     }:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=food_plan_conflict_detail(exc)) from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=food_plan_conflict_detail(exc)) from exc
@@ -504,6 +506,11 @@ def update_food_plan_item(
         ),
     )
     item = locked.items_by_id[item_id]
+    if payload.status is not None:
+        try:
+            validate_food_plan_status_update(payload.status)
+        except FoodPlanConflict as exc:
+            _raise_food_plan_conflict(exc)
     before_material = (item.food_id, item.plan_date, item.meal_type)
     if payload.food_id is not None:
         item.food = locked.foods_by_id[payload.food_id]
@@ -517,12 +524,9 @@ def update_food_plan_item(
     if payload.note is not None:
         item.note = payload.note
     if payload.status is not None:
-        if payload.status not in {"planned", "cooked", "skipped"}:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid plan status")
         item.status = payload.status
-        if payload.status != "cooked":
-            item.completed_at = None
-            item.meal_log_id = None
+        item.completed_at = None
+        item.meal_log_id = None
     item.updated_by = user.id
     after_material = (item.food_id, item.plan_date, item.meal_type)
     materially_changed = before_material != after_material

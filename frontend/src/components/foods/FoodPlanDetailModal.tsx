@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
 import type { Food, FoodPlanItem, MealType, Recipe } from '../../api/types/food';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import { formatDate, formatDateTime, getFoodCover, MEAL_TYPE_LABELS, todayKey } from '../../lib/ui';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
 import { ActionButton, FormActions, OperationLoadingOverlay, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
@@ -67,7 +68,7 @@ export function FoodPlanDetailModal(props: Props) {
   const planDetailFormId = 'food-plan-detail-form';
   const facts = getFoodPlanDetailFacts(props.food, todayDate);
   const isBusy = Boolean(props.isUpdatingPlan || props.isCompleting);
-  const isRecorded = props.item.status === 'cooked';
+  const isRecorded = isFoodPlanRecorded(props.item);
 
   function closeIfAllowed() {
     if (!isBusy) {
@@ -82,7 +83,7 @@ export function FoodPlanDetailModal(props: Props) {
       primaryType="submit"
       primaryForm={planDetailFormId}
       primaryPlacement="before-extra"
-      primaryDisabled={Boolean(isBusy || props.item.status === 'cooked')}
+      primaryDisabled={isBusy || isRecorded}
       isSubmitting={Boolean(props.isUpdatingPlan)}
     >
       <ActionButton tone="secondary" type="button" onClick={props.onResetEdit} disabled={isBusy}>
@@ -126,7 +127,7 @@ export function FoodPlanDetailModal(props: Props) {
     >
       <WorkspaceModal
         title="这餐安排"
-        description={`${formatDate(props.item.plan_date)} · ${MEAL_TYPE_LABELS[props.item.meal_type]}${props.item.status === 'cooked' ? ' · 已完成' : ''}`}
+        description={`${formatDate(props.item.plan_date)} · ${MEAL_TYPE_LABELS[props.item.meal_type]}${isRecorded ? ' · 已记录' : ''}`}
         eyebrow="餐食计划详情"
         onClose={closeIfAllowed}
         busy={isBusy}
@@ -162,8 +163,8 @@ export function FoodPlanDetailModal(props: Props) {
               )}
             </div>
             <div className="recipe-plan-detail-summary">
-              <span className={props.item.status === 'cooked' ? 'badge tone-ready' : 'badge'}>
-                {props.item.status === 'cooked' ? '已完成' : '计划中'}
+              <span className={isRecorded ? 'badge tone-ready' : 'badge'}>
+                {isRecorded ? '已记录' : '计划中'}
               </span>
               <strong>{props.item.food_name}</strong>
               <p>{(props.item.note ?? '').trim() || '还没有备注'}</p>
@@ -213,7 +214,7 @@ export function FoodPlanDetailModal(props: Props) {
                           type="button"
                           className={props.form.planDate === date ? 'active' : ''}
                           aria-pressed={props.form.planDate === date}
-                          disabled={isBusy || props.item.status === 'cooked'}
+                          disabled={isBusy || isRecorded}
                           onClick={() => props.onChangeForm({ ...props.form, planDate: date })}
                         >
                           <span>{date === todayDate ? '今天' : dateParts.weekday}</span>
@@ -232,7 +233,7 @@ export function FoodPlanDetailModal(props: Props) {
                         type="button"
                         className={props.form.mealType === item.value ? 'active' : ''}
                         aria-pressed={props.form.mealType === item.value}
-                        disabled={isBusy || props.item.status === 'cooked'}
+                        disabled={isBusy || isRecorded}
                         onClick={() => props.onChangeForm({ ...props.form, mealType: item.value })}
                       >
                         {item.label}
@@ -248,7 +249,7 @@ export function FoodPlanDetailModal(props: Props) {
                   value={props.form.note}
                   placeholder="比如：少油、提前解冻、留一份便当"
                   onChange={(event) => props.onChangeForm({ ...props.form, note: event.target.value })}
-                  disabled={isBusy || props.item.status === 'cooked'}
+                  disabled={isBusy || isRecorded}
                 />
               </label>
             </>

@@ -1838,7 +1838,10 @@ class AIWorkspaceStreamingTestCase(AIAgentInfraTestCase):
                 self.assertTrue(resume_started.wait(timeout=5))
                 self.assertTrue(provider.commit_seen_at_resume_start)
                 self.assertTrue(approval_commit_persisted.is_set())
-                self.assertEqual(captured, {})
+                # Response headers can arrive while the stream is still open.
+                self.assertNotIn("body", captured)
+                self.assertTrue(thread.is_alive())
+                self.assertFalse(errors)
                 assert_recipe_image_job_committed()
             finally:
                 continue_resume.set()

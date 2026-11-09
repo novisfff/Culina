@@ -50,7 +50,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertEqual(restock.status_code, 200, restock.text)
         self.assertEqual(restock.json()["stock_quantity"], 5)
         self.assertEqual(restock.json()["stock_unit"], "盒")
-        self.assertEqual(restock.json()["expiry_date"], "2026-07-20")
+        self.assertEqual(restock.json()["expiry_date"], "2026-07-10")
         self.assertEqual(restock.json()["purchase_source"], "山姆")
         self.assertEqual(restock.json()["storage_location"], "冷冻")
 
@@ -267,7 +267,7 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
         self.assertTrue(callable(lock_plan_item_after_food))
 
 
-    def test_food_stock_intake_uses_earliest_expiry_while_restock_overwrites(self) -> None:
+    def test_food_stock_intake_and_restock_preserve_earliest_expiry(self) -> None:
         from app.services.food_stock import apply_food_stock_intake, apply_food_stock_restock, merge_food_intake_expiry
 
         self.assertEqual(
@@ -319,5 +319,5 @@ class RecipeFoodStockOperationsTestCase(RecipeApiTestCase):
             )
             db.commit()
             db.refresh(food)
-            self.assertEqual(food.expiry_date, date(2026, 8, 1))
+            self.assertEqual(food.expiry_date, date(2026, 7, 10))
             self.assertEqual(food.storage_location, "冷藏")

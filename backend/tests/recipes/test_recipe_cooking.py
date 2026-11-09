@@ -1687,6 +1687,38 @@ class RecipeRecipeCookingTestCase(RecipeApiTestCase):
                 self.assertEqual(plan_item.status, "cooked")
                 self.assertEqual(plan_item.meal_log_id, meal_log_id)
 
+        def test_rest_cook_recovers_legacy_plan_without_a_meal_record(self) -> None:
+            recipe = self.create_recipe(auto_create_food=True)
+            food_id = self._linked_food_id(recipe["id"])
+            plan_response = self.client.post(
+                "/api/food-plan",
+                json={"food_id": food_id, "plan_date": "2026-05-14", "meal_type": "dinner"},
+            )
+            self.assertEqual(plan_response.status_code, 201, plan_response.text)
+            plan_id = plan_response.json()["id"]
+            with self.SessionLocal() as db:
+                plan = db.get(FoodPlanItem, plan_id)
+                plan.status = "cooked"
+                db.commit()
+                base_updated_at = plan.updated_at.isoformat()
+            self._seed_full_inventory(tomato_id="legacy-tomato", egg_id="legacy-egg")
+            payload = self._rest_cook_payload(
+                completion_request_id="recover-legacy-plan",
+                food_plan_item_id=plan_id,
+                food_plan_item_base_updated_at=base_updated_at,
+            )
+
+            first = self.client.post(f"/api/recipes/{recipe['id']}/cook", json=payload)
+            self.assertEqual(first.status_code, 200, first.text)
+            replay = self.client.post(f"/api/recipes/{recipe['id']}/cook", json=payload)
+            self.assertEqual(replay.status_code, 200, replay.text)
+            self.assertEqual(replay.json()["meal_log_id"], first.json()["meal_log_id"])
+            with self.SessionLocal() as db:
+                self.assertEqual(db.get(FoodPlanItem, plan_id).meal_log_id, first.json()["meal_log_id"])
+                self.assertEqual(len(list(db.scalars(select(MealLog)))), 1)
+                self.assertEqual(len(list(db.scalars(select(RecipeCookLog)))), 1)
+                self.assertEqual(db.get(InventoryItem, "legacy-tomato").consumed_quantity, Decimal("2"))
+
         def test_rest_cook_plan_base_timestamp_stale_maps_to_409(self) -> None:
             recipe = self.create_recipe(auto_create_food=True)
             recipe_id = recipe["id"]

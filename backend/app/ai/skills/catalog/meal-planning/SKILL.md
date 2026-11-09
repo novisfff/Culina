@@ -21,7 +21,7 @@ description: 处理“今天/今晚吃什么”的即时餐食推荐，以及未
 - `query`：无明确计划范围的“今天吃什么/推荐一餐”使用即时推荐。读取库存、临期、最近餐食并调用 `meal_plan.recommend_today` 返回 1 到 3 个真实候选，不创建审批。
 - 只有本轮 `food.search` 和 `recipe.search` 都实际返回空结果时，才可基于库存中的真实 Ingredient ID 调用 `meal_plan.propose_from_inventory`；该卡片只是餐食想法，不是 Food、Recipe 或正式计划。
 - `create`：有日期、天数、餐别或“安排/制定/生成”语义时进入正式计划，调用 `meal_plan.create_draft`。
-- `update`：修改、删除和状态变更前读取真实目标，草稿带 `action`、`targetId`、`baseUpdatedAt`；状态只能是 `planned`、`cooked`、`skipped`。
+- `update`：修改、删除和状态变更前读取真实目标，草稿带 `action`、`targetId`、`baseUpdatedAt`；状态变更只能是 `planned`、`skipped`。完成计划交给 `meal_log` 或 `recipe_cook`，关联餐食记录后才能成为 `cooked`。
 - `mealType` 只能是 `breakfast`、`lunch`、`dinner`、`snack`。范围展开可调用 `script.expand_meal_slots`，草稿前调用 `script.validate_meal_plan`。
 
 ## 前置条件

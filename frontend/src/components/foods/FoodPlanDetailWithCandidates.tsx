@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Food, FoodPlanItem, MealLogCandidate, Recipe, RecordMealTarget } from '../../api/types';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import { MealCandidateSelector } from '../../features/meals/MealCandidateSelector';
 import {
   deriveCandidatePresentation,
@@ -32,7 +33,7 @@ export type FoodPlanDetailWithCandidatesProps = {
 /** Plan detail with candidate confirmation for non-Recipe complete (Task 15). */
 export function FoodPlanDetailWithCandidates(props: FoodPlanDetailWithCandidatesProps) {
   const needsPlanCompleteCandidates = Boolean(
-    props.item && !props.item.recipe_id && props.item.status !== 'cooked',
+    props.item && !props.item.recipe_id && !isFoodPlanRecorded(props.item),
   );
   const planCandidateQuery = useMealCandidateData({
     open: needsPlanCompleteCandidates,
