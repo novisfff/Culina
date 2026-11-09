@@ -441,10 +441,10 @@ class RecipeFoodWorkspaceTestCase(RecipeApiTestCase):
 
             status_only = self.client.patch(
                 f"/api/food-plan/{plan['id']}",
-                json={"status": "cooked"},
+                json={"status": "skipped"},
             )
             self.assertEqual(status_only.status_code, 200, status_only.text)
-            self.assertEqual(status_only.json()["status"], "cooked")
+            self.assertEqual(status_only.json()["status"], "skipped")
             self.assert_highlight_kinds([ActivityHighlightKind.MEAL_PLAN])
 
             delete_response = self.client.delete(f"/api/food-plan/{plan['id']}")

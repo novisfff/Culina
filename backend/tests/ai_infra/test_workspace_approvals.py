@@ -1216,7 +1216,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     family_id=self.family.id,
                     user_id=self.user.id,
                     conversation_id=None,
-                    prompt="把今晚计划标记完成",
+                    prompt="跳过今晚的计划",
                     quick_task=None,
                 )
                 message = AIMessage(
@@ -1246,7 +1246,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                                     "action": "set_status",
                                     "targetId": item.id,
                                     "baseUpdatedAt": item.updated_at.isoformat(),
-                                    "payload": {"status": "cooked", "reason": "已经做完"},
+                                    "payload": {"status": "skipped", "reason": "今晚外出"},
                                 }
                             ],
                         },
@@ -1266,8 +1266,8 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                     values=approval.initial_values,
                 )
                 db.refresh(item)
-                self.assertEqual(item.status, "cooked")
-                self.assertIsNotNone(item.completed_at)
+                self.assertEqual(item.status, "skipped")
+                self.assertIsNone(item.completed_at)
 
         def test_shopping_set_done_operation_updates_existing_item(self) -> None:
             with self.SessionLocal() as db:
@@ -2056,7 +2056,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                                     "action": "set_status",
                                     "targetId": plan.id,
                                     "baseUpdatedAt": stale_base_updated_at,
-                                    "payload": {"status": "cooked", "reason": "冲突测试"},
+                                    "payload": {"status": "skipped", "reason": "冲突测试"},
                                 }
                             ],
                         },
@@ -2179,7 +2179,7 @@ class AIWorkspaceApprovalsTestCase(AIAgentInfraTestCase):
                                     "action": "set_status",
                                     "targetId": item.id,
                                     "baseUpdatedAt": "2026-01-01T00:00:00Z",
-                                    "payload": {"status": "cooked", "reason": "已经做完"},
+                                    "payload": {"status": "skipped", "reason": "今晚外出"},
                                 }
                             ],
                         },

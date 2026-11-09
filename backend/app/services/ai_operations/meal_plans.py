@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.errors import AIConflictError
 from app.core.enums import ActivityAction, MealType
-from app.core.utils import create_id, utcnow
+from app.core.utils import create_id
 from app.models.domain import FoodPlanItem
 from app.services.activity import log_activity
 from app.services.ai_auto_execution.catalog import AUTO_EXECUTION_CATALOG
@@ -19,6 +19,7 @@ from app.services.food_plan_locking import (
     LockedFoodPlanTargets,
     discover_food_plan_write_intents,
     lock_food_plan_write_intents,
+    validate_food_plan_status_update,
 )
 from app.services.search.indexing import delete_search_document
 from app.services.search.jobs import enqueue_search_index_job
@@ -227,12 +228,10 @@ def apply_locked_food_plan_operation(
 
     if action == "set_status":
         next_status = str((operation.get("payload") or {}).get("status") or "")
-        if next_status not in {"planned", "cooked", "skipped"}:
-            raise ValueError("餐食计划状态不正确")
+        validate_food_plan_status_update(next_status)
         item.status = next_status
-        item.completed_at = utcnow() if next_status == "cooked" else None
-        if next_status != "cooked":
-            item.meal_log_id = None
+        item.completed_at = None
+        item.meal_log_id = None
         item.updated_by = user_id
         db.flush()
         enqueue_search_index_job(

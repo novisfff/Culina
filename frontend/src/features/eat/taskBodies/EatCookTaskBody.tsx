@@ -372,7 +372,8 @@ export function EatCookTaskBody(props: {
           drafts={shopping.shoppingDrafts}
           customForm={shopping.shoppingCustomForm}
           isIngredientPickerOpen={shopping.isShoppingIngredientPickerOpen}
-          isCreatingShopping={props.isCreatingShopping}
+          isCreatingShopping={shopping.isSubmittingShopping || props.isCreatingShopping}
+          submitError={shopping.shoppingSubmitError}
           unitOptions={SHOPPING_UNIT_OPTIONS}
           resolveIngredientImageUrl={resolveIngredientImageUrl}
           onClose={shopping.closeShoppingDialog}

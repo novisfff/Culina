@@ -295,7 +295,7 @@ class UpdateFoodPlanItemRequest(BaseModel):
     plan_date: date_type | None = None
     meal_type: MealType | None = None
     note: str | None = None
-    status: str | None = None
+    status: str | None = Field(default=None, description="可更新为 planned 或 skipped；cooked 由做菜完成或记餐流程设置")
 
 
 class CompleteFoodPlanItemRequest(BaseModel):

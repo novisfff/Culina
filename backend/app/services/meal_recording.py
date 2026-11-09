@@ -319,13 +319,13 @@ def _complete_requested_plan_items(
             actual=plan_item.updated_at,
             expected=reference.food_plan_item_base_updated_at,
         )
-        if plan_item.status != "planned" or plan_item.meal_log_id:
+        if plan_item.status not in {"planned", "cooked"} or plan_item.meal_log_id:
             raise FoodPlanConflict(
                 "food_plan_item_already_completed"
-                if plan_item.status == "cooked" or plan_item.meal_log_id
+                if plan_item.meal_log_id
                 else "food_plan_item_not_planned",
                 "该菜单项已经记录完成"
-                if plan_item.status == "cooked" or plan_item.meal_log_id
+                if plan_item.meal_log_id
                 else "该菜单项当前不可完成",
                 meal_log_id=plan_item.meal_log_id,
             )

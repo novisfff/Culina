@@ -220,7 +220,7 @@ describe('FoodPlanSurface desktop sidebar presentation', () => {
   });
 
   it('uses a completed treatment without rendering completed status copy', () => {
-    const cookedBreakfast = { ...breakfastItem, status: 'cooked' as const };
+    const cookedBreakfast = { ...breakfastItem, status: 'cooked' as const, meal_log_id: 'meal-1' };
     const days = buildProps().days.map((day) =>
       day.date === cookedBreakfast.plan_date ? { ...day, items: [cookedBreakfast] } : day,
     );

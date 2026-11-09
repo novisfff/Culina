@@ -19,6 +19,7 @@ import {
   type InventoryActionGroup,
 } from '../inventory/inventoryActionModel';
 import { addDateKeyDays, todayKey } from '../../lib/date';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import { formatDate, getFoodCover } from '../../lib/ui';
 
 export const DASHBOARD_PLAN_MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -78,7 +79,7 @@ export type DashboardPlanProgress = {
 export function getDashboardPlanProgress(items: readonly FoodPlanItem[]): DashboardPlanProgress {
   const visibleItems = items.filter((item) => item.status !== 'skipped');
   const totalCount = visibleItems.length;
-  const recordedCount = visibleItems.filter((item) => item.status === 'cooked').length;
+  const recordedCount = visibleItems.filter(isFoodPlanRecorded).length;
   const pendingCount = totalCount - recordedCount;
   if (totalCount === 0) {
     return { totalCount, recordedCount, pendingCount, label: '当天还没有安排餐食', state: 'empty' };

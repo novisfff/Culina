@@ -3,6 +3,7 @@ import { DashboardIcon } from '../../app/shellIcons';
 import type { FoodPlanItem, MealType } from '../../api/types';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
 import { MEAL_TYPE_LABELS } from '../../lib/ui';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import { formatDashboardPlanRange, getDashboardPlanProgress, type DashboardPlanDay } from './homeDashboardModel';
 
 const MEAL_TYPE_ARTWORK: Record<MealType, string> = {
@@ -323,7 +324,7 @@ export function HomeCompactCalendar(props: {
                           key={item.id}
                           className={[
                             'home-compact-meal-item',
-                            item.status === 'cooked' ? 'is-cooked' : '',
+                            isFoodPlanRecorded(item) ? 'is-cooked' : '',
                             'has-media',
                             coverUrl ? 'has-cover' : '',
                           ]
@@ -331,7 +332,7 @@ export function HomeCompactCalendar(props: {
                             .join(' ')}
                           type="button"
                           title={title}
-                          aria-label={`${title}，${item.status === 'cooked' ? '已记录' : '还未记录'}`}
+                          aria-label={`${title}，${isFoodPlanRecorded(item) ? '已记录' : '还未记录'}`}
                           onClick={() => props.onOpenPlanDetail(item)}
                         >
                           <MediaWithPlaceholder

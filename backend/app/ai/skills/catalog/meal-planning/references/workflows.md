@@ -24,6 +24,6 @@
 
 1. 优先通过 `meal_plan.read_existing` 或 `meal_plan.read_by_id` 定位真实计划项。
 2. 修改、删除或状态变更正式计划时，生成 `operations` 草稿；每项必须带真实 `targetId`、`baseUpdatedAt` 和可编辑 payload。
-3. 状态变更只能使用 `planned`、`cooked`、`skipped`；不要输出中文状态或自定义状态值。
+3. 状态变更只能使用 `planned`、`skipped`；不要输出中文状态或自定义状态值。完成计划必须通过做菜完成或记餐流程关联真实餐食记录，不能用 `set_status` 标记为 `cooked`。
 4. 用户修改当前运行中的 `meal_plan` 草稿时，先读取完整 artifact 后生成新的完整草稿版本，不能把 `in_run:*` 草稿 ID 当作正式计划 ID。
 5. 调用 `meal_plan.create_draft` 返回待确认草稿。

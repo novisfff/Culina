@@ -3,7 +3,7 @@ import { resolveMediaUrl } from '../../lib/assets';
 import { resolvePreferredIngredientUnit } from '../../lib/ingredientUnits';
 import { useIngredientResourceSearch } from '../../hooks/useIngredientResourceSearch';
 import { MediaWithPlaceholder } from '../MediaPlaceholder';
-import { Badge, EmptyState, FormActions, QuantityUnitField, SearchableResourceSelect, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
+import { Badge, EmptyState, FormActions, QuantityUnitField, SearchableResourceSelect, StateBlock, WorkspaceModal, WorkspaceOverlayFrame } from '../ui-kit';
 import {
   buildRecipeIngredientAvailabilityMap,
   buildShoppingDraftSourceLabel,
@@ -24,6 +24,7 @@ type RecipeShoppingDialogProps = {
   customForm: RecipeShoppingCustomForm;
   isIngredientPickerOpen: boolean;
   isCreatingShopping?: boolean;
+  submitError?: string | null;
   unitOptions: string[];
   resolveIngredientImageUrl: (ingredient: Ingredient | null | undefined, fallbackName: string) => string;
   onClose: () => void;
@@ -60,6 +61,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
       rootClassName="recipe-workspace-overlay-root"
       onClose={closeIfAllowed}
       closeOnBackdrop={!isCreatingShopping}
+      busy={isCreatingShopping}
     >
       <WorkspaceModal
         title="加入采购清单"
@@ -68,6 +70,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         closeLabel="关闭"
         closeAriaLabel="关闭采购确认"
         onClose={closeIfAllowed}
+        busy={isCreatingShopping}
         className="recipe-shopping-modal"
         footerInfo={
           <div className="recipe-shopping-footer-summary">
@@ -78,7 +81,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         footerActions={
           <FormActions
             className="recipe-shopping-actions"
-            primaryLabel="确认加入采购清单"
+            primaryLabel={props.submitError ? '重试剩余项' : '确认加入'}
             primaryDisabled={validDraftCount === 0}
             isSubmitting={isCreatingShopping}
             secondaryLabel="取消"
@@ -88,6 +91,9 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
         }
       >
         <div className="recipe-shopping-dialog">
+          {props.submitError ? (
+            <StateBlock status="error" title="仍有内容未加入采购清单" description={props.submitError} />
+          ) : null}
           <section className="recipe-shopping-draft-section">
             <div className="recipe-shopping-section-head">
               <div>
@@ -148,6 +154,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                               .filter((unit, index, list) => unit && list.indexOf(unit) === index)
                               .map((unit) => ({ value: unit, label: unit }))}
                             quantityDisabled={isCreatingShopping}
+                            unitDisabled={isCreatingShopping}
                             onQuantityChange={(value) => props.onUpdateDraft(item.id, { quantity: value })}
                             onUnitChange={(unit) => props.onUpdateDraft(item.id, { unit })}
                           />
@@ -270,6 +277,7 @@ export function RecipeShoppingDialog(props: RecipeShoppingDialogProps) {
                 onQuantityChange={(quantity) => props.onChangeCustomForm({ ...props.customForm, quantity })}
                 onUnitChange={(unit) => props.onChangeCustomForm({ ...props.customForm, unit })}
                 quantityDisabled={isCreatingShopping}
+                unitDisabled={isCreatingShopping}
               />
               <button className="recipe-shopping-add-button" type="button" onClick={props.onAddCustomDraft} disabled={isCreatingShopping || !props.customForm.ingredientId}>加入</button>
             </div>

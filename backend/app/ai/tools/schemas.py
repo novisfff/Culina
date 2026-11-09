@@ -309,7 +309,7 @@ MEAL_PLAN_DRAFT_SCHEMA: dict[str, Any] = {
                             "foodId": {"type": "string", "minLength": 1},
                             "recipeId": {"type": ["string", "null"]},
                             "reason": {"type": "string", "maxLength": 255},
-                            "status": {"type": "string", "enum": ["planned", "cooked", "skipped"]},
+                            "status": {"type": "string", "enum": ["planned", "skipped"]},
                             "usedInventory": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
                             "missingIngredients": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 80}},
                             "missingIngredientItems": {
@@ -725,7 +725,7 @@ MEAL_PLAN_OPERATION_ITEM_SCHEMA["anyOf"] = [
                 "type": "object",
                 "additionalProperties": False,
                 "required": ["status"],
-                "properties": {"status": {"type": "string", "enum": ["planned", "cooked", "skipped"]}, "reason": {"type": "string", "maxLength": 255}},
+                "properties": {"status": {"type": "string", "enum": ["planned", "skipped"]}, "reason": {"type": "string", "maxLength": 255}},
             },
         },
     },

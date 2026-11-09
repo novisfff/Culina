@@ -18,6 +18,7 @@ import type { AppNavigationTarget } from '../../app/appNavigationModel';
 import type { HomePlanCookArgs, HomeRecommendedCookArgs } from '../../app/useAppHomeHandlers';
 import { DashboardIcon } from '../../app/shellIcons';
 import { MediaWithPlaceholder } from '../../components/MediaPlaceholder';
+import { isFoodPlanRecorded } from '../../lib/foodPlan';
 import {
   Badge,
   EmptyState,
@@ -834,7 +835,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
                 return (
                   <button
                     key={item.id}
-                    className={item.status === 'cooked' ? 'dashboard-plan-dish is-cooked' : 'dashboard-plan-dish'}
+                    className={isFoodPlanRecorded(item) ? 'dashboard-plan-dish is-cooked' : 'dashboard-plan-dish'}
                     type="button"
                     onClick={() => {
                       openHomePlanDetail(item);

@@ -196,13 +196,8 @@ def complete_food_plan_item(db: Session, command: CompleteFoodPlanItemCommand) -
         raise FoodPlanConflict("food_plan_food_not_found", "草稿包含不属于当前家庭的食物")
 
     # Completed replay BEFORE base timestamp staleness.
-    if plan_item.status == "cooked" or plan_item.meal_log_id:
+    if plan_item.meal_log_id:
         stored_meal_log_id = plan_item.meal_log_id
-        if not stored_meal_log_id:
-            raise FoodPlanConflict(
-                "food_plan_item_already_completed",
-                "该菜单项已经记录完成",
-            )
         if requested_target_id is not None and requested_target_id != stored_meal_log_id:
             raise FoodPlanConflict(
                 "food_plan_item_already_completed",
@@ -221,7 +216,7 @@ def complete_food_plan_item(db: Session, command: CompleteFoodPlanItemCommand) -
         expected=command.food_plan_item_base_updated_at,
         label="菜单计划",
     )
-    if plan_item.status != "planned":
+    if plan_item.status not in {"planned", "cooked"}:
         raise FoodPlanConflict(
             "food_plan_item_not_planned",
             "该菜单项当前不可完成",

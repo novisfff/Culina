@@ -1655,6 +1655,21 @@ describe('ApprovalPanel', () => {
     rendered.unmount();
   });
 
+  it('blocks a legacy status-only completion draft until a record flow is used', async () => {
+    const pending = mealPlanOperationApproval();
+    const decideSpy = vi.fn().mockResolvedValue(undefined);
+    const rendered = await renderWithQuery(<ApprovalPanel approval={pending} onDecision={decideSpy} />);
+
+    await act(async () => {
+      rendered.container.querySelector<HTMLButtonElement>('.ai-approval-actions .solid-button')?.click();
+    });
+    await flushAsync();
+
+    expect(rendered.container.textContent).toContain('请通过做菜完成或记录这餐来完成计划');
+    expect(decideSpy).not.toHaveBeenCalled();
+    rendered.unmount();
+  });
+
   it('renders meal plan operation drafts with summary, before-after, status, and delete impact', async () => {
     const pending = mealPlanOperationApproval();
     const decideSpy = vi.fn().mockResolvedValue(undefined);

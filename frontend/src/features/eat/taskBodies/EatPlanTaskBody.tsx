@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { isFoodPlanRecorded } from '../../../lib/foodPlan';
 import type {
   Ingredient,
   InventoryItem,
@@ -171,7 +172,7 @@ export function EatPlanTaskBody(props: {
   });
 
   const needsPlanCompleteCandidates = Boolean(
-    props.item && !props.item.recipe_id && props.item.status !== 'cooked',
+    props.item && !props.item.recipe_id && !isFoodPlanRecorded(props.item),
   );
   const planCandidateQuery = useMealCandidateData({
     open: needsPlanCompleteCandidates,

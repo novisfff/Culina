@@ -365,7 +365,8 @@ function validateMealPlanDraftForSubmit(draft: Record<string, unknown>) {
         const itemError = validateMealPlanItemForSubmit(payload);
         if (itemError) return itemError;
       } else if (action === 'set_status') {
-        if (!['planned', 'cooked', 'skipped'].includes(asText(payload.status))) {
+        if (asText(payload.status) === 'cooked') return '请通过做菜完成或记录这餐来完成计划';
+        if (!['planned', 'skipped'].includes(asText(payload.status))) {
           return '请选择计划状态';
         }
       } else if (action !== 'delete') {

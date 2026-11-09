@@ -177,6 +177,17 @@ describe('FoodPlanDetailModal', () => {
     expect(onOpenMealRecord).toHaveBeenCalledTimes(1);
   });
 
+  it('lets an old cooked plan without a meal record be recorded', () => {
+    const { view, onComplete } = renderModal({
+      item: { ...buildPlanItem(), status: 'cooked', meal_log_id: null },
+    });
+
+    expect(findButton(view, '餐食记录')).toBeUndefined();
+    expect(findButton(view, '记录这餐')?.disabled).toBe(false);
+    act(() => findButton(view, '记录这餐')?.click());
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps start cooking primary and offers direct record for a recipe plan', () => {
     const { view, onComplete, onRecordEaten } = renderModal({
       item: { ...buildPlanItem(), recipe_id: 'recipe-1', recipe_title: '番茄炒蛋' },

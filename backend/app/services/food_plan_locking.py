@@ -47,6 +47,16 @@ def food_plan_conflict_detail(exc: FoodPlanConflict) -> dict[str, str | None]:
     return detail
 
 
+def validate_food_plan_status_update(next_status: str) -> None:
+    if next_status == "cooked":
+        raise FoodPlanConflict(
+            "food_plan_completion_required",
+            "请通过做菜完成或记录这餐来完成计划，并关联餐食记录",
+        )
+    if next_status not in {"planned", "skipped"}:
+        raise FoodPlanConflict("food_plan_status_invalid", "餐食计划状态不正确")
+
+
 def _unique_sorted_ids(ids: Sequence[str | None]) -> list[str]:
     return sorted({item_id for item_id in ids if item_id})
 
@@ -336,15 +346,17 @@ def lock_plan_item_after_food(
         expected=base_updated_at,
         label="菜单计划",
     )
-    if require_planned and plan_item.status != "planned":
-        if plan_item.status == "cooked" or plan_item.meal_log_id:
+    if require_planned:
+        if plan_item.meal_log_id:
             raise FoodPlanConflict(
                 "food_plan_item_already_completed",
                 "该菜单项已经记录完成",
                 meal_log_id=plan_item.meal_log_id,
             )
-        raise FoodPlanConflict(
-            "food_plan_item_not_planned",
-            "该菜单项当前不可完成",
-        )
+        # Older status-only updates may have left cooked plans without a record.
+        if plan_item.status not in {"planned", "cooked"}:
+            raise FoodPlanConflict(
+                "food_plan_item_not_planned",
+                "该菜单项当前不可完成",
+            )
     return plan_item

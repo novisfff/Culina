@@ -20,6 +20,7 @@ from app.schemas.recipes import CookRecipeDraftFields, CreateRecipeRequest, Upda
 from app.schemas.shopping import CreateShoppingListItemRequest
 from app.repos.media import build_media_map, get_media_assets_for_entities
 from app.services.clock import today_for_family
+from app.services.food_plan_locking import validate_food_plan_status_update
 from app.services.food_stock_quantity import normalize_food_stock_quantity, validate_food_stock_quantity_precision
 from app.services.ingredient_units import (
     UnitConversionError,
@@ -339,8 +340,7 @@ def _normalize_meal_plan_operation_draft(
             )
         elif action == "set_status":
             status = str((operation.get("payload") or {}).get("status") or "")
-            if status not in {"planned", "cooked", "skipped"}:
-                raise ValueError("餐食计划状态操作类型不正确")
+            validate_food_plan_status_update(status)
             normalized_record["payload"] = {
                 "status": status,
                 "reason": str((operation.get("payload") or {}).get("reason") or ""),
